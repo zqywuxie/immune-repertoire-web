@@ -163,10 +163,13 @@ class FileUploader {
         const select = document.getElementById('existingFileSelect');
         if (!select) return;
 
-        // Filter files by project
-        let filteredFiles = this.allFiles;
+        // Filter files by project and exclude PDF files
+        let filteredFiles = this.allFiles.filter(f => {
+            const name = (f.name || f.filename || f.original_name || '').toLowerCase();
+            return !name.endsWith('.pdf');
+        });
         if (this.currentProject) {
-            filteredFiles = this.allFiles.filter(f => f.project === this.currentProject);
+            filteredFiles = filteredFiles.filter(f => f.project === this.currentProject);
         }
 
         // Update file select options

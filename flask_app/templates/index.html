@@ -2,88 +2,203 @@
 
 {% block title %}首页{% endblock %}
 
+{% block extra_css %}
+<style>
+    .hero-section {
+        background: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .action-card {
+        border: 1px solid #e9ecef;
+        transition: border-color 0.2s;
+    }
+
+    .action-card:hover {
+        border-color: #0d6efd;
+    }
+
+    .action-card .card-body {
+        padding: 1.5rem;
+    }
+
+    .action-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .feature-item {
+        padding: 1rem 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .feature-item:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid py-4">
-    <h1 class="mb-4">免疫组库数据分析平台</h1>
-
-    <div class="row g-3 g-md-4">
-        <!-- Quick Actions -->
-        <div class="col-6 col-md-6 col-lg-3">
-            <div class="card h-100">
-                <div class="card-body text-center p-3 p-md-4">
-                    <i class="bi bi-cloud-upload display-5 display-md-4 text-primary mb-2 mb-md-3"></i>
-                    <h5 class="card-title fs-6 fs-md-5">上传数据</h5>
-                    <p class="card-text text-muted small d-none d-sm-block">上传CSV、Excel或压缩文件进行分析</p>
-                    <a href="{{ url_for('pages.upload_page') }}" class="btn btn-primary btn-sm btn-md-normal">开始上传</a>
-                </div>
+    <!-- Hero Section -->
+    <div class="hero-section">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="mb-2">免疫组库数据分析平台</h1>
+                <p class="text-muted mb-0">支持多种免疫组库数据分析，包括相似度分析、多样性指标计算、测序深度分析等</p>
             </div>
-        </div>
-
-        <div class="col-6 col-md-6 col-lg-3">
-            <div class="card h-100">
-                <div class="card-body text-center p-3 p-md-4">
-                    <i class="bi bi-bar-chart display-5 display-md-4 text-success mb-2 mb-md-3"></i>
-                    <h5 class="card-title fs-6 fs-md-5">相似度分析</h5>
-                    <p class="card-text text-muted small d-none d-sm-block">生成样本间相似度热图</p>
-                    <a href="{{ url_for('pages.analysis_config_page') }}"
-                        class="btn btn-success btn-sm btn-md-normal">配置分析</a>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-6 col-md-6 col-lg-3">
-            <div class="card h-100">
-                <div class="card-body text-center p-3 p-md-4">
-                    <i class="bi bi-graph-up display-5 display-md-4 text-info mb-2 mb-md-3"></i>
-                    <h5 class="card-title fs-6 fs-md-5">多样性指标</h5>
-                    <p class="card-text text-muted small d-none d-sm-block">计算D50、Gini、Shannon等指标</p>
-                    <a href="{{ url_for('pages.analysis_config_page') }}"
-                        class="btn btn-info btn-sm btn-md-normal">开始分析</a>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-6 col-md-6 col-lg-3">
-            <div class="card h-100">
-                <div class="card-body text-center p-3 p-md-4">
-                    <i class="bi bi-clock-history display-5 display-md-4 text-warning mb-2 mb-md-3"></i>
-                    <h5 class="card-title fs-6 fs-md-5">历史记录</h5>
-                    <p class="card-text text-muted small d-none d-sm-block">查看和管理历史分析结果</p>
-                    <a href="{{ url_for('pages.history_page') }}" class="btn btn-warning btn-sm btn-md-normal">查看历史</a>
-                </div>
+            <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
+                <a href="{{ url_for('pages.analysis_page') }}" class="btn btn-primary">
+                    <i class="bi bi-play-fill me-1"></i>开始分析
+                </a>
             </div>
         </div>
     </div>
 
-    <!-- Features Overview -->
-    <div class="row mt-5">
-        <div class="col-12">
-            <h3 class="mb-4">支持的分析类型</h3>
-        </div>
-
-        <div class="col-md-4">
-            <div class="card mb-3">
+    <!-- Quick Actions -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <a href="{{ url_for('pages.upload_page') }}" class="card action-card h-100 text-decoration-none">
                 <div class="card-body">
-                    <h5><i class="bi bi-grid-3x3 text-primary me-2"></i>相似度热图</h5>
-                    <p class="text-muted mb-0">R² inner/outer、CDR3 sharing、Morisita-Horn、Sorensen等6种指标</p>
+                    <div class="action-icon bg-primary bg-opacity-10">
+                        <i class="bi bi-cloud-upload text-primary fs-4"></i>
+                    </div>
+                    <h6 class="mb-1">上传数据</h6>
+                    <small class="text-muted">CSV、Excel、PDF</small>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-3">
+            <a href="{{ url_for('pages.files_page') }}" class="card action-card h-100 text-decoration-none">
+                <div class="card-body">
+                    <div class="action-icon bg-success bg-opacity-10">
+                        <i class="bi bi-folder2-open text-success fs-4"></i>
+                    </div>
+                    <h6 class="mb-1">文件管理</h6>
+                    <small class="text-muted">查看已上传文件</small>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-3">
+            <a href="{{ url_for('pages.analysis_page') }}" class="card action-card h-100 text-decoration-none">
+                <div class="card-body">
+                    <div class="action-icon bg-info bg-opacity-10">
+                        <i class="bi bi-graph-up text-info fs-4"></i>
+                    </div>
+                    <h6 class="mb-1">数据分析</h6>
+                    <small class="text-muted">执行分析任务</small>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-3">
+            <a href="{{ url_for('pages.history_page') }}" class="card action-card h-100 text-decoration-none">
+                <div class="card-body">
+                    <div class="action-icon bg-warning bg-opacity-10">
+                        <i class="bi bi-clock-history text-warning fs-4"></i>
+                    </div>
+                    <h6 class="mb-1">历史记录</h6>
+                    <small class="text-muted">查看分析结果</small>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <!-- Features -->
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">支持的分析类型</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-grid-3x3 text-primary me-3"></i>
+                            <div>
+                                <strong>相似度热图</strong>
+                                <div class="text-muted small">R² inner/outer、CDR3 sharing、Morisita-Horn等</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-bar-chart-steps text-success me-3"></i>
+                            <div>
+                                <strong>测序深度分析</strong>
+                                <div class="text-muted small">Total RNA、Reads/UMI、QC Rate等</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-diagram-3 text-info me-3"></i>
+                            <div>
+                                <strong>链特异性分析</strong>
+                                <div class="text-muted small">IGH、IGK、IGL、TRA、TRB等</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-pie-chart text-warning me-3"></i>
+                            <div>
+                                <strong>多样性指标</strong>
+                                <div class="text-muted small">D50、Gini、Shannon等</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-
-        <div class="col-md-4">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5><i class="bi bi-bar-chart-steps text-success me-2"></i>测序深度分析</h5>
-                    <p class="text-muted mb-0">Total RNA、Reads/UMI、QC Rate等质量指标</p>
+        <div class="col-lg-6 mt-3 mt-lg-0">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">支持的文件格式</h6>
                 </div>
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5><i class="bi bi-diagram-3 text-info me-2"></i>链特异性分析</h5>
-                    <p class="text-muted mb-0">IGH、IGK、IGL、TRA、TRB、TRD、TRG链分析</p>
+                <div class="card-body p-0">
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-filetype-csv text-success me-3"></i>
+                            <div>
+                                <strong>CSV 文件</strong>
+                                <div class="text-muted small">逗号分隔的数据文件</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-file-earmark-excel text-success me-3"></i>
+                            <div>
+                                <strong>Excel 文件</strong>
+                                <div class="text-muted small">.xlsx 格式</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-file-zip text-primary me-3"></i>
+                            <div>
+                                <strong>压缩 CSV</strong>
+                                <div class="text-muted small">.csv.gz 格式</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-item px-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-file-pdf text-danger me-3"></i>
+                            <div>
+                                <strong>PDF 文件</strong>
+                                <div class="text-muted small">报告文档</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

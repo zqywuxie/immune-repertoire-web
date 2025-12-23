@@ -454,9 +454,13 @@
         filterFilesByProject() {
             const select = document.getElementById('existingFileSelect');
             if (!select) return;
-            let filteredFiles = this.allFiles;
+            // Filter by project and exclude PDF files
+            let filteredFiles = this.allFiles.filter(f => {
+                const name = (f.name || f.filename || '').toLowerCase();
+                return !name.endsWith('.pdf');
+            });
             if (this.currentProject) {
-                filteredFiles = this.allFiles.filter(f => f.project === this.currentProject);
+                filteredFiles = filteredFiles.filter(f => f.project === this.currentProject);
             }
             select.innerHTML = '<option value="">-- 选择文件 --</option>';
             filteredFiles.forEach(file => {
