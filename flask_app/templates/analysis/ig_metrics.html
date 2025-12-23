@@ -1,0 +1,165 @@
+{% extends "analysis/base_analysis.html" %}
+
+{# Set page-specific variables #}
+{% set page_title = "IG指标分析" %}
+{% set page_icon = "bi bi-graph-up-arrow" %}
+{% set page_description = "分析IGH、IGK和IGL链的免疫球蛋白指标（Reads、UCDR3、D50、Gini指数、Shannon熵）。" %}
+{% set default_chart_title = "IG指标分析" %}
+{% set default_chart_height = 10 %}
+
+{# Add analysis-specific CSS #}
+{% block analysis_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ig_metrics.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
+{% endblock %}
+
+{# Add baseline selection to file configuration #}
+{% block file_config_extra %}
+<div class="mb-3">
+    <label for="baselineSelect" class="form-label">基准样本（可选）</label>
+    <select class="form-select" id="baselineSelect" disabled>
+        <option value="">-- 无基准 --</option>
+    </select>
+    <div class="form-text">选择基准样本以计算百分比变化。</div>
+</div>
+{% endblock %}
+
+{# Analysis-specific parameters #}
+{% block analysis_parameters %}
+<div class="card mb-3">
+    <div class="card-header">
+        <i class="bi bi-sliders me-2"></i>
+        分析配置
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label class="form-label">要分析的链</label>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="chainIGH" value="IGH" checked>
+                <label class="form-check-label" for="chainIGH">IGH（重链）</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="chainIGK" value="IGK" checked>
+                <label class="form-check-label" for="chainIGK">IGK（Kappa轻链）</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="chainIGL" value="IGL" checked>
+                <label class="form-check-label" for="chainIGL">IGL（Lambda轻链）</label>
+            </div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">要分析的指标</label>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="metricReads" value="Reads" checked>
+                <label class="form-check-label" for="metricReads">Reads</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="metricUCDR3" value="UCDR3" checked>
+                <label class="form-check-label" for="metricUCDR3">唯一CDR3</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="metricD50" value="D50" checked>
+                <label class="form-check-label" for="metricD50">D50指数</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="metricGini" value="Gini_index" checked>
+                <label class="form-check-label" for="metricGini">Gini指数</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="metricShannon" value="Shannon" checked>
+                <label class="form-check-label" for="metricShannon">Shannon熵</label>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{# Analysis-specific results content #}
+{% block results_content %}
+<!-- Metric Selector for Charts -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-bar-chart me-2"></i>
+                选择指标查看图表
+            </div>
+            <div class="card-body">
+                <select class="form-select" id="metricChartSelect">
+                    <option value="">-- 选择指标 --</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Metric Comparison Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-bar-chart-fill me-2"></i>
+                    指标对比图表
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadChartBtn" disabled>
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="chartContainer">
+                    <p class="text-muted">选择指标以查看图表</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Percentage Change Chart -->
+<div id="pctChangeChartSection" class="row mb-4 d-none">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-graph-up me-2"></i>
+                    相对基准的百分比变化
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadPctChangeChartBtn">
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="pctChangeChartContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overview Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-grid-3x3 me-2"></i>
+                    概览图表
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadOverviewChartBtn">
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="overviewChartContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{# Add analysis-specific JavaScript #}
+{% block analysis_js %}
+<script src="{{ url_for('static', filename='js/modules/ig_metrics.js') }}"></script>
+{% endblock %}

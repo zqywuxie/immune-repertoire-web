@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript Modules Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>JavaScript Modules Test</h1>
+    <p>Testing the modular JavaScript architecture for Unified Analysis</p>
+
+    <div id="testResults"></div>
+
+    <!-- Load modules -->
+    <script src="scheme_manager.js"></script>
+    <script src="field_selector.js"></script>
+    <script src="field_mapper.js"></script>
+    <script src="analysis_executor.js"></script>
+
+    <script>
+        const resultsContainer = document.getElementById('testResults');
+
+        function addTestResult(title, success, message) {
+            const section = document.createElement('div');
+            section.className = 'test-section';
+            section.innerHTML = `
+                <h3>${title}</h3>
+                <div class="result ${success ? 'success' : 'error'}">
+                    ${success ? '✓' : '✗'} ${message}
+                </div>
+            `;
+            resultsContainer.appendChild(section);
+        }
+
+        // Test SchemeManager
+        try {
+            const schemeManager = new SchemeManager();
+            addTestResult('SchemeManager', true, 'SchemeManager instantiated successfully');
+
+            // Test methods exist
+            const methods = ['loadSchemes', 'getAllSchemes', 'getSchemeById', 'selectScheme'];
+            const hasAllMethods = methods.every(method => typeof schemeManager[method] === 'function');
+            addTestResult('SchemeManager Methods', hasAllMethods,
+                hasAllMethods ? 'All required methods exist' : 'Some methods are missing');
+        } catch (error) {
+            addTestResult('SchemeManager', false, `Error: ${error.message}`);
+        }
+
+        // Test FieldSelector
+        try {
+            const fieldSelector = new FieldSelector();
+            addTestResult('FieldSelector', true, 'FieldSelector instantiated successfully');
+
+            // Test basic functionality
+            fieldSelector.setAvailableFields(['field1', 'field2', 'field3']);
+            fieldSelector.selectField('field1');
+            const selected = fieldSelector.getSelectedFields();
+            addTestResult('FieldSelector Selection', selected.length === 1 && selected[0] === 'field1',
+                `Selected fields: ${selected.join(', ')}`);
+        } catch (error) {
+            addTestResult('FieldSelector', false, `Error: ${error.message}`);
+        }
+
+        // Test FieldMapper
+        try {
+            const fieldMapper = new FieldMapper();
+            addTestResult('FieldMapper', true, 'FieldMapper instantiated successfully');
+
+            // Test mapping
+            fieldMapper.setMapping('target1', 'source1', 0.95);
+            const mapping = fieldMapper.getMapping('target1');
+            addTestResult('FieldMapper Mapping',
+                mapping && mapping.source_column === 'source1' && mapping.confidence === 0.95,
+                `Mapping: target1 -> ${mapping ? mapping.source_column : 'none'} (${mapping ? Math.round(mapping.confidence * 100) : 0}%)`);
+        } catch (error) {
+            addTestResult('FieldMapper', false, `Error: ${error.message}`);
+        }
+
+        // Test AnalysisExecutor
+        try {
+            const analysisExecutor = new AnalysisExecutor();
+            addTestResult('AnalysisExecutor', true, 'AnalysisExecutor instantiated successfully');
+
+            // Test validation
+            const validation = analysisExecutor.validateConfig({
+                file_id: 'test123',
+                mode: 'scheme',
+                scheme_id: 'bcell_isotype'
+            });
+            addTestResult('AnalysisExecutor Validation', validation.isValid,
+                validation.isValid ? 'Config validation passed' : `Errors: ${validation.errors.join(', ')}`);
+        } catch (error) {
+            addTestResult('AnalysisExecutor', false, `Error: ${error.message}`);
+        }
+
+        // Test Integration
+        try {
+            const schemeManager = new SchemeManager();
+            const fieldSelector = new FieldSelector();
+            const fieldMapper = new FieldMapper();
+            const analysisExecutor = new AnalysisExecutor();
+
+            addTestResult('Module Integration', true,
+                'All modules can be instantiated together without conflicts');
+        } catch (error) {
+            addTestResult('Module Integration', false, `Error: ${error.message}`);
+        }
+    </script>
+</body>
+
+</html>

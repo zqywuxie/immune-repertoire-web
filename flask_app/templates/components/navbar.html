@@ -1,0 +1,28 @@
+<!-- Navigation Bar Component - Professional Design -->
+<nav class="navbar navbar-expand-lg fixed-top navbar-professional">
+    <div class="container-fluid">
+        <!-- Mobile Toggle Button (Left side) -->
+        <button class="navbar-toggler border-0 me-2" type="button" id="sidebarToggle" aria-label="Toggle sidebar"
+            aria-expanded="false" aria-controls="sidebar">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <!-- Brand -->
+        <a class="navbar-brand" href="{{ url_for('pages.index') }}">
+            <i class="bi bi-bar-chart-fill me-2"></i>
+            <span class="d-none d-sm-inline">免疫组库分析</span>
+            <span class="d-sm-none">IR分析</span>
+        </a>
+
+        <!-- Spacer for flex layout -->
+        <div class="flex-grow-1"></div>
+
+        <!-- Right Side Items -->
+        <div class="d-flex align-items-center">
+            <a href="{{ url_for('pages.settings_page') }}" class="btn btn-navbar">
+                <i class="bi bi-gear"></i>
+                <span class="d-none d-md-inline ms-1">设置</span>
+            </a>
+        </div>
+    </div>
+</nav>

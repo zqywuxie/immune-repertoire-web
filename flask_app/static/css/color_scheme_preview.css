@@ -1,0 +1,65 @@
+/**
+ * Color Scheme Preview Component Styles - Simplified
+ * Requirements: 13.2, 13.3, 13.7, 16.1, 16.2, 16.3
+ */
+
+.color-scheme-selector {
+    max-width: 500px;
+}
+
+.color-preview {
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.color-preview .preview-label {
+    font-weight: 500;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+.color-bars {
+    display: flex;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.color-bar {
+    /* No animations - simple and clean */
+}
+
+.scheme-description {
+    padding-top: 0.5rem;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Chart preview styles - simplified */
+.color-preview-chart {
+    padding: 1rem;
+    background-color: #fff;
+    border-radius: 4px;
+}
+
+.chart-bars {
+    display: flex;
+    align-items: flex-end;
+    height: 100px;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.chart-bar {
+    /* No animations - simple and clean */
+}
+
+/* Responsive adjustments */
+@media (max-width: 576px) {
+    .color-scheme-selector {
+        max-width: 100%;
+    }
+
+    .color-bars {
+        height: 40px !important;
+    }
+}

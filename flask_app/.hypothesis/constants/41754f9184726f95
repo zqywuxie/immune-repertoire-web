@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\export_service.py
+# hypothesis_version: 6.148.7
+
+[300, '#\n', '%Y%m%d_%H%M%S', '-', '.csv', '=', 'Chart Configuration:', 'Parameters:', 'Table data is empty', 'Unknown', '_', 'all_results', 'analysis_id', 'analysis_type', 'application/zip', 'batch', 'chart_config', 'columns', 'completed_at', 'created_at', 'csv', 'data', 'data_table', 'data_tables', 'description', 'export_timestamp', 'file_name', 'file_path', 'format', 'image/png', 'metadata.txt', 'mime_type', 'name', 'parameters', 'png', 'rb', 'result_name', 'summary', 'supported_formats', 'text/csv', 'utf-8', 'visualization', 'visualizations', 'w', 'zip']

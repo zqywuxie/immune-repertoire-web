@@ -1,0 +1,2031 @@
+{% extends 'base.html' %}
+
+{% block title %}分析配置{% endblock %}
+
+{% block extra_css %}
+<style>
+    .config-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .config-card .card-header {
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+        font-weight: 600;
+        padding: 0.75rem 1rem;
+    }
+
+    .config-card .card-body {
+        padding: 1rem;
+    }
+
+    .module-description {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+
+    .required-columns {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .required-columns h6 {
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+        color: #856404;
+    }
+
+    .column-badge {
+        display: inline-block;
+        background: #ffc107;
+        color: #212529;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 2px;
+    }
+
+    .sample-tag {
+        display: inline-block;
+        background: #e7f1ff;
+        border: 1px solid #0d6efd;
+        border-radius: 4px;
+        padding: 2px 8px;
+        margin: 2px;
+        font-size: 0.8rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1">分析配置</h4>
+            <small class="text-muted">配置分析参数并开始分析</small>
+        </div>
+        <a href="{{ url_for('pages.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回
+        </a>
+    </div>
+
+    <!-- Analysis Type Selection -->
+    <div class="config-card card mb-4">
+        <div class="card-header"><i class="bi bi-layers me-2"></i>选择分析类型</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold">分析类别</label>
+                    <select class="form-select form-select-sm" id="analysisCategory"
+                        onchange="Config.onAnalysisCategoryChange()">
+                        <option value="similarity">相似性热图分析</option>
+                        <option value="field">字段数据分析</option>
+                    </select>
+                </div>
+                <div class="col-md-6" id="fieldAnalysisTypeContainer" style="display:none;">
+                    <label class="form-label small fw-bold">具体分析类型</label>
+                    <select class="form-select form-select-sm" id="fieldAnalysisType"
+                        onchange="Config.onFieldAnalysisTypeChange()">
+                        <option value="custom">自定义对比</option>
+                        <option value="igmetrics">IG Metrics</option>
+                        <option value="seqdepth">测序深度分析</option>
+                        <option value="seqreads">测序Reads分析</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Analysis Type Info -->
+            <div id="analysisTypeInfo" class="mt-3">
+                <div id="similarityInfo" class="analysis-type-info">
+                    <p class="mb-0 text-muted">基于多个样本的CSV文件生成相似性热图，支持多种相似度指标。</p>
+                </div>
+                <div id="fieldInfo" class="analysis-type-info" style="display:none;">
+                    <p class="mb-0 text-muted">选择文件中的数值字段进行对比分析，支持多种图表类型。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form id="analysisConfigForm">
+        <div class="row">
+            <!-- Left Column: Main Config -->
+            <div class="col-lg-8">
+                <!-- Analysis Content -->
+                <div id="analysisContent">
+                    <!-- Similarity Analysis Content -->
+                    <div id="similarityContent" class="analysis-content">
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-folder me-2"></i>数据来源</div>
+                            <div class="card-body">
+                                <!-- Directory Input for Similarity Heatmap -->
+                                <div id="directoryInput_similarity">
+                                    <ul class="nav nav-tabs nav-tabs-sm mb-3" role="tablist">
+                                        <li class="nav-item">
+                                            <button class="nav-link active small py-1 px-2" data-bs-toggle="tab"
+                                                data-bs-target="#tabDirectory" type="button">
+                                                <i class="bi bi-folder me-1"></i>服务器目录
+                                            </button>
+                                        </li>
+                                        <li class="nav-item">
+                                            <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                data-bs-target="#tabUpload" type="button">
+                                                <i class="bi bi-upload me-1"></i>上传文件夹
+                                            </button>
+                                        </li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane fade show active" id="tabDirectory">
+                                            <div class="mb-3">
+                                                <label class="form-label small"><strong>选择数据目录</strong></label>
+                                                <div class="input-group mb-2">
+                                                    <input type="text" class="form-control form-control-sm"
+                                                        id="dataDirectoryPath" placeholder="如: C:\Data\artificial_peps">
+                                                    <button class="btn btn-outline-primary btn-sm" type="button"
+                                                        id="browseDirectoryBtn">
+                                                        <i class="bi bi-folder-open me-1"></i>浏览
+                                                    </button>
+                                                    <button class="btn btn-outline-primary btn-sm" type="button"
+                                                        id="scanDirectoryBtn">
+                                                        <i class="bi bi-search me-1"></i>扫描
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div id="directoryResults" class="d-none">
+                                                <div class="alert alert-success py-2 small" id="scanResultText"></div>
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                        <label
+                                                            class="form-label small mb-0"><strong>选择样本</strong></label>
+                                                        <div>
+                                                            <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                                                onclick="Config.selectAllSamples()">全选</button>
+                                                            <button type="button" class="btn btn-link btn-sm p-0"
+                                                                onclick="Config.deselectAllSamples()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                    <div id="sampleCheckboxes" class="row g-2"></div>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                        <label
+                                                            class="form-label small mb-0"><strong>选择链类型</strong></label>
+                                                        <div>
+                                                            <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                                                onclick="Config.selectAllChains()">全选</button>
+                                                            <button type="button" class="btn btn-link btn-sm p-0"
+                                                                onclick="Config.deselectAllChains()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                    <div id="chainCheckboxes" class="row g-2"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="tab-pane fade" id="tabUpload">
+                                            <div class="mb-3">
+                                                <label class="form-label small"><strong>上传文件夹</strong></label>
+                                                <input type="file" class="form-control form-control-sm"
+                                                    id="folderUpload" webkitdirectory multiple>
+                                                <small class="text-muted">选择包含 {样本名}__{链名}.csv.gz 文件的文件夹</small>
+                                            </div>
+                                            <div id="uploadProgress" class="d-none">
+                                                <div class="progress mb-2" style="height: 6px;">
+                                                    <div class="progress-bar" id="uploadProgressBar" style="width: 0%">
+                                                    </div>
+                                                </div>
+                                                <small class="text-muted" id="uploadProgressText">上传中...</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Analysis Parameters -->
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-sliders me-2"></i>分析参数</div>
+                            <div class="card-body">
+                                <label class="form-label small fw-bold">相似度指标</label>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricR2Inner"
+                                                value="r2_inner" checked>
+                                            <label class="form-check-label small">R² Inner</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricR2Outer"
+                                                value="r2_outer" checked>
+                                            <label class="form-check-label small">R² Outer</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricCdr3"
+                                                value="cdr3_sharing" checked>
+                                            <label class="form-check-label small">CDR3 Sharing</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricExpression"
+                                                value="expression_sharing" checked>
+                                            <label class="form-check-label small">Expression</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricMorisita"
+                                                value="morisita_horn" checked>
+                                            <label class="form-check-label small">Morisita-Horn</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricSorensen"
+                                                value="sorensen" checked>
+                                            <label class="form-check-label small">Sorensen</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Field Analysis Content -->
+                    <div id="fieldContent" class="analysis-content" style="display:none;">
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-folder me-2"></i>数据来源</div>
+                            <div class="card-body">
+                                <ul class="nav nav-tabs nav-tabs-sm mb-3" role="tablist">
+                                    <li class="nav-item">
+                                        <button class="nav-link active small py-1 px-2" data-bs-toggle="tab"
+                                            data-bs-target="#tabFieldExistingFile" type="button">
+                                            <i class="bi bi-file-earmark me-1"></i>已上传文件
+                                        </button>
+                                    </li>
+                                    <li class="nav-item">
+                                        <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                            data-bs-target="#tabFieldNewFile" type="button">
+                                            <i class="bi bi-upload me-1"></i>上传新文件
+                                        </button>
+                                    </li>
+                                </ul>
+                                <div class="tab-content">
+                                    <div class="tab-pane fade show active" id="tabFieldExistingFile">
+                                        <label class="form-label small"><strong>选择数据文件</strong></label>
+                                        <select class="form-select form-select-sm" id="fieldFileSelect">
+                                            <option value="">-- 请选择文件 --</option>
+                                        </select>
+                                        <div id="fieldFileInfo" class="mt-2 small text-muted d-none"></div>
+                                    </div>
+                                    <div class="tab-pane fade" id="tabFieldNewFile">
+                                        <div class="mb-3">
+                                            <label class="form-label small"><strong>选择文件上传</strong></label>
+                                            <input type="file" class="form-control form-control-sm"
+                                                id="fieldSingleFileUpload" accept=".csv,.xlsx,.xls">
+                                            <small class="text-muted">支持 CSV, Excel (.xlsx, .xls) 格式</small>
+                                        </div>
+                                        <div id="fieldSingleUploadProgress" class="d-none">
+                                            <div class="progress mb-2" style="height: 6px;">
+                                                <div class="progress-bar" id="fieldSingleUploadProgressBar"
+                                                    style="width: 0%">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted" id="fieldSingleUploadProgressText">上传中...</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Sample Column Selection & Detection -->
+                                <div id="fieldSampleColumnSection" class="mt-3 d-none">
+                                    <div class="mb-3">
+                                        <label class="form-label small"><strong>样本列选择</strong></label>
+                                        <select class="form-select form-select-sm" id="fieldSampleColumnSelect">
+                                            <option value="">-- 选择样本名称所在列 --</option>
+                                        </select>
+                                    </div>
+                                    <div id="fieldDetectedSamples" class="d-none">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label small mb-0"><strong>选择要分析的样本</strong></label>
+                                            <div>
+                                                <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                                    onclick="Config.selectAllFieldSamples()">全选</button>
+                                                <button type="button" class="btn btn-link btn-sm p-0"
+                                                    onclick="Config.deselectAllFieldSamples()">清空</button>
+                                            </div>
+                                        </div>
+                                        <div id="fieldSampleCheckboxesContainer"
+                                            class="border rounded p-2 sample-checkbox-container"
+                                            style="max-height: 150px; overflow-y: auto;"></div>
+                                        <small class="text-muted">已选 <span id="fieldSelectedSampleCount">0</span> /
+                                            <span id="fieldSampleCount">0</span> 个样本</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Field Selection -->
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-sliders me-2"></i>字段选择</div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold">选择要分析的数值字段</label>
+                                    <small class="text-muted d-block mb-2">根据选择的分析类型，系统会预选相关字段</small>
+                                    <div id="fieldFieldList" class="border rounded p-2"
+                                        style="max-height: 200px; overflow-y: auto;">
+                                        <div class="text-muted">请先上传文件并选择样本列</div>
+                                    </div>
+                                </div>
+                                <div id="fieldSelectedFields" class="d-none">
+                                    <label class="form-label small">已选字段：</label>
+                                    <div id="fieldSelectedFieldTags"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Analysis Parameters -->
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-sliders me-2"></i>分析参数</div>
+                            <div class="card-body">
+                                <div id="customParams" style="display:none;">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">图表类型</label>
+                                        <select class="form-select form-select-sm" id="customPlotType">
+                                            <option value="bar">柱状图</option>
+                                            <option value="line">折线图</option>
+                                            <option value="scatter">散点图</option>
+                                            <option value="box">箱线图</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="igmetricsParams" style="display:none;">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">选择分析的链</label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="IGH" id="igChainIGH"
+                                                checked>
+                                            <label class="form-check-label small" for="igChainIGH">IGH</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="IGK" id="igChainIGK"
+                                                checked>
+                                            <label class="form-check-label small" for="igChainIGK">IGK</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="IGL" id="igChainIGL"
+                                                checked>
+                                            <label class="form-check-label small" for="igChainIGL">IGL</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">图表类型</label>
+                                        <select class="form-select form-select-sm" id="igmetricsPlotType">
+                                            <option value="comparison">对比图</option>
+                                            <option value="distribution">分布图</option>
+                                            <option value="correlation">相关性图</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="seqdepthParams" style="display:none;">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">图表类型</label>
+                                        <select class="form-select form-select-sm" id="seqdepthPlotType">
+                                            <option value="overview">概览图</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="seqreadsParams" style="display:none;">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">图表类型</label>
+                                        <select class="form-select form-select-sm" id="seqreadsPlotType">
+                                            <option value="bar">柱状图</option>
+                                            <option value="percentage">百分比图</option>
+                                            <option value="table">统计表</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Chart Settings Card (outside tabs) -->
+        <div class="config-card card">
+            <div class="card-header"><i class="bi bi-palette me-2"></i>图表设置</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label small">图表标题</label>
+                    <input type="text" class="form-control form-control-sm" id="chartTitle" placeholder="自定义标题">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">颜色方案</label>
+                    <select class="form-select form-control-sm" id="colorScheme">
+                        <option value="viridis">Viridis</option>
+                        <option value="plasma">Plasma</option>
+                        <option value="RdYlBu_r">Red-Yellow-Blue</option>
+                        <option value="coolwarm">Cool-Warm</option>
+                    </select>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label small">宽度</label>
+                        <input type="number" class="form-control form-control-sm" id="figureWidth" value="10" min="5"
+                            max="20">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">高度</label>
+                        <input type="number" class="form-control form-control-sm" id="figureHeight" value="8" min="5"
+                            max="20">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">字体大小</label>
+                    <input type="number" class="form-control form-control-sm" id="fontSize" value="12" min="8" max="24">
+                </div>
+                <hr class="my-2">
+                <div id="heatmapOptions">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="showAnnotation" checked>
+                        <label class="form-check-label small">显示数值</label>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">最小值</label>
+                            <input type="number" class="form-control form-control-sm" id="vmin" value="0" step="0.1">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">最大值</label>
+                            <input type="number" class="form-control form-control-sm" id="vmax" value="1" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div id="barOptions" class="d-none">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="showValues" checked>
+                        <label class="form-check-label small">显示数值标签</label>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">柱宽</label>
+                            <input type="number" class="form-control form-control-sm" id="barWidth" value="0.8"
+                                min="0.1" max="1" step="0.1">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">透明度</label>
+                            <input type="number" class="form-control form-control-sm" id="barAlpha" value="0.8"
+                                min="0.1" max="1" step="0.1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-grid gap-2">
+                <button type="button" class="btn btn-primary" onclick="Config.submitAnalysis()">
+                    <i class="bi bi-play-circle me-1"></i>开始分析
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="Config.resetForm()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>重置
+                </button>
+            </div>
+        </div>
+
+        <!-- Directory Browser Modal -->
+        <div class="modal fade" id="directoryModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">选择目录</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="modalPathInput" readonly>
+                                <button class="btn btn-outline-secondary" type="button"
+                                    onclick="Config.refreshDirectoryTree()">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                <button class="btn btn-primary" type="button" onclick="Config.selectDirectory()">
+                                    选择
+                                </button>
+                            </div>
+                        </div>
+                        <div id="directoryTree" style="max-height: 400px; overflow-y: auto;">
+                            <div class="text-muted">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Configuration object
+            const Config = {
+                files: [],
+                scanData: null,
+
+                <!-- Directory Browser Modal -->
+                < div class="modal fade" id = "directoryModal" tabindex = "-1" >
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">选择目录</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="modalPathInput" readonly>
+                                        <button class="btn btn-outline-secondary" type="button"
+                                            onclick="Config.refreshDirectoryTree()">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        <button class="btn btn-primary" type="button" onclick="Config.selectDirectory()">
+                                            选择
+                                        </button>
+                                </div>
+                            </div>
+                            <div id="directoryTree" style="max-height: 400px; overflow-y: auto;">
+                                <div class="text-muted">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div >
+
+                <script>
+                    // Configuration object
+                    const Config = {
+                        files: [],
+                    scanData: null,
+                    detectedSamples: [],
+                    currentAnalysisType: 'similarity',
+                    availableModules: [],
+                    moduleState: { },
+
+                    async init() {
+                        // Load existing files
+                        await this.loadFiles();
+
+                    // Setup event listeners
+                    this.setupEventListeners();
+
+                    // Initialize analysis type
+                    this.onAnalysisCategoryChange();
+                        },
+
+                    setupEventListeners() {
+                            // Directory scan - with null checks
+                            const scanBtn = document.getElementById('scanDirectoryBtn');
+                            if (scanBtn) scanBtn.addEventListener('click', () => this.scanDirectory());
+
+                    const browseBtn = document.getElementById('browseDirectoryBtn');
+                            if (browseBtn) browseBtn.addEventListener('click', () => this.browseDirectory());
+
+                    // File uploads - with null checks
+                    const folderUpload = document.getElementById('folderUpload');
+                            if (folderUpload) folderUpload.addEventListener('change', (e) => this.handleFolderUpload(e));
+
+                    // Field analysis file upload - with null checks
+                    const fieldUpload = document.getElementById('fieldSingleFileUpload');
+                            if (fieldUpload) fieldUpload.addEventListener('change', (e) => this.handleFieldFileUpload(e));
+
+                    // Field file select - with null check
+                    const fieldFileSelect = document.getElementById('fieldFileSelect');
+                            if (fieldFileSelect) fieldFileSelect.addEventListener('change', (e) =>
+                    this.onFieldFileSelect(e));
+
+                    // Field sample column select - with null check
+                    const fieldSampleColumnSelect = document.getElementById('fieldSampleColumnSelect');
+                    if (fieldSampleColumnSelect) {
+                        fieldSampleColumnSelect.addEventListener('change', async (e) => {
+                            const fileId = document.getElementById('fieldFileSelect')?.value;
+                            if (!fileId || !e.target.value) return;
+
+                            try {
+                                const response = await fetch('/api/detect-samples', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        file_id: fileId,
+                                        sample_column: e.target.value
+                                    })
+                                });
+
+                                const data = await response.json();
+                                if (response.ok && data.samples) {
+                                    this.showFieldSampleCheckboxes(data.samples);
+
+                                    const fileResponse = await fetch(`/api/files/${fileId}`);
+                                    const fileData = await fileResponse.json();
+                                    if (fileResponse.ok) {
+                                        this.showFieldNumericFields(fileData.columns, fileId);
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('Failed to detect samples:', error);
+                            }
+                        });
+                            }
+
+                            // Module file selections - with null checks
+                            ['igmetrics', 'seqdepth', 'seqreads'].forEach(module => {
+                                const select = document.getElementById(`${module}FileSelect`);
+                    if (select) {
+                        select.addEventListener('change', (e) => this.onModuleFileSelect(e, module));
+                                }
+                            });
+
+                    // B cell PDF upload - with null check
+                    const bcellPDFUpload = document.getElementById('bcellPDFUpload');
+                            if (bcellPDFUpload) bcellPDFUpload.addEventListener('change', (e) => this.handleBcellPDFUpload(e));
+                        },
+
+                    // Handle analysis category change
+                    onAnalysisCategoryChange() {
+                            const category = document.getElementById('analysisCategory').value;
+                    const fieldContainer = document.getElementById('fieldAnalysisTypeContainer');
+                    const similarityContent = document.getElementById('similarityContent');
+                    const fieldContent = document.getElementById('fieldContent');
+                    const similarityInfo = document.getElementById('similarityInfo');
+                    const fieldInfo = document.getElementById('fieldInfo');
+
+                    if (category === 'field') {
+                        fieldContainer.style.display = 'block';
+                    similarityContent.style.display = 'none';
+                    fieldContent.style.display = 'block';
+                    similarityInfo.style.display = 'none';
+                    fieldInfo.style.display = 'block';
+                    this.updateChartOptions('field');
+                    this.onFieldAnalysisTypeChange();
+                            } else {
+                        fieldContainer.style.display = 'none';
+                    similarityContent.style.display = 'block';
+                    fieldContent.style.display = 'none';
+                    similarityInfo.style.display = 'block';
+                    fieldInfo.style.display = 'none';
+                    this.updateChartOptions('similarity');
+                            }
+                        },
+
+                    // Handle field analysis type change
+                    onFieldAnalysisTypeChange() {
+                            const analysisType = document.getElementById('fieldAnalysisType').value;
+
+                            // Hide all parameter sections
+                            ['customParams', 'igmetricsParams', 'seqdepthParams', 'seqreadsParams'].forEach(id => {
+                                const elem = document.getElementById(id);
+                    if (elem) elem.style.display = 'none';
+                            });
+
+                    // Show relevant parameter section
+                    const paramsMap = {
+                        'custom': 'customParams',
+                    'igmetrics': 'igmetricsParams',
+                    'seqdepth': 'seqdepthParams',
+                    'seqreads': 'seqreadsParams'
+                            };
+
+                    const paramsId = paramsMap[analysisType];
+                    if (paramsId) {
+                                const paramsElem = document.getElementById(paramsId);
+                    if (paramsElem) paramsElem.style.display = 'block';
+                            }
+                        },
+
+                    updateChartOptions(analysisType) {
+                            const heatmapOptions = document.getElementById('heatmapOptions');
+                    const barOptions = document.getElementById('barOptions');
+
+                    if (analysisType === 'similarity' || analysisType === 'custom') {
+                        heatmapOptions.classList.remove('d-none');
+                    barOptions.classList.add('d-none');
+                            } else {
+                        heatmapOptions.classList.add('d-none');
+                    barOptions.classList.remove('d-none');
+                            }
+                        },
+
+                    async loadFiles() {
+                            try {
+                                const response = await fetch('/api/files');
+                    const files = await response.json();
+
+                    if (response.ok) {
+                        this.files = files.files || files;
+                    this.populateFileSelects();
+                                }
+                            } catch (error) {
+                        console.error('Failed to load files:', error);
+                            }
+                        },
+
+                    populateFileSelects() {
+                            const selects = [
+                    'customFileSelect',
+                    'igmetricsFileSelect',
+                    'seqdepthFileSelect',
+                    'seqreadsFileSelect'
+                    ];
+
+                            selects.forEach(selectId => {
+                                const select = document.getElementById(selectId);
+                    if (select) {
+                                    // Keep first option
+                                    const firstOption = select.querySelector('option');
+                    select.innerHTML = '';
+                    if (firstOption) select.appendChild(firstOption);
+
+                                    // Add files
+                                    this.files.forEach(file => {
+                                        const option = document.createElement('option');
+                    option.value = file.id;
+                    option.textContent = `${file.name} (${file.row_count?.toLocaleString() || 0} 行)`;
+                    select.appendChild(option);
+                                    });
+                                }
+                            });
+                        },
+
+                    async scanDirectory() {
+                            const path = document.getElementById('dataDirectoryPath').value;
+                    if (!path) {
+                        alert('请输入目录路径');
+                    return;
+                            }
+
+                    try {
+                                const response = await fetch('/api/scan-directory', {
+                        method: 'POST',
+                    headers: {'Content-Type': 'application/json' },
+                    body: JSON.stringify({path})
+                                });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        this.showScanResults(data);
+                                } else {
+                        alert('扫描失败: ' + data.error);
+                                }
+                            } catch (error) {
+                        console.error('Scan failed:', error);
+                    alert('扫描失败: ' + error.message);
+                            }
+                        },
+
+                    showScanResults(data) {
+                        document.getElementById('directoryResults').classList.remove('d-none');
+                    document.getElementById('scanResultText').textContent =
+                    `找到 ${data.samples.length} 个样本, ${data.chains.length} 种链类型, 共 ${data.total_files} 个文件`;
+
+                    const sampleContainer = document.getElementById('sampleCheckboxes');
+                            sampleContainer.innerHTML = data.samples.map(sample => `
+                    <div class="col-6 col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input sample-checkbox" type="checkbox" value="${sample}" checked>
+                                <label class="form-check-label small">${sample}</label>
+                        </div>
+                    </div>
+                    `).join('');
+
+                    const chainContainer = document.getElementById('chainCheckboxes');
+                            chainContainer.innerHTML = data.chains.map(chain => `
+                    <div class="col-4 col-md-2">
+                        <div class="form-check">
+                            <input class="form-check-input chain-checkbox" type="checkbox" value="${chain}" checked>
+                                <label class="form-check-label small">${chain}</label>
+                        </div>
+                    </div>
+                    `).join('');
+                        },
+
+                    selectAllSamples() {
+                        document.querySelectorAll('.sample-checkbox, .custom-sample-checkbox').forEach(cb => cb.checked =
+                            true);
+                    this.updateSampleCount();
+                        },
+
+                    if (analysisType === 'similarity' || analysisType === 'custom') {
+                        heatmapOptions.classList.remove('d-none');
+                    barOptions.classList.add('d-none');
+                    } else {
+                        heatmapOptions.classList.add('d-none');
+                    barOptions.classList.remove('d-none');
+                    }
+                },
+
+                    async loadFiles() {
+                    try {
+                        const response = await fetch('/api/files');
+                    const files = await response.json();
+
+                    if (response.ok) {
+                        this.files = files.files || files;
+                    this.populateFileSelects();
+                        }
+                    } catch (error) {
+                        console.error('Failed to load files:', error);
+                    }
+                },
+
+                    populateFileSelects() {
+                    const selects = [
+                    'customFileSelect',
+                    'igmetricsFileSelect',
+                    'seqdepthFileSelect',
+                    'seqreadsFileSelect'
+                    ];
+
+                    selects.forEach(selectId => {
+                        const select = document.getElementById(selectId);
+                    if (select) {
+                            // Keep first option
+                            const firstOption = select.querySelector('option');
+                    select.innerHTML = '';
+                    if (firstOption) select.appendChild(firstOption);
+
+                            // Add files
+                            this.files.forEach(file => {
+                                const option = document.createElement('option');
+                    option.value = file.id;
+                    option.textContent = `${file.name} (${file.row_count?.toLocaleString() || 0} 行)`;
+                    select.appendChild(option);
+                            });
+                        }
+                    });
+                },
+
+                    async scanDirectory() {
+                    const path = document.getElementById('dataDirectoryPath').value;
+                    if (!path) {
+                        alert('请输入目录路径');
+                    return;
+                    }
+
+                    try {
+                        const response = await fetch('/api/scan-directory', {
+                        method: 'POST',
+                    headers: {'Content-Type': 'application/json' },
+                    body: JSON.stringify({path})
+                        });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        this.showScanResults(data);
+                        } else {
+                        alert('扫描失败: ' + data.error);
+                        }
+                    } catch (error) {
+                        console.error('Scan failed:', error);
+                    alert('扫描失败: ' + error.message);
+                    }
+                },
+
+                    showScanResults(data) {
+                        document.getElementById('directoryResults').classList.remove('d-none');
+                    document.getElementById('scanResultText').textContent =
+                    `找到 ${data.samples.length} 个样本, ${data.chains.length} 种链类型, 共 ${data.total_files} 个文件`;
+
+                    const sampleContainer = document.getElementById('sampleCheckboxes');
+                    sampleContainer.innerHTML = data.samples.map(sample => `
+                    <div class="col-6 col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input sample-checkbox" type="checkbox" value="${sample}" checked>
+                                <label class="form-check-label small">${sample}</label>
+                        </div>
+                    </div>
+                    `).join('');
+
+                    const chainContainer = document.getElementById('chainCheckboxes');
+                    chainContainer.innerHTML = data.chains.map(chain => `
+                    <div class="col-4 col-md-2">
+                        <div class="form-check">
+                            <input class="form-check-input chain-checkbox" type="checkbox" value="${chain}" checked>
+                                <label class="form-check-label small">${chain}</label>
+                        </div>
+                    </div>
+                    `).join('');
+                },
+
+                    selectAllSamples() {
+                        document.querySelectorAll('.sample-checkbox, .custom-sample-checkbox').forEach(cb => cb.checked =
+                            true);
+                    this.updateSampleCount();
+                },
+
+                    deselectAllSamples() {
+                        document.querySelectorAll('.sample-checkbox, .custom-sample-checkbox').forEach(cb => cb.checked =
+                            false);
+                    this.updateSampleCount();
+                },
+
+                    selectAllChains() {
+                        document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = true);
+                },
+
+                    deselectAllChains() {
+                        document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = false);
+                },
+
+                    selectAllCustomSamples() {
+                        document.querySelectorAll('.custom-sample-checkbox').forEach(cb => cb.checked = true);
+                    this.updateCustomSampleCount();
+                },
+
+                    deselectAllCustomSamples() {
+                        document.querySelectorAll('.custom-sample-checkbox').forEach(cb => cb.checked = false);
+                    this.updateCustomSampleCount();
+                },
+
+                    updateSampleCount() {
+                    const checked = document.querySelectorAll('.sample-checkbox:checked').length;
+                    const total = document.querySelectorAll('.sample-checkbox').length;
+                    if (document.getElementById('selectedSampleCount')) {
+                        document.getElementById('selectedSampleCount').textContent = checked;
+                    document.getElementById('sampleCount').textContent = total;
+                    }
+                },
+
+                    updateCustomSampleCount() {
+                    const checked = document.querySelectorAll('.custom-sample-checkbox:checked').length;
+                    const total = document.querySelectorAll('.custom-sample-checkbox').length;
+                    document.getElementById('customSelectedSampleCount').textContent = checked;
+                    document.getElementById('customSampleCount').textContent = total;
+                },
+
+                    async handleFolderUpload(event) {
+                    const files = Array.from(event.target.files);
+                    if (files.length === 0) return;
+
+                    const pattern = /^(.+)__([A-Z]{3, 4})\.(csv\.gz|csv)$/;
+                    const matchedFiles = files.filter(f => pattern.test(f.name));
+
+                    if (matchedFiles.length === 0) {
+                        alert('未找到匹配的文件。文件命名格式应为: {样本名}__{链名}.csv.gz');
+                    return;
+                    }
+
+                    const samples = new Set();
+                    const chains = new Set();
+                    matchedFiles.forEach(f => {
+                        const match = f.name.match(pattern);
+                    if (match) {
+                        samples.add(match[1]);
+                    chains.add(match[2]);
+                        }
+                    });
+
+                    document.getElementById('uploadProgress').classList.remove('d-none');
+                    document.getElementById('uploadProgressBar').style.width = '0%';
+                    document.getElementById('uploadProgressText').textContent = '准备上传...';
+
+                    try {
+                        const formData = new FormData();
+                    for (const file of matchedFiles) {
+                        formData.append('files', file);
+                        }
+
+                    const response = await fetch('/api/upload-folder', {
+                        method: 'POST',
+                    body: formData
+                        });
+
+                    if (!response.ok) {
+                            const error = await response.json();
+                    throw new Error(error.error || '上传失败');
+                        }
+
+                    const result = await response.json();
+                    document.getElementById('uploadProgressBar').style.width = '100%';
+                    document.getElementById('uploadProgressText').textContent = '上传完成!';
+
+                    this.scanData = {
+                        path: result.upload_path,
+                    samples: Array.from(samples).sort(),
+                    chains: Array.from(chains).sort(),
+                    total_files: matchedFiles.length
+                        };
+                    this.showScanResults(this.scanData);
+                    } catch (error) {
+                        console.error('Upload failed:', error);
+                    alert('上传失败: ' + error.message);
+                    document.getElementById('uploadProgress').classList.add('d-none');
+                    }
+                },
+
+                    async handleCustomFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    document.getElementById('customSingleUploadProgress').classList.remove('d-none');
+                    document.getElementById('customSingleUploadProgressBar').style.width = '0%';
+                    document.getElementById('customSingleUploadProgressText').textContent = '上传中...';
+
+                    try {
+                        const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch('/api/files/upload', {
+                        method: 'POST',
+                    body: formData
+                        });
+
+                    if (!response.ok) {
+                            const error = await response.json();
+                    throw new Error(error.error || '上传失败');
+                        }
+
+                    const result = await response.json();
+                    document.getElementById('customSingleUploadProgressBar').style.width = '100%';
+                    document.getElementById('customSingleUploadProgressText').textContent = '上传完成!';
+
+                    console.log('Upload result:', result);
+                    console.log('Files before push:', this.files);
+                    this.files.push(result);
+                    console.log('Files after push:', this.files);
+                    this.populateFileSelects();
+
+                    const select = document.getElementById('customFileSelect');
+                    select.value = result.id;
+
+                    this.onCustomFileSelect({target: select });
+                    document.getElementById('customSingleUploadProgress').classList.add('d-none');
+                    } catch (error) {
+                        console.error('Upload failed:', error);
+                    alert('上传失败: ' + error.message);
+                    document.getElementById('customSingleUploadProgress').classList.add('d-none');
+                    }
+                },
+
+                    async handleBcellPDFUpload(event) {
+                    const files = event.target.files;
+                    if (!files || files.length === 0) return;
+
+                    // Initialize PDF files array if not exists
+                    if (!this.bcellPDFFiles) {
+                        this.bcellPDFFiles = [];
+                    }
+
+                    document.getElementById('bcellPDFUploadProgress').classList.remove('d-none');
+                    document.getElementById('bcellPDFUploadProgressBar').style.width = '0%';
+                    document.getElementById('bcellPDFUploadProgressText').textContent = `上传中... 0/${files.length}`;
+
+                    try {
+                        let uploadedCount = 0;
+
+                    for (let i = 0; i < files.length; i++) {
+                            const file = files[i];
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch('/api/files/upload', {
+                        method: 'POST',
+                    body: formData
+                            });
+
+                    if (!response.ok) {
+                                const error = await response.json();
+                    throw new Error(`上传文件 ${file.name} 失败: ${error.error || '上传失败'}`);
+                            }
+
+                    const result = await response.json();
+                    // Add to PDF files list
+                    this.bcellPDFFiles.push({
+                        id: result.id,
+                    name: result.name,
+                    size: result.size,
+                    uploadTime: new Date().toLocaleString()
+                            });
+
+                    uploadedCount++;
+                    const progress = (uploadedCount / files.length) * 100;
+                    document.getElementById('bcellPDFUploadProgressBar').style.width = `${progress}%`;
+                    document.getElementById('bcellPDFUploadProgressText').textContent = `上传中... ${uploadedCount}/${files.length}`;
+                        }
+
+                    if (uploadedCount === files.length) {
+                        document.getElementById('bcellPDFUploadProgressText').textContent = '全部上传完成!';
+                    // Update PDF list display
+                    this.updateBcellPDFList();
+                    // Clear file input
+                    event.target.value = '';
+                            // Hide progress after delay
+                            setTimeout(() => {
+                        document.getElementById('bcellPDFUploadProgress').classList.add('d-none');
+                            }, 2000);
+                        }
+                    } catch (error) {
+                        console.error('PDF upload failed:', error);
+                    alert('上传失败: ' + error.message);
+                    document.getElementById('bcellPDFUploadProgress').classList.add('d-none');
+                    }
+                },
+
+                    updateBcellPDFList() {
+                    const pdfList = document.getElementById('bcellPDFList');
+
+                    if (!this.bcellPDFFiles || this.bcellPDFFiles.length === 0) {
+                        pdfList.innerHTML = '<div class="text-muted small text-center py-3">暂无上传的PDF文件</div>';
+                    return;
+                    }
+
+                    let html = '';
+                    this.bcellPDFFiles.forEach((file, index) => {
+                        html += `
+                        <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+                            <div class="small">
+                                <i class="bi bi-file-pdf text-danger me-2"></i>
+                                <strong>${file.name}</strong>
+                                <br>
+                                <span class="text-muted">大小: ${(file.size / 1024).toFixed(2)} KB | 上传时间:
+                                    ${file.uploadTime}</span>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="Config.removeBcellPDF(${index})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                        `;
+                    });
+
+                    pdfList.innerHTML = html;
+                },
+
+                    removeBcellPDF(index) {
+                    if (!this.bcellPDFFiles) return;
+
+                    this.bcellPDFFiles.splice(index, 1);
+                    this.updateBcellPDFList();
+                },
+
+                    async onCustomFileSelect(event) {
+                    const fileId = event.target.value;
+                    if (!fileId) {
+                        document.getElementById('customSampleColumnSection').classList.add('d-none');
+                    return;
+                    }
+
+                    try {
+                        const response = await fetch(`/api/files/${fileId}`);
+                    const fileData = await response.json();
+
+                    if (!response.ok || !fileData.columns) {
+                        alert('获取文件信息失败');
+                    return;
+                        }
+
+                    // Show file info
+                    const fileInfo = document.getElementById('customFileInfo');
+                    fileInfo.classList.remove('d-none');
+                    fileInfo.innerHTML = `
+                    <strong>文件名:</strong> ${fileData.name}<br>
+                        <strong>行数:</strong> ${fileData.row_count?.toLocaleString() || 0}<br>
+                            <strong>列数:</strong> ${fileData.column_count || 0}
+                            `;
+
+                            // Populate sample column select
+                            const sampleSelect = document.getElementById('customSampleColumnSelect');
+                            sampleSelect.innerHTML = '<option value="">-- 选择样本名称所在列 --</option>';
+
+                        fileData.columns.forEach(col => {
+                            const option = document.createElement('option');
+                            option.value = col;
+                            option.textContent = col;
+                            sampleSelect.appendChild(option);
+                        });
+
+                        // Setup sample column selection
+                        sampleSelect.onchange = () => this.onCustomSampleColumnSelect(fileData);
+
+                            document.getElementById('customSampleColumnSection').classList.remove('d-none');
+                    } catch (error) {
+                                console.error('Failed to load file info:', error);
+                            alert('获取文件信息失败');
+                    }
+                },
+
+                            async onModuleFileSelect(event, module) {
+                    const fileId = event.target.value;
+                            if (!fileId) {
+                                document.getElementById(`${module}FileInfo`).classList.add('d-none');
+                            document.getElementById(`${module}ColumnMapping`).classList.add('d-none');
+                            return;
+                    }
+
+                            try {
+                        const response = await fetch(`/api/files/${fileId}`);
+                            const fileData = await response.json();
+
+                            const fileInfo = document.getElementById(`${module}FileInfo`);
+                            fileInfo.classList.remove('d-none');
+                            fileInfo.innerHTML = `
+                            <strong>文件名:</strong> ${fileData.name}<br>
+                                <strong>行数:</strong> ${fileData.row_count?.toLocaleString() || 0}<br>
+                                    <strong>列数:</strong> ${fileData.column_count || 0}
+                                    `;
+
+                                    // Check column mapping
+                                    await this.checkColumnMapping(module, fileData);
+
+                                    // Show sample selection and column configuration for modules that support it
+                                    if (['seqdepth', 'igmetrics', 'seqreads'].includes(module)) {
+                                        await this.showModuleSampleSelection(module, fileData);
+                                    await this.showModuleColumnConfig(module, fileData);
+                        }
+                    } catch (error) {
+                                        console.error('Failed to load file info:', error);
+                                    alert('获取文件信息失败');
+                    }
+                },
+
+                                    async showModuleSampleSelection(module, fileData) {
+                    // Skip for PDF files (single sample)
+                    if (fileData.mime_type === 'application/pdf') {
+                                        document.getElementById(`${module}SampleSection`).classList.add('d-none');
+                                    return;
+                    }
+
+                    // Find sample column (usually 'Sample' or first column)
+                    const sampleColumn = fileData.columns.find(col =>
+                                    col.toLowerCase().includes('sample') ||
+                                    col.toLowerCase().includes('name')
+                                    ) || fileData.columns[0];
+
+                                    if (!sampleColumn) return;
+
+                    // Extract unique samples
+                    const samples = [...new Set(fileData.sample_data.map(row => row[sampleColumn]))].filter(s => s);
+
+                                    if (samples.length === 0) return;
+
+                                    // Store sample column for later use
+                                    if (!this.moduleState) this.moduleState = { };
+                                    if (!this.moduleState[module]) this.moduleState[module] = { };
+                                    this.moduleState[module].sampleColumn = sampleColumn;
+
+                                    // Show sample checkboxes
+                                    const container = document.getElementById(`${module}SampleCheckboxesContainer`);
+                    container.innerHTML = samples.map(sample => `
+                                    <div class="form-check">
+                                        <input class="form-check-input module-sample-checkbox" type="checkbox" value="${sample}"
+                                            data-module="${module}" checked>
+                                            <label class="form-check-label small">${sample}</label>
+                                    </div>
+                                    `).join('');
+
+                    // Setup event listeners
+                    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                                        cb.addEventListener('change', () => this.updateModuleSampleCount(module));
+                    });
+
+                                    // Show section and update count
+                                    document.getElementById(`${module}SampleSection`).classList.remove('d-none');
+                                    this.updateModuleSampleCount(module);
+                },
+
+                                    async showModuleColumnConfig(module, fileData) {
+                    // Skip for PDF files
+                    if (fileData.mime_type === 'application/pdf') {
+                                        document.getElementById(`${module}ColumnsSection`).classList.add('d-none');
+                                    return;
+                    }
+
+                                    // Get default numeric columns for the module
+                                    const moduleRequirements = this.getModuleColumnRequirements(module);
+                                    const expectedColumns = [...moduleRequirements.required, ...moduleRequirements.optional];
+
+                                    // Show column mapping interface
+                                    const container = document.getElementById(`${module}NumericFieldList`);
+
+                                    // Create mapping interface
+                                    let html = '<div class="row g-2">';
+
+                    expectedColumns.forEach(col => {
+                        const isRequired = moduleRequirements.required.includes(col);
+                                        const isOptional = moduleRequirements.optional.includes(col);
+
+                                        // Find matching column in file
+                                        let matchedCol = col;
+                                        if (fileData.columns.includes(col)) {
+                                            matchedCol = col;
+                        } else {
+                            // Try to find similar column (case insensitive)
+                            const similar = fileData.columns.find(fc =>
+                                        fc.toLowerCase() === col.toLowerCase() ||
+                                        fc.toLowerCase().replace(/[_\s]/g, '') === col.toLowerCase().replace(/[_\s]/g, '')
+                                        );
+                                        if (similar) matchedCol = similar;
+                        }
+
+                                        html += `
+                                        <div class="col-12">
+                                            <div class="d-flex align-items-center">
+                                                <div class="me-3" style="min-width: 200px;">
+                                                    <label
+                                                        class="form-label small mb-0 ${isRequired ? 'fw-bold text-primary' : ''}">
+                                                        ${col}
+                                                        ${isRequired ? '<span class="text-danger">*</span>' : ''}
+                                                        ${isOptional ? '<span class="text-muted">(可选)</span>' : ''}
+                                                    </label>
+                                                </div>
+                                                <div class="flex-grow-1">
+                                                    <select class="form-select form-select-sm column-mapping-select"
+                                                        data-expected="${col}" data-module="${module}">
+                                                        <option value="">-- 选择文件中的列 --</option>
+                                                        ${fileData.columns.map(fc =>
+                                                            `<option value="${fc}" ${fc === matchedCol ? 'selected' : ''}>${fc}</option>`
+                                                        ).join('')}
+                                                    </select>
+                                                </div>
+                                                <div class="ms-2">
+                                                    <span class="badge bg-${matchedCol === col ? 'success' : 'warning'}">
+                                                        ${matchedCol === col ? '匹配' : '已映射'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        `;
+                    });
+
+                                        html += `
+                                    </div>
+                                    <div class="mt-3">
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                            onclick="Config.saveColumnMappings('${module}')">
+                                            <i class="bi bi-check-lg me-1"></i>保存映射
+                                        </button>
+                                    </div>
+                                    `;
+
+                                    container.innerHTML = html;
+
+                                    // Show section
+                                    document.getElementById(`${module}ColumnsSection`).classList.remove('d-none');
+                },
+
+                                    updateModuleSampleCount(module) {
+                    const checked = document.querySelectorAll(`input.module-sample-checkbox[data-module="${module}"]:checked`).length;
+                                    const total = document.querySelectorAll(`input.module-sample-checkbox[data-module="${module}"]`).length;
+
+                                    const countElement = document.getElementById(`${module}SelectedSampleCount`);
+                                    const totalElement = document.getElementById(`${module}SampleCount`);
+
+                                    if (countElement) countElement.textContent = checked;
+                                    if (totalElement) totalElement.textContent = total;
+
+                                    // Store selected samples
+                                    if (!this.moduleState[module]) this.moduleState[module] = { };
+                                    this.moduleState[module].selectedSamples = Array.from(
+                                    document.querySelectorAll(`input.module-sample-checkbox[data-module="${module}"]:checked`)
+                    ).map(cb => cb.value);
+                },
+
+                                    updateModuleSelectedColumns(module) {
+                    const selected = Array.from(
+                                    document.querySelectorAll(`input.module-column-checkbox[data-module="${module}"]:checked`)
+                    ).map(cb => cb.value);
+
+                                    const container = document.getElementById(`${module}SelectedNumericFields`);
+                                    const tags = document.getElementById(`${module}SelectedNumericFieldTags`);
+
+                    if (selected.length > 0) {
+                                        container.classList.remove('d-none');
+                        tags.innerHTML = selected.map(col =>
+                                    `<span class="sample-tag">${col}</span>`
+                                    ).join('');
+                    } else {
+                                        container.classList.add('d-none');
+                    }
+
+                                    // Store selected columns
+                                    if (!this.moduleState[module]) this.moduleState[module] = { };
+                                    this.moduleState[module].selectedColumns = selected;
+                },
+
+                                    selectAllModuleSamples(module) {
+                                        document.querySelectorAll(`input.module-sample-checkbox[data-module="${module}"]`).forEach(cb => {
+                                            cb.checked = true;
+                                        });
+                                    this.updateModuleSampleCount(module);
+                },
+
+                                    deselectAllModuleSamples(module) {
+                                        document.querySelectorAll(`input.module-sample-checkbox[data-module="${module}"]`).forEach(cb => {
+                                            cb.checked = false;
+                                        });
+                                    this.updateModuleSampleCount(module);
+                },
+
+                                    async checkColumnMapping(module, fileData) {
+                    const moduleRequirements = this.getModuleColumnRequirements(module);
+                                    const fileColumns = fileData.columns || [];
+
+                    // Check if all required columns exist
+                    const missingColumns = moduleRequirements.required.filter(col => !fileColumns.includes(col));
+
+                    if (missingColumns.length > 0) {
+                                        // Show column mapping interface
+                                        this.showColumnMapping(module, moduleRequirements, fileColumns, missingColumns);
+                    } else {
+                                        // Hide column mapping
+                                        document.getElementById(`${module}ColumnMapping`).classList.add('d-none');
+                    }
+                },
+
+                                    getModuleColumnRequirements(module) {
+                    const requirements = {
+                                        'igmetrics': {
+                                        required: ['Sample', 'Chain', 'Reads', 'UCDR3', 'D50', 'Gini_index', 'Shannon'],
+                                    optional: ['Group', 'Timepoint', 'Condition']
+                        },
+                                    'seqdepth': {
+                                        required: ['Sample', 'RNA Concentration (ng/ul)', 'RNA_260/280', 'Total Receptor RNA',
+                                    'Reads/UMI', 'MigsGoodTotal', 'ReadsGoodTotal'],
+                                    optional: ['Order']
+                        },
+                                    'seqreads': {
+                                        required: ['Sample'],
+                                    optional: ['TRA', 'TRB', 'TRD', 'TRG', 'IGH', 'IGK', 'IGL']
+                        }
+                    };
+
+                                    return requirements[module] || {required: [], optional: [] };
+                },
+
+                                    showColumnMapping(module, requirements, fileColumns, missingColumns) {
+                    const mappingDiv = document.getElementById(`${module}ColumnMapping`);
+                                    mappingDiv.classList.remove('d-none');
+
+                                    let html = `
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>
+                                        以下必需字段在文件中未找到，请手动映射：
+                                    </div>
+                                    <div class="row">
+                                        `;
+
+                    missingColumns.forEach(requiredCol => {
+                                            html += `
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">${requiredCol} <span class="text-danger">*</span></label>
+                                <select class="form-select column-mapping-select" data-required="${requiredCol}">
+                                    <option value="">-- 选择对应的列 --</option>
+                                    ${fileColumns.map(col =>
+                                                `<option value="${col}" ${col === requiredCol ? 'selected' : ''}>${col}</option>`
+                                            ).join('')}
+                                </select>
+                            </div>
+                            `;
+                    });
+
+                    // Also show optional columns
+                    const missingOptional = requirements.optional.filter(col => !fileColumns.includes(col));
+                    if (missingOptional.length > 0) {
+                                            html += `
+                            <div class="col-12 mt-3">
+                                <h6>可选字段（如果存在）</h6>
+                            </div>
+                            `;
+                        missingOptional.forEach(optionalCol => {
+                                            html += `
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">${optionalCol} <span class="text-muted">(可选)</span></label>
+                                <select class="form-select column-mapping-select" data-optional="${optionalCol}">
+                                    <option value="">-- 选择对应的列 --</option>
+                                    ${fileColumns.map(col =>
+                                                `<option value="${col}" ${col === optionalCol ? 'selected' : ''}>${col}</option>`
+                                            ).join('')}
+                                </select>
+                            </div>
+                            `;
+                        });
+                    }
+
+                                        html += `
+                                    </div>
+                                    <div class="mt-3">
+                                        <button type="button" class="btn btn-primary"
+                                            onclick="Config.saveColumnMapping('${module}')">
+                                            <i class="bi bi-check-lg me-1"></i>保存映射
+                                        </button>
+                                    </div>
+                                    `;
+
+                                    mappingDiv.innerHTML = html;
+                },
+
+                                    saveColumnMapping(module) {
+                    const mapping = { };
+                                    const requiredSelects = document.querySelectorAll(`#${module}ColumnMapping select[data-required]`);
+                                    const optionalSelects = document.querySelectorAll(`#${module}ColumnMapping select[data-optional]`);
+
+                                    // Check all required fields are mapped
+                                    let allRequiredMapped = true;
+                    requiredSelects.forEach(select => {
+                        const requiredField = select.dataset.required;
+                                    const mappedField = select.value;
+                                    if (!mappedField) {
+                                        allRequiredMapped = false;
+                                    select.classList.add('is-invalid');
+                        } else {
+                                        select.classList.remove('is-invalid');
+                                    mapping[requiredField] = mappedField;
+                        }
+                    });
+
+                    // Save optional mappings
+                    optionalSelects.forEach(select => {
+                        const optionalField = select.dataset.optional;
+                                    const mappedField = select.value;
+                                    if (mappedField) {
+                                        mapping[optionalField] = mappedField;
+                        }
+                    });
+
+                                    if (!allRequiredMapped) {
+                                        alert('请映射所有必需字段');
+                                    return;
+                    }
+
+                                    // Store mapping
+                                    if (!this.columnMappings) this.columnMappings = { };
+                                    this.columnMappings[module] = mapping;
+
+                                    // Hide mapping interface
+                                    document.getElementById(`${module}ColumnMapping`).classList.add('d-none');
+
+                                    alert('字段映射已保存');
+                },
+
+                                    saveColumnMappings(module) {
+                    const mapping = { };
+                                    const selects = document.querySelectorAll(`#${module}NumericFieldList select.column-mapping-select`);
+
+                    // Collect all mappings
+                    selects.forEach(select => {
+                        const expectedField = select.dataset.expected;
+                                    const actualField = select.value;
+                                    if (actualField) {
+                                        mapping[expectedField] = actualField;
+                        }
+                    });
+
+                                    // Store mapping
+                                    if (!this.columnMappings) this.columnMappings = { };
+                                    this.columnMappings[module] = mapping;
+
+                    // Update badges
+                    selects.forEach(select => {
+                        const badge = select.closest('.d-flex').querySelector('.badge');
+                                    if (select.value) {
+                                        badge.className = `badge bg-${select.value === select.dataset.expected ? 'success' :
+                                            'warning'}`;
+                                    badge.textContent = select.value === select.dataset.expected ? '匹配' : '已映射';
+                        }
+                    });
+
+                                    alert('字段映射已保存');
+                },
+
+                                    showCustomSampleCheckboxes(samples) {
+                    const container = document.getElementById('customSampleCheckboxesContainer');
+                    container.innerHTML = samples.map(sample => `
+                                    <div class="form-check">
+                                        <input class="form-check-input custom-sample-checkbox" type="checkbox" value="${sample}"
+                                            checked>
+                                            <label class="form-check-label small">${sample}</label>
+                                    </div>
+                                    `).join('');
+
+                                    this.updateCustomSampleCount();
+                                    document.getElementById('customDetectedSamples').classList.remove('d-none');
+                },
+
+                                    async showNumericFields(columns, fileId) {
+                    try {
+                        // Show all columns except the sample column as potential numeric fields
+                        const sampleCol = document.getElementById('customSampleColumnSelect').value;
+                        const numericColumns = columns.filter(col => col !== sampleCol);
+
+                                    // Show numeric field checkboxes
+                                    const fieldList = document.getElementById('customFieldList');
+                        fieldList.innerHTML = numericColumns.map(col => `
+                                    <div class="form-check">
+                                        <input class="form-check-input custom-field-checkbox" type="checkbox" value="${col}">
+                                            <label class="form-check-label small">${col}</label>
+                                    </div>
+                                    `).join('');
+
+                        // Setup field selection
+                        document.querySelectorAll('.custom-field-checkbox').forEach(cb => {
+                                        cb.addEventListener('change', () => this.updateCustomSelectedFields());
+                        });
+
+                    } catch (error) {
+                                        console.error('Failed to detect numeric fields:', error);
+                    }
+                },
+
+                                    updateCustomSelectedFields() {
+                    const selected = Array.from(document.querySelectorAll('.custom-field-checkbox:checked'))
+                        .map(cb => cb.value);
+                                    const container = document.getElementById('customSelectedFields');
+                                    const tags = document.getElementById('customSelectedFieldTags');
+
+                    if (selected.length > 0) {
+                                        container.classList.remove('d-none');
+                        tags.innerHTML = selected.map(field =>
+                                    `<span class="sample-tag">${field}</span>`
+                                    ).join('');
+                    } else {
+                                        container.classList.add('d-none');
+                    }
+                },
+
+                                    async browseDirectory() {
+                    const modal = new bootstrap.Modal(document.getElementById('directoryModal'));
+                                    document.getElementById('directoryTree').innerHTML = '<div class="text-muted">加载中...</div>';
+                                    modal.show();
+                                    const currentPath = document.getElementById('dataDirectoryPath').value || '';
+                                    await this.loadDirectoryTree(currentPath);
+                },
+
+                                    async loadDirectoryTree(path) {
+                    try {
+                        const response = await fetch(`/api/browse-directory?path=${encodeURIComponent(path)}`);
+                                    const data = await response.json();
+
+                                    if (!response.ok) {
+                                        document.getElementById('directoryTree').innerHTML = `<div class="text-danger">错误: ${data.error}
+                            </div>`;
+                                    return;
+                        }
+
+                                    document.getElementById('modalPathInput').value = data.current_path;
+                                    let html = '';
+
+                                    if (data.parent_path) {
+                                        html += `<div class="directory-item p-2 border-bottom" style="cursor: pointer;"
+                                onclick="Config.loadDirectoryTree('${data.parent_path.replace(/\\/g, '\\\\')}')">
+                                <i class="bi bi-folder-up me-2"></i>..
+                            </div>`;
+                        }
+
+                        (data.directories || []).forEach(dir => {
+                                        html += `<div class="directory-item p-2 border-bottom" style="cursor: pointer;"
+                                onclick="Config.loadDirectoryTree('${dir.path.replace(/\\/g, '\\\\')}')">
+                                <i class="bi bi-folder me-2 text-warning"></i>${dir.name}
+                            </div>`;
+                        });
+
+                                    document.getElementById('directoryTree').innerHTML = html || '<div class="text-muted">空目录</div>';
+                    } catch (error) {
+                                        console.error('Failed to load directory:', error);
+                                    document.getElementById('directoryTree').innerHTML = '<div class="text-danger">加载失败</div>';
+                    }
+                },
+
+                                    selectDirectory() {
+                    const path = document.getElementById('modalPathInput').value;
+                                    document.getElementById('dataDirectoryPath').value = path;
+                                    bootstrap.Modal.getInstance(document.getElementById('directoryModal')).hide();
+                },
+
+                                    refreshDirectoryTree() {
+                    const path = document.getElementById('modalPathInput').value;
+                                    this.loadDirectoryTree(path);
+                },
+
+                                    async submitAnalysis() {
+                    const activeTab = document.querySelector('#analysisTypeTabs .nav-link.active').id;
+                                    const analysisType = activeTab.replace('-tab', '');
+
+                                    try {
+                        if (analysisType === 'similarity') {
+                            // Handle similarity heatmap analysis
+                            if (!this.scanData) {
+                                        alert('请先扫描目录');
+                                    return;
+                            }
+
+                            const selectedSamples = Array.from(document.querySelectorAll('.sample-checkbox:checked')).map(cb => cb.value);
+                            const selectedChains = Array.from(document.querySelectorAll('.chain-checkbox:checked')).map(cb => cb.value);
+
+                                    if (selectedSamples.length < 2) {alert('请至少选择2个样本'); return; }
+                                    if (selectedChains.length < 1) {alert('请至少选择1种链类型'); return; }
+                                    const selectedMetrics = [];
+                            document.querySelectorAll('#similarity input[type="checkbox"]:checked').forEach(cb => {
+                                if (cb.value && cb.id.startsWith('metric')) selectedMetrics.push(cb.value);
+                            });
+
+                                    const requestData = {
+                                        type: analysisType,
+                                    directory_path: this.scanData.path,
+                                    selected_samples: selectedSamples,
+                                    selected_chains: selectedChains,
+                                    parameters: {metrics: selectedMetrics },
+                                    chart_config: {
+                                        title: document.getElementById('chartTitle').value,
+                                    color_scheme: document.getElementById('colorScheme').value,
+                                    figure_width: parseInt(document.getElementById('figureWidth').value),
+                                    figure_height: parseInt(document.getElementById('figureHeight').value),
+                                    font_size: parseInt(document.getElementById('fontSize').value),
+                                    annotation: document.getElementById('showAnnotation').checked,
+                                    vmin: parseFloat(document.getElementById('vmin').value),
+                                    vmax: parseFloat(document.getElementById('vmax').value)
+                                }
+                            };
+
+                                    // Submit traditional analysis
+                                    const response = await fetch('/api/analysis', {
+                                        method: 'POST',
+                                    headers: {'Content-Type': 'application/json' },
+                                    body: JSON.stringify(requestData)
+                            });
+
+                                    const result = await response.json();
+                                    if (response.ok) {
+                                        window.location.href = `/analysis/${result.id}/results`;
+                            } else {
+                                        alert('分析失败: ' + (result.error || '未知错误'));
+                            }
+
+                        } else if (analysisType === 'custom') {
+                            // Handle custom comparison
+                            const fileId = document.getElementById('customFileSelect').value;
+                                    if (!fileId) {
+                                        alert('请选择数据文件');
+                                    return;
+                            }
+
+                                    const selectedSamples = this.getSelectedCustomSamples();
+                                    if (selectedSamples.length === 0) {
+                                        alert('请至少选择1个样本');
+                                    return;
+                            }
+
+                                    const selectedFields =
+                                Array.from(document.querySelectorAll('.custom-field-checkbox:checked')).map(cb => cb.value);
+                                    if (selectedFields.length === 0) {
+                                        alert('请至少选择1个数值字段');
+                                    return;
+                            }
+
+                                    // Get file data
+                                    const fileResponse = await fetch(`/api/files/${fileId}`);
+                                    const fileData = await fileResponse.json();
+
+                                    if (!fileResponse.ok || !fileData.sample_data) {
+                                        alert('获取文件数据失败');
+                                    return;
+                            }
+
+                            // Filter data by selected samples
+                            const filteredData = fileData.sample_data.filter(row =>
+                                    selectedSamples.includes(row[document.getElementById('customSampleColumnSelect').value])
+                                    );
+
+                                    // Prepare data for custom comparison
+                                    const comparisonData = {
+                                        samples: selectedSamples,
+                                    fields: selectedFields,
+                                    data: filteredData
+                            };
+
+                                    // Show results in modal
+                                    this.showCustomComparisonResults(comparisonData);
+
+                        } else {
+                            // Handle modular analysis
+                            const moduleMap = {
+                                        'igmetrics': 'ig_metrics',
+                                    'seqdepth': 'sequencing_depth',
+                                    'seqreads': 'sequencing_reads'
+                            };
+
+                                    const moduleName = moduleMap[analysisType];
+                                    if (!moduleName) {
+                                        alert('未知的分析类型');
+                                    return;
+                            }
+
+                                    const fileId = document.getElementById(`${analysisType}FileSelect`).value;
+                                    if (!fileId) {
+                                        alert('请选择数据文件');
+                                    return;
+                            }
+
+                                    // Get file data
+                                    const fileResponse = await fetch(`/api/files/${fileId}`);
+                                    const fileData = await fileResponse.json();
+
+                                    if (!fileResponse.ok) {
+                                        alert('获取文件数据失败: ' + (fileData.error || '未知错误'));
+                                    return;
+                            }
+
+                                    // Check if file has sample_data
+                                    if (!fileData.sample_data || fileData.sample_data.length === 0) {
+                                        alert('文件数据为空，无法执行分析');
+                                    return;
+                            }
+
+                                    // Apply column mapping if exists
+                                    let processedData = fileData.sample_data;
+                                    if (this.columnMappings && this.columnMappings[analysisType]) {
+                                const mapping = this.columnMappings[analysisType];
+                                processedData = fileData.sample_data.map(row => {
+                                    const newRow = { };
+                                    Object.keys(mapping).forEach(targetField => {
+                                        newRow[targetField] = row[mapping[targetField]];
+                                    });
+                                    return newRow;
+                                });
+                            }
+
+                                    // Filter data by selected samples if module has sample selection
+                                    if (this.moduleState && this.moduleState[analysisType] &&
+                                    this.moduleState[analysisType].selectedSamples) {
+                                const sampleColumn = this.moduleState[analysisType].sampleColumn || 'Sample';
+                                    const selectedSamples = this.moduleState[analysisType].selectedSamples;
+                                processedData = processedData.filter(row =>
+                                    selectedSamples.includes(row[sampleColumn])
+                                    );
+                            }
+
+                                    // Prepare parameters based on module
+                                    const params = this.getModuleParameters(analysisType);
+
+                                    // Call modular analysis API
+                                    const analysisResponse = await fetch('/api/analysis/execute', {
+                                        method: 'POST',
+                                    headers: {'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        module_name: moduleName,
+                                    data: processedData,
+                                    params: params
+                                })
+                            });
+
+                                    const result = await analysisResponse.json();
+                                    if (analysisResponse.ok && result.success) {
+                                        // Store results and redirect
+                                        this.showAnalysisResults(result.results, moduleName);
+                            } else {
+                                        alert('分析失败: ' + (result.error || '未知错误'));
+                            }
+                        }
+                    } catch (error) {
+                                        console.error('Analysis failed:', error);
+                                    alert('分析失败: ' + error.message);
+                    }
+                },
+                                    getModuleParameters(analysisType) {
+                    const params = { };
+
+                                    switch (analysisType) {
+                        case 'igmetrics':
+                                    params.chains = [];
+                                    if (document.getElementById('igChainIGH').checked) params.chains.push('IGH');
+                                    if (document.getElementById('igChainIGK').checked) params.chains.push('IGK');
+                                    if (document.getElementById('igChainIGL').checked) params.chains.push('IGL');
+                                    params.plot_type = document.getElementById('igmetricsPlotType').value;
+                                    break;
+                                    case 'seqdepth':
+                                    params.plot_type = document.getElementById('seqdepthPlotType').value;
+                                    params.quality_threshold =
+                                    parseFloat(document.getElementById('seqdepthQualityThreshold').value);
+                                    params.utilization_threshold =
+                                    parseFloat(document.getElementById('seqdepthUtilThreshold').value);
+                                    break;
+                                    case 'seqreads':
+                                    params.plot_type = document.getElementById('seqreadsPlotType').value;
+                                    break;
+                    }
+
+                                    return params;
+                },
+                                    getSelectedCustomSamples() {
+                    return Array.from(document.querySelectorAll('.custom-sample-checkbox:checked')).map(cb =>
+                                    cb.value);
+                },
+                                    showAnalysisResults(results, moduleName) {
+                    // Create results modal
+                    const modal = document.createElement('div');
+                                    modal.className = 'modal fade';
+                                    modal.innerHTML = `
+                                    <div class="modal-dialog modal-xl">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">${moduleName} 分析结果</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <h6>分析摘要</h6>
+                                                        <pre>${results.data.analysis.summary || '无摘要'}</pre>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <h6>图表</h6>
+                                                        ${Object.entries(results.figures).map(([key, fig]) =>
+                                                            `<img src="data:image/png;base64,${fig.image}" class="img-fluid mb-2"
+                                                    alt="${fig.title}">`
+                                                        ).join('')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    `;
+
+                                    document.body.appendChild(modal);
+                                    const bsModal = new bootstrap.Modal(modal);
+                                    bsModal.show();
+
+                    modal.addEventListener('hidden.bs.modal', () => {
+                                        document.body.removeChild(modal);
+                    });
+                },
+                                    showCustomComparisonResults(data) {
+                    // Create simple comparison visualization
+                    const modal = document.createElement('div');
+                                    modal.className = 'modal fade';
+                                    modal.innerHTML = `
+                                    <div class="modal-dialog modal-xl">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">自定义对比结果</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>样本</th>
+                                                                ${data.fields.map(field => `<th>${field}</th>`).join('')}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            ${data.samples.map(sample => {
+                                                                const sampleData = data.data.find(row =>
+                                                                    row.Sample === sample || row[Object.keys(row)[0]] === sample
+                                                                );
+                                                                return `
+                                                    <tr>
+                                                        <td>${sample}</td>
+                                                        ${data.fields.map(field =>
+                                                                    `<td>${sampleData ? sampleData[field] || '-' : '-'}</td>`
+                                                                ).join('')}
+                                                    </tr>
+                                                    `;
+                                                            }).join('')}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                            `;
+
+                    document.body.appendChild(modal);
+                    const bsModal = new bootstrap.Modal(modal);
+                    bsModal.show();
+
+                    modal.addEventListener('hidden.bs.modal', () => {
+                        document.body.removeChild(modal);
+                    });
+                },
+                resetForm() {
+                    document.getElementById('analysisConfigForm').reset();
+                    document.querySelectorAll('#analysisTypeTabs .nav-link').forEach(tab => {
+                        tab.classList.remove('active');
+                    });
+                    document.querySelector('#analysisTypeTabs .nav-link').classList.add('active');
+
+                    document.querySelectorAll('.tab-pane').forEach(pane => {
+                        pane.classList.remove('show', 'active');
+                    });
+                    document.querySelector('#similarity').classList.add('show', 'active');
+
+                    this.currentAnalysisType = 'similarity';
+                    this.updateChartOptions('similarity');
+                }
+            };
+
+            // Initialize on page load
+            document.addEventListener('DOMContentLoaded', () => {
+                Config.init();
+            });
+        </script>
+        {% endblock %}

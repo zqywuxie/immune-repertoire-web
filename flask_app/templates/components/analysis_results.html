@@ -1,0 +1,890 @@
+{#
+Analysis Results Component
+Displays analysis results including charts, tables, and statistics.
+Supports all analysis types from the unified analysis module.
+
+Usage:
+{% include 'components/analysis_results.html' %}
+
+Requirements: 7.5
+#}
+
+<div id="analysisResultsComponent" class="analysis-results-component">
+    <!-- Results Header -->
+    <div id="resultsHeader" class="d-none">
+        <div class="alert alert-success mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h5 class="alert-heading mb-1">
+                        <i class="bi bi-check-circle me-2"></i>
+                        分析完成
+                    </h5>
+                    <p class="mb-0 small">
+                        <span id="resultsAnalysisInfo"></span>
+                    </p>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <span class="badge bg-success">成功</span>
+                    <button class="btn btn-sm btn-outline-success" id="viewHistoryBtn" title="查看历史记录">
+                        <i class="bi bi-clock-history me-1"></i>
+                        <span class="d-none d-sm-inline">历史</span>
+                    </button>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown"
+                            aria-expanded="false">
+                            <i class="bi bi-download me-1"></i>
+                            <span class="d-none d-sm-inline">下载结果</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" id="downloadOptionsMenu">
+                            <li>
+                                <h6 class="dropdown-header">下载选项</h6>
+                            </li>
+                            <li><a class="dropdown-item" href="#"
+                                    onclick="analysisResultsComponent.downloadAllResults('zip'); return false;">
+                                    <i class="bi bi-file-zip me-2"></i>全部结果 (ZIP)
+                                </a></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li>
+                                <h6 class="dropdown-header">单个结果</h6>
+                            </li>
+                            <!-- Individual download options will be added dynamically -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Tabs -->
+    <div id="resultsTabsContainer" class="d-none">
+        <ul class="nav nav-tabs mb-3" id="resultsNavTabs" role="tablist">
+            <!-- Tabs will be dynamically generated -->
+        </ul>
+
+        <div class="tab-content" id="resultsTabContent">
+            <!-- Tab panes will be dynamically generated -->
+        </div>
+    </div>
+
+    <!-- No Results Message -->
+    <div id="noResultsMessage" class="d-none">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            暂无分析结果
+        </div>
+    </div>
+</div>
+
+<style>
+    .analysis-results-component .result-card {
+        border: none;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        margin-bottom: 1rem;
+    }
+
+    .analysis-results-component .result-card .card-header {
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: 500;
+    }
+
+    .analysis-results-component .chart-container {
+        min-height: 300px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .analysis-results-component .chart-placeholder {
+        background: #f8f9fa;
+        border: 2px dashed #dee2e6;
+        border-radius: 0.25rem;
+        padding: 2rem;
+        text-align: center;
+        color: #6c757d;
+    }
+
+    .analysis-results-component .stat-card {
+        text-align: center;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 0.25rem;
+        transition: all 0.2s;
+    }
+
+    .analysis-results-component .stat-card:hover {
+        background: #e9ecef;
+        transform: translateY(-2px);
+        box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
+    }
+
+    .analysis-results-component .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #0d6efd;
+        margin-bottom: 0.25rem;
+    }
+
+    .analysis-results-component .stat-label {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+
+    .analysis-results-component .result-data-table {
+        font-size: 0.875rem;
+    }
+
+    .analysis-results-component .result-data-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .analysis-results-component .result-data-table td {
+        vertical-align: middle;
+    }
+
+    .analysis-results-component .table-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    @media (max-width: 768px) {
+        .analysis-results-component .stat-card {
+            margin-bottom: 0.5rem;
+        }
+
+        .analysis-results-component .chart-container {
+            min-height: 200px;
+        }
+    }
+</style>
+
+<script>
+    /**
+     * Analysis Results Component
+     * Handles display of analysis results including charts, tables, and statistics
+     */
+    class AnalysisResultsComponent {
+        constructor() {
+            this.currentResults = null;
+            this.currentAnalysisId = null;
+        }
+
+        /**
+         * Display analysis results
+         * @param {Object} result - Analysis result object
+         * @param {string} result.analysis_id - Analysis ID
+         * @param {string} result.status - Analysis status
+         * @param {Object} result.results - Results data
+         * @param {Array} result.results.charts - Chart data
+         * @param {Array} result.results.tables - Table data
+         * @param {Object} result.results.statistics - Statistics data
+         */
+        displayResults(result) {
+            if (!result || !result.results) {
+                this.showNoResults();
+                return;
+            }
+
+            this.currentResults = result;
+            this.currentAnalysisId = result.analysis_id;
+
+            // Hide no results message
+            document.getElementById('noResultsMessage').classList.add('d-none');
+
+            // Show and populate header
+            this.displayHeader(result);
+
+            // Populate download menu
+            this.populateDownloadMenu();
+
+            // Display results based on structure
+            if (Array.isArray(result.results)) {
+                // Array of result objects (like from existing analysis modules)
+                this.displayResultsArray(result.results);
+            } else if (result.results.charts || result.results.tables || result.results.statistics) {
+                // Object with separate charts, tables, statistics
+                this.displayResultsObject(result.results);
+            } else {
+                this.showNoResults();
+            }
+        }
+
+        /**
+         * Display header with analysis info
+         */
+        displayHeader(result) {
+            const header = document.getElementById('resultsHeader');
+            const infoSpan = document.getElementById('resultsAnalysisInfo');
+
+            if (header && infoSpan) {
+                let infoText = `分析ID: <code>${result.analysis_id || 'N/A'}</code>`;
+
+                if (result.completed_at) {
+                    const completedDate = new Date(result.completed_at);
+                    infoText += ` | 完成于: ${completedDate.toLocaleString('zh-CN')}`;
+                }
+
+                if (result.mode) {
+                    const modeText = result.mode === 'scheme' ? '预设方案' : '自定义字段';
+                    infoText += ` | 模式: ${modeText}`;
+                }
+
+                if (result.scheme_name) {
+                    infoText += ` | 方案: ${result.scheme_name}`;
+                }
+
+                infoSpan.innerHTML = infoText;
+                header.classList.remove('d-none');
+            }
+
+            // Setup view history button
+            const viewHistoryBtn = document.getElementById('viewHistoryBtn');
+            if (viewHistoryBtn) {
+                viewHistoryBtn.onclick = () => {
+                    window.location.href = '/history';
+                };
+            }
+        }
+
+        /**
+         * Display results as array (existing format)
+         */
+        displayResultsArray(results) {
+            const tabsContainer = document.getElementById('resultsNavTabs');
+            const contentContainer = document.getElementById('resultsTabContent');
+            const tabsWrapper = document.getElementById('resultsTabsContainer');
+
+            if (!tabsContainer || !contentContainer) return;
+
+            tabsContainer.innerHTML = '';
+            contentContainer.innerHTML = '';
+
+            results.forEach((result, index) => {
+                const tabId = `result-tab-${index}`;
+                const isActive = index === 0;
+
+                // Create tab
+                const tab = document.createElement('li');
+                tab.className = 'nav-item';
+                tab.innerHTML = `
+                    <button class="nav-link ${isActive ? 'active' : ''}" 
+                            id="${tabId}-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#${tabId}" 
+                            type="button" 
+                            role="tab">
+                        ${this.escapeHtml(result.name || `结果 ${index + 1}`)}
+                    </button>
+                `;
+                tabsContainer.appendChild(tab);
+
+                // Create tab pane
+                const pane = document.createElement('div');
+                pane.className = `tab-pane fade ${isActive ? 'show active' : ''}`;
+                pane.id = tabId;
+                pane.role = 'tabpanel';
+                pane.innerHTML = this.createResultPane(result, index);
+                contentContainer.appendChild(pane);
+            });
+
+            tabsWrapper.classList.remove('d-none');
+
+            // Initialize DataTables if available
+            this.initializeDataTables();
+        }
+
+        /**
+         * Display results as object (new format)
+         */
+        displayResultsObject(results) {
+            const tabsContainer = document.getElementById('resultsNavTabs');
+            const contentContainer = document.getElementById('resultsTabContent');
+            const tabsWrapper = document.getElementById('resultsTabsContainer');
+
+            if (!tabsContainer || !contentContainer) return;
+
+            tabsContainer.innerHTML = '';
+            contentContainer.innerHTML = '';
+
+            let tabIndex = 0;
+
+            // Create tabs for each result type
+            if (results.charts && results.charts.length > 0) {
+                this.createTab('charts', '图表', results.charts, tabIndex === 0);
+                tabIndex++;
+            }
+
+            if (results.tables && results.tables.length > 0) {
+                this.createTab('tables', '数据表', results.tables, tabIndex === 0);
+                tabIndex++;
+            }
+
+            if (results.statistics) {
+                this.createTab('statistics', '统计信息', results.statistics, tabIndex === 0);
+                tabIndex++;
+            }
+
+            if (tabIndex > 0) {
+                tabsWrapper.classList.remove('d-none');
+                this.initializeDataTables();
+            } else {
+                this.showNoResults();
+            }
+        }
+
+        /**
+         * Create a tab for a result type
+         */
+        createTab(type, label, data, isActive) {
+            const tabsContainer = document.getElementById('resultsNavTabs');
+            const contentContainer = document.getElementById('resultsTabContent');
+
+            const tabId = `result-tab-${type}`;
+
+            // Create tab
+            const tab = document.createElement('li');
+            tab.className = 'nav-item';
+            tab.innerHTML = `
+                <button class="nav-link ${isActive ? 'active' : ''}" 
+                        id="${tabId}-tab" 
+                        data-bs-toggle="tab" 
+                        data-bs-target="#${tabId}" 
+                        type="button" 
+                        role="tab">
+                    ${label}
+                </button>
+            `;
+            tabsContainer.appendChild(tab);
+
+            // Create tab pane
+            const pane = document.createElement('div');
+            pane.className = `tab-pane fade ${isActive ? 'show active' : ''}`;
+            pane.id = tabId;
+            pane.role = 'tabpanel';
+
+            if (type === 'charts') {
+                pane.innerHTML = this.createChartsContent(data);
+            } else if (type === 'tables') {
+                pane.innerHTML = this.createTablesContent(data);
+            } else if (type === 'statistics') {
+                pane.innerHTML = this.createStatisticsContent(data);
+            }
+
+            contentContainer.appendChild(pane);
+        }
+
+        /**
+         * Create result pane content (existing format)
+         */
+        createResultPane(result, index) {
+            let html = '<div class="row">';
+
+            // Visualization column
+            html += '<div class="col-12 col-lg-8 mb-4">';
+            html += '<div class="card result-card h-100">';
+            html += '<div class="card-header d-flex justify-content-between align-items-center">';
+            html += '<h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>可视化结果</h5>';
+            html += this.createDownloadButton(result, index, 'image');
+            html += '</div>';
+            html += '<div class="card-body p-2 p-md-3">';
+
+            if (result.result_type === 'visualization' && result.file_path) {
+                html += `<img src="/api/analysis/${this.currentAnalysisId}/image/${encodeURIComponent(result.name)}" 
+                         class="img-fluid w-100" 
+                         alt="${this.escapeHtml(result.name)}" 
+                         loading="lazy">`;
+            } else if (result.chart_data) {
+                html += `<div id="chart-${index}" class="chart-container"></div>`;
+            } else {
+                html += '<div class="chart-placeholder"><i class="bi bi-image me-2"></i>无可视化结果</div>';
+            }
+
+            html += '</div></div></div>';
+
+            // Data table column
+            html += '<div class="col-12 col-lg-4 mb-4">';
+            html += '<div class="card result-card h-100">';
+            html += '<div class="card-header d-flex justify-content-between align-items-center">';
+            html += '<h5 class="mb-0"><i class="bi bi-table me-2"></i>数据表格</h5>';
+            html += this.createTableActions(result, index);
+            html += '</div>';
+            html += '<div class="card-body p-2 p-md-3" style="max-height: 500px; overflow-y: auto;">';
+
+            if (result.table_data) {
+                html += this.createDataTable(result.table_data, `dataTable-${index}`);
+            } else {
+                html += '<p class="text-muted small">无数据表格</p>';
+            }
+
+            html += '</div></div></div>';
+            html += '</div>';
+
+            // Statistics section
+            if (result.statistics) {
+                html += this.createStatisticsCard(result.statistics);
+            }
+
+            return html;
+        }
+
+        /**
+         * Create charts content
+         */
+        createChartsContent(charts) {
+            let html = '<div class="row">';
+
+            charts.forEach((chart, index) => {
+                html += '<div class="col-12 col-md-6 mb-4">';
+                html += '<div class="card result-card">';
+                html += '<div class="card-header">';
+                html += `<h6 class="mb-0">${this.escapeHtml(chart.title || `图表 ${index + 1}`)}</h6>`;
+                html += '</div>';
+                html += '<div class="card-body">';
+                html += `<div id="chart-${index}" class="chart-container"></div>`;
+                html += '</div></div></div>';
+            });
+
+            html += '</div>';
+            return html;
+        }
+
+        /**
+         * Create tables content
+         */
+        createTablesContent(tables) {
+            let html = '';
+
+            tables.forEach((table, index) => {
+                html += '<div class="card result-card mb-3">';
+                html += '<div class="card-header d-flex justify-content-between align-items-center">';
+                html += `<h6 class="mb-0">${this.escapeHtml(table.title || `表格 ${index + 1}`)}</h6>`;
+                html += this.createTableActions(table, index);
+                html += '</div>';
+                html += '<div class="card-body">';
+                html += this.createDataTable(table, `dataTable-${index}`);
+                html += '</div></div>';
+            });
+
+            return html;
+        }
+
+        /**
+         * Create statistics content
+         */
+        createStatisticsContent(statistics) {
+            return this.createStatisticsCard(statistics);
+        }
+
+        /**
+         * Create statistics card
+         */
+        createStatisticsCard(statistics) {
+            let html = '<div class="card result-card mb-4">';
+            html += '<div class="card-header">';
+            html += '<h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>统计摘要</h5>';
+            html += '</div>';
+            html += '<div class="card-body">';
+            html += '<div class="row">';
+
+            Object.entries(statistics).forEach(([key, value]) => {
+                html += '<div class="col-md-3 col-6 mb-3">';
+                html += '<div class="stat-card">';
+                html += `<div class="stat-value">${this.formatStatValue(value)}</div>`;
+                html += `<div class="stat-label">${this.formatStatLabel(key)}</div>`;
+                html += '</div></div>';
+            });
+
+            html += '</div></div></div>';
+            return html;
+        }
+
+        /**
+         * Create data table HTML
+         */
+        createDataTable(tableData, tableId) {
+            if (!tableData || !tableData.columns || !tableData.data) {
+                return '<p class="text-muted small">无数据</p>';
+            }
+
+            let html = `<div class="table-responsive">`;
+            html += `<table id="${tableId}" class="table table-sm table-striped table-bordered result-data-table">`;
+            html += '<thead><tr>';
+
+            tableData.columns.forEach(col => {
+                const colName = typeof col === 'object' ? col.name : col;
+                html += `<th>${this.escapeHtml(colName)}</th>`;
+            });
+
+            html += '</tr></thead><tbody>';
+
+            tableData.data.forEach(row => {
+                html += '<tr>';
+                tableData.columns.forEach(col => {
+                    const colName = typeof col === 'object' ? col.name : col;
+                    const value = row[colName];
+                    if (value === null || value === undefined) {
+                        html += '<td class="text-muted">-</td>';
+                    } else if (typeof value === 'number') {
+                        html += `<td class="text-end">${value.toFixed(4)}</td>`;
+                    } else {
+                        html += `<td>${this.escapeHtml(String(value))}</td>`;
+                    }
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        /**
+         * Create download button for images
+         */
+        createDownloadButton(result, index, type) {
+            return `
+                <button class="btn btn-sm btn-outline-primary" 
+                        onclick="analysisResultsComponent.downloadResult('${result.name}', '${type}')"
+                        title="下载">
+                    <i class="bi bi-download"></i>
+                </button>
+            `;
+        }
+
+        /**
+         * Create table action buttons
+         */
+        createTableActions(result, index) {
+            const tableId = `dataTable-${index}`;
+            return `
+                <div class="table-actions">
+                    <button class="btn btn-sm btn-outline-secondary" 
+                            onclick="analysisResultsComponent.copyTableToClipboard('${tableId}')" 
+                            title="复制">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" 
+                            onclick="analysisResultsComponent.downloadTableAsCSV('${tableId}', '${result.name || 'table'}')" 
+                            title="下载CSV">
+                        <i class="bi bi-download"></i>
+                    </button>
+                </div>
+            `;
+        }
+
+        /**
+         * Download result (image or data)
+         */
+        async downloadResult(resultName, type) {
+            if (!this.currentAnalysisId) {
+                alert('无法下载：缺少分析ID');
+                return;
+            }
+
+            try {
+                const url = `/api/analysis/${this.currentAnalysisId}/download?format=${type === 'image' ? 'png' : 'csv'}&result_name=${encodeURIComponent(resultName)}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error('下载失败');
+                }
+
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = `${resultName}.${type === 'image' ? 'png' : 'csv'}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('下载失败，请重试');
+            }
+        }
+
+        /**
+         * Download all results as ZIP
+         */
+        async downloadAllResults(format = 'zip') {
+            if (!this.currentAnalysisId) {
+                alert('无法下载：缺少分析ID');
+                return;
+            }
+
+            try {
+                const url = `/api/analysis/${this.currentAnalysisId}/download?format=${format}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || errorData.error || '下载失败');
+                }
+
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+
+                // Get filename from Content-Disposition header
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = `analysis_${this.currentAnalysisId}.${format}`;
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                    if (match) filename = match[1];
+                }
+
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+
+                // Show success message
+                this.showDownloadSuccess();
+            } catch (error) {
+                console.error('Download error:', error);
+                alert(`下载失败: ${error.message}`);
+            }
+        }
+
+        /**
+         * Download specific chart as image
+         */
+        async downloadChart(resultName) {
+            await this.downloadResult(resultName, 'image');
+        }
+
+        /**
+         * Download specific table as CSV
+         */
+        async downloadTable(resultName) {
+            await this.downloadResult(resultName, 'csv');
+        }
+
+        /**
+         * Show download success message
+         */
+        showDownloadSuccess() {
+            const toastEl = document.getElementById('downloadToast');
+            if (toastEl && typeof bootstrap !== 'undefined') {
+                const toast = new bootstrap.Toast(toastEl);
+                toast.show();
+            }
+        }
+
+        /**
+         * Populate download menu with individual result options
+         */
+        populateDownloadMenu() {
+            const menu = document.getElementById('downloadOptionsMenu');
+            if (!menu || !this.currentResults) return;
+
+            // Find the divider
+            const divider = menu.querySelector('.dropdown-divider');
+            if (!divider) return;
+
+            // Remove any existing individual options
+            let nextSibling = divider.nextElementSibling;
+            while (nextSibling) {
+                const toRemove = nextSibling;
+                nextSibling = nextSibling.nextElementSibling;
+                if (!toRemove.classList.contains('dropdown-header')) {
+                    toRemove.remove();
+                }
+            }
+
+            // Add individual download options
+            const results = Array.isArray(this.currentResults.results)
+                ? this.currentResults.results
+                : [];
+
+            if (results.length > 0) {
+                results.forEach((result, index) => {
+                    const li = document.createElement('li');
+                    const a = document.createElement('a');
+                    a.className = 'dropdown-item';
+                    a.href = '#';
+
+                    if (result.result_type === 'visualization' || result.file_path) {
+                        a.innerHTML = `<i class="bi bi-image me-2"></i>${this.escapeHtml(result.name)} (PNG)`;
+                        a.onclick = (e) => {
+                            e.preventDefault();
+                            this.downloadChart(result.name);
+                        };
+                    } else if (result.table_data) {
+                        a.innerHTML = `<i class="bi bi-file-earmark-spreadsheet me-2"></i>${this.escapeHtml(result.name)} (CSV)`;
+                        a.onclick = (e) => {
+                            e.preventDefault();
+                            this.downloadTable(result.name);
+                        };
+                    }
+
+                    li.appendChild(a);
+                    menu.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.innerHTML = '<span class="dropdown-item text-muted">无可下载项</span>';
+                menu.appendChild(li);
+            }
+        }
+
+        /**
+         * Copy table to clipboard
+         */
+        copyTableToClipboard(tableId) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+
+            let text = '';
+            const rows = table.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('th, td');
+                const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+                text += rowData.join('\t') + '\n';
+            });
+
+            navigator.clipboard.writeText(text).then(() => {
+                this.showCopySuccess();
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                alert('复制失败');
+            });
+        }
+
+        /**
+         * Download table as CSV
+         */
+        downloadTableAsCSV(tableId, filename) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+
+            let csv = '';
+            const rows = table.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('th, td');
+                const rowData = Array.from(cells).map(cell => {
+                    let text = cell.textContent.trim();
+                    // Escape quotes and wrap in quotes if contains comma
+                    if (text.includes(',') || text.includes('"')) {
+                        text = '"' + text.replace(/"/g, '""') + '"';
+                    }
+                    return text;
+                });
+                csv += rowData.join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        /**
+         * Show copy success message
+         */
+        showCopySuccess() {
+            // Try to use Bootstrap toast if available
+            const toastEl = document.getElementById('copyToast');
+            if (toastEl && typeof bootstrap !== 'undefined') {
+                const toast = new bootstrap.Toast(toastEl);
+                toast.show();
+            } else {
+                // Fallback to alert
+                alert('表格已复制到剪贴板');
+            }
+        }
+
+        /**
+         * Initialize DataTables
+         */
+        initializeDataTables() {
+            // Wait for next tick to ensure DOM is ready
+            setTimeout(() => {
+                if (typeof DataTableManager !== 'undefined') {
+                    document.querySelectorAll('.result-data-table').forEach(table => {
+                        if (table.id && !$.fn.DataTable.isDataTable(`#${table.id}`)) {
+                            DataTableManager.init(table.id, {
+                                pageLength: 10,
+                                order: [],
+                                responsive: true
+                            });
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        /**
+         * Show no results message
+         */
+        showNoResults() {
+            document.getElementById('resultsHeader').classList.add('d-none');
+            document.getElementById('resultsTabsContainer').classList.add('d-none');
+            document.getElementById('noResultsMessage').classList.remove('d-none');
+        }
+
+        /**
+         * Clear results
+         */
+        clearResults() {
+            this.currentResults = null;
+            this.currentAnalysisId = null;
+            document.getElementById('resultsHeader').classList.add('d-none');
+            document.getElementById('resultsTabsContainer').classList.add('d-none');
+            document.getElementById('noResultsMessage').classList.add('d-none');
+        }
+
+        /**
+         * Format statistic value
+         */
+        formatStatValue(value) {
+            if (typeof value === 'number') {
+                return value.toFixed(4);
+            }
+            return this.escapeHtml(String(value));
+        }
+
+        /**
+         * Format statistic label
+         */
+        formatStatLabel(key) {
+            const labels = {
+                'min': '最小值',
+                'max': '最大值',
+                'mean': '平均值',
+                'median': '中位数',
+                'std': '标准差',
+                'n_comparisons': '比较数',
+                'cv': '变异系数',
+                'count': '计数',
+                'total': '总计'
+            };
+            return labels[key] || this.escapeHtml(key);
+        }
+
+        /**
+         * Escape HTML
+         */
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    }
+
+    // Create global instance
+    const analysisResultsComponent = new AnalysisResultsComponent();
+</script>

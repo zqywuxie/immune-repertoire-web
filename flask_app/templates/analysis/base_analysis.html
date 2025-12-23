@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{# Block for page title - to be overridden by child templates #}
+{% block title %}{{ page_title }} - {{ config.APP_NAME }}{% endblock %}
+
+{# Block for extra CSS - child templates can add their specific CSS #}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/file_uploader.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/color_scheme_preview.css') }}">
+{% block analysis_css %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {# Page Header Section #}
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="{{ page_icon }} me-2"></i>
+                {{ page_title }}
+            </h2>
+            <p class="text-muted mb-4">
+                {{ page_description }}
+            </p>
+        </div>
+    </div>
+
+    {# Configuration Section - Two Column Layout #}
+    <div class="row mb-4">
+        {# Left Column: File Selection and Sample Configuration #}
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                    选择数据文件
+                </div>
+                <div class="card-body">
+                    {# File Uploader Component #}
+                    {% include 'components/file_uploader.html' %}
+
+                    {# Sample Column Selection #}
+                    <div class="mb-3 mt-3">
+                        <label for="sampleColumnSelect" class="form-label">样本列</label>
+                        <select class="form-select" id="sampleColumnSelect" disabled>
+                            <option value="">-- 选择样本列 --</option>
+                        </select>
+                    </div>
+
+                    {# Sample Selection Section #}
+                    <div id="sampleSelectionSection" class="mb-3 d-none">
+                        <label class="form-label">选择要分析的样本</label>
+                        <div id="sampleListContainer">
+                            <!-- Sample selector will be rendered here -->
+                        </div>
+                    </div>
+
+                    {# Field Mapping Section #}
+                    <div id="fieldMappingSection" class="mb-3 d-none">
+                        <label class="form-label">字段映射配置</label>
+                        <div class="card">
+                            <div class="card-body">
+                                <div id="mappingStatus" class="alert d-none" role="alert">
+                                    <span id="mappingStatusText"></span>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>分析字段</th>
+                                                <th>数据列</th>
+                                                <th>置信度</th>
+                                                <th class="text-center">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="mappingTableBody">
+                                            <!-- Mapping rows will be rendered here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div id="validationResult" class="mt-2 d-none">
+                                    <div id="validationAlert" class="alert mb-0" role="alert">
+                                        <i id="validationIcon" class="me-2"></i>
+                                        <span id="validationMessage"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Analysis-Specific Configuration (optional) #}
+                    {% block file_config_extra %}{% endblock %}
+                </div>
+            </div>
+        </div>
+
+        {# Right Column: Analysis Parameters and Chart Configuration #}
+        <div class="col-md-6">
+            {# Analysis-Specific Parameters Card #}
+            {% block analysis_parameters %}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-sliders me-2"></i>
+                    分析参数
+                </div>
+                <div class="card-body">
+                    <!-- Analysis-specific parameters go here -->
+                </div>
+            </div>
+            {% endblock %}
+
+            {# Chart Configuration Card #}
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-gear me-2"></i>
+                    图表配置
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="chartTitle" class="form-label">图表标题</label>
+                        <input type="text" class="form-control" id="chartTitle" placeholder="{{ default_chart_title }}">
+                    </div>
+
+                    {# Color Scheme Preview #}
+                    <div class="mb-3">
+                        <label class="form-label">颜色方案</label>
+                        <div id="colorSchemePreviewContainer"></div>
+                    </div>
+
+                    {# Chart Dimensions #}
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="chartWidth" class="form-label">宽度</label>
+                            <input type="number" class="form-control" id="chartWidth" value="16" min="8" max="24">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="chartHeight" class="form-label">高度</label>
+                            <input type="number" class="form-control" id="chartHeight"
+                                value="{{ default_chart_height|default(8) }}" min="4" max="16">
+                        </div>
+                    </div>
+
+                    {# Additional Chart Options #}
+                    {% block chart_config_extra %}
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="showValues" checked>
+                        <label class="form-check-label" for="showValues">在图表上显示数值</label>
+                    </div>
+                    {% endblock %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Analyze Button Section #}
+    <div class="row mb-4">
+        <div class="col-12">
+            <button class="btn btn-primary btn-lg" id="analyzeBtn" disabled>
+                <i class="bi bi-play-fill me-2"></i>
+                运行分析
+            </button>
+            <span id="loadingSpinner" class="ms-3 d-none">
+                <span class="spinner-border spinner-border-sm" role="status"></span>
+                分析中...
+            </span>
+        </div>
+    </div>
+
+    {# Results Section #}
+    <div id="resultsSection" class="d-none">
+        {# Analysis-Specific Results #}
+        {% block results_content %}
+        <!-- Results content goes here -->
+        {% endblock %}
+
+        {# Data Table (Common to all analyses) #}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>
+                            <i class="bi bi-table me-2"></i>
+                            数据表格
+                        </span>
+                        <button class="btn btn-sm btn-outline-success" id="copyTableBtn">
+                            <i class="bi bi-clipboard me-1"></i>
+                            复制到剪贴板
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover" id="dataTable">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{# Block for extra JavaScript - child templates can add their specific JS #}
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/file_uploader.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modules/sample_selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modules/field_mapper.js') }}"></script>
+<script src="{{ url_for('static', filename='js/color_scheme_preview.js') }}"></script>
+{% block analysis_js %}{% endblock %}
+{% endblock %}

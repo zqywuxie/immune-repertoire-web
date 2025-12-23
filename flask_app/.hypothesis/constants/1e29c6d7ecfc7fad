@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\routes\api_analysis.py
+# hypothesis_version: 6.148.7
+
+[400, 404, 500, '/api/analysis', '/batch', '/execute', '/modules', '/modules/available', '/validate', 'GET', 'POST', 'analysis', 'analysis_id', 'batch_id', 'categories', 'columns', 'data', 'data_shape', 'error', 'figures', 'message', 'module', 'module_info', 'module_name', 'modules', 'params', 'params_list', 'results', 'success', 'valid']

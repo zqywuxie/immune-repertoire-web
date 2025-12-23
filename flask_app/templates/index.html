@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+
+{% block title %}首页{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <h1 class="mb-4">免疫组库数据分析平台</h1>
+
+    <div class="row g-3 g-md-4">
+        <!-- Quick Actions -->
+        <div class="col-6 col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center p-3 p-md-4">
+                    <i class="bi bi-cloud-upload display-5 display-md-4 text-primary mb-2 mb-md-3"></i>
+                    <h5 class="card-title fs-6 fs-md-5">上传数据</h5>
+                    <p class="card-text text-muted small d-none d-sm-block">上传CSV、Excel或压缩文件进行分析</p>
+                    <a href="{{ url_for('pages.upload_page') }}" class="btn btn-primary btn-sm btn-md-normal">开始上传</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center p-3 p-md-4">
+                    <i class="bi bi-bar-chart display-5 display-md-4 text-success mb-2 mb-md-3"></i>
+                    <h5 class="card-title fs-6 fs-md-5">相似度分析</h5>
+                    <p class="card-text text-muted small d-none d-sm-block">生成样本间相似度热图</p>
+                    <a href="{{ url_for('pages.analysis_config_page') }}"
+                        class="btn btn-success btn-sm btn-md-normal">配置分析</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center p-3 p-md-4">
+                    <i class="bi bi-graph-up display-5 display-md-4 text-info mb-2 mb-md-3"></i>
+                    <h5 class="card-title fs-6 fs-md-5">多样性指标</h5>
+                    <p class="card-text text-muted small d-none d-sm-block">计算D50、Gini、Shannon等指标</p>
+                    <a href="{{ url_for('pages.analysis_config_page') }}"
+                        class="btn btn-info btn-sm btn-md-normal">开始分析</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center p-3 p-md-4">
+                    <i class="bi bi-clock-history display-5 display-md-4 text-warning mb-2 mb-md-3"></i>
+                    <h5 class="card-title fs-6 fs-md-5">历史记录</h5>
+                    <p class="card-text text-muted small d-none d-sm-block">查看和管理历史分析结果</p>
+                    <a href="{{ url_for('pages.history_page') }}" class="btn btn-warning btn-sm btn-md-normal">查看历史</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Features Overview -->
+    <div class="row mt-5">
+        <div class="col-12">
+            <h3 class="mb-4">支持的分析类型</h3>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5><i class="bi bi-grid-3x3 text-primary me-2"></i>相似度热图</h5>
+                    <p class="text-muted mb-0">R² inner/outer、CDR3 sharing、Morisita-Horn、Sorensen等6种指标</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5><i class="bi bi-bar-chart-steps text-success me-2"></i>测序深度分析</h5>
+                    <p class="text-muted mb-0">Total RNA、Reads/UMI、QC Rate等质量指标</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5><i class="bi bi-diagram-3 text-info me-2"></i>链特异性分析</h5>
+                    <p class="text-muted mb-0">IGH、IGK、IGL、TRA、TRB、TRD、TRG链分析</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

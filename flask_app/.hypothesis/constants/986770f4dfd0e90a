@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\file_parser.py
+# hypothesis_version: 6.148.7
+
+[0.5, ')$', '.csv', '.csv.gz', '.pdf', '.xlsx', 'ID', 'IGH', 'IGK', 'IGL', 'Id', 'NAME', 'Name', 'SAMPLE', 'SUBJECT', 'Sample', 'SampleName', 'Sample_Name', 'Subject', 'TRA', 'TRB', 'TRD', 'TRG', '^(.+?)[-_]?(', 'application/gzip', 'application/pdf', 'available_columns', 'available_sheets', 'chain_name', 'codec', 'coerce', 'column_count', 'columns', 'error', 'error_message', 'error_type', 'filename', 'filepath', 'format', 'gb2312', 'gbk', 'id', 'latin-1', 'mime_type', 'missing_sheets', 'name', 'openpyxl', 'pattern', 'provided_extension', 'rb', 'records', 'requested_sheets', 'row_count', 'sample', 'sample_column', 'sample_data', 'sample_name', 'size', 'subject', 'supported_extensions', 'text/csv', 'tried_encodings', 'utf-8', '|']

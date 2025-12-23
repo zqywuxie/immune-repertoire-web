@@ -1,0 +1,133 @@
+{% extends "analysis/base_analysis.html" %}
+
+{# Set page-specific variables #}
+{% set page_title = "SHM（体细胞超突变）分析" %}
+{% set page_icon = "bi bi-activity" %}
+{% set page_description = "分析不同免疫球蛋白同型（IgA、IgG1/2、IgG3/4、IgM/IgD、IGH）的体细胞超突变数据（SHM0和SHM1）。" %}
+{% set default_chart_title = "SHM分析" %}
+{% set default_chart_height = 10 %}
+
+{# Add analysis-specific CSS #}
+{% block analysis_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/shm_analysis.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
+{% endblock %}
+
+{# Add baseline selection to file configuration #}
+{% block file_config_extra %}
+<div class="mb-3">
+    <label for="baselineSelect" class="form-label">基准样本</label>
+    <select class="form-select" id="baselineSelect" disabled>
+        <option value="">-- 选择基准样本 --</option>
+    </select>
+    <div class="form-text">选择基准样本以计算百分比变化。</div>
+</div>
+{% endblock %}
+
+{# Override chart configuration to add SHM-specific color options #}
+{% block chart_config_extra %}
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label for="shm0Color" class="form-label">SHM0颜色</label>
+        <input type="color" class="form-control form-control-color" id="shm0Color" value="#2E86AB">
+    </div>
+    <div class="col-md-6 mb-3">
+        <label for="shm1Color" class="form-label">SHM1颜色</label>
+        <input type="color" class="form-control form-control-color" id="shm1Color" value="#A23B72">
+    </div>
+</div>
+<div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="showValues" checked>
+    <label class="form-check-label" for="showValues">在图表上显示数值</label>
+</div>
+{% endblock %}
+
+{# Analysis-specific results content #}
+{% block results_content %}
+<!-- Isotype Selector for Charts -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-diagram-3 me-2"></i>
+                选择同型查看图表
+            </div>
+            <div class="card-body">
+                <select class="form-select" id="isotypeChartSelect">
+                    <option value="">-- 选择同型 --</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Isotype Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-bar-chart me-2"></i>
+                    SHM对比图表
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadChartBtn" disabled>
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="chartContainer">
+                    <p class="text-muted">选择同型以查看图表</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overview Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-grid-3x3 me-2"></i>
+                    SHM概览
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadOverviewBtn">
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="overviewChartContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Percentage Change Chart -->
+<div id="pctChangeSection" class="row mb-4 d-none">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-graph-up me-2"></i>
+                    相对基准的百分比变化
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadPctChangeBtn">
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="pctChangeChartContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{# Add analysis-specific JavaScript #}
+{% block analysis_js %}
+<script src="{{ url_for('static', filename='js/modules/shm_analysis.js') }}"></script>
+{% endblock %}

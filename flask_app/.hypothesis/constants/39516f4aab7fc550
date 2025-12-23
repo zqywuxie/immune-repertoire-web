@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\sequencing_reads.py
+# hypothesis_version: 6.148.7
+
+[0.1, 0.3, 1.05, 1.2, 1.5, 100, 300, '#1f77b4', '#2ca02c', '#4CAF50', '#8c564b', '#9467bd', '#d62728', '#e377c2', '#f3f3f3', '#ff7f0e', '0', 'Arial Unicode MS', 'IGH', 'IGK', 'IGL', 'Input data is empty', 'Microsoft YaHei', 'Reads数', 'Reads统计汇总表', 'Sample', 'SimHei', 'TRA', 'TRB', 'TRD', 'TRG', 'available_chains', 'avg_reads_per_chain', 'axes.unicode_minus', 'bold', 'center', 'error', 'font.sans-serif', 'off', 'params', 'png', 'processed_data', 'reads_bar_chart', 'reads_per_chain', 'reads_per_sample', 'records', 'right', 'sequencing', 'sequencing_reads', 'statistics', 'summary', 'summary_table', 'tight', 'total_reads', 'total_samples', 'upper left', 'white', 'y', '各链Reads分布', '各链Reads百分比分布', '总计', '样本', '百分比 (%)', '链类型']

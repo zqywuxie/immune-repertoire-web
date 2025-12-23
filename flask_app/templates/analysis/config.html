@@ -1,0 +1,569 @@
+{% extends 'base.html' %}
+
+{% block title %}相似度热图分析{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/directory_browser.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/color_scheme_preview.css') }}">
+<style>
+    /* Simplified card design - clean and minimal */
+    .config-card {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        background-color: #fff;
+    }
+
+    .config-card .card-header {
+        background-color: #f8f9fa;
+        color: #212529;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: 600;
+        padding: 0.75rem 1rem;
+    }
+
+    .config-card .card-body {
+        padding: 1.25rem;
+    }
+
+    .sample-tag {
+        display: inline-block;
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 3px;
+        padding: 4px 10px;
+        margin: 2px;
+        font-size: 0.85rem;
+    }
+
+    .results-panel {
+        position: sticky;
+        top: 20px;
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+    }
+
+    /* Simplified metric checkbox - no hover effects */
+    .metric-checkbox {
+        padding: 0.5rem;
+        border: 1px solid #dee2e6;
+        border-radius: 3px;
+    }
+
+    .metric-checkbox input:checked+label {
+        font-weight: 600;
+        color: #0d6efd;
+    }
+
+    /* Simplified scan results - clean background */
+    .scan-results-summary {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+    }
+
+    .scan-results-summary .stat {
+        text-align: center;
+    }
+
+    .scan-results-summary .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #212529;
+    }
+
+    .scan-results-summary .stat-label {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1">相似度热图分析</h4>
+            <small class="text-muted">基于多个样本的CSV文件生成相似性热图，支持多种相似度指标</small>
+        </div>
+        <a href="{{ url_for('pages.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回
+        </a>
+    </div>
+
+    <form id="analysisConfigForm">
+        <div class="row g-3">
+            <!-- Left Column: Configuration Panel -->
+            <div class="col-lg-6">
+                <!-- Data Source Card -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <i class="bi bi-folder me-2"></i>数据来源
+                    </div>
+                    <div class="card-body">
+                        <label class="form-label fw-bold">数据目录路径</label>
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control" id="dataDirectoryPath"
+                                placeholder="输入或粘贴目录路径，例如: D:\Data\Samples">
+                            <button class="btn btn-primary" type="button" id="scanDirectoryBtn">
+                                <i class="bi bi-search me-1"></i>扫描
+                            </button>
+                        </div>
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i>
+                            输入包含样本CSV文件的目录路径，文件命名格式: {样本名}__{链名}.csv 或 .csv.gz
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Scan Results Card -->
+                <div id="scanResultsCard" class="card config-card d-none">
+                    <div class="card-header">
+                        <i class="bi bi-check-circle me-2"></i>扫描结果
+                    </div>
+                    <div class="card-body">
+                        <div class="scan-results-summary">
+                            <div class="row">
+                                <div class="col-4 stat">
+                                    <div class="stat-value" id="totalSamplesCount">0</div>
+                                    <div class="stat-label">样本数</div>
+                                </div>
+                                <div class="col-4 stat">
+                                    <div class="stat-value" id="totalChainsCount">0</div>
+                                    <div class="stat-label">链类型</div>
+                                </div>
+                                <div class="col-4 stat">
+                                    <div class="stat-value" id="totalFilesCount">0</div>
+                                    <div class="stat-label">文件数</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sample Selection -->
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-bold mb-0">选择样本</label>
+                                <div>
+                                    <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                        onclick="Config.selectAllSamples()">全选</button>
+                                    <button type="button" class="btn btn-link btn-sm p-0"
+                                        onclick="Config.deselectAllSamples()">清空</button>
+                                </div>
+                            </div>
+                            <div id="sampleCheckboxes" class="row g-2"></div>
+                        </div>
+
+                        <!-- Chain Selection -->
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-bold mb-0">选择链类型</label>
+                                <div>
+                                    <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                        onclick="Config.selectAllChains()">全选</button>
+                                    <button type="button" class="btn btn-link btn-sm p-0"
+                                        onclick="Config.deselectAllChains()">清空</button>
+                                </div>
+                            </div>
+                            <div id="chainCheckboxes" class="row g-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Parameters Card -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <i class="bi bi-sliders me-2"></i>分析参数
+                    </div>
+                    <div class="card-body">
+                        <label class="form-label fw-bold">相似度指标</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricR2Inner" value="r2_inner"
+                                        checked>
+                                    <label class="form-check-label ms-2" for="metricR2Inner">R² Inner</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricR2Outer" value="r2_outer"
+                                        checked>
+                                    <label class="form-check-label ms-2" for="metricR2Outer">R² Outer</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricCdr3" value="cdr3_sharing"
+                                        checked>
+                                    <label class="form-check-label ms-2" for="metricCdr3">CDR3 Sharing</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricExpression"
+                                        value="expression_sharing" checked>
+                                    <label class="form-check-label ms-2" for="metricExpression">Expression</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricMorisita"
+                                        value="morisita_horn" checked>
+                                    <label class="form-check-label ms-2" for="metricMorisita">Morisita-Horn</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-checkbox">
+                                    <input class="form-check-input" type="checkbox" id="metricSorensen" value="sorensen"
+                                        checked>
+                                    <label class="form-check-label ms-2" for="metricSorensen">Sorensen</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart Settings Card -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <i class="bi bi-palette me-2"></i>图表设置
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">图表标题</label>
+                            <input type="text" class="form-control" id="chartTitle" placeholder="留空使用默认标题">
+                        </div>
+
+                        <!-- Color Scheme Preview Integration -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">颜色方案</label>
+                            <div id="colorSchemePreviewContainer"></div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-6">
+                                <label class="form-label">宽度</label>
+                                <input type="number" class="form-control" id="figureWidth" value="10" min="5" max="20">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">高度</label>
+                                <input type="number" class="form-control" id="figureHeight" value="8" min="5" max="20">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">字体大小</label>
+                            <input type="number" class="form-control" id="fontSize" value="12" min="8" max="24">
+                        </div>
+
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="showAnnotation" checked>
+                            <label class="form-check-label" for="showAnnotation">显示数值标注</label>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label class="form-label">最小值</label>
+                                <input type="number" class="form-control" id="vmin" value="0" step="0.1">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">最大值</label>
+                                <input type="number" class="form-control" id="vmax" value="1" step="0.1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-primary btn-lg" onclick="Config.submitAnalysis()">
+                        <i class="bi bi-play-circle me-2"></i>开始分析
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="Config.resetForm()">
+                        <i class="bi bi-arrow-clockwise me-2"></i>重置
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Column: Results Display -->
+            <div class="col-lg-6">
+                <div class="results-panel">
+                    <div class="card config-card">
+                        <div class="card-header">
+                            <i class="bi bi-graph-up me-2"></i>分析结果
+                        </div>
+                        <div class="card-body">
+                            <div id="resultsPlaceholder" class="text-center py-5">
+                                <i class="bi bi-bar-chart" style="font-size: 3rem; color: #dee2e6;"></i>
+                                <p class="text-muted mt-3">配置参数并开始分析后，结果将显示在这里</p>
+                            </div>
+                            <div id="resultsContent" class="d-none">
+                                <!-- Results will be dynamically loaded here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Directory Browser Modal -->
+    <div class="modal fade" id="directoryModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">选择目录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="directoryBrowserContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/color_scheme_preview.js') }}"></script>
+<script>
+    // Configuration object
+    const Config = {
+        scanData: null,
+        directoryBrowser: null,
+        colorSchemePreview: null,
+
+        async init() {
+            // Initialize Directory Browser
+            this.initDirectoryBrowser();
+
+            // Initialize Color Scheme Preview
+            this.initColorSchemePreview();
+
+            // Setup event listeners
+            this.setupEventListeners();
+        },
+
+        initDirectoryBrowser() {
+            // Setup browse button to open modal
+            const browseBtn = document.getElementById('browseDirectoryBtn');
+            if (browseBtn) {
+                browseBtn.addEventListener('click', () => {
+                    const modal = new bootstrap.Modal(document.getElementById('directoryModal'));
+                    modal.show();
+
+                    // Initialize directory browser in modal if not already done
+                    if (!this.directoryBrowser) {
+                        this.directoryBrowser = new DirectoryBrowser('directoryBrowserContainer', {
+                            onSelect: (path) => {
+                                document.getElementById('dataDirectoryPath').value = path;
+                                modal.hide();
+                            },
+                            onCancel: () => {
+                                modal.hide();
+                            }
+                        });
+                    }
+                });
+            }
+        },
+
+        initColorSchemePreview() {
+            // Initialize color scheme preview component
+            try {
+                this.colorSchemePreview = new ColorSchemePreview('colorSchemePreviewContainer', {
+                    onChange: (scheme) => {
+                        console.log('Color scheme changed to:', scheme);
+                    },
+                    showDescription: true,
+                    barHeight: 40
+                });
+            } catch (error) {
+                console.error('Failed to initialize color scheme preview:', error);
+            }
+        },
+
+        setupEventListeners() {
+            // Directory scan
+            const scanBtn = document.getElementById('scanDirectoryBtn');
+            if (scanBtn) {
+                scanBtn.addEventListener('click', () => this.scanDirectory());
+            }
+        },
+
+        async scanDirectory() {
+            const path = document.getElementById('dataDirectoryPath').value;
+            if (!path) {
+                alert('请先选择目录');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/scan-directory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    this.scanData = data;
+                    this.showScanResults(data);
+                } else {
+                    alert('扫描失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Scan failed:', error);
+                alert('扫描失败: ' + error.message);
+            }
+        },
+
+        showScanResults(data) {
+            // Show scan results card
+            document.getElementById('scanResultsCard').classList.remove('d-none');
+
+            // Update summary statistics
+            document.getElementById('totalSamplesCount').textContent = data.samples.length;
+            document.getElementById('totalChainsCount').textContent = data.chains.length;
+            document.getElementById('totalFilesCount').textContent = data.total_files;
+
+            // Populate sample checkboxes
+            const sampleContainer = document.getElementById('sampleCheckboxes');
+            sampleContainer.innerHTML = data.samples.map(sample => `
+                <div class="col-6 col-md-4">
+                    <div class="form-check">
+                        <input class="form-check-input sample-checkbox" type="checkbox" 
+                            value="${sample}" id="sample_${sample}" checked>
+                        <label class="form-check-label" for="sample_${sample}">${sample}</label>
+                    </div>
+                </div>
+            `).join('');
+
+            // Populate chain checkboxes
+            const chainContainer = document.getElementById('chainCheckboxes');
+            chainContainer.innerHTML = data.chains.map(chain => `
+                <div class="col-4 col-md-3">
+                    <div class="form-check">
+                        <input class="form-check-input chain-checkbox" type="checkbox" 
+                            value="${chain}" id="chain_${chain}" checked>
+                        <label class="form-check-label" for="chain_${chain}">${chain}</label>
+                    </div>
+                </div>
+            `).join('');
+        },
+
+        selectAllSamples() {
+            document.querySelectorAll('.sample-checkbox').forEach(cb => cb.checked = true);
+        },
+
+        deselectAllSamples() {
+            document.querySelectorAll('.sample-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        selectAllChains() {
+            document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = true);
+        },
+
+        deselectAllChains() {
+            document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        async submitAnalysis() {
+            if (!this.scanData) {
+                alert('请先扫描目录');
+                return;
+            }
+
+            const selectedSamples = Array.from(document.querySelectorAll('.sample-checkbox:checked'))
+                .map(cb => cb.value);
+            const selectedChains = Array.from(document.querySelectorAll('.chain-checkbox:checked'))
+                .map(cb => cb.value);
+
+            if (selectedSamples.length < 2) {
+                alert('请至少选择2个样本');
+                return;
+            }
+
+            if (selectedChains.length < 1) {
+                alert('请至少选择1种链类型');
+                return;
+            }
+
+            // Collect selected metrics
+            const selectedMetrics = [];
+            document.querySelectorAll('input[type="checkbox"][id^="metric"]:checked').forEach(cb => {
+                if (cb.value) selectedMetrics.push(cb.value);
+            });
+
+            if (selectedMetrics.length === 0) {
+                alert('请至少选择1个相似度指标');
+                return;
+            }
+
+            // Get color scheme from preview component
+            const colorScheme = this.colorSchemePreview ?
+                this.colorSchemePreview.getCurrentScheme() : 'viridis';
+
+            const requestData = {
+                type: 'similarity_heatmap',
+                directory_path: this.scanData.path,
+                selected_samples: selectedSamples,
+                selected_chains: selectedChains,
+                parameters: {
+                    metrics: selectedMetrics
+                },
+                chart_config: {
+                    title: document.getElementById('chartTitle').value || '样本相似度热图',
+                    color_scheme: colorScheme,
+                    figure_width: parseInt(document.getElementById('figureWidth').value),
+                    figure_height: parseInt(document.getElementById('figureHeight').value),
+                    font_size: parseInt(document.getElementById('fontSize').value),
+                    annotation: document.getElementById('showAnnotation').checked,
+                    vmin: parseFloat(document.getElementById('vmin').value),
+                    vmax: parseFloat(document.getElementById('vmax').value)
+                }
+            };
+
+            try {
+                const response = await fetch('/api/analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    window.location.href = `/analysis/${result.id}/results`;
+                } else {
+                    alert('分析失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('Analysis failed:', error);
+                alert('分析失败: ' + error.message);
+            }
+        },
+
+        resetForm() {
+            if (confirm('确定要重置所有配置吗？')) {
+                document.getElementById('analysisConfigForm').reset();
+                document.getElementById('scanResultsCard').classList.add('d-none');
+                document.getElementById('dataDirectoryPath').value = '';
+                this.scanData = null;
+
+                // Reset color scheme preview
+                if (this.colorSchemePreview) {
+                    this.colorSchemePreview.setScheme(this.colorSchemePreview.defaultScheme);
+                }
+            }
+        }
+    };
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        Config.init();
+    });
+</script>
+{% endblock %}

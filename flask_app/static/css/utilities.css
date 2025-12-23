@@ -1,0 +1,217 @@
+/**
+ * Utility CSS Classes
+ * Replaces inline styles throughout the application
+ * Requirements: 6.4 - No inline styles
+ */
+
+/* ============================================
+   DISPLAY UTILITIES
+   ============================================ */
+.d-none-initial {
+    display: none;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.visible {
+    display: block !important;
+}
+
+/* ============================================
+   WIDTH UTILITIES
+   ============================================ */
+.w-auto {
+    width: auto !important;
+}
+
+.w-30 {
+    width: 30% !important;
+}
+
+.w-40 {
+    width: 40% !important;
+}
+
+.w-20 {
+    width: 20% !important;
+}
+
+.w-10 {
+    width: 10% !important;
+}
+
+.w-80px {
+    max-width: 80px !important;
+}
+
+/* ============================================
+   HEIGHT UTILITIES
+   ============================================ */
+.h-20px {
+    height: 20px !important;
+}
+
+.h-6px {
+    height: 6px !important;
+}
+
+.max-h-150px {
+    max-height: 150px !important;
+}
+
+.max-h-200px {
+    max-height: 200px !important;
+}
+
+.max-h-300px {
+    max-height: 300px !important;
+}
+
+.max-h-500px {
+    max-height: 500px !important;
+}
+
+.max-h-60px {
+    max-height: 60px !important;
+}
+
+.max-h-800px {
+    max-height: 800px !important;
+}
+
+/* ============================================
+   OVERFLOW UTILITIES
+   ============================================ */
+.overflow-y-auto {
+    overflow-y: auto !important;
+}
+
+.overflow-x-auto {
+    overflow-x: auto !important;
+}
+
+/* ============================================
+   PROGRESS BAR UTILITIES
+   ============================================ */
+.progress-bar-width-0 {
+    width: 0% !important;
+}
+
+/* Dynamic width classes for progress bars */
+.progress-bar[role="progressbar"] {
+    transition: width 0.3s ease;
+}
+
+/* ============================================
+   IFRAME UTILITIES
+   ============================================ */
+.iframe-full {
+    width: 100%;
+    height: 800px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+/* ============================================
+   IMAGE UTILITIES
+   ============================================ */
+.img-thumbnail-sm {
+    max-width: 80px;
+    max-height: 60px;
+}
+
+/* ============================================
+   SCROLLABLE CONTAINERS
+   ============================================ */
+.scrollable-150 {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.scrollable-200 {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.scrollable-300 {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.scrollable-500 {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* ============================================
+   PROGRESS UTILITIES
+   ============================================ */
+.progress-20 {
+    height: 20px;
+}
+
+.progress-6 {
+    height: 6px;
+}
+
+/* ============================================
+   TABLE UTILITIES
+   ============================================ */
+.table-col-30 {
+    width: 30%;
+}
+
+.table-col-40 {
+    width: 40%;
+}
+
+.table-col-20 {
+    width: 20%;
+}
+
+.table-col-10 {
+    width: 10%;
+}
+
+/* ============================================
+   SAMPLE CHECKBOX CONTAINER
+   ============================================ */
+.sample-checkbox-container {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* ============================================
+   FIELD LIST CONTAINER
+   ============================================ */
+.field-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* ============================================
+   CARD BODY SCROLLABLE
+   ============================================ */
+.card-body-scrollable {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* ============================================
+   MERGE IMAGES LIST
+   ============================================ */
+.merge-images-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* ============================================
+   RESPONSIVE UTILITIES
+   ============================================ */
+@media (max-width: 767.98px) {
+    .iframe-full {
+        height: 600px;
+    }
+}

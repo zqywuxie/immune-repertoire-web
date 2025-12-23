@@ -1,0 +1,274 @@
+﻿{% extends "base.html" %}
+
+{% block title %}PDF提取器 - {{ config.APP_NAME }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pdf_extractor.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="bi bi-file-earmark-pdf me-2"></i>
+                PDF数据和图像提取器
+            </h2>
+            <p class="text-muted mb-4">
+                从PDF报告中提取表格和图像。支持B细胞同型表格提取和按索引提取图像。
+            </p>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-4" id="extractorTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tables-tab" data-bs-toggle="tab" data-bs-target="#tables-panel"
+                type="button" role="tab" aria-controls="tables-panel" aria-selected="true">
+                <i class="bi bi-table me-2"></i>表格提取
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="images-tab" data-bs-toggle="tab" data-bs-target="#images-panel" type="button"
+                role="tab" aria-controls="images-panel" aria-selected="false">
+                <i class="bi bi-image me-2"></i>图像提取
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="extractorTabContent">
+        <div class="tab-pane fade show active" id="tables-panel" role="tabpanel" aria-labelledby="tables-tab">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-file-earmark-pdf me-2"></i>选择PDF文件
+                        </div>
+                        <div class="card-body">
+                            <!-- Project Selector -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">选择项目</label>
+                                <div class="input-group">
+                                    <select class="form-select" id="tableProjectSelect">
+                                        <option value="">全部项目</option>
+                                    </select>
+                                    <button class="btn btn-outline-secondary" type="button" id="newTableProjectBtn"
+                                        title="新建项目">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="text-center mb-3">
+                                    <small class="text-muted">或上传新的PDF文件</small>
+                                </div>
+                                <div class="upload-drop-zone border rounded p-4 text-center" id="pdfUploadDropZone">
+                                    <i class="bi bi-cloud-arrow-up display-4 text-primary mb-2"></i>
+                                    <p class="mb-2">拖拽PDF文件到此处，或点击选择文件</p>
+                                    <input type="file" id="pdfFileInput" accept=".pdf" class="d-none">
+                                    <button type="button" class="btn btn-outline-primary"
+                                        onclick="document.getElementById('pdfFileInput').click()">
+                                        <i class="bi bi-folder2-open me-1"></i>选择PDF文件
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">可用的PDF文件</label>
+                                <div id="tableFileList" class="file-list">
+                                    <p class="text-muted">加载文件中...</p>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <span class="badge bg-primary" id="tableSelectedCount">已选择0个文件</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-info-circle me-2"></i>提取信息
+                        </div>
+                        <div class="card-body">
+                            <p>此工具从PDF报告中提取B细胞同型分布表格。</p>
+                            <p><strong>提取的数据包括：</strong></p>
+                            <ul>
+                                <li>每个同型的表达百分比</li>
+                                <li>每个同型的唯一CDR3百分比</li>
+                            </ul>
+                            <p><strong>支持的同型：</strong> IgM、IgD、IgA1/2、IgG1/2、IgG3/4、IgE</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mb-4">
+                <div class="col-12">
+                    <button class="btn btn-primary btn-lg" id="extractTablesBtn" disabled>
+                        <i class="bi bi-table me-2"></i>提取表格
+                    </button>
+                    <span id="tableLoadingSpinner" class="ms-3 d-none">
+                        <span class="spinner-border spinner-border-sm" role="status"></span>提取中...
+                    </span>
+                </div>
+            </div>
+            <div id="tableResultsSection" class="d-none">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-table me-2"></i>提取的数据</span>
+                                <button class="btn btn-sm btn-outline-success" id="copyExtractedTableBtn">
+                                    <i class="bi bi-clipboard me-1"></i>复制到剪贴板
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="extractionStatus" class="mb-3"></div>
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover" id="extractedDataTable">
+                                        <thead></thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-4" id="chartSection" style="display: none;">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-bar-chart me-2"></i>B细胞同型分布图表</span>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-success me-2" id="downloadAllChartsBtn"
+                                        style="display: none;">
+                                        <i class="bi bi-download me-1"></i>下载所有图表
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" id="generateChartBtn">
+                                        <i class="bi bi-graph-up me-1"></i>生成图表
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="chartLoadingSpinner" class="text-center d-none">
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>生成图表中...
+                                </div>
+                                <div id="sampleSelector" class="mb-3" style="display: none;">
+                                    <label class="form-label fw-bold">选择样本查看图表：</label>
+                                    <select class="form-select" id="sampleChartSelect">
+                                        <option value="">-- 请选择样本 --</option>
+                                    </select>
+                                </div>
+                                <div id="chartContainer" class="text-center"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="images-panel" role="tabpanel" aria-labelledby="images-tab">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-file-earmark-pdf me-2"></i>选择PDF文件
+                        </div>
+                        <div class="card-body">
+                            <!-- Project Selector -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">选择项目</label>
+                                <div class="input-group">
+                                    <select class="form-select" id="imageProjectSelect">
+                                        <option value="">全部项目</option>
+                                    </select>
+                                    <button class="btn btn-outline-secondary" type="button" id="newImageProjectBtn"
+                                        title="新建项目">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="text-center mb-3">
+                                    <small class="text-muted">或上传新的PDF文件</small>
+                                </div>
+                                <div class="upload-drop-zone border rounded p-4 text-center" id="imageUploadDropZone">
+                                    <i class="bi bi-cloud-arrow-up display-4 text-primary mb-2"></i>
+                                    <p class="mb-2">拖拽PDF文件到此处，或点击选择文件</p>
+                                    <input type="file" id="imageFileInput" accept=".pdf" class="d-none">
+                                    <button type="button" class="btn btn-outline-primary"
+                                        onclick="document.getElementById('imageFileInput').click()">
+                                        <i class="bi bi-folder2-open me-1"></i>选择PDF文件
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">可用的PDF文件</label>
+                                <div id="batchFileList" class="file-list">
+                                    <p class="text-muted">加载文件中...</p>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <span class="badge bg-primary" id="batchSelectedCount">已选择0个文件</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-gear me-2"></i>提取设置
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="imageIndices" class="form-label fw-bold">图像索引</label>
+                                <input type="text" class="form-control" id="imageIndices" value="15, -1"
+                                    placeholder="例如: 16, -1">
+                                <div class="form-text">输入要提取的图像索引，用逗号分隔。-1表示最后一张图像。</div>
+                            </div>
+                            <p class="text-muted small">
+                                <strong>说明：</strong>提取的图像将按PDF文件分组显示，支持打包下载。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mb-4">
+                <div class="col-12">
+                    <button class="btn btn-primary btn-lg" id="batchExtractBtn" disabled>
+                        <i class="bi bi-image me-2"></i>提取图像
+                    </button>
+                    <span id="batchExtractSpinner" class="ms-3 d-none">
+                        <span class="spinner-border spinner-border-sm" role="status"></span>提取中...
+                    </span>
+                </div>
+            </div>
+            <div id="extractedImagesSection" class="d-none">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-images me-2"></i>提取的图像</span>
+                                <button class="btn btn-sm btn-outline-success" id="downloadAllImagesBtn">
+                                    <i class="bi bi-download me-1"></i>下载全部(ZIP)
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="pdfImageSelector" class="mb-3">
+                                    <label class="form-label fw-bold">选择PDF查看图像：</label>
+                                    <select class="form-select" id="pdfImageSelect">
+                                        <option value="">-- 请选择PDF --</option>
+                                    </select>
+                                </div>
+                                <div id="extractedImagesGrid" class="row"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/modules/pdf_extractor.js') }}"></script>
+{% endblock %}

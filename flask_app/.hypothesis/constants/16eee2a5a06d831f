@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\sequencing_reads_chart.py
+# hypothesis_version: 6.148.7
+
+[0.1, 1.05, 100, 300, 'Arial Unicode MS', 'Condition', 'Group', 'IGH', 'IGH_reads', 'IGK', 'IGK_reads', 'IGL', 'IGL_reads', 'Microsoft YaHei', 'Reads数', 'Sample', 'Set2', 'SimHei', 'TRA', 'TRA_reads', 'TRB', 'TRB_reads', 'TRD', 'TRD_reads', 'TRG', 'TRG_reads', 'Timepoint', 'axes.unicode_minus', 'both', 'center', 'chain_stats', 'chains', 'charts', 'color_scheme', 'data', 'dominant_chain', 'error', 'font.sans-serif', 'mean_percentage', 'mean_reads', 'parameters', 'percentage', 'percentage_chart', 'plot_type', 'png', 'quality_control', 'reads', 'reads_chart', 'records', 'right', 'show_values', 'sort_samples', 'std_reads', 'success', 'summary', 'tight', 'total_reads', 'total_samples', 'upper left', '各链测序reads数分布', '各链测序reads百分比分布', '样本', '百分比 (%)']

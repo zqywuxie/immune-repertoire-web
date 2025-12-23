@@ -1,0 +1,358 @@
+/* PDF Extractor Styles */
+
+/* Card styling */
+.card {
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 600;
+}
+
+/* File list styling */
+.file-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.file-item:hover {
+    background-color: #f8f9fa;
+}
+
+.file-item.selected {
+    background-color: #e7f1ff;
+    border: 1px solid #0d6efd;
+}
+
+.file-item input[type="checkbox"] {
+    margin-right: 10px;
+}
+
+.file-item .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-item .file-icon {
+    color: #dc3545;
+    margin-right: 8px;
+}
+
+/* Thumbnail grid */
+.thumbnail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 16px;
+    padding: 10px 0;
+}
+
+.thumbnail-item {
+    position: relative;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.thumbnail-item:hover {
+    border-color: #0d6efd;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.thumbnail-item.selected {
+    border-color: #0d6efd;
+    background-color: #e7f1ff;
+}
+
+.thumbnail-item img {
+    max-width: 100%;
+    max-height: 100px;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.thumbnail-item .thumbnail-index {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.thumbnail-item .thumbnail-info {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.thumbnail-item .thumbnail-checkbox {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+}
+
+/* Extracted images grid */
+.extracted-images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    padding: 10px 0;
+}
+
+.extracted-image-item {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+}
+
+.extracted-image-item img {
+    max-width: 100%;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.extracted-image-item .image-info {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-bottom: 10px;
+}
+
+.extracted-image-item .download-btn {
+    width: 100%;
+}
+
+/* Data table styling */
+#extractedDataTable {
+    font-size: 0.9rem;
+}
+
+#extractedDataTable thead th {
+    background-color: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+}
+
+#extractedDataTable tbody td {
+    white-space: nowrap;
+}
+
+/* Extraction status */
+#extractionStatus .success-count {
+    color: #28a745;
+    font-weight: 600;
+}
+
+#extractionStatus .fail-count {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Loading state */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #2E86AB;
+    border-color: #2E86AB;
+}
+
+.btn-primary:hover {
+    background-color: #246a8a;
+    border-color: #246a8a;
+}
+
+/* Tab styling */
+.nav-tabs .nav-link {
+    color: #495057;
+}
+
+.nav-tabs .nav-link.active {
+    color: #2E86AB;
+    font-weight: 600;
+}
+
+/* Results section animation */
+#tableResultsSection,
+#imageThumbnailsSection,
+#extractedImagesSection {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Copy success toast */
+.copy-toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #28a745;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .thumbnail-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .extracted-images-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .file-list {
+        max-height: 200px;
+    }
+}
+
+/* Error message styling */
+.error-list {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.error-item {
+    padding: 8px;
+    background-color: #fff3cd;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+}
+
+.error-item .error-file {
+    font-weight: 600;
+    color: #856404;
+}
+
+.error-item .error-message {
+    color: #6c757d;
+}
+
+/* Upload section styling */
+.fw-bold {
+    font-weight: 600 !important;
+}
+
+#uploadProgress {
+    margin-top: 10px;
+}
+
+#uploadStatus .alert {
+    margin-bottom: 0;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+/* Directory browser styling */
+#directoryBrowser {
+    margin-top: 15px;
+}
+
+#directoryBrowser .card {
+    border: 2px solid #0d6efd;
+}
+
+#directoryBrowser .card-header {
+    background-color: #e7f1ff;
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+.directory-item {
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.directory-item:hover {
+    background-color: #f8f9fa;
+}
+
+.directory-item i {
+    color: #0d6efd;
+}
+
+/* Option separator styling */
+.badge.bg-secondary {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+}
+
+/* File validation styling */
+.form-text {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* Upload button styling */
+#uploadPdfBtn {
+    white-space: nowrap;
+}
+
+/* Improved card spacing */
+.card-body .mb-3:last-child {
+    margin-bottom: 0 !important;
+}

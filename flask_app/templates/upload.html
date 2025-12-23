@@ -1,0 +1,215 @@
+{% extends 'base.html' %}
+
+{% block title %}上传文件{% endblock %}
+
+{% block extra_css %}
+<style>
+    .upload-area {
+        border: 2px dashed #dee2e6;
+        border-radius: 0.5rem;
+        padding: 2.5rem 1.5rem;
+        text-align: center;
+        background: #f8f9fa;
+        transition: border-color 0.2s ease;
+        cursor: pointer;
+        min-height: 240px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .upload-area:hover {
+        border-color: #0d6efd;
+        background: #f8f9fa;
+    }
+
+    .upload-area.drag-over {
+        border-color: #0d6efd;
+        border-style: solid;
+        background: #e7f1ff;
+    }
+
+    .upload-area .bi-cloud-upload {
+        font-size: 3rem;
+        color: #6c757d;
+    }
+
+    .upload-area:hover .bi-cloud-upload {
+        color: #0d6efd;
+    }
+
+    .upload-area.drag-over .bi-cloud-upload {
+        color: #0d6efd;
+    }
+
+    .progress-container {
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 0.375rem;
+        border: 1px solid #e9ecef;
+    }
+
+    .progress {
+        height: 0.5rem;
+        border-radius: 0.25rem;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        background: #0d6efd;
+    }
+
+    #batchProgressContainer {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    #batchFileList .list-group-item {
+        border-left: 3px solid transparent;
+    }
+
+    #batchFileList .list-group-item-success {
+        border-left-color: #198754;
+    }
+
+    #batchFileList .list-group-item-danger {
+        border-left-color: #dc3545;
+    }
+
+    .file-requirements-card .card-header {
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .file-requirements-card li {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .file-requirements-card li:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <h1 class="mb-4">上传数据文件</h1>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-body">
+                    <!-- Project Selector -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">选择项目</label>
+                        <div class="input-group">
+                            <select class="form-select" id="projectSelect">
+                                <option value="default">默认项目</option>
+                            </select>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" id="newProjectBtn"
+                                title="新建项目">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">上传的文件将归类到所选项目中</div>
+                    </div>
+
+                    <div class="upload-area" id="uploadArea">
+                        <i class="bi bi-cloud-upload display-1 text-muted" id="uploadIcon"></i>
+                        <h4 class="mt-3" id="uploadTitle">拖拽文件到此处或点击选择</h4>
+                        <p class="text-muted">支持 CSV, Excel (.xlsx), 压缩CSV (.csv.gz), PDF</p>
+                        <p class="text-muted small"><i class="bi bi-info-circle me-1"></i>支持批量上传多个文件</p>
+                        <input type="file" id="fileInput" class="d-none" accept=".csv,.xlsx,.csv.gz,.pdf" multiple>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-primary"
+                                onclick="document.getElementById('fileInput').click()">
+                                <i class="bi bi-file-earmark-plus me-1"></i>选择文件
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary ms-2"
+                                onclick="document.getElementById('fileInput').click()">
+                                <i class="bi bi-files me-1"></i>批量选择
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="progress-container d-none" id="progressContainer">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span id="fileName">文件名</span>
+                            <span id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress mb-2">
+                            <div class="progress-bar progress-bar-striped" id="progressBar" role="progressbar"
+                                style="width: 0%"></div>
+                        </div>
+                        <div class="text-muted small" id="uploadStatus">正在上传...</div>
+                    </div>
+
+                    <!-- Batch Upload Progress -->
+                    <div class="d-none" id="batchProgressContainer">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0"><i class="bi bi-files me-2"></i>批量上传进度</h6>
+                            <span class="badge bg-primary" id="batchProgressBadge">0/0</span>
+                        </div>
+                        <div class="list-group" id="batchFileList"></div>
+                    </div>
+
+                    <div class="alert alert-success d-none" id="uploadSuccess">
+                        <i class="bi bi-check-circle me-2"></i>
+                        <span id="successMessage">文件上传成功！</span>
+                        <div class="mt-2">
+                            <a href="{{ url_for('pages.files_page') }}"
+                                class="btn btn-sm btn-outline-success">查看文件列表</a>
+                            <button class="btn btn-sm btn-outline-primary ms-2"
+                                onclick="FileUploader.reset()">继续上传</button>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-danger d-none" id="uploadError">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <span id="errorMessage">上传失败</span>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-danger" onclick="FileUploader.reset()">重试</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card file-requirements-card">
+                <div class="card-header">
+                    <h5 class="mb-0">文件要求</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0">
+                        <li><i class="bi bi-filetype-csv text-success me-2"></i>CSV 格式</li>
+                        <li><i class="bi bi-file-earmark-excel text-success me-2"></i>Excel (.xlsx) 格式</li>
+                        <li><i class="bi bi-file-zip text-success me-2"></i>压缩 CSV (.csv.gz)</li>
+                        <li><i class="bi bi-file-pdf text-success me-2"></i>PDF 文件</li>
+                        <li class="mt-3 pt-2" style="border-top: 2px solid #e9ecef;">
+                            <i class="bi bi-hdd text-info me-2"></i>最大文件大小: <strong>100MB</strong>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">上传提示</h6>
+                </div>
+                <div class="card-body small text-muted">
+                    <p class="mb-2"><i class="bi bi-check2 me-1"></i>支持拖拽文件到上传区域</p>
+                    <p class="mb-2"><i class="bi bi-check2 me-1"></i>可同时选择多个文件批量上传</p>
+                    <p class="mb-0"><i class="bi bi-check2 me-1"></i>上传后可在文件管理中查看</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,156 @@
+/* IG Metrics Analysis Styles */
+
+/* Card styling */
+.card {
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 600;
+}
+
+/* Chart containers */
+#chartContainer,
+#pctChangeChartContainer,
+#overviewChartContainer {
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#chartContainer img,
+#pctChangeChartContainer img,
+#overviewChartContainer img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+}
+
+/* Data table styling */
+#dataTable {
+    font-size: 0.85rem;
+}
+
+#dataTable thead th {
+    background-color: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+    font-size: 0.8rem;
+}
+
+#dataTable tbody td {
+    white-space: nowrap;
+}
+
+/* Positive/negative value styling */
+.value-positive {
+    color: #28a745;
+    font-weight: 600;
+}
+
+.value-negative {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Loading state */
+#loadingSpinner {
+    color: #6c757d;
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #2E86AB;
+    border-color: #2E86AB;
+}
+
+.btn-primary:hover {
+    background-color: #246a8a;
+    border-color: #246a8a;
+}
+
+/* Results section animation */
+#resultsSection {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+
+    #chartContainer,
+    #pctChangeChartContainer,
+    #overviewChartContainer {
+        min-height: 300px;
+    }
+
+    #dataTable {
+        font-size: 0.75rem;
+    }
+}
+
+/* Copy success toast */
+.copy-toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #28a745;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Chain color indicators */
+.chain-igh {
+    color: #2E86AB;
+}
+
+.chain-igk {
+    color: #A23B72;
+}
+
+.chain-igl {
+    color: #F18F01;
+}
+
+/* Checkbox styling */
+.form-check {
+    margin-bottom: 0.5rem;
+}
+
+.form-check-input:checked {
+    background-color: #2E86AB;
+    border-color: #2E86AB;
+}

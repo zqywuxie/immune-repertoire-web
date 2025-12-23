@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\chain_analysis.py
+# hypothesis_version: 6.148.7
+
+[0.25, 0.3, 0.7, 1.0, 1.2, '\nTCR链统计：\n', '.2f', 'BCR', 'BCR链统计：\n', 'Chain_Type', 'D50', 'Expression', 'Gini_index', 'Group', 'IGH', 'IGK', 'IGL', 'Reads', 'Sample', 'Shannon', 'TCR', 'TRA', 'TRB', 'TRD', 'TRG', 'Timepoint', 'UCDR3', 'bold', 'chain_analysis', 'chain_categories', 'chain_distribution', 'chain_specificity', 'chain_stats', 'chains', 'coerce', 'coolwarm', 'correlation', 'correlation_heatmap', 'correlations', 'error', 'lightcoral', 'mean', 'mean_expression', 'median_expression', 'normalize', 'o-', 'overview', 'params', 'plot_type', 'polar', 'processed_data', 'radar', 'records', 'sample_count', 'skyblue', 'std_expression', 'summary', '各链表达量分布', '平均表达量', '链类型', '链表达量雷达图', '链间相关性热图']

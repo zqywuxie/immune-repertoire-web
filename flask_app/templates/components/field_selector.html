@@ -1,0 +1,199 @@
+<!-- Field Selector Component -->
+<div class="field-selector">
+    <div class="row mb-3">
+        <div class="col-12">
+            <h5 class="mb-2">选择分析字段</h5>
+            <p class="text-muted">
+                <i class="bi bi-info-circle me-1"></i>
+                从数据文件中选择要分析的字段，可以选择多个字段进行组合分析
+            </p>
+        </div>
+    </div>
+
+    <!-- Field Selection Controls -->
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text">
+                    <i class="bi bi-search"></i>
+                </span>
+                <input type="text" class="form-control" id="fieldSearchInput" placeholder="搜索字段...">
+            </div>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-outline-secondary btn-sm" id="selectAllFieldsBtn">
+                <i class="bi bi-check-all me-1"></i>全选
+            </button>
+            <button class="btn btn-outline-secondary btn-sm ms-2" id="clearFieldsBtn">
+                <i class="bi bi-x-circle me-1"></i>清除选择
+            </button>
+        </div>
+    </div>
+
+    <!-- Selected Fields Summary -->
+    <div id="selectedFieldsSummary" class="alert alert-info d-none mb-3">
+        <i class="bi bi-info-circle me-2"></i>
+        已选择 <strong id="selectedFieldsCount">0</strong> 个字段
+        <span id="selectedFieldsList" class="ms-2"></span>
+    </div>
+
+    <!-- Loading State -->
+    <div id="fieldsLoading" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">加载中...</span>
+        </div>
+        <p class="text-muted mt-2">正在加载字段信息...</p>
+    </div>
+
+    <!-- Fields Grid -->
+    <div id="fieldsGrid" class="row g-2 d-none">
+        <!-- Fields will be dynamically loaded here -->
+    </div>
+
+    <!-- No Fields Message -->
+    <div id="noFieldsMessage" class="alert alert-warning d-none">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        未找到可用字段，请先上传数据文件
+    </div>
+
+    <!-- Continue Button -->
+    <div class="text-end mt-3 d-none" id="continueFieldSelectionBtn">
+        <button class="btn btn-primary" id="confirmFieldsBtn" disabled>
+            <i class="bi bi-check-lg me-1"></i>确认选择
+        </button>
+    </div>
+</div>
+
+<!-- Field Item Template -->
+<template id="fieldItemTemplate">
+    <div class="col-md-6 col-lg-4">
+        <div class="field-item" data-field-name="">
+            <div class="form-check">
+                <input class="form-check-input field-checkbox" type="checkbox" value="" id="">
+                <label class="form-check-label w-100" for="">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <strong class="field-name"></strong>
+                            <div class="text-muted small mt-1">
+                                <span class="field-type-badge badge bg-secondary"></span>
+                                <span class="field-sample-count ms-2"></span>
+                            </div>
+                        </div>
+                        <i class="bi bi-check-circle-fill text-success d-none selected-icon"></i>
+                    </div>
+                </label>
+            </div>
+        </div>
+    </div>
+</template>
+
+<style>
+    .field-item {
+        padding: 0.75rem;
+        border: 2px solid #dee2e6;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        background: white;
+    }
+
+    .field-item:hover {
+        background: #f8f9fa;
+        border-color: #adb5bd;
+    }
+
+    .field-item.selected {
+        background: #e7f1ff;
+        border-color: #0d6efd;
+    }
+
+    .field-item .form-check-input {
+        cursor: pointer;
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+
+    .field-item .form-check-label {
+        cursor: pointer;
+        margin-left: 0.5rem;
+    }
+
+    .field-name {
+        font-size: 0.95rem;
+        color: #212529;
+    }
+
+    .field-type-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+        text-transform: uppercase;
+    }
+
+    .field-sample-count {
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+
+    .selected-icon {
+        font-size: 1.25rem;
+        margin-left: 0.5rem;
+    }
+
+    .field-item.selected .selected-icon {
+        display: inline-block !important;
+    }
+
+    #selectedFieldsSummary {
+        animation: slideDown 0.3s;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    #selectedFieldsList {
+        display: inline-block;
+        max-width: 70%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .field-item.filtered-out {
+        display: none;
+    }
+
+    /* Type-specific colors */
+    .field-type-badge.type-string {
+        background-color: #0d6efd !important;
+    }
+
+    .field-type-badge.type-number {
+        background-color: #198754 !important;
+    }
+
+    .field-type-badge.type-float {
+        background-color: #20c997 !important;
+    }
+
+    .field-type-badge.type-integer {
+        background-color: #0dcaf0 !important;
+    }
+
+    .field-type-badge.type-boolean {
+        background-color: #ffc107 !important;
+    }
+
+    .field-type-badge.type-date {
+        background-color: #d63384 !important;
+    }
+</style>

@@ -1,0 +1,331 @@
+<!-- Parameter Configuration Component -->
+<div class="parameter-config">
+    <div class="row mb-3">
+        <div class="col-12">
+            <h5 class="mb-2">
+                <i class="bi bi-sliders me-2"></i>参数配置
+            </h5>
+            <p class="text-muted">
+                <i class="bi bi-info-circle me-1"></i>
+                根据分析需求配置参数，系统已为您设置默认值
+            </p>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="parametersLoading" class="text-center py-4 d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">加载中...</span>
+        </div>
+        <p class="text-muted mt-2">正在加载参数配置...</p>
+    </div>
+
+    <!-- Parameters Form -->
+    <div id="parametersForm">
+        <!-- Common Parameters -->
+        <div class="card mb-3">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">
+                    <i class="bi bi-gear me-2"></i>通用参数
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <!-- Chart Type -->
+                    <div class="col-md-6">
+                        <label for="chartType" class="form-label">
+                            图表类型
+                            <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip"
+                                title="选择用于展示分析结果的图表类型"></i>
+                        </label>
+                        <select class="form-select" id="chartType">
+                            <option value="bar">柱状图</option>
+                            <option value="pie">饼图</option>
+                            <option value="line">折线图</option>
+                            <option value="scatter">散点图</option>
+                            <option value="heatmap">热图</option>
+                            <option value="box">箱线图</option>
+                        </select>
+                        <div class="form-text">
+                            <i class="bi bi-lightbulb me-1"></i>根据数据类型选择合适的图表
+                        </div>
+                    </div>
+
+                    <!-- Group By -->
+                    <div class="col-md-6">
+                        <label for="groupBy" class="form-label">
+                            分组依据
+                            <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip"
+                                title="选择用于数据分组的字段"></i>
+                        </label>
+                        <select class="form-select" id="groupBy">
+                            <option value="">不分组</option>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                        <div class="form-text">
+                            <i class="bi bi-lightbulb me-1"></i>可选择已选字段进行分组
+                        </div>
+                    </div>
+
+                    <!-- Color Scheme -->
+                    <div class="col-md-6">
+                        <label for="colorScheme" class="form-label">
+                            配色方案
+                        </label>
+                        <select class="form-select" id="colorScheme">
+                            <option value="default">默认</option>
+                            <option value="blue">蓝色系</option>
+                            <option value="green">绿色系</option>
+                            <option value="warm">暖色系</option>
+                            <option value="cool">冷色系</option>
+                            <option value="rainbow">彩虹色</option>
+                        </select>
+                    </div>
+
+                    <!-- Show Legend -->
+                    <div class="col-md-6">
+                        <label class="form-label">显示选项</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showLegend" checked>
+                            <label class="form-check-label" for="showLegend">
+                                显示图例
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showDataLabels">
+                            <label class="form-check-label" for="showDataLabels">
+                                显示数据标签
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scheme-Specific Parameters -->
+        <div id="schemeSpecificParams" class="d-none">
+            <!-- Will be populated based on selected scheme -->
+        </div>
+
+        <!-- Advanced Parameters (Collapsible) -->
+        <div class="card">
+            <div class="card-header bg-light">
+                <a class="text-decoration-none text-dark d-flex justify-content-between align-items-center"
+                    data-bs-toggle="collapse" href="#advancedParams" role="button" aria-expanded="false">
+                    <h6 class="mb-0">
+                        <i class="bi bi-sliders2 me-2"></i>高级参数
+                    </h6>
+                    <i class="bi bi-chevron-down"></i>
+                </a>
+            </div>
+            <div class="collapse" id="advancedParams">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- Filter Options -->
+                        <div class="col-md-6">
+                            <label for="minCount" class="form-label">
+                                最小计数阈值
+                                <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip"
+                                    title="过滤掉计数小于此值的数据"></i>
+                            </label>
+                            <input type="number" class="form-control" id="minCount" value="0" min="0">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="maxItems" class="form-label">
+                                最大显示项数
+                                <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip"
+                                    title="限制图表中显示的最大项数"></i>
+                            </label>
+                            <input type="number" class="form-control" id="maxItems" value="20" min="1" max="100">
+                        </div>
+
+                        <!-- Statistical Options -->
+                        <div class="col-md-6">
+                            <label class="form-label">统计选项</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showMean">
+                                <label class="form-check-label" for="showMean">
+                                    显示平均值
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showMedian">
+                                <label class="form-check-label" for="showMedian">
+                                    显示中位数
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Export Options -->
+                        <div class="col-md-6">
+                            <label class="form-label">导出选项</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="exportRawData" checked>
+                                <label class="form-check-label" for="exportRawData">
+                                    导出原始数据
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="exportSummary" checked>
+                                <label class="form-check-label" for="exportSummary">
+                                    导出统计摘要
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parameter Validation -->
+    <div id="parameterValidation" class="alert alert-warning d-none mt-3">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        <span id="parameterValidationMessage"></span>
+    </div>
+
+    <!-- Reset to Defaults -->
+    <div class="text-end mt-3">
+        <button class="btn btn-outline-secondary btn-sm" id="resetParametersBtn">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认值
+        </button>
+    </div>
+</div>
+
+<!-- Scheme-Specific Parameter Templates -->
+
+<!-- B-Cell Isotype Analysis Parameters -->
+<template id="bcellIsotypeParams">
+    <div class="card mb-3">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">
+                <i class="bi bi-pie-chart me-2"></i>B细胞同型分析参数
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="isotypeNormalization" class="form-label">
+                        标准化方法
+                    </label>
+                    <select class="form-select" id="isotypeNormalization">
+                        <option value="none">不标准化</option>
+                        <option value="percentage">百分比</option>
+                        <option value="log">对数转换</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="isotypeMinCount" class="form-label">
+                        最小同型计数
+                    </label>
+                    <input type="number" class="form-control" id="isotypeMinCount" value="10" min="1">
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- SHM Analysis Parameters -->
+<template id="shmAnalysisParams">
+    <div class="card mb-3">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">
+                <i class="bi bi-graph-up me-2"></i>SHM分析参数
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="binSize" class="form-label">
+                        直方图分箱大小
+                    </label>
+                    <input type="number" class="form-control" id="binSize" value="0.01" step="0.001" min="0.001">
+                </div>
+                <div class="col-md-6">
+                    <label for="mutationThreshold" class="form-label">
+                        突变率阈值
+                    </label>
+                    <input type="number" class="form-control" id="mutationThreshold" value="0.05" step="0.01" min="0">
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- IG Metrics Parameters -->
+<template id="igMetricsParams">
+    <div class="card mb-3">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">
+                <i class="bi bi-bar-chart me-2"></i>IG指标分析参数
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="geneFamily" class="form-label">
+                        基因家族分组
+                    </label>
+                    <select class="form-select" id="geneFamily">
+                        <option value="full">完整基因名</option>
+                        <option value="family">基因家族</option>
+                        <option value="subfamily">基因亚家族</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="topGenes" class="form-label">
+                        显示前N个基因
+                    </label>
+                    <input type="number" class="form-control" id="topGenes" value="10" min="1" max="50">
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<style>
+    .parameter-config .card {
+        border: 1px solid #dee2e6;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+
+    .parameter-config .form-label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+
+    .parameter-config .form-text {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+
+    .parameter-config .form-check {
+        padding-left: 1.5rem;
+    }
+
+    .parameter-config .form-check-input {
+        margin-top: 0.25rem;
+    }
+
+    .parameter-config .card-header a {
+        cursor: pointer;
+    }
+
+    .parameter-config .card-header a:hover {
+        color: #0d6efd !important;
+    }
+
+    .parameter-config .card-header a[aria-expanded="true"] .bi-chevron-down {
+        transform: rotate(180deg);
+        transition: transform 0.3s;
+    }
+
+    .parameter-config .card-header a[aria-expanded="false"] .bi-chevron-down {
+        transition: transform 0.3s;
+    }
+
+    .parameter-config .tooltip {
+        font-size: 0.875rem;
+    }
+</style>

@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\annotation_service.py
+# hypothesis_version: 6.148.7
+
+[0.1, 0.3, '#000000', '#333333', '#FF0000', '#FFFF00', '#FFFFFF', 'analysis_id', 'annotation_id', 'annotation_type', 'arrow', 'background_color', 'border_color', 'border_radius', 'border_width', 'box', 'circle', 'color', 'content', 'created_at', 'fill_color', 'fill_opacity', 'font_color', 'font_size', 'font_weight', 'head_size', 'highlight', 'id', 'label', 'normal', 'opacity', 'padding', 'position_x', 'position_y', 'radius', 'result_id', 'solid', 'style', 'supported_types', 'text', 'updated_at', 'width']

@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\base_module.py
+# hypothesis_version: 6.148.7
+
+[0.3, 100, 300, 'Arial Unicode MS', 'DejaVu Sans', 'Microsoft YaHei', 'SimHei', 'analysis_id', 'axes.grid', 'axes.labelsize', 'axes.titlesize', 'axes.unicode_minus', 'category', 'data', 'default_params', 'description', 'errors', 'figure.dpi', 'figure.figsize', 'figures', 'font.family', 'font.sans-serif', 'font.size', 'grid.alpha', 'image', 'legend.fontsize', 'metadata', 'module_name', 'name', 'optional_columns', 'png', 'required_columns', 'sans-serif', 'savefig.bbox', 'savefig.dpi', 'success', 'tight', 'title', 'utf-8', 'xtick.labelsize', 'ytick.labelsize', '数据为空', '数据验证通过']

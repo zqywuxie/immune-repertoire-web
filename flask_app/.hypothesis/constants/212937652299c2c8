@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\ig_metrics.py
+# hypothesis_version: 6.148.7
+
+[0.3, 0.7, 0.8, '.2f', 'Chain', 'Condition', 'D50', 'D50指数', 'Gini Index', 'Gini_index', 'Gini指数', 'Group', 'IGH', 'IGK', 'IGL', 'Reads', 'Reads计数', 'Sample', 'Shannon', 'Timepoint', 'UCDR3', 'Unique CDR3计数', '^', 'all', 'bold', 'boxes', 'chains', 'coerce', 'comparison', 'coolwarm', 'correlation', 'correlations', 'count', 'd', 'distribution', 'diversity_analysis', 'error', 'ig_metrics', 'lightblue', 'max', 'mean', 'median', 'metrics', 'min', 'o', 'overview', 'params', 'plot_type', 'processed_data', 'records', 'right', 's', 'show_values', 'sort_samples', 'statistics', 'std', 'summary', 'x', '免疫球蛋白指标概览', '样本']

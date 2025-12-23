@@ -1,0 +1,30 @@
+# Flask and extensions
+flask==3.0.0
+flask-sqlalchemy==3.1.1
+flask-executor==1.0.0
+
+# Database
+sqlalchemy==2.0.25
+
+# Data processing
+pandas==2.1.4
+numpy==1.26.3
+openpyxl==3.1.2
+
+# Visualization
+matplotlib==3.8.2
+seaborn==0.13.1
+Pillow==10.2.0
+
+# Utilities
+python-dotenv==1.0.0
+
+# PDF Processing
+pdfplumber==0.10.3
+PyMuPDF==1.23.8
+tabula-py==2.9.0
+
+# Testing
+pytest==8.0.0
+pytest-cov==4.1.0
+hypothesis==6.92.2

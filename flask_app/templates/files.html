@@ -1,0 +1,702 @@
+{% extends 'base.html' %}
+
+{% block title %}文件管理{% endblock %}
+
+{% block extra_css %}
+<style>
+  .file-type-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .file-type-tabs .nav-link.active {
+    color: #0d6efd;
+    border-bottom: 2px solid #0d6efd;
+    background: transparent;
+  }
+
+  .file-type-tabs .nav-link:hover {
+    color: #0d6efd;
+  }
+
+  .batch-actions {
+    background: #f8f9fa;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .file-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+
+  .file-icon-pdf {
+    color: #dc3545;
+  }
+
+  .file-icon-excel {
+    color: #198754;
+  }
+
+  .file-icon-csv {
+    color: #0d6efd;
+  }
+
+  .search-box {
+    position: relative;
+  }
+
+  .search-box .bi-search {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #6c757d;
+  }
+
+  .search-box input {
+    padding-left: 36px;
+  }
+
+  .sort-btn {
+    border: 1px solid #dee2e6;
+    background: white;
+  }
+
+  .sort-btn:hover {
+    background: #f8f9fa;
+  }
+
+  .sort-btn.active {
+    background: #e9ecef;
+    border-color: #0d6efd;
+  }
+
+  .file-name-cell {
+    cursor: pointer;
+  }
+
+  .file-name-cell:hover {
+    color: #0d6efd;
+  }
+
+  .preview-modal .modal-dialog {
+    max-width: 90%;
+  }
+
+  .preview-table-container {
+    max-height: 60vh;
+    overflow: auto;
+  }
+
+  .preview-table th {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    z-index: 1;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>文件管理</h1>
+    <a href="{{ url_for('pages.upload_page') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>上传新文件
+    </a>
+  </div>
+
+  <!-- Search and Filter Bar -->
+  <div class="row mb-3 g-2">
+    <div class="col-md-4">
+      <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" class="form-control" id="searchInput" placeholder="搜索文件名...">
+      </div>
+    </div>
+    <div class="col-md-3">
+      <select class="form-select" id="projectFilter">
+        <option value="">全部项目</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <div class="btn-group w-100" role="group">
+        <button type="button" class="btn sort-btn active" data-sort="date" title="按时间排序">
+          <i class="bi bi-clock"></i>
+        </button>
+        <button type="button" class="btn sort-btn" data-sort="name" title="按名称排序">
+          <i class="bi bi-sort-alpha-down"></i>
+        </button>
+        <button type="button" class="btn sort-btn" data-sort="size" title="按大小排序">
+          <i class="bi bi-sort-numeric-down"></i>
+        </button>
+        <button type="button" class="btn sort-btn" id="sortOrderBtn" data-order="desc" title="切换排序顺序">
+          <i class="bi bi-sort-down"></i>
+        </button>
+      </div>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-outline-secondary w-100" onclick="FileManager.clearFilters()">
+        <i class="bi bi-x-circle me-1"></i>清除筛选
+      </button>
+    </div>
+  </div>
+
+  <!-- File Type Tabs -->
+  <ul class="nav file-type-tabs mb-3" id="fileTypeTabs">
+    <li class="nav-item">
+      <a class="nav-link active" href="#" data-type="data">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i>数据文件
+        <span class="badge bg-secondary ms-1" id="dataFileCount">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" href="#" data-type="pdf">
+        <i class="bi bi-file-earmark-pdf me-1"></i>PDF文件
+        <span class="badge bg-secondary ms-1" id="pdfFileCount">0</span>
+      </a>
+    </li>
+  </ul>
+
+  <!-- Batch Actions -->
+  <div class="batch-actions d-none" id="batchActions">
+    <div class="d-flex align-items-center">
+      <span class="me-3">已选择 <strong id="selectedCount">0</strong> 个文件</span>
+      <button class="btn btn-sm btn-outline-danger" onclick="FileManager.deleteSelected()">
+        <i class="bi bi-trash me-1"></i>批量删除
+      </button>
+      <button class="btn btn-sm btn-outline-secondary ms-2" onclick="FileManager.clearSelection()">
+        取消选择
+      </button>
+    </div>
+  </div>
+
+  <div class="text-center py-5" id="loadingSpinner">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">加载中...</span>
+    </div>
+    <p class="mt-2 text-muted">正在加载文件列表...</p>
+  </div>
+
+  <div class="card d-none" id="filesCard">
+    <div class="card-body">
+      <table class="table table-hover" id="filesTable">
+        <thead>
+          <tr>
+            <th style="width: 40px;">
+              <input type="checkbox" class="form-check-input file-checkbox" id="selectAll"
+                onclick="FileManager.toggleSelectAll()">
+            </th>
+            <th>文件名</th>
+            <th>大小</th>
+            <th>列数</th>
+            <th>行数</th>
+            <th>上传时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="filesTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card d-none" id="noFilesCard">
+    <div class="card-body text-center text-muted py-5">
+      <i class="bi bi-folder2-open display-4"></i>
+      <p class="mt-3" id="noFilesMessage">暂无上传的文件</p>
+      <a href="{{ url_for('pages.upload_page') }}" class="btn btn-outline-primary">上传第一个文件</a>
+    </div>
+  </div>
+
+  <div class="alert alert-danger d-none" id="errorAlert">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    <span id="errorMessage">加载文件列表失败</span>
+  </div>
+</div>
+
+<!-- Rename Modal -->
+<div class="modal fade" id="renameModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">重命名文件</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="renameFileId">
+        <div class="mb-3">
+          <label class="form-label">新文件名</label>
+          <input type="text" class="form-control" id="renameInput">
+          <div class="form-text">请保持文件扩展名不变</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" onclick="FileManager.renameFile()">确认重命名</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade preview-modal" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-eye me-2"></i><span id="previewFileName">文件预览</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-center py-4" id="previewLoading">
+          <div class="spinner-border text-primary"></div>
+          <p class="mt-2 text-muted">正在加载预览...</p>
+        </div>
+        <div class="d-none" id="previewContent">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <span class="badge bg-info me-2">列数: <span id="previewColCount">0</span></span>
+              <span class="badge bg-success">总行数: <span id="previewRowCount">0</span></span>
+            </div>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-secondary" onclick="FileManager.loadPreviewPage('prev')" id="prevPageBtn">
+                <i class="bi bi-chevron-left"></i> 上一页
+              </button>
+              <button class="btn btn-outline-secondary" disabled>
+                <span id="previewPageInfo">1-50</span>
+              </button>
+              <button class="btn btn-outline-secondary" onclick="FileManager.loadPreviewPage('next')" id="nextPageBtn">
+                下一页 <i class="bi bi-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+          <div class="preview-table-container">
+            <table class="table table-sm table-bordered preview-table" id="previewTable">
+              <thead id="previewTableHead"></thead>
+              <tbody id="previewTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="d-none text-center py-4" id="previewPdfMessage">
+          <i class="bi bi-file-earmark-pdf display-4 text-danger"></i>
+          <p class="mt-3">PDF文件无法预览数据内容</p>
+          <a href="" class="btn btn-primary" id="previewDownloadBtn"><i class="bi bi-download me-1"></i>下载文件</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const FileManager = {
+    allFiles: [],
+    dataFiles: [],
+    pdfFiles: [],
+    selectedFiles: new Set(),
+    currentType: 'data',
+    currentProject: '',
+    projects: [],
+
+    searchQuery: '',
+    sortBy: 'date',
+    sortOrder: 'desc',
+    previewFileId: null,
+    previewOffset: 0,
+    previewRows: 50,
+
+    init() {
+      this.setupTabs();
+      this.setupProjectFilter();
+      this.setupSearch();
+      this.setupSort();
+      this.loadProjects();
+      this.loadFiles();
+    },
+
+    setupTabs() {
+      document.querySelectorAll('#fileTypeTabs .nav-link').forEach(tab => {
+        tab.onclick = (e) => {
+          e.preventDefault();
+          document.querySelectorAll('#fileTypeTabs .nav-link').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          this.currentType = tab.dataset.type;
+          this.selectedFiles.clear();
+          this.updateBatchActions();
+          this.renderFilesTable();
+        };
+      });
+    },
+
+    setupProjectFilter() {
+      const projectFilter = document.getElementById('projectFilter');
+      if (projectFilter) {
+        projectFilter.addEventListener('change', () => {
+          this.currentProject = projectFilter.value;
+          this.loadFiles();
+        });
+      }
+    },
+
+    setupSearch() {
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        let debounceTimer;
+        searchInput.addEventListener('input', () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            this.searchQuery = searchInput.value.trim();
+            this.loadFiles();
+          }, 300);
+        });
+      }
+    },
+
+    setupSort() {
+      document.querySelectorAll('.sort-btn[data-sort]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.sort-btn[data-sort]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this.sortBy = btn.dataset.sort;
+          this.loadFiles();
+        });
+      });
+
+      const orderBtn = document.getElementById('sortOrderBtn');
+      if (orderBtn) {
+        orderBtn.addEventListener('click', () => {
+          this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
+          orderBtn.dataset.order = this.sortOrder;
+          orderBtn.innerHTML = this.sortOrder === 'desc' 
+            ? '<i class="bi bi-sort-down"></i>' 
+            : '<i class="bi bi-sort-up"></i>';
+          this.loadFiles();
+        });
+      }
+    },
+
+    clearFilters() {
+      this.searchQuery = '';
+      this.currentProject = '';
+      this.sortBy = 'date';
+      this.sortOrder = 'desc';
+      
+      document.getElementById('searchInput').value = '';
+      document.getElementById('projectFilter').value = '';
+      document.querySelectorAll('.sort-btn[data-sort]').forEach(b => b.classList.remove('active'));
+      document.querySelector('.sort-btn[data-sort="date"]').classList.add('active');
+      const orderBtn = document.getElementById('sortOrderBtn');
+      orderBtn.dataset.order = 'desc';
+      orderBtn.innerHTML = '<i class="bi bi-sort-down"></i>';
+      
+      this.loadFiles();
+    },
+
+    async loadProjects() {
+      try {
+        const response = await fetch('/api/files/projects');
+        if (!response.ok) return;
+        const data = await response.json();
+        this.projects = data.projects || [];
+        const select = document.getElementById('projectFilter');
+        if (!select) return;
+        select.innerHTML = '<option value="">全部项目</option>';
+        this.projects.forEach(project => {
+          const option = document.createElement('option');
+          option.value = project;
+          option.textContent = project === 'default' ? '默认项目' : project;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Error loading projects:', error);
+      }
+    },
+
+    async loadFiles() {
+      const loadingSpinner = document.getElementById('loadingSpinner');
+      const errorAlert = document.getElementById('errorAlert');
+      try {
+        const params = new URLSearchParams();
+        if (this.searchQuery) params.set('q', this.searchQuery);
+        if (this.currentProject) params.set('project', this.currentProject);
+        params.set('sort', this.sortBy);
+        params.set('order', this.sortOrder);
+        
+        const url = '/api/files/search?' + params.toString();
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to load files');
+        const data = await response.json();
+        this.allFiles = data.files || [];
+        this.dataFiles = this.allFiles.filter(f => !this.isPdfFile(f.name));
+        this.pdfFiles = this.allFiles.filter(f => this.isPdfFile(f.name));
+        document.getElementById('dataFileCount').textContent = this.dataFiles.length;
+        document.getElementById('pdfFileCount').textContent = this.pdfFiles.length;
+        loadingSpinner.classList.add('d-none');
+        errorAlert.classList.add('d-none');
+        this.renderFilesTable();
+      } catch (error) {
+        loadingSpinner.classList.add('d-none');
+        errorAlert.classList.remove('d-none');
+        document.getElementById('errorMessage').textContent = error.message;
+      }
+    },
+
+    isPdfFile(filename) {
+      return filename.toLowerCase().endsWith('.pdf');
+    },
+
+    getFileIcon(filename) {
+      const ext = filename.toLowerCase().split('.').pop();
+      if (ext === 'pdf') return '<i class="bi bi-file-earmark-pdf file-icon-pdf me-2"></i>';
+      if (ext === 'xlsx' || ext === 'xls') return '<i class="bi bi-file-earmark-excel file-icon-excel me-2"></i>';
+      if (ext === 'csv') return '<i class="bi bi-file-earmark-text file-icon-csv me-2"></i>';
+      return '<i class="bi bi-file-earmark me-2"></i>';
+    },
+
+    getCurrentFiles() {
+      return this.currentType === 'pdf' ? this.pdfFiles : this.dataFiles;
+    },
+
+    renderFilesTable() {
+      const filesCard = document.getElementById('filesCard');
+      const noFilesCard = document.getElementById('noFilesCard');
+      const tbody = document.getElementById('filesTableBody');
+      const files = this.getCurrentFiles();
+      if (files.length === 0) {
+        noFilesCard.classList.remove('d-none');
+        filesCard.classList.add('d-none');
+        document.getElementById('noFilesMessage').textContent =
+          this.currentType === 'pdf' ? '暂无PDF文件' : '暂无数据文件';
+        return;
+      }
+      noFilesCard.classList.add('d-none');
+      filesCard.classList.remove('d-none');
+      const isPdf = this.currentType === 'pdf';
+      tbody.innerHTML = files.map(file => `
+        <tr data-file-id="${file.id}">
+          <td><input type="checkbox" class="form-check-input file-checkbox" 
+            ${this.selectedFiles.has(file.id) ? 'checked' : ''}
+            onchange="FileManager.toggleFileSelection('${file.id}')"></td>
+          <td>${this.getFileIcon(file.name)}${this.escapeHtml(file.name)}</td>
+          <td>${this.formatFileSize(file.size)}</td>
+          <td>${isPdf ? '-' : (file.column_count || 0)}</td>
+          <td>${isPdf ? '-' : (file.row_count ? file.row_count.toLocaleString() : 0)}</td>
+          <td>${this.formatDate(file.uploaded_at)}</td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary" onclick="FileManager.previewFile('${file.id}')" title="预览"><i class="bi bi-eye"></i></button>
+              <a href="/api/files/${file.id}/download" class="btn btn-outline-info" title="下载"><i class="bi bi-download"></i></a>
+              <button class="btn btn-outline-warning" onclick="FileManager.showRenameModal('${file.id}', '${this.escapeHtml(file.name).replace(/'/g, "\\'")}')"
+                title="重命名"><i class="bi bi-pencil"></i></button>
+              ${isPdf ? '' : `<a href="/analysis?file_id=${file.id}" class="btn btn-outline-success" title="使用分析"><i class="bi bi-graph-up"></i></a>`}
+              <button class="btn btn-outline-danger" onclick="FileManager.deleteFile('${file.id}')" title="删除"><i class="bi bi-trash"></i></button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+      document.getElementById('selectAll').checked = false;
+    },
+
+    toggleFileSelection(fileId) {
+      if (this.selectedFiles.has(fileId)) this.selectedFiles.delete(fileId);
+      else this.selectedFiles.add(fileId);
+      this.updateBatchActions();
+    },
+
+    toggleSelectAll() {
+      const selectAll = document.getElementById('selectAll');
+      const files = this.getCurrentFiles();
+      if (selectAll.checked) files.forEach(f => this.selectedFiles.add(f.id));
+      else files.forEach(f => this.selectedFiles.delete(f.id));
+      document.querySelectorAll('#filesTableBody .file-checkbox').forEach(cb => cb.checked = selectAll.checked);
+      this.updateBatchActions();
+    },
+
+    clearSelection() {
+      this.selectedFiles.clear();
+      document.querySelectorAll('#filesTableBody .file-checkbox').forEach(cb => cb.checked = false);
+      document.getElementById('selectAll').checked = false;
+      this.updateBatchActions();
+    },
+
+    updateBatchActions() {
+      const batchActions = document.getElementById('batchActions');
+      const count = this.selectedFiles.size;
+      if (count > 0) {
+        batchActions.classList.remove('d-none');
+        document.getElementById('selectedCount').textContent = count;
+      } else {
+        batchActions.classList.add('d-none');
+      }
+    },
+
+    async deleteSelected() {
+      const count = this.selectedFiles.size;
+      if (count === 0) return;
+      if (!confirm(`确定要删除选中的 ${count} 个文件吗？此操作不可撤销。`)) return;
+      const fileIds = Array.from(this.selectedFiles);
+      let successCount = 0, failCount = 0;
+      for (const fileId of fileIds) {
+        try {
+          const response = await fetch('/api/files/' + fileId, { method: 'DELETE' });
+          if (response.ok) successCount++; else failCount++;
+        } catch (error) { failCount++; }
+      }
+      this.selectedFiles.clear();
+      this.updateBatchActions();
+      if (failCount > 0) alert(`删除完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+      this.loadFiles();
+    },
+
+    async deleteFile(fileId) {
+      if (!confirm('确定要删除此文件吗？此操作不可撤销。')) return;
+      try {
+        const response = await fetch('/api/files/' + fileId, { method: 'DELETE' });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Failed to delete file');
+        }
+        this.selectedFiles.delete(fileId);
+        this.loadFiles();
+      } catch (error) {
+        alert('删除文件失败: ' + error.message);
+      }
+    },
+
+    formatFileSize(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
+
+    formatDate(isoString) {
+      if (!isoString) return '-';
+      return new Date(isoString).toLocaleString('zh-CN');
+    },
+
+    escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    },
+
+    showRenameModal(fileId, fileName) {
+      document.getElementById('renameFileId').value = fileId;
+      document.getElementById('renameInput').value = fileName;
+      new bootstrap.Modal(document.getElementById('renameModal')).show();
+    },
+
+    async renameFile() {
+      const fileId = document.getElementById('renameFileId').value;
+      const newName = document.getElementById('renameInput').value.trim();
+      
+      if (!newName) {
+        alert('文件名不能为空');
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/files/${fileId}/rename`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.message || '重命名失败');
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
+        this.loadFiles();
+      } catch (error) {
+        alert('重命名失败: ' + error.message);
+      }
+    },
+
+    async previewFile(fileId) {
+      this.previewFileId = fileId;
+      this.previewOffset = 0;
+      
+      const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+      modal.show();
+      
+      document.getElementById('previewLoading').classList.remove('d-none');
+      document.getElementById('previewContent').classList.add('d-none');
+      document.getElementById('previewPdfMessage').classList.add('d-none');
+      
+      await this.loadPreviewData();
+    },
+
+    async loadPreviewData() {
+      try {
+        const response = await fetch(
+          `/api/files/${this.previewFileId}/preview?rows=${this.previewRows}&offset=${this.previewOffset}`
+        );
+        
+        if (!response.ok) throw new Error('加载预览失败');
+        
+        const data = await response.json();
+        
+        document.getElementById('previewLoading').classList.add('d-none');
+        
+        if (data.is_pdf) {
+          document.getElementById('previewPdfMessage').classList.remove('d-none');
+          document.getElementById('previewFileName').textContent = data.name;
+          document.getElementById('previewDownloadBtn').href = `/api/files/${this.previewFileId}/download`;
+          return;
+        }
+        
+        document.getElementById('previewContent').classList.remove('d-none');
+        document.getElementById('previewFileName').textContent = data.name;
+        document.getElementById('previewColCount').textContent = data.columns.length;
+        document.getElementById('previewRowCount').textContent = data.total_rows.toLocaleString();
+        
+        const startRow = this.previewOffset + 1;
+        const endRow = this.previewOffset + data.rows_returned;
+        document.getElementById('previewPageInfo').textContent = `${startRow}-${endRow} / ${data.total_rows}`;
+        
+        document.getElementById('prevPageBtn').disabled = this.previewOffset === 0;
+        document.getElementById('nextPageBtn').disabled = !data.has_more;
+        
+        // Render table header
+        const thead = document.getElementById('previewTableHead');
+        thead.innerHTML = '<tr><th>#</th>' + data.columns.map(c => `<th>${this.escapeHtml(c)}</th>`).join('') + '</tr>';
+        
+        // Render table body
+        const tbody = document.getElementById('previewTableBody');
+        tbody.innerHTML = data.data.map((row, idx) => {
+          const rowNum = this.previewOffset + idx + 1;
+          const cells = data.columns.map(c => {
+            const val = row[c];
+            return `<td>${val === null ? '<span class="text-muted">-</span>' : this.escapeHtml(String(val))}</td>`;
+          }).join('');
+          return `<tr><td class="text-muted">${rowNum}</td>${cells}</tr>`;
+        }).join('');
+        
+      } catch (error) {
+        document.getElementById('previewLoading').innerHTML = 
+          `<div class="text-danger"><i class="bi bi-exclamation-triangle"></i> ${error.message}</div>`;
+      }
+    },
+
+    loadPreviewPage(direction) {
+      if (direction === 'next') {
+        this.previewOffset += this.previewRows;
+      } else if (direction === 'prev' && this.previewOffset >= this.previewRows) {
+        this.previewOffset -= this.previewRows;
+      }
+      this.loadPreviewData();
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', () => FileManager.init());
+</script>
+{% endblock %}

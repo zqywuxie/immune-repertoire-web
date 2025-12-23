@@ -1,0 +1,94 @@
+{% extends "analysis/base_analysis.html" %}
+
+{# Set page-specific variables #}
+{% set page_title = "B细胞同型分布分析" %}
+{% set page_icon = "bi bi-pie-chart-fill" %}
+{% set page_description = "分析B细胞同型分布（IgM、IgD、IgA1/2、IgG1/2、IgG3/4、IgE），包括表达百分比和唯一CDR3百分比指标。" %}
+{% set default_chart_title = "B细胞同型分布" %}
+{% set default_chart_height = 8 %}
+
+{# Add analysis-specific CSS #}
+{% block analysis_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bcell_isotype.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
+{% endblock %}
+
+{# Add baseline selection to file configuration #}
+{% block file_config_extra %}
+<div class="mb-3">
+    <label for="baselineSelect" class="form-label">基准样本（可选）</label>
+    <select class="form-select" id="baselineSelect" disabled>
+        <option value="">-- 无基准 --</option>
+    </select>
+    <div class="form-text">选择基准样本以计算百分比差异。</div>
+</div>
+{% endblock %}
+
+{# Analysis-specific results content #}
+{% block results_content %}
+<!-- Sample Selector for Charts -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-person me-2"></i>
+                选择样本查看图表
+            </div>
+            <div class="card-body">
+                <select class="form-select" id="sampleChartSelect">
+                    <option value="">-- 选择样本 --</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-bar-chart-horizontal me-2"></i>
+                    同型分布图表
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadChartBtn" disabled>
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="chartContainer">
+                    <p class="text-muted">选择样本以查看图表</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Percentage Diff Chart -->
+<div id="diffChartSection" class="row mb-4 d-none">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-graph-up me-2"></i>
+                    相对基准的百分比变化
+                </span>
+                <button class="btn btn-sm btn-outline-primary" id="downloadDiffChartBtn">
+                    <i class="bi bi-download me-1"></i>
+                    下载PNG
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div id="diffChartContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{# Add analysis-specific JavaScript #}
+{% block analysis_js %}
+<script src="{{ url_for('static', filename='js/modules/bcell_isotype.js') }}"></script>
+{% endblock %}

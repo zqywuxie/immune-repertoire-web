@@ -1,0 +1,801 @@
+{% extends 'base.html' %}
+
+{% block title %}数据分析{% endblock %}
+
+{% block extra_css %}
+<style>
+    .analysis-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .scheme-tabs {
+        background: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .scheme-tab {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.75rem 1.25rem;
+        margin: 0.25rem;
+        border: 2px solid #dee2e6;
+        border-radius: 0.5rem;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 500;
+    }
+
+    .scheme-tab:hover {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+    }
+
+    .scheme-tab.active {
+        border-color: #0d6efd;
+        background: #0d6efd;
+        color: white;
+    }
+
+    .scheme-tab i {
+        font-size: 1.25rem;
+        margin-right: 0.5rem;
+    }
+
+    .analysis-panel {
+        background: white;
+        border-radius: 0.5rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        padding: 1.5rem;
+    }
+
+    .file-upload-area {
+        border: 2px dashed #dee2e6;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .file-upload-area:hover {
+        border-color: #0d6efd;
+        background: #f8f9fa;
+    }
+
+    .file-upload-area.dragover {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+    }
+
+    .file-info {
+        background: #e7f1ff;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+
+    .param-group {
+        background: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .param-group h6 {
+        margin-bottom: 0.75rem;
+        color: #495057;
+    }
+
+    .result-area {
+        min-height: 300px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background: #fafafa;
+    }
+
+    .chart-container {
+        width: 100%;
+        min-height: 400px;
+    }
+
+    .data-table-container {
+        max-height: 500px;
+        overflow: auto;
+    }
+
+    .btn-run-analysis {
+        padding: 0.75rem 2rem;
+        font-size: 1.1rem;
+    }
+
+    .scheme-description {
+        color: #6c757d;
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+    }
+
+    .field-mapping-table th {
+        background: #f8f9fa;
+        font-weight: 500;
+    }
+
+    .confidence-high {
+        color: #198754;
+    }
+
+    .confidence-medium {
+        color: #ffc107;
+    }
+
+    .confidence-low {
+        color: #dc3545;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 analysis-container">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="mb-2"><i class="bi bi-graph-up me-2"></i>数据分析</h1>
+            <p class="text-muted">选择分析方案，上传数据文件，一键执行分析</p>
+        </div>
+    </div>
+
+    <div class="scheme-tabs">
+        <div class="d-flex flex-wrap align-items-center">
+            <span class="me-3 text-muted fw-bold">分析方案:</span>
+            <div id="schemeTabs">
+                <div class="spinner-border spinner-border-sm text-primary" role="status"><span
+                        class="visually-hidden">加载中...</span></div>
+            </div>
+        </div>
+        <p id="schemeDescription" class="scheme-description mb-0"></p>
+        <div id="schemeFieldsHint" class="mt-2 small" style="display: none;">
+            <span class="text-muted">所需字段：</span><span id="schemeFieldsList" class="text-primary"></span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-5">
+            <div class="analysis-panel">
+                <div class="mb-4">
+                    <h5 class="mb-3"><i class="bi bi-file-earmark-arrow-up me-2"></i>数据文件</h5>
+                    <div class="mb-3">
+                        <label class="form-label">选择项目</label>
+                        <select class="form-select" id="projectFilterSelect">
+                            <option value="">全部项目</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">选择已上传文件</label>
+                        <select class="form-select" id="existingFileSelect">
+                            <option value="">-- 选择文件 --</option>
+                        </select>
+                    </div>
+                    <div class="text-center text-muted mb-2">或</div>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                        <p class="mb-1">点击或拖拽文件到此处上传</p>
+                        <small class="text-muted">支持 Excel (.xlsx, .xls) 和 CSV 文件</small>
+                        <input type="file" id="fileInput" class="d-none" accept=".xlsx,.xls,.csv">
+                    </div>
+                    <div id="fileInfo" class="file-info d-none">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div><i class="bi bi-file-earmark-spreadsheet me-2"></i><span id="fileName">文件名</span></div>
+                            <button class="btn btn-sm btn-outline-danger" id="removeFileBtn"><i
+                                    class="bi bi-x"></i></button>
+                        </div>
+                        <small class="text-muted" id="fileDetails"></small>
+                    </div>
+                </div>
+
+                <div class="mb-4" id="fieldMappingSection" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>字段映射</h5>
+                        <button class="btn btn-sm btn-outline-primary" id="addFieldBtn" type="button"><i
+                                class="bi bi-plus-lg me-1"></i>添加字段</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm field-mapping-table">
+                            <thead>
+                                <tr>
+                                    <th>字段名称</th>
+                                    <th>数据列</th>
+                                    <th>置信度</th>
+                                    <th style="width: 50px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fieldMappingBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mb-4" id="parametersSection" style="display: none;">
+                    <h5 class="mb-3"><i class="bi bi-gear me-2"></i>分析参数</h5>
+                    <div class="param-group" id="chainSelectionGroup" style="display: none;">
+                        <h6>选择链类型</h6>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <div class="form-check"><input class="form-check-input chain-checkbox" type="checkbox"
+                                    value="IGH" id="chainIGH" checked><label class="form-check-label"
+                                    for="chainIGH">IGH</label></div>
+                            <div class="form-check"><input class="form-check-input chain-checkbox" type="checkbox"
+                                    value="IGK" id="chainIGK" checked><label class="form-check-label"
+                                    for="chainIGK">IGK</label></div>
+                            <div class="form-check"><input class="form-check-input chain-checkbox" type="checkbox"
+                                    value="IGL" id="chainIGL" checked><label class="form-check-label"
+                                    for="chainIGL">IGL</label></div>
+                        </div>
+                        <small class="text-muted">选择要分析的免疫球蛋白链</small>
+                        <div id="chainFieldMappingTabs" class="mt-3" style="display: none;">
+                            <ul class="nav nav-pills nav-fill mb-2" id="chainMappingNav"></ul>
+                            <div id="chainMappingContent"></div>
+                        </div>
+                    </div>
+                    <div class="param-group">
+                        <h6>基线样本</h6>
+                        <select class="form-select form-select-sm" id="baselineSampleSelect">
+                            <option value="">自动选择</option>
+                        </select>
+                        <small class="text-muted">用于计算百分比变化的参考样本</small>
+                    </div>
+                    <div class="param-group">
+                        <h6>图表设置</h6>
+                        <div class="row g-2">
+                            <div class="col-6"><label class="form-label small">宽度</label><input type="number"
+                                    class="form-control form-control-sm" id="chartWidth" value="16"></div>
+                            <div class="col-6"><label class="form-label small">高度</label><input type="number"
+                                    class="form-control form-control-sm" id="chartHeight" value="10"></div>
+                        </div>
+                    </div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" id="showValues"
+                            checked><label class="form-check-label" for="showValues">显示数值标签</label></div>
+                </div>
+
+                <div class="text-center"><button class="btn btn-primary btn-run-analysis" id="runAnalysisBtn"
+                        disabled><i class="bi bi-play-fill me-2"></i>执行分析</button></div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="analysis-panel">
+                <h5 class="mb-3"><i class="bi bi-bar-chart me-2"></i>分析结果</h5>
+                <ul class="nav nav-tabs mb-3" id="resultTabs">
+                    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#chartTab">图表</a></li>
+                    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dataTab">数据</a></li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="chartTab">
+                        <div class="result-area" id="chartArea">
+                            <div class="text-center text-muted py-5"><i class="bi bi-bar-chart fs-1"></i>
+                                <p class="mt-2">选择方案并上传数据后，点击"执行分析"查看结果</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="dataTab">
+                        <div class="data-table-container" id="dataTableArea">
+                            <div class="text-center text-muted py-5"><i class="bi bi-table fs-1"></i>
+                                <p class="mt-2">分析完成后将在此显示数据表格</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 text-end" id="exportButtons" style="display: none;">
+                    <button class="btn btn-outline-primary btn-sm me-2" id="downloadChartBtn"><i
+                            class="bi bi-download me-1"></i>下载图表</button>
+                    <button class="btn btn-outline-primary btn-sm me-2" id="downloadDataBtn"><i
+                            class="bi bi-file-earmark-excel me-1"></i>下载数据</button>
+                    <button class="btn btn-outline-secondary btn-sm" id="copyDataBtn"><i
+                            class="bi bi-clipboard me-1"></i>复制数据</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none"
+    style="background: rgba(255,255,255,0.8); z-index: 9999;">
+    <div class="position-absolute top-50 start-50 translate-middle text-center">
+        <div class="spinner-border text-primary mb-3" role="status"></div>
+        <p class="text-muted" id="loadingMessage">正在分析数据...</p>
+    </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    class SimpleAnalysis {
+        constructor() {
+            this.schemes = [];
+            this.selectedScheme = null;
+            this.uploadedFile = null;
+            this.fileColumns = [];
+            this.fieldMapping = {};
+            this.chainFieldMappings = {};
+            this.customFields = [];
+            this.lastResult = null;
+            this.allFiles = [];
+            this.projects = [];
+            this.currentProject = '';
+        }
+
+        async init() {
+            await this.loadSchemes();
+            this.setupEventListeners();
+            await this.loadProjects();
+            await this.loadExistingFiles();
+        }
+
+        async loadSchemes() {
+            try {
+                const response = await fetch('/api/analysis/schemes');
+                const data = await response.json();
+                this.schemes = data.schemes || [];
+                this.renderSchemeTabs();
+            } catch (error) {
+                console.error('Error loading schemes:', error);
+                this.showToast('加载分析方案失败', 'error');
+            }
+        }
+
+        renderSchemeTabs() {
+            const container = document.getElementById('schemeTabs');
+            container.innerHTML = '';
+            this.schemes.forEach((scheme, index) => {
+                const tab = document.createElement('div');
+                tab.className = 'scheme-tab' + (index === 0 ? ' active' : '');
+                tab.dataset.schemeId = scheme.id;
+                tab.innerHTML = `<i class="${scheme.icon || 'bi-graph-up'}"></i>${scheme.name}`;
+                tab.onclick = () => this.selectScheme(scheme);
+                container.appendChild(tab);
+            });
+            if (this.schemes.length > 0) this.selectScheme(this.schemes[0]);
+        }
+
+        async selectScheme(scheme) {
+            if (!scheme.required_fields) {
+                try {
+                    const response = await fetch(`/api/analysis/schemes/${scheme.id}`);
+                    const data = await response.json();
+                    if (data.required_fields) Object.assign(scheme, data);
+                } catch (error) { console.error('Error loading scheme details:', error); }
+            }
+            this.selectedScheme = scheme;
+            this.clearResults();
+            document.querySelectorAll('.scheme-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.schemeId === scheme.id);
+            });
+            document.getElementById('schemeDescription').textContent = scheme.description || '';
+            this.showSchemeFieldsHint(scheme);
+            this.updateChainSelectionVisibility(scheme);
+            if (this.uploadedFile) this.updateFieldMapping();
+            this.updateRunButton();
+        }
+
+        updateChainSelectionVisibility(scheme) {
+            const chainGroup = document.getElementById('chainSelectionGroup');
+            // 只有IG指标分析需要选择链类型
+            const igSchemes = ['ig_metrics', 'ig_diversity_metrics'];
+            chainGroup.style.display = igSchemes.includes(scheme.id) ? 'block' : 'none';
+
+            // PPT报告生成不需要选择基准样本（自动选择Total Receptor RNA最低的样本）
+            const baselineGroup = document.querySelector('.param-group:has(#baselineSampleSelect)');
+            if (baselineGroup) {
+                baselineGroup.style.display = scheme.id === 'ppt_report' ? 'none' : 'block';
+            }
+        }
+
+        showSchemeFieldsHint(scheme) {
+            const hintDiv = document.getElementById('schemeFieldsHint');
+            const fieldsList = document.getElementById('schemeFieldsList');
+            const requiredFields = scheme.required_fields || [];
+            const optionalFields = scheme.optional_fields || [];
+            if (requiredFields.length === 0 && optionalFields.length === 0) { hintDiv.style.display = 'none'; return; }
+            const fieldNames = requiredFields.map(f => `<strong>${f.display_name}</strong>`);
+            const optionalNames = optionalFields.map(f => `<span class="text-muted">${f.display_name}</span>`);
+            fieldsList.innerHTML = [...fieldNames, ...optionalNames].join(', ');
+            hintDiv.style.display = 'block';
+        }
+
+        setupEventListeners() {
+            const uploadArea = document.getElementById('fileUploadArea');
+            const fileInput = document.getElementById('fileInput');
+            uploadArea.onclick = () => fileInput.click();
+            uploadArea.ondragover = (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); };
+            uploadArea.ondragleave = () => uploadArea.classList.remove('dragover');
+            uploadArea.ondrop = (e) => { e.preventDefault(); uploadArea.classList.remove('dragover'); if (e.dataTransfer.files.length > 0) this.handleFileUpload(e.dataTransfer.files[0]); };
+            fileInput.onchange = (e) => { if (e.target.files.length > 0) this.handleFileUpload(e.target.files[0]); };
+            document.getElementById('projectFilterSelect').onchange = (e) => { this.currentProject = e.target.value; this.filterFilesByProject(); };
+            document.getElementById('existingFileSelect').onchange = (e) => { if (e.target.value) this.loadExistingFile(e.target.value); };
+            document.getElementById('removeFileBtn').onclick = () => this.clearFile();
+            document.getElementById('runAnalysisBtn').onclick = () => this.runAnalysis();
+            document.getElementById('downloadChartBtn').onclick = () => this.downloadChart();
+            document.getElementById('downloadDataBtn').onclick = () => this.downloadData();
+            document.getElementById('copyDataBtn').onclick = () => this.copyData();
+            document.getElementById('addFieldBtn').onclick = () => this.addField();
+            document.querySelectorAll('.chain-checkbox').forEach(cb => { cb.onchange = () => { if (this.uploadedFile) this.updateFieldMapping(); }; });
+        }
+
+        async loadProjects() {
+            try {
+                const response = await fetch('/api/files/projects');
+                if (!response.ok) return;
+                const data = await response.json();
+                this.projects = data.projects || [];
+                const select = document.getElementById('projectFilterSelect');
+                if (select) {
+                    select.innerHTML = '<option value="">全部项目</option>';
+                    this.projects.forEach(project => {
+                        const option = document.createElement('option');
+                        option.value = project;
+                        option.textContent = project === 'default' ? '默认项目' : project;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) { console.error('Error loading projects:', error); }
+        }
+
+        async loadExistingFiles() {
+            try {
+                const response = await fetch('/api/files');
+                const data = await response.json();
+                this.allFiles = data.files || [];
+                this.filterFilesByProject();
+            } catch (error) { console.error('Error loading files:', error); }
+        }
+
+        filterFilesByProject() {
+            const select = document.getElementById('existingFileSelect');
+            if (!select) return;
+            let filteredFiles = this.allFiles;
+            if (this.currentProject) {
+                filteredFiles = this.allFiles.filter(f => f.project === this.currentProject);
+            }
+            select.innerHTML = '<option value="">-- 选择文件 --</option>';
+            filteredFiles.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.id;
+                option.textContent = file.name || file.filename;
+                select.appendChild(option);
+            });
+        }
+
+        async handleFileUpload(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            this.showLoading('正在上传文件...');
+            try {
+                const response = await fetch('/api/files/upload', { method: 'POST', body: formData });
+                if (response.ok) {
+                    const data = await response.json();
+                    await this.loadExistingFile(data.file_id);
+                    this.showToast('文件上传成功', 'success');
+                } else { throw new Error('Upload failed'); }
+            } catch (error) { console.error('Error uploading file:', error); this.showToast('文件上传失败', 'error'); }
+            finally { this.hideLoading(); }
+        }
+
+        async loadExistingFile(fileId) {
+            this.showLoading('正在加载文件...');
+            try {
+                const response = await fetch(`/api/files/${fileId}`);
+                const data = await response.json();
+                this.uploadedFile = data;
+                this.fileColumns = data.columns || [];
+                document.getElementById('fileName').textContent = data.name || data.filename;
+                document.getElementById('fileDetails').textContent = `${data.row_count || 0} 行, ${this.fileColumns.length} 列`;
+                document.getElementById('fileInfo').classList.remove('d-none');
+                this.updateFieldMapping();
+                document.getElementById('parametersSection').style.display = 'block';
+                this.updateBaselineSampleOptions();
+                this.updateRunButton();
+            } catch (error) { console.error('Error loading file:', error); this.showToast('加载文件失败', 'error'); }
+            finally { this.hideLoading(); }
+        }
+
+        updateFieldMapping() {
+            if (!this.selectedScheme || !this.uploadedFile) return;
+            const section = document.getElementById('fieldMappingSection');
+            const tbody = document.getElementById('fieldMappingBody');
+            tbody.innerHTML = '';
+            this.fieldMapping = {};
+            this.chainFieldMappings = {};
+            const isIGScheme = ['ig_metrics', 'ig_diversity_metrics'].includes(this.selectedScheme.id);
+            if (isIGScheme) { this.showChainFieldMappingTabs(); section.style.display = 'none'; return; }
+            this.hideChainFieldMappingTabs();
+            const requiredFields = this.selectedScheme.required_fields || [];
+            const optionalFields = this.selectedScheme.optional_fields || [];
+            const allFields = [...requiredFields, ...optionalFields, ...this.customFields];
+            allFields.forEach((field) => {
+                const isRequired = requiredFields.includes(field);
+                const isCustom = this.customFields.includes(field);
+                const mapping = this.autoMapField(field);
+                this.fieldMapping[field.field] = mapping.column;
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${isCustom ? `<input type="text" class="form-control form-control-sm" value="${field.display_name}">` : `<strong>${field.display_name}</strong>${isRequired ? '<span class="text-danger">*</span>' : ''}`}</td><td><select class="form-select form-select-sm"><option value="">-- 未映射 --</option>${this.fileColumns.map(col => `<option value="${col}" ${col === mapping.column ? 'selected' : ''}>${col}</option>`).join('')}</select></td><td><span class="confidence-${mapping.confidence >= 80 ? 'high' : mapping.confidence >= 50 ? 'medium' : 'low'}">${mapping.confidence}%</span></td><td>${isCustom || !isRequired ? `<button class="btn btn-sm btn-outline-danger delete-field-btn"><i class="bi bi-trash"></i></button>` : ''}</td>`;
+                row.querySelector('select').onchange = (e) => { this.fieldMapping[field.field] = e.target.value; this.updateRunButton(); };
+                const deleteBtn = row.querySelector('.delete-field-btn');
+                if (deleteBtn) deleteBtn.onclick = () => this.removeField(field);
+                tbody.appendChild(row);
+                section.style.display = 'block';
+            });
+        }
+
+        addField() {
+            if (!this.uploadedFile) { this.showToast('请先选择文件', 'error'); return; }
+            const newField = { field: `custom_field_${Date.now()}`, display_name: '自定义字段', mapping_hints: [] };
+            this.customFields.push(newField);
+            this.updateFieldMapping();
+        }
+
+        removeField(field) {
+            if (this.customFields.includes(field)) this.customFields = this.customFields.filter(f => f !== field);
+            delete this.fieldMapping[field.field];
+            this.updateFieldMapping();
+        }
+
+        autoMapField(field) {
+            const hints = field.mapping_hints || [];
+            const fieldName = field.field.toLowerCase();
+            for (const col of this.fileColumns) {
+                const colLower = col.toLowerCase();
+                if (colLower === fieldName) return { column: col, confidence: 100 };
+                for (const hint of hints) {
+                    if (colLower === hint.toLowerCase()) return { column: col, confidence: 90 };
+                    if (colLower.includes(hint.toLowerCase()) || hint.toLowerCase().includes(colLower)) return { column: col, confidence: 80 };
+                }
+                if (colLower.includes(fieldName) || fieldName.includes(colLower)) return { column: col, confidence: 70 };
+            }
+            return { column: '', confidence: 0 };
+        }
+
+        showChainFieldMappingTabs() {
+            const tabsContainer = document.getElementById('chainFieldMappingTabs');
+            const nav = document.getElementById('chainMappingNav');
+            const selectedChains = [];
+            document.querySelectorAll('.chain-checkbox:checked').forEach(cb => selectedChains.push(cb.value));
+            const chains = selectedChains.length > 0 ? selectedChains : ['IGH', 'IGK', 'IGL'];
+            nav.innerHTML = chains.map((chain, idx) => `<li class="nav-item"><a class="nav-link ${idx === 0 ? 'active' : ''}" data-chain="${chain}" href="#" onclick="simpleAnalysis.switchChainMapping('${chain}'); return false;">${chain} 字段映射</a></li>`).join('');
+            const defaultMetrics = ['Reads', 'UCDR3', 'D50', 'Gini_index', 'Shannon'];
+            this.chainFieldMappings = {};
+            chains.forEach(chain => {
+                this.chainFieldMappings[chain] = {};
+                defaultMetrics.forEach(metric => {
+                    const fieldKey = `${chain}_${metric}`;
+                    const mapping = this.autoMapFieldForChain(chain, metric);
+                    this.chainFieldMappings[chain][metric] = mapping.column;
+                    this.fieldMapping[fieldKey] = mapping.column;
+                });
+            });
+            const sampleMapping = this.autoMapField({ field: 'Sample', mapping_hints: ['sample', 'sample_name'] });
+            this.fieldMapping['Sample'] = sampleMapping.column;
+            this.currentChain = chains[0];
+            this.renderChainMappingContent(chains[0]);
+            tabsContainer.style.display = 'block';
+        }
+
+        hideChainFieldMappingTabs() { document.getElementById('chainFieldMappingTabs').style.display = 'none'; }
+
+        switchChainMapping(chain) {
+            this.currentChain = chain;
+            document.querySelectorAll('#chainMappingNav .nav-link').forEach(link => link.classList.toggle('active', link.dataset.chain === chain));
+            this.renderChainMappingContent(chain);
+        }
+
+        renderChainMappingContent(chain) {
+            const content = document.getElementById('chainMappingContent');
+            const metrics = ['Reads', 'UCDR3', 'D50', 'Gini_index', 'Shannon'];
+            let html = `<div class="table-responsive"><table class="table table-sm"><thead><tr><th>指标</th><th>数据列</th><th>置信度</th></tr></thead><tbody>`;
+            metrics.forEach(metric => {
+                const fieldKey = `${chain}_${metric}`;
+                const mapping = this.autoMapFieldForChain(chain, metric);
+                if (!this.fieldMapping[fieldKey] && mapping.column) this.fieldMapping[fieldKey] = mapping.column;
+                const currentCol = this.fieldMapping[fieldKey] || '';
+                html += `<tr><td><strong>${metric}</strong></td><td><select class="form-select form-select-sm" onchange="simpleAnalysis.updateChainFieldMapping('${chain}', '${metric}', this.value)"><option value="">-- 未映射 --</option>${this.fileColumns.map(col => `<option value="${col}" ${col === currentCol ? 'selected' : ''}>${col}</option>`).join('')}</select></td><td><span class="confidence-${mapping.confidence >= 80 ? 'high' : mapping.confidence >= 50 ? 'medium' : 'low'}">${currentCol ? mapping.confidence : 0}%</span></td></tr>`;
+            });
+            html += `</tbody></table></div>`;
+            content.innerHTML = html;
+        }
+
+        autoMapFieldForChain(chain, metric) {
+            const chainLower = chain.toLowerCase();
+            const metricLower = metric.toLowerCase();
+            const metricAliases = { 'reads': ['reads', 'read'], 'ucdr3': ['ucdr3', 'unique_cdr3', 'cdr3'], 'd50': ['d50'], 'gini_index': ['gini_index', 'gini', 'giniindex', 'gini index'], 'shannon': ['shannon', 'shannon_entropy'] };
+            const aliases = metricAliases[metricLower] || [metricLower];
+            for (const col of this.fileColumns) {
+                const colLower = col.toLowerCase();
+                for (const alias of aliases) { if (colLower === `${chainLower}_${alias}`) return { column: col, confidence: 100 }; }
+                for (const alias of aliases) { if (colLower === `${chainLower}${alias}`) return { column: col, confidence: 95 }; }
+                if (colLower.startsWith(`${chainLower}_`)) { for (const alias of aliases) { if (colLower.includes(alias)) return { column: col, confidence: 85 }; } }
+                for (const alias of aliases) { if (colLower === alias || colLower.replace(/\s+/g, '_') === alias) return { column: col, confidence: 100 }; }
+            }
+            return { column: '', confidence: 0 };
+        }
+
+        updateChainFieldMapping(chain, metric, column) {
+            const fieldKey = `${chain}_${metric}`;
+            this.fieldMapping[fieldKey] = column;
+            if (this.chainFieldMappings[chain]) this.chainFieldMappings[chain][metric] = column;
+        }
+
+        async updateBaselineSampleOptions() {
+            const select = document.getElementById('baselineSampleSelect');
+            select.innerHTML = '<option value="">无基准样本</option>';
+            if (!this.uploadedFile) return;
+            const rows = this.uploadedFile.sample_data || [];
+            if (rows.length === 0) return;
+
+            // 智能查找样本列：优先使用映射，否则查找包含sample的列
+            let sampleCol = this.fieldMapping['Sample'];
+            if (!sampleCol) {
+                const firstRow = rows[0];
+                const keys = Object.keys(firstRow);
+                sampleCol = keys.find(k => k.toLowerCase() === 'sample') ||
+                    keys.find(k => k.toLowerCase().includes('sample')) ||
+                    keys[0];
+            }
+
+            const samples = new Set();
+            rows.forEach(row => {
+                const val = row[sampleCol];
+                if (val !== null && val !== undefined && val !== '') samples.add(val);
+            });
+            samples.forEach(sample => {
+                const option = document.createElement('option');
+                option.value = sample;
+                option.textContent = sample;
+                select.appendChild(option);
+            });
+        }
+
+        clearFile() {
+            this.uploadedFile = null; this.fileColumns = []; this.fieldMapping = {};
+            document.getElementById('fileInfo').classList.add('d-none');
+            document.getElementById('fieldMappingSection').style.display = 'none';
+            document.getElementById('parametersSection').style.display = 'none';
+            document.getElementById('existingFileSelect').value = '';
+            this.hideChainFieldMappingTabs();
+            this.updateRunButton();
+        }
+
+        clearResults() {
+            document.getElementById('chartArea').innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-bar-chart fs-1"></i><p class="mt-2">选择方案并上传数据后，点击"执行分析"查看结果</p></div>`;
+            document.getElementById('dataTableArea').innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-table fs-1"></i><p class="mt-2">分析完成后将在此显示数据表格</p></div>`;
+            document.getElementById('exportButtons').style.display = 'none';
+            this.lastResult = null;
+        }
+
+        updateRunButton() { document.getElementById('runAnalysisBtn').disabled = !this.selectedScheme || !this.uploadedFile; }
+
+        async runAnalysis() {
+            if (!this.selectedScheme || !this.uploadedFile) return;
+            this.showLoading('正在分析数据...');
+            try {
+                const selectedChains = [];
+                document.querySelectorAll('.chain-checkbox:checked').forEach(cb => selectedChains.push(cb.value));
+                const igSchemes = ['ig_metrics', 'ig_diversity_metrics'];
+                const params = {
+                    file_id: this.uploadedFile.id, mode: 'scheme', scheme_id: this.selectedScheme.id, field_mapping: this.fieldMapping,
+                    parameters: {
+                        baseline_sample: document.getElementById('baselineSampleSelect').value || null,
+                        chart_config: { figsize: [parseInt(document.getElementById('chartWidth').value) || 16, parseInt(document.getElementById('chartHeight').value) || 10], show_values: document.getElementById('showValues').checked }
+                    }
+                };
+                if (igSchemes.includes(this.selectedScheme.id)) {
+                    params.parameters.chains = selectedChains.length > 0 ? selectedChains : ['IGH', 'IGK', 'IGL'];
+                }
+                const response = await fetch('/api/analysis/execute-unified', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+                const result = await response.json();
+                if (response.ok) { this.displayResults(result); this.showToast('分析完成', 'success'); }
+                else { throw new Error(result.error || 'Analysis failed'); }
+            } catch (error) { console.error('Error running analysis:', error); this.showToast('分析失败: ' + error.message, 'error'); }
+            finally { this.hideLoading(); }
+        }
+
+        displayResults(result) {
+            console.log('Analysis result:', JSON.stringify(result, null, 2));
+            const chartArea = document.getElementById('chartArea');
+            const charts = result.results?.charts || [];
+            if (charts.length > 0) { chartArea.innerHTML = charts.map(chart => chart.url ? `<img src="${chart.url}" class="img-fluid mb-3" alt="${chart.title || '分析图表'}">` : chart.base64 ? `<img src="data:image/png;base64,${chart.base64}" class="img-fluid mb-3" alt="${chart.title || '分析图表'}">` : '').join(''); }
+            else if (result.chart_url) { chartArea.innerHTML = `<img src="${result.chart_url}" class="img-fluid" alt="分析图表">`; }
+            else if (result.chart_base64) { chartArea.innerHTML = `<img src="data:image/png;base64,${result.chart_base64}" class="img-fluid" alt="分析图表">`; }
+            const dataArea = document.getElementById('dataTableArea');
+            const tables = result.results?.tables || [];
+            console.log('[DEBUG] Tables:', tables.length, 'Headers:', tables[0]?.headers);
+            if (tables.length > 0) { dataArea.innerHTML = ''; tables.forEach(tableData => { const data = tableData.data || tableData; const headers = tableData.headers; if (Array.isArray(data) && data.length > 0) { const table = this.createDataTable(data, headers); if (tableData.title) { const title = document.createElement('h6'); title.textContent = tableData.title; dataArea.appendChild(title); } dataArea.appendChild(table); } }); }
+            else if (result.data) { const table = this.createDataTable(result.data); dataArea.innerHTML = ''; dataArea.appendChild(table); }
+            document.getElementById('exportButtons').style.display = 'block';
+            this.lastResult = result;
+        }
+
+        createDataTable(data, headers = null) {
+            const table = document.createElement('table');
+            table.className = 'table table-sm table-striped table-hover table-bordered';
+            table.style.fontSize = '12px';
+            if (data.length > 0) {
+                // 使用后端提供的headers顺序，否则从数据中提取
+                let keys = headers || Object.keys(data[0]);
+                const thead = document.createElement('thead'); thead.className = 'table-dark';
+                thead.innerHTML = '<tr>' + keys.map(k => `<th class="text-nowrap">${k}</th>`).join('') + '</tr>';
+                table.appendChild(thead);
+                const tbody = document.createElement('tbody');
+                data.forEach(row => { const tr = document.createElement('tr'); tr.innerHTML = keys.map(k => `<td class="text-nowrap">${row[k] !== null && row[k] !== undefined ? row[k] : ''}</td>`).join(''); tbody.appendChild(tr); });
+                table.appendChild(tbody);
+            }
+            return table;
+        }
+
+        downloadChart() {
+            const charts = this.lastResult?.results?.charts || [];
+            if (charts.length > 0) { charts.forEach((chart, idx) => { const a = document.createElement('a'); if (chart.url) a.href = chart.url; else if (chart.base64) a.href = `data:image/png;base64,${chart.base64}`; else return; a.download = `analysis_chart_${idx + 1}_${Date.now()}.png`; a.click(); }); this.showToast('图表已下载', 'success'); }
+            else if (this.lastResult?.chart_url) { const a = document.createElement('a'); a.href = this.lastResult.chart_url; a.download = `analysis_chart_${Date.now()}.png`; a.click(); this.showToast('图表已下载', 'success'); }
+            else if (this.lastResult?.chart_base64) { const a = document.createElement('a'); a.href = `data:image/png;base64,${this.lastResult.chart_base64}`; a.download = `analysis_chart_${Date.now()}.png`; a.click(); this.showToast('图表已下载', 'success'); }
+        }
+
+        downloadData() {
+            const tables = this.lastResult?.results?.tables || [];
+            if (tables.length > 0) {
+                const data = tables[0].data || tables[0];
+                if (Array.isArray(data) && data.length > 0) {
+                    let keys = Object.keys(data[0]);
+                    const sampleIdx = keys.findIndex(k => k.toLowerCase() === 'sample');
+                    if (sampleIdx > 0) { const sampleKey = keys.splice(sampleIdx, 1)[0]; keys.unshift(sampleKey); }
+                    const csvContent = [keys.join(','), ...data.map(row => keys.map(k => { const val = row[k]; if (val && String(val).includes(',')) return `"${val}"`; return val !== null && val !== undefined ? val : ''; }).join(','))].join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `analysis_data_${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
+                    this.showToast('数据已下载', 'success');
+                }
+            }
+        }
+
+        copyData() {
+            const tables = this.lastResult?.results?.tables || [];
+            if (tables.length > 0) {
+                const data = tables[0].data || tables[0];
+                if (Array.isArray(data) && data.length > 0) {
+                    let keys = Object.keys(data[0]);
+                    const sampleIdx = keys.findIndex(k => k.toLowerCase() === 'sample');
+                    if (sampleIdx > 0) { const sampleKey = keys.splice(sampleIdx, 1)[0]; keys.unshift(sampleKey); }
+                    const text = [keys.join('\t'), ...data.map(row => keys.map(k => row[k] !== null && row[k] !== undefined ? row[k] : '').join('\t'))].join('\n');
+                    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => this.showToast('数据已复制到剪贴板', 'success')).catch(() => this.fallbackCopy(text)); }
+                    else { this.fallbackCopy(text); }
+                }
+            }
+        }
+
+        fallbackCopy(text) {
+            const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0';
+            document.body.appendChild(textarea); textarea.select();
+            try { document.execCommand('copy'); this.showToast('数据已复制到剪贴板', 'success'); }
+            catch (err) { this.showToast('复制失败，请手动复制', 'error'); }
+            document.body.removeChild(textarea);
+        }
+
+        showLoading(message) { document.getElementById('loadingMessage').textContent = message; document.getElementById('loadingOverlay').classList.remove('d-none'); }
+        hideLoading() { document.getElementById('loadingOverlay').classList.add('d-none'); }
+
+        showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const id = 'toast-' + Date.now();
+            const bgClass = type === 'error' ? 'bg-danger' : type === 'success' ? 'bg-success' : 'bg-info';
+            const html = `<div id="${id}" class="toast align-items-center text-white ${bgClass} border-0" role="alert"><div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`;
+            container.insertAdjacentHTML('beforeend', html);
+            const toast = new bootstrap.Toast(document.getElementById(id));
+            toast.show();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const app = new SimpleAnalysis();
+        app.init();
+        window.simpleAnalysis = app;
+    });
+</script>
+{% endblock %}

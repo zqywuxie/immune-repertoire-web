@@ -1,0 +1,732 @@
+{% extends 'base.html' %}
+
+{% block title %}分析结果{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div
+        class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-3 mb-1">
+                <a href="{{ url_for('pages.analysis_config_page') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left me-1"></i>返回配置
+                </a>
+                <h1 class="mb-0">分析结果</h1>
+            </div>
+            <p class="text-muted mb-0" id="analysisInfo">加载中...</p>
+        </div>
+        <div id="downloadButtons" class="d-none d-flex flex-column flex-sm-row gap-2 w-100 w-md-auto">
+            <button class="btn btn-outline-primary" onclick="showMergeDialog()">
+                <i class="bi bi-grid-3x2 me-1"></i>合并图片
+            </button>
+            <button class="btn btn-primary" onclick="downloadResult('zip')">
+                <i class="bi bi-file-zip me-1"></i>下载全部结果
+            </button>
+        </div>
+    </div>
+
+    <!-- Progress Indicator -->
+    <div class="card mb-4" id="progressCard">
+        <div class="card-body">
+            <div class="d-flex align-items-center mb-3">
+                <div class="spinner-border spinner-border-sm text-primary me-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="mb-0" id="progressTitle">分析进行中...</h5>
+            </div>
+            <div class="progress mb-2" style="height: 20px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="analysisProgress"
+                    role="progressbar" style="width: 0%">0%</div>
+            </div>
+            <p class="text-muted mb-0" id="progressStatus">正在初始化...</p>
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    <div class="alert alert-danger d-none" id="errorAlert">
+        <h5><i class="bi bi-exclamation-triangle me-2"></i>分析失败</h5>
+        <p class="mb-2" id="errorMessage"></p>
+        <button class="btn btn-outline-danger btn-sm" onclick="retryAnalysis()">
+            <i class="bi bi-arrow-clockwise me-1"></i>重试
+        </button>
+    </div>
+
+    <!-- Results Container -->
+    <div class="d-none" id="resultsContainer">
+        <!-- Visualization Tabs -->
+        <ul class="nav nav-tabs mb-3" id="resultTabs" role="tablist">
+            <!-- Tabs will be dynamically generated -->
+        </ul>
+
+        <div class="tab-content" id="resultTabContent">
+            <!-- Tab panes will be dynamically generated -->
+        </div>
+    </div>
+</div>
+
+<!-- Copy Success Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="copyToast" class="toast align-items-center text-bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-check-circle me-2"></i>表格已复制到剪贴板
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<!-- Merge Images Modal -->
+<div class="modal fade" id="mergeImagesModal" tabindex="-1" aria-labelledby="mergeImagesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mergeImagesModalLabel">
+                    <i class="bi bi-grid-3x2 me-2"></i>合并图片
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">选择要合并的图片（按选择顺序排列）</label>
+                    <div id="mergeImagesList" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Image checkboxes will be generated here -->
+                    </div>
+                    <small class="text-muted">提示：可以拖拽调整图片顺序</small>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">布局方式</label>
+                        <select class="form-select" id="mergeLayout">
+                            <option value="horizontal">水平排列</option>
+                            <option value="vertical">垂直排列</option>
+                            <option value="grid">网格排列</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3" id="gridColumnsGroup" style="display: none;">
+                        <label class="form-label">网格列数</label>
+                        <input type="number" class="form-control" id="mergeColumns" value="2" min="1" max="6">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">图片间距 (像素)</label>
+                        <input type="number" class="form-control" id="mergeSpacing" value="20" min="0" max="100">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">背景颜色</label>
+                        <input type="color" class="form-control form-control-color w-100" id="mergeBackground"
+                            value="#ffffff">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="mergeAndDownload()">
+                    <i class="bi bi-download me-1"></i>合并并下载
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div class="modal fade" id="imagePreviewModal" tabindex="-1" aria-labelledby="imagePreviewModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="imagePreviewModalLabel">图片预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center p-2">
+                <img id="previewImage" src="" class="img-fluid" style="max-height: 80vh;" alt="Preview">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" id="downloadPreviewBtn">
+                    <i class="bi bi-download me-1"></i>下载图片
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const analysisId = '{{ analysis_id }}';
+    let pollInterval = null;
+    let analysisData = null;
+
+    const ResultsPage = {
+        init() {
+            this.checkStatus();
+        },
+
+        async checkStatus() {
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/status`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.showError(data.message || 'Failed to get analysis status');
+                    return;
+                }
+
+                this.updateProgress(data);
+
+                if (data.status === 'completed') {
+                    this.stopPolling();
+                    await this.loadResults();
+                } else if (data.status === 'failed') {
+                    this.stopPolling();
+                    this.showError(data.error_message || 'Analysis failed');
+                } else if (data.status === 'running' || data.status === 'pending') {
+                    this.startPolling();
+                }
+            } catch (error) {
+                console.error('Failed to check status:', error);
+                this.showError('无法获取分析状态');
+            }
+        },
+
+        updateProgress(data) {
+            // Progress is already 0-100, not 0-1
+            const progress = Math.round(data.progress || 0);
+            const progressBar = document.getElementById('analysisProgress');
+            progressBar.style.width = progress + '%';
+            progressBar.textContent = progress + '%';
+
+            document.getElementById('progressStatus').textContent = data.current_step || '处理中...';
+        },
+
+        startPolling() {
+            if (!pollInterval) {
+                pollInterval = setInterval(() => this.checkStatus(), 2000);
+            }
+        },
+
+        stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        },
+
+        async loadResults() {
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.showError(data.message || 'Failed to load results');
+                    return;
+                }
+
+                analysisData = data;
+                this.displayResults(data);
+            } catch (error) {
+                console.error('Failed to load results:', error);
+                this.showError('无法加载分析结果');
+            }
+        },
+
+        displayResults(data) {
+            // Hide progress, show results
+            document.getElementById('progressCard').classList.add('d-none');
+            document.getElementById('resultsContainer').classList.remove('d-none');
+            document.getElementById('downloadButtons').classList.remove('d-none');
+
+            // Update analysis info
+            const typeNames = {
+                'similarity_heatmap': '相似度热图分析',
+                'sequencing_depth': '测序深度分析',
+                'diversity_metrics': '多样性指标分析',
+                'chain_specific': '链特异性分析'
+            };
+            document.getElementById('analysisInfo').textContent =
+                `${typeNames[data.type] || data.type} - 完成于 ${new Date(data.completed_at).toLocaleString('zh-CN')}`;
+
+            // Generate tabs and content
+            const results = data.results || [];
+            const tabsContainer = document.getElementById('resultTabs');
+            const contentContainer = document.getElementById('resultTabContent');
+
+            tabsContainer.innerHTML = '';
+            contentContainer.innerHTML = '';
+
+            // For similarity_heatmap, group results by chain
+            if (data.type === 'similarity_heatmap') {
+                // Group visualization results by chain
+                const chainGroups = {};
+                results.filter(r => r.result_type === 'visualization').forEach(result => {
+                    // Extract chain from name (e.g., "IGH_r2_inner_heatmap" -> "IGH")
+                    const parts = result.name.split('_');
+                    const chain = parts[0];
+                    if (!chainGroups[chain]) {
+                        chainGroups[chain] = [];
+                    }
+                    chainGroups[chain].push(result);
+                });
+
+                // Create tabs for each chain
+                const chains = Object.keys(chainGroups);
+                chains.forEach((chain, index) => {
+                    const tabId = `tab-${chain}`;
+                    const isActive = index === 0;
+
+                    // Create tab
+                    const tab = document.createElement('li');
+                    tab.className = 'nav-item';
+                    tab.innerHTML = `
+                    <button class="nav-link ${isActive ? 'active' : ''}" id="${tabId}-tab" 
+                        data-bs-toggle="tab" data-bs-target="#${tabId}" type="button" role="tab">
+                        ${chain}
+                    </button>
+                `;
+                    tabsContainer.appendChild(tab);
+
+                    // Create tab pane with all metrics for this chain
+                    const pane = document.createElement('div');
+                    pane.className = `tab-pane fade ${isActive ? 'show active' : ''}`;
+                    pane.id = tabId;
+                    pane.role = 'tabpanel';
+                    pane.innerHTML = this.createChainResultContent(chain, chainGroups[chain]);
+                    contentContainer.appendChild(pane);
+                });
+            } else {
+                // Default behavior for other analysis types
+                results.forEach((result, index) => {
+                    const tabId = `tab-${index}`;
+                    const isActive = index === 0;
+
+                    // Create tab
+                    const tab = document.createElement('li');
+                    tab.className = 'nav-item';
+                    tab.innerHTML = `
+                    <button class="nav-link ${isActive ? 'active' : ''}" id="${tabId}-tab" 
+                        data-bs-toggle="tab" data-bs-target="#${tabId}" type="button" role="tab">
+                        ${result.name}
+                    </button>
+                `;
+                    tabsContainer.appendChild(tab);
+
+                    // Create tab pane
+                    const pane = document.createElement('div');
+                    pane.className = `tab-pane fade ${isActive ? 'show active' : ''}`;
+                    pane.id = tabId;
+                    pane.role = 'tabpanel';
+                    pane.innerHTML = this.createResultContent(result, index);
+                    contentContainer.appendChild(pane);
+                });
+            }
+        },
+
+        createChainResultContent(chain, results) {
+            let html = `<h5 class="mb-3">${chain} 链相似度热图</h5>`;
+            html += '<div class="row">';
+
+            results.forEach((result, index) => {
+                // Extract metric from name (e.g., "IGH_r2_inner_heatmap" -> "r2_inner")
+                const parts = result.name.split('_');
+                const metric = parts.slice(1, -1).join('_'); // Remove chain and "heatmap"
+                const metricNames = {
+                    'r2_inner': 'R² Inner',
+                    'r2_outer': 'R² Outer',
+                    'cdr3_sharing': 'CDR3 Sharing',
+                    'expression_sharing': 'Expression Sharing',
+                    'morisita_horn': 'Morisita-Horn',
+                    'sorensen': 'Sorensen'
+                };
+                const displayName = metricNames[metric] || metric;
+
+                html += '<div class="col-md-6 col-lg-4 mb-4">';
+                html += '<div class="card h-100">';
+                html += `<div class="card-header"><h6 class="mb-0">${displayName}</h6></div>`;
+                html += '<div class="card-body p-2 text-center">';
+
+                if (result.result_type === 'visualization' && result.file_path) {
+                    const imgUrl = `/api/analysis/${analysisId}/image/${encodeURIComponent(result.name)}`;
+                    html += `<img src="${imgUrl}" 
+                    class="img-fluid clickable-image" style="max-width: 100%; cursor: pointer;" 
+                    alt="${result.name}" loading="lazy" 
+                    onclick="showImagePreview('${imgUrl}', '${result.name}')">`;
+                }
+
+                html += '</div></div></div>';
+            });
+
+            html += '</div>';
+            return html;
+        },
+
+        createResultContent(result, index) {
+            let html = '<div class="row">';
+
+            // Visualization column - full width (no data table)
+            html += '<div class="col-12 mb-4">';
+            html += '<div class="card h-100">';
+            html += '<div class="card-header"><h5 class="mb-0">可视化结果</h5></div>';
+            html += '<div class="card-body p-2 p-md-3 text-center">';
+
+            if (result.result_type === 'visualization' && result.file_path) {
+                html += `<img src="/api/analysis/${analysisId}/image/${encodeURIComponent(result.name)}" 
+                class="img-fluid" style="max-width: 100%; max-height: 600px;" alt="${result.name}" loading="lazy">`;
+            } else if (result.chart_data) {
+                html += `<div id="chart-${index}" class="chart-container chart-responsive"></div>`;
+            } else {
+                html += '<p class="text-muted">无可视化结果</p>';
+            }
+
+            html += '</div></div></div>';
+            html += '</div>';
+
+            // Statistics section if available
+            if (result.statistics) {
+                html += '<div class="card mb-4">';
+                html += '<div class="card-header"><h5 class="mb-0">统计摘要</h5></div>';
+                html += '<div class="card-body">';
+                html += '<div class="row">';
+                Object.entries(result.statistics).forEach(([key, value]) => {
+                    html += `<div class="col-md-3 col-6 mb-2">`;
+                    html += `<small class="text-muted">${this.formatStatLabel(key)}:</small> `;
+                    html += `<strong>${typeof value === 'number' ? value.toFixed(4) : value}</strong>`;
+                    html += '</div>';
+                });
+                html += '</div></div></div>';
+            }
+
+            return html;
+        },
+
+        createDataTable(tableData, tableId) {
+            if (!tableData || !tableData.columns || !tableData.data) {
+                return '<p class="text-muted">无数据</p>';
+            }
+
+            let html = `<table id="${tableId}" class="table table-sm table-striped table-bordered result-data-table">`;
+            html += '<thead class="table-light"><tr>';
+            tableData.columns.forEach(col => {
+                const colName = typeof col === 'object' ? col.name : col;
+                html += `<th>${colName}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            tableData.data.forEach(row => {
+                html += '<tr>';
+                tableData.columns.forEach(col => {
+                    const colName = typeof col === 'object' ? col.name : col;
+                    const value = row[colName];
+                    if (value === null || value === undefined) {
+                        html += '<td class="text-muted">-</td>';
+                    } else if (typeof value === 'number') {
+                        html += `<td class="text-end">${value.toFixed(4)}</td>`;
+                    } else {
+                        html += `<td>${value}</td>`;
+                    }
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            return html;
+        },
+
+        formatStatLabel(key) {
+            const labels = {
+                'min': '最小值',
+                'max': '最大值',
+                'mean': '平均值',
+                'median': '中位数',
+                'std': '标准差',
+                'n_comparisons': '比较数',
+                'cv': '变异系数'
+            };
+            return labels[key] || key;
+        },
+
+        showError(message) {
+            document.getElementById('progressCard').classList.add('d-none');
+            document.getElementById('errorAlert').classList.remove('d-none');
+            document.getElementById('errorMessage').textContent = message;
+        }
+    };
+
+    async function downloadResult(format, resultName = null) {
+        try {
+            let url = `/api/analysis/${analysisId}/download?format=${format}`;
+
+            // For PNG and CSV, we need result_name unless it's a zip
+            if (format !== 'zip') {
+                if (resultName) {
+                    url += `&result_name=${encodeURIComponent(resultName)}`;
+                } else if (analysisData && analysisData.results && analysisData.results.length > 0) {
+                    // Use first visualization result as default
+                    const vizResult = analysisData.results.find(r => r.result_type === 'visualization');
+                    if (vizResult) {
+                        url += `&result_name=${encodeURIComponent(vizResult.name)}`;
+                    } else {
+                        // Fall back to zip for multiple results
+                        url = `/api/analysis/${analysisId}/download?format=zip`;
+                    }
+                }
+            }
+
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                const data = await response.json();
+                alert('下载失败: ' + (data.message || data.error || '未知错误'));
+                return;
+            }
+
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `analysis_${analysisId}.${format}`;
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (match) filename = match[1];
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            console.error('Download failed:', error);
+            alert('下载失败');
+        }
+    }
+
+    // Download all results as ZIP
+    function downloadAllResults() {
+        downloadResult('zip');
+    }
+
+    async function retryAnalysis() {
+        try {
+            const response = await fetch(`/api/analysis/${analysisId}/retry`, { method: 'POST' });
+            if (response.ok) {
+                document.getElementById('errorAlert').classList.add('d-none');
+                document.getElementById('progressCard').classList.remove('d-none');
+                ResultsPage.checkStatus();
+            } else {
+                const data = await response.json();
+                alert('重试失败: ' + (data.message || '未知错误'));
+            }
+        } catch (error) {
+            console.error('Retry failed:', error);
+            alert('重试失败');
+        }
+    }
+
+    // Override copy success to show toast
+    const originalShowCopySuccess = typeof showCopySuccess === 'function' ? showCopySuccess : null;
+    function showCopySuccess(tableId) {
+        const toast = new bootstrap.Toast(document.getElementById('copyToast'));
+        toast.show();
+    }
+
+    // Merge images functionality
+    let selectedMergeImages = [];
+
+    function showMergeDialog() {
+        if (!analysisData || !analysisData.results) {
+            alert('没有可用的分析结果');
+            return;
+        }
+
+        // Get visualization results only
+        const vizResults = analysisData.results.filter(r => r.result_type === 'visualization');
+
+        if (vizResults.length === 0) {
+            alert('没有可用的可视化结果');
+            return;
+        }
+
+        // Generate checkboxes for each visualization
+        const container = document.getElementById('mergeImagesList');
+        container.innerHTML = '';
+        selectedMergeImages = [];
+
+        vizResults.forEach((result, index) => {
+            const div = document.createElement('div');
+            div.className = 'form-check d-flex align-items-center gap-2 p-2 border-bottom merge-image-item';
+            div.draggable = true;
+            div.dataset.name = result.name;
+            div.innerHTML = `
+                <input class="form-check-input merge-image-checkbox" type="checkbox" 
+                    value="${result.name}" id="mergeImg_${index}">
+                <label class="form-check-label flex-grow-1" for="mergeImg_${index}">
+                    <i class="bi bi-grip-vertical text-muted me-2"></i>
+                    ${result.name}
+                </label>
+                <img src="/api/analysis/${analysisId}/image/${encodeURIComponent(result.name)}" 
+                    class="img-thumbnail" style="max-width: 80px; max-height: 60px;" alt="${result.name}">
+            `;
+            container.appendChild(div);
+
+            // Add drag and drop handlers
+            div.addEventListener('dragstart', handleDragStart);
+            div.addEventListener('dragover', handleDragOver);
+            div.addEventListener('drop', handleDrop);
+            div.addEventListener('dragend', handleDragEnd);
+        });
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('mergeImagesModal'));
+        modal.show();
+    }
+
+    // Drag and drop handlers for reordering
+    let draggedItem = null;
+
+    function handleDragStart(e) {
+        draggedItem = this;
+        this.classList.add('opacity-50');
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        this.classList.add('bg-light');
+    }
+
+    function handleDrop(e) {
+        e.preventDefault();
+        this.classList.remove('bg-light');
+
+        if (draggedItem !== this) {
+            const container = document.getElementById('mergeImagesList');
+            const items = Array.from(container.querySelectorAll('.merge-image-item'));
+            const draggedIndex = items.indexOf(draggedItem);
+            const targetIndex = items.indexOf(this);
+
+            if (draggedIndex < targetIndex) {
+                this.parentNode.insertBefore(draggedItem, this.nextSibling);
+            } else {
+                this.parentNode.insertBefore(draggedItem, this);
+            }
+        }
+    }
+
+    function handleDragEnd(e) {
+        this.classList.remove('opacity-50');
+        document.querySelectorAll('.merge-image-item').forEach(item => {
+            item.classList.remove('bg-light');
+        });
+    }
+
+    // Show/hide grid columns input based on layout selection
+    document.getElementById('mergeLayout').addEventListener('change', function () {
+        const gridColumnsGroup = document.getElementById('gridColumnsGroup');
+        gridColumnsGroup.style.display = this.value === 'grid' ? 'block' : 'none';
+    });
+
+    async function mergeAndDownload() {
+        // Get selected images in order
+        const container = document.getElementById('mergeImagesList');
+        const items = container.querySelectorAll('.merge-image-item');
+        const selectedNames = [];
+
+        items.forEach(item => {
+            const checkbox = item.querySelector('.merge-image-checkbox');
+            if (checkbox.checked) {
+                selectedNames.push(item.dataset.name);
+            }
+        });
+
+        if (selectedNames.length === 0) {
+            alert('请至少选择1张图片');
+            return;
+        }
+
+        const layout = document.getElementById('mergeLayout').value;
+        const columns = parseInt(document.getElementById('mergeColumns').value) || 2;
+        const spacing = parseInt(document.getElementById('mergeSpacing').value) || 20;
+        const backgroundColor = document.getElementById('mergeBackground').value;
+
+        try {
+            const response = await fetch(`/api/analysis/${analysisId}/merge-images`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    result_names: selectedNames,
+                    layout: layout,
+                    columns: columns,
+                    spacing: spacing,
+                    background_color: backgroundColor
+                })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                alert('合并失败: ' + (data.message || data.error || '未知错误'));
+                return;
+            }
+
+            // Download the merged image
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `merged_${analysisId}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            // Close modal
+            bootstrap.Modal.getInstance(document.getElementById('mergeImagesModal')).hide();
+
+        } catch (error) {
+            console.error('Merge failed:', error);
+            alert('合并失败: ' + error.message);
+        }
+    }
+
+    // Image preview functionality
+    let currentPreviewUrl = '';
+    let currentPreviewName = '';
+
+    function showImagePreview(imageUrl, imageName) {
+        currentPreviewUrl = imageUrl;
+        currentPreviewName = imageName;
+
+        document.getElementById('previewImage').src = imageUrl;
+        document.getElementById('imagePreviewModalLabel').textContent = imageName;
+
+        const modal = new bootstrap.Modal(document.getElementById('imagePreviewModal'));
+        modal.show();
+    }
+
+    document.getElementById('downloadPreviewBtn').addEventListener('click', async function () {
+        if (!currentPreviewUrl) return;
+
+        try {
+            const response = await fetch(currentPreviewUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentPreviewName}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Download failed:', error);
+            alert('下载失败');
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => ResultsPage.init());
+</script>
+{% endblock %}

@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\field_analyzer.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.2, 0.3, 0.5, 0.8, 1.05, 100, 300, '-', 'ChartConfig', 'Field Comparison', 'Field Data Analysis', 'Field Data Trend', 'Sample', 'Value', 'bar', 'bar_width', 'baseline_sample', 'black', 'bold', 'bottom', 'center', 'chart_config', 'coerce', 'color_scheme', 'count', 'dpi', 'error', 'field_analysis', 'field_analyzer', 'field_data', 'fields', 'figsize', 'font_size', 'group_statistics', 'grouped_bar', 'headers', 'line', 'line_chart', 'max', 'mean', 'median', 'min', 'o-', 'offset points', 'params', 'percentage_diff', 'percentage_diffs', 'plot_type', 'png', 'right', 'rows', 'sample_column', 'sample_groups', 'sample_order', 'samples', 'show_percentage_diff', 'show_values', 'std', 'tab_separated', 'table_data', 'tight', 'title', 'upper left', 'viridis', 'x', 'y', '数据中没有数值类型的列', '数据为空', '数据验证通过']

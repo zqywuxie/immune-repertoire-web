@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\routes\pages.py
+# hypothesis_version: 6.148.7
+
+['/', '/analysis/config', '/files', '/history', '/settings', '/upload', 'analysis/config.html', 'files.html', 'history.html', 'index.html', 'pages', 'settings.html', 'upload.html']

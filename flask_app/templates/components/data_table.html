@@ -1,0 +1,220 @@
+{% macro render_data_table(table_id, table_data, title="", show_copy_button=true, show_download_button=true,
+enable_datatables=true, page_length=25) %}
+{#
+Data Table Component for displaying similarity matrices and analysis results.
+Supports clipboard copy, CSV download, and DataTables integration for sorting/searching.
+Requirements: 2.5, 2.6, 3.5, 3.6, 4.5, 4.6, 5.5, 5.6
+
+Args:
+table_id: Unique identifier for the table
+table_data: Dictionary with 'columns' and 'data' keys
+title: Optional title for the table
+show_copy_button: Whether to show copy to clipboard button
+show_download_button: Whether to show download CSV button
+enable_datatables: Whether to enable DataTables sorting/searching (default: true)
+page_length: Number of rows per page for DataTables (default: 25)
+#}
+<div class="data-table-container mb-4">
+    {% if title %}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">{{ title }}</h5>
+        <div class="btn-group btn-group-sm">
+            {% if show_copy_button %}
+            <button type="button" class="btn btn-outline-secondary" onclick="copyTableToClipboard('{{ table_id }}')"
+                title="复制到剪贴板">
+                <i class="bi bi-clipboard"></i> 复制
+            </button>
+            {% endif %}
+            {% if show_download_button %}
+            <button type="button" class="btn btn-outline-secondary"
+                onclick="downloadTableAsCSV('{{ table_id }}', '{{ title|default(" data", true)|replace(" ", " _") }}')"
+                title="下载CSV文件">
+                <i class="bi bi-download"></i> CSV
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    {# Show buttons even without title #}
+    {% if show_copy_button or show_download_button %}
+    <div class="d-flex justify-content-end mb-2">
+        <div class="btn-group btn-group-sm">
+            {% if show_copy_button %}
+            <button type="button" class="btn btn-outline-secondary" onclick="copyTableToClipboard('{{ table_id }}')"
+                title="复制到剪贴板">
+                <i class="bi bi-clipboard"></i> 复制
+            </button>
+            {% endif %}
+            {% if show_download_button %}
+            <button type="button" class="btn btn-outline-secondary"
+                onclick="downloadTableAsCSV('{{ table_id }}', 'data')" title="下载CSV文件">
+                <i class="bi bi-download"></i> CSV
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <div class="table-responsive">
+        <table id="{{ table_id }}"
+            class="table table-striped table-hover table-bordered data-table {% if enable_datatables %}auto-datatable{% endif %}"
+            data-page-length="{{ page_length }}">
+            <thead class="table-light">
+                <tr>
+                    {% for col in table_data.columns %}
+                    {% set col_name = col.name if col is mapping else col %}
+                    {% set col_type = col.type if col is mapping else 'string' %}
+                    <th scope="col" class="{% if col_type == 'number' %}text-end{% endif %}">
+                        {{ col_name }}
+                    </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_data.data %}
+                <tr>
+                    {% for col in table_data.columns %}
+                    {% set col_name = col.name if col is mapping else col %}
+                    {% set col_type = col.type if col is mapping else 'string' %}
+                    <td class="{% if col_type == 'number' %}text-end{% endif %}">
+                        {% if row[col_name] is none %}
+                        <span class="text-muted">-</span>
+                        {% elif col_type == 'number' %}
+                        {{ "%.4f"|format(row[col_name]) }}
+                        {% else %}
+                        {{ row[col_name] }}
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if table_data.truncated %}
+    <div class="alert alert-info mt-2" role="alert">
+        <small><i class="bi bi-info-circle me-1"></i>显示 {{ table_data.row_count }} 行数据。下载CSV获取完整数据。</small>
+    </div>
+    {% endif %}
+
+    {% if table_data.row_count is defined and table_data.row_count > 0 %}
+    <div class="text-muted small mt-1">
+        <i class="bi bi-table me-1"></i>{{ table_data.row_count }} 行 × {{
+        table_data.column_count|default(table_data.columns|length) }} 列
+    </div>
+    {% endif %}
+</div>
+
+<!-- Copy success toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="{{ table_id }}-toast" class="toast align-items-center text-bg-success border-0" role="alert"
+        aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-check-circle me-2"></i>表格已复制到剪贴板！
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+
+{% if enable_datatables %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (typeof DataTableManager !== 'undefined') {
+            DataTableManager.init('{{ table_id }}', {
+                pageLength: {{ page_length }}
+    });
+    }
+});
+</script>
+{% endif %}
+{% endmacro %}
+
+
+{% macro render_similarity_matrix(table_id, matrix_data, metric_name="", show_statistics=true, enable_datatables=true)
+%}
+{#
+Specialized component for displaying similarity matrices.
+Supports clipboard copy, CSV download, and DataTables integration.
+Requirements: 2.5, 2.6
+
+Args:
+table_id: Unique identifier for the table
+matrix_data: Dictionary with 'columns', 'data', and optionally 'statistics'
+metric_name: Name of the similarity metric
+show_statistics: Whether to show summary statistics
+enable_datatables: Whether to enable DataTables sorting/searching
+#}
+<div class="similarity-matrix-container">
+    {% if metric_name %}
+    <h5 class="mb-3">{{ metric_name|replace('_', ' ')|title }} 矩阵</h5>
+    {% endif %}
+
+    {{ render_data_table(table_id, matrix_data, show_copy_button=true, show_download_button=true,
+    enable_datatables=enable_datatables) }}
+
+    {% if show_statistics and matrix_data.statistics %}
+    <div class="card mt-3">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>统计摘要</h6>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">最小值:</small>
+                    <span class="fw-bold ms-1">{{ "%.4f"|format(matrix_data.statistics.min) }}</span>
+                </div>
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">最大值:</small>
+                    <span class="fw-bold ms-1">{{ "%.4f"|format(matrix_data.statistics.max) }}</span>
+                </div>
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">平均值:</small>
+                    <span class="fw-bold ms-1">{{ "%.4f"|format(matrix_data.statistics.mean) }}</span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">中位数:</small>
+                    <span class="fw-bold ms-1">{{ "%.4f"|format(matrix_data.statistics.median) }}</span>
+                </div>
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">标准差:</small>
+                    <span class="fw-bold ms-1">{{ "%.4f"|format(matrix_data.statistics.std) }}</span>
+                </div>
+                <div class="col-md-4 col-6 mb-2">
+                    <small class="text-muted">比较数:</small>
+                    <span class="fw-bold ms-1">{{ matrix_data.statistics.n_comparisons }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro render_metrics_table(table_id, metrics_data, title="", show_copy_button=true, show_download_button=true,
+enable_datatables=true) %}
+{#
+Component for displaying metrics tables (diversity, sequencing depth, chain statistics).
+Supports clipboard copy, CSV download, and DataTables integration.
+Requirements: 3.5, 3.6, 4.5, 4.6, 5.5, 5.6
+
+Args:
+table_id: Unique identifier for the table
+metrics_data: Dictionary with 'columns' and 'data' keys
+title: Optional title for the table
+show_copy_button: Whether to show copy to clipboard button
+show_download_button: Whether to show download CSV button
+enable_datatables: Whether to enable DataTables sorting/searching
+#}
+<div class="metrics-table-container">
+    {{ render_data_table(table_id, metrics_data, title=title, show_copy_button=show_copy_button,
+    show_download_button=show_download_button, enable_datatables=enable_datatables) }}
+</div>
+{% endmacro %}

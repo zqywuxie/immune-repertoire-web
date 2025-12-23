@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\shm_analysis.py
+# hypothesis_version: 6.148.7
+
+[0.3, 0.7, 2.0, 100, '.3f', 'A>C', 'A>G', 'A>T', 'CDR1', 'CDR2', 'CDR3', 'Chain', 'FR1', 'FR2', 'FR3', 'G>A', 'G>C', 'G>T', 'Gene', 'Group', 'Mutation_Count', 'Mutation_Type', 'Position', 'Region', 'SHM Rate (%)', 'SHM_Rate', 'Sample', 'Timepoint', 'YlOrRd', 'bold', 'bottom', 'center', 'coerce', 'count', 'distribution', 'error', 'heatmap', 'label', 'lightcoral', 'mean', 'mean_shm_rate', 'median_shm_rate', 'mutation_analysis', 'mutation_spectrum', 'mutation_types', 'normalize', 'params', 'percentage', 'plot_type', 'processed_data', 'records', 'region_distribution', 'region_stats', 'regions', 'sample_count', 'shm_analysis', 'shm_heatmap', 'skyblue', 'spectrum', 'std_shm_rate', 'summary', 'total_mutations', 'x', '区域', '各区域SHM率分布', '各区域SHM率统计：\n', '样本', '样本-区域SHM率热图', '百分比 (%)', '突变类型', '突变频谱分布']

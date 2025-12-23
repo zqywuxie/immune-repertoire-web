@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\config.py
+# hypothesis_version: 6.148.7
+
+[100, 300, 1024, 5000, '.csv', '.csv.gz', '.xlsx', '0.0.0.0', '1.0.0', 'DATABASE_URL', 'HOST', 'PORT', 'SECRET_KEY', 'data', 'default', 'development', 'immune_repertoire.db', 'production', 'results', 'sqlite:///:memory:', 'testing', 'uploads', 'viridis']

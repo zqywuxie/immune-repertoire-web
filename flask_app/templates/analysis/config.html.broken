@@ -1,0 +1,1326 @@
+{% extends 'base.html' %}
+
+{% block title %}分析配置{% endblock %}
+
+{% block extra_css %}
+<style>
+    .config-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .config-card .card-header {
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+        font-weight: 600;
+        padding: 0.75rem 1rem;
+    }
+
+    .config-card .card-body {
+        padding: 1rem;
+    }
+
+    .module-description {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+
+    .required-columns {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .required-columns h6 {
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+        color: #856404;
+    }
+
+    .column-badge {
+        display: inline-block;
+        background: #ffc107;
+        color: #212529;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 2px;
+    }
+
+    .sample-tag {
+        display: inline-block;
+        background: #e7f1ff;
+        border: 1px solid #0d6efd;
+        border-radius: 4px;
+        padding: 2px 8px;
+        margin: 2px;
+        font-size: 0.8rem;
+    }
+
+    .default-field {
+        background: #fff3cd;
+        border-left: 3px solid #ffc107;
+        padding-left: 8px;
+    }
+
+    .default-field .form-check-label::after {
+        content: " (默认)";
+        color: #856404;
+        font-size: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1">分析配置</h4>
+            <small class="text-muted">配置分析参数并开始分析</small>
+        </div>
+        <a href="{{ url_for('pages.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回
+        </a>
+    </div>
+
+    <!-- Analysis Type Selection -->
+    <div class="config-card card mb-4">
+        <div class="card-header"><i class="bi bi-layers me-2"></i>选择分析类型</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold">分析类别</label>
+                    <select class="form-select form-select-sm" id="analysisCategory"
+                        onchange="Config.onAnalysisCategoryChange()">
+                        <option value="similarity">相似性热图分析</option>
+                        <option value="field">字段数据分析</option>
+                    </select>
+                </div>
+                <div class="col-md-6" id="fieldAnalysisTypeContainer" style="display:none;">
+                    <label class="form-label small fw-bold">具体分析类型</label>
+                    <select class="form-select form-select-sm" id="fieldAnalysisType"
+                        onchange="Config.onFieldAnalysisTypeChange()">
+                        <option value="custom">自定义对比</option>
+                        <option value="igmetrics">IG Metrics</option>
+                        <option value="seqdepth">测序深度分析</option>
+                        <option value="seqreads">测序Reads分析</option>
+                        <option value="bcell_isotype_pdf">B细胞同种型分析 (PDF)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Analysis Type Info -->
+            <div id="analysisTypeInfo" class="mt-3">
+                <div id="similarityInfo" class="analysis-type-info">
+                    <p class="mb-0 text-muted">基于多个样本的CSV文件生成相似性热图，支持多种相似度指标。</p>
+                </div>
+                <div id="fieldInfo" class="analysis-type-info" style="display:none;">
+                    <p class="mb-0 text-muted">选择文件中的数值字段进行对比分析，支持多种图表类型。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form id="analysisConfigForm">
+        <div class="row">
+            <!-- Left Column: Main Config -->
+            <div class="col-lg-8">
+                <!-- Analysis Content -->
+                <div id="analysisContent">
+                    <!-- Similarity Analysis Content -->
+                    <div id="similarityContent" class="analysis-content">
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-folder me-2"></i>数据来源</div>
+                            <div class="card-body">
+                                <!-- Directory Input for Similarity Heatmap -->
+                                <div id="directoryInput_similarity">
+                                    <ul class="nav nav-tabs nav-tabs-sm mb-3" role="tablist">
+                                        <li class="nav-item">
+                                            <button class="nav-link active small py-1 px-2" data-bs-toggle="tab"
+                                                data-bs-target="#tabDirectory" type="button">
+                                                <i class="bi bi-folder me-1"></i>服务器目录
+                                            </button>
+                                        </li>
+                                        <li class="nav-item">
+                                            <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                data-bs-target="#tabUpload" type="button">
+                                                <i class="bi bi-upload me-1"></i>上传文件夹
+                                            </button>
+                                        </li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane fade show active" id="tabDirectory">
+                                            <div class="mb-3">
+                                                <label class="form-label small"><strong>选择数据目录</strong></label>
+                                                <div class="input-group mb-2">
+                                                    <input type="text" class="form-control form-control-sm"
+                                                        id="dataDirectoryPath" placeholder="如: C:\Data\artificial_peps">
+                                                    <button class="btn btn-outline-primary btn-sm" type="button"
+                                                        id="browseDirectoryBtn">
+                                                        <i class="bi bi-folder-open me-1"></i>浏览
+                                                    </button>
+                                                    <button class="btn btn-outline-primary btn-sm" type="button"
+                                                        id="scanDirectoryBtn">
+                                                        <i class="bi bi-search me-1"></i>扫描
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div id="directoryResults" class="d-none">
+                                                <div class="alert alert-success py-2 small" id="scanResultText"></div>
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                        <label
+                                                            class="form-label small mb-0"><strong>选择样本</strong></label>
+                                                        <div>
+                                                            <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                                                onclick="Config.selectAllSamples()">全选</button>
+                                                            <button type="button" class="btn btn-link btn-sm p-0"
+                                                                onclick="Config.deselectAllSamples()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                    <div id="sampleCheckboxes" class="row g-2"></div>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                        <label
+                                                            class="form-label small mb-0"><strong>选择链类型</strong></label>
+                                                        <div>
+                                                            <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                                                onclick="Config.selectAllChains()">全选</button>
+                                                            <button type="button" class="btn btn-link btn-sm p-0"
+                                                                onclick="Config.deselectAllChains()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                    <div id="chainCheckboxes" class="row g-2"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="tab-pane fade" id="tabUpload">
+                                            <div class="mb-3">
+                                                <label class="form-label small"><strong>上传文件夹</strong></label>
+                                                <input type="file" class="form-control form-control-sm"
+                                                    id="folderUpload" webkitdirectory multiple>
+                                                <small class="text-muted">选择包含 {样本名}__{链名}.csv.gz 文件的文件夹</small>
+                                            </div>
+                                            <div id="uploadProgress" class="d-none">
+                                                <div class="progress mb-2" style="height: 6px;">
+                                                    <div class="progress-bar" id="uploadProgressBar" style="width: 0%">
+                                                    </div>
+                                                </div>
+                                                <small class="text-muted" id="uploadProgressText">上传中...</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Analysis Parameters -->
+                        <div class="config-card card">
+                            <div class="card-header"><i class="bi bi-sliders me-2"></i>分析参数</div>
+                            <div class="card-body">
+                                <label class="form-label small fw-bold">相似度指标</label>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricR2Inner"
+                                                value="r2_inner" checked>
+                                            <label class="form-check-label small">R² Inner</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricR2Outer"
+                                                value="r2_outer" checked>
+                                            <label class="form-check-label small">R² Outer</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricCdr3"
+                                                value="cdr3_sharing" checked>
+                                            <label class="form-check-label small">CDR3 Sharing</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricExpression"
+                                                value="expression_sharing" checked>
+                                            <label class="form-check-label small">Expression</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricMorisita"
+                                                value="morisita_horn" checked>
+                                            <label class="form-check-label small">Morisita-Horn</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="metricSorensen"
+                                                value="sorensen" checked>
+                                            <label class="form-check-label small">Sorensen</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Field Analysis Content -->
+                    <div id="fieldContent" class="analysis-content" style="display:none;">
+                        <div class="row">
+                            <!-- Left: Data Source -->
+                            <div class="col-lg-8">
+                                <div class="config-card card">
+                                    <div class="card-header"><i class="bi bi-folder me-2"></i>数据来源</div>
+                                    <div class="card-body">
+                                        <ul class="nav nav-tabs nav-tabs-sm mb-3" role="tablist">
+                                            <li class="nav-item">
+                                                <button class="nav-link active small py-1 px-2" data-bs-toggle="tab"
+                                                    data-bs-target="#tabFieldExistingFile" type="button">
+                                                    <i class="bi bi-file-earmark me-1"></i>已上传文件
+                                                </button>
+                                            </li>
+                                            <li class="nav-item">
+                                                <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                    data-bs-target="#tabFieldNewFile" type="button">
+                                                    <i class="bi bi-upload me-1"></i>上传新文件
+                                                </button>
+                                            </li>
+                                            <li class="nav-item" id="pdfUploadTab" style="display:none;">
+                                                <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                    data-bs-target="#tabFieldPDFUpload" type="button">
+                                                    <i class="bi bi-file-pdf me-1"></i>上传PDF文件
+                                                </button>
+                                            </li>
+                                        </ul>
+                                        <div class="tab-content">
+                                            <div class="tab-pane fade show active" id="tabFieldExistingFile">
+                                                <label class="form-label small"><strong>选择数据文件</strong></label>
+                                                <select class="form-select form-select-sm" id="fieldFileSelect">
+                                                    <option value="">-- 请选择文件 --</option>
+                                                </select>
+                                                <div id="fieldFileInfo" class="mt-2 small text-muted d-none"></div>
+                                                </button>
+                                                </li>
+                                                <li class="nav-item">
+                                                    <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                        data-bs-target="#tabFieldNewFile" type="button">
+                                                        <i class="bi bi-upload me-1"></i>上传新文件
+                                                    </button>
+                                                </li>
+                                                <li class="nav-item" id="pdfUploadTab" style="display:none;">
+                                                    <button class="nav-link small py-1 px-2" data-bs-toggle="tab"
+                                                        data-bs-target="#tabFieldPDFUpload" type="button">
+                                                        <i class="bi bi-file-pdf me-1"></i>上传PDF文件
+                                                    </button>
+                                                </li>
+                                                </ul>
+                                                <div class="tab-content">
+                                                    <div class="tab-pane fade show active" id="tabFieldExistingFile">
+                                                        <label class="form-label small"><strong>选择数据文件</strong></label>
+                                                        <select class="form-select form-select-sm" id="fieldFileSelect">
+                                                            <option value="">-- 请选择文件 --</option>
+                                                        </select>
+                                                        <div id="fieldFileInfo" class="mt-2 small text-muted d-none">
+                                                        </div>
+                                                    </div>
+                                                    <div class="tab-pane fade" id="tabFieldNewFile">
+                                                        <div class="mb-3">
+                                                            <label
+                                                                class="form-label small"><strong>选择文件上传</strong></label>
+                                                            <input type="file" class="form-control form-control-sm"
+                                                                id="fieldSingleFileUpload" accept=".csv,.xlsx,.xls">
+                                                            <small class="text-muted">支持 CSV, Excel (.xlsx, .xls)
+                                                                格式</small>
+                                                        </div>
+                                                        <div id="fieldSingleUploadProgress" class="d-none">
+                                                            <div class="progress mb-2" style="height: 6px;">
+                                                                <div class="progress-bar"
+                                                                    id="fieldSingleUploadProgressBar" style="width: 0%">
+                                                                </div>
+                                                            </div>
+                                                            <small class="text-muted"
+                                                                id="fieldSingleUploadProgressText">上传中...</small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="tab-pane fade" id="tabFieldPDFUpload">
+                                                        <div class="mb-3">
+                                                            <label
+                                                                class="form-label small"><strong>上传PDF文件</strong></label>
+                                                            <input type="file" class="form-control form-control-sm"
+                                                                id="pdfFileUpload" accept=".pdf" multiple>
+                                                            <small class="text-muted">支持多个PDF文件上传，用于B细胞同种型分析</small>
+                                                        </div>
+                                                        <div id="pdfUploadProgress" class="d-none">
+                                                            <div class="progress mb-2" style="height: 6px;">
+                                                                <div class="progress-bar" id="pdfUploadProgressBar"
+                                                                    style="width: 0%">
+                                                                </div>
+                                                            </div>
+                                                            <small class="text-muted"
+                                                                id="pdfUploadProgressText">上传中...</small>
+                                                        </div>
+                                                        <div id="pdfFileList" class="mt-3 d-none">
+                                                            <label
+                                                                class="form-label small"><strong>已上传的PDF文件</strong></label>
+                                                            <div id="pdfFileListContainer" class="border rounded p-2"
+                                                                style="max-height: 200px; overflow-y: auto;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Sample Column Selection & Detection -->
+                                                <div id="fieldSampleColumnSection" class="mt-3 d-none">
+                                                    <div class="mb-3">
+                                                        <label class="form-label small"><strong>样本列选择</strong></label>
+                                                        <select class="form-select form-select-sm"
+                                                            id="fieldSampleColumnSelect">
+                                                            <option value="">-- 选择样本名称所在列 --</option>
+                                                        </select>
+                                                    </div>
+                                                    <div id="fieldDetectedSamples" class="d-none">
+                                                        <div
+                                                            class="d-flex justify-content-between align-items-center mb-2">
+                                                            <label
+                                                                class="form-label small mb-0"><strong>选择要分析的样本</strong></label>
+                                                            <div>
+                                                                <button type="button"
+                                                                    class="btn btn-link btn-sm p-0 me-2"
+                                                                    onclick="Config.selectAllFieldSamples()">全选</button>
+                                                                <button type="button" class="btn btn-link btn-sm p-0"
+                                                                    onclick="Config.deselectAllFieldSamples()">清空</button>
+                                                            </div>
+                                                        </div>
+                                                        <div id="fieldSampleCheckboxesContainer"
+                                                            class="border rounded p-2 sample-checkbox-container"
+                                                            style="max-height: 150px; overflow-y: auto;"></div>
+                                                        <small class="text-muted">已选 <span
+                                                                id="fieldSelectedSampleCount">0</span> /
+                                                            <span id="fieldSampleCount">0</span> 个样本</small>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Field Selection -->
+                                            <div class="config-card card">
+                                                <div class="card-header"><i class="bi bi-sliders me-2"></i>字段选择</div>
+                                                <div class="card-body">
+                                                    <div class="mb-3">
+                                                        <label class="form-label small fw-bold">选择要分析的数值字段</label>
+                                                        <div class="alert alert-info py-2 px-3 mb-2"
+                                                            style="font-size: 0.85rem;" id="fieldSelectionHint">
+                                                            <i class="bi bi-info-circle me-1"></i>
+                                                            <strong>默认字段：</strong>根据选择的分析类型，系统会预选相关字段
+                                                        </div>
+                                                        <div id="fieldFieldList" class="border rounded p-2"
+                                                            style="max-height: 200px; overflow-y: auto;">
+                                                            <div class="text-muted">请先上传文件并选择样本列</div>
+                                                        </div>
+                                                    </div>
+                                                    <div id="fieldSelectedFields" class="d-none">
+                                                        <label class="form-label small">已选字段：</label>
+                                                        <div id="fieldSelectedFieldTags"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Analysis Parameters -->
+                                            <div class="config-card card">
+                                                <div class="card-header"><i class="bi bi-sliders me-2"></i>分析参数</div>
+                                                <div class="card-body">
+                                                    <div id="customParams" style="display:none;">
+                                                        <div class="mb-3">
+                                                            <small class="text-muted">图表类型：柱状图</small>
+                                                        </div>
+                                                    </div>
+                                                    <div id="igmetricsParams" style="display:none;">
+                                                        <div class="mb-3">
+                                                            <label class="form-label small fw-bold">选择分析的链</label>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    value="IGH" id="igChainIGH" checked>
+                                                                <label class="form-check-label small"
+                                                                    for="igChainIGH">IGH</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    value="IGK" id="igChainIGK" checked>
+                                                                <label class="form-check-label small"
+                                                                    for="igChainIGK">IGK</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    value="IGL" id="igChainIGL" checked>
+                                                                <label class="form-check-label small"
+                                                                    for="igChainIGL">IGL</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <small class="text-muted">图表类型：柱状图</small>
+                                                        </div>
+                                                    </div>
+                                                    <div id="seqdepthParams" style="display:none;">
+                                                        <div class="mb-3">
+                                                            <small class="text-muted">图表类型：柱状图</small>
+                                                        </div>
+                                                    </div>
+                                                    <div id="seqreadsParams" style="display:none;">
+                                                        <div class="mb-3">
+                                                            <small class="text-muted">图表类型：柱状图</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Right Column: Chart Settings -->
+                                <div class="col-lg-4">
+                                    <div class="config-card card">
+                                        <div class="card-header"><i class="bi bi-palette me-2"></i>图表设置</div>
+                                        <div class="card-body">
+                                            <div class="mb-2">
+                                                <label class="form-label small">图表标题</label>
+                                                <input type="text" class="form-control form-control-sm" id="chartTitle"
+                                                    placeholder="自定义标题">
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">颜色方案</label>
+                                                <select class="form-select form-control-sm" id="colorScheme">
+                                                    <option value="viridis">Viridis</option>
+                                                    <option value="plasma">Plasma</option>
+                                                    <option value="RdYlBu_r">Red-Yellow-Blue</option>
+                                                    <option value="coolwarm">Cool-Warm</option>
+                                                </select>
+                                            </div>
+                                            <div class="row g-2 mb-2">
+                                                <div class="col-6">
+                                                    <label class="form-label small">宽度</label>
+                                                    <input type="number" class="form-control form-control-sm"
+                                                        id="figureWidth" value="10" min="5" max="20">
+                                                </div>
+                                                <div class="col-6">
+                                                    <label class="form-label small">高度</label>
+                                                    <input type="number" class="form-control form-control-sm"
+                                                        id="figureHeight" value="8" min="5" max="20">
+                                                </div>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small">字体大小</label>
+                                                <input type="number" class="form-control form-control-sm" id="fontSize"
+                                                    value="12" min="8" max="24">
+                                            </div>
+                                            <hr class="my-2">
+                                            <div id="heatmapOptions">
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" id="showAnnotation"
+                                                        checked>
+                                                    <label class="form-check-label small">显示数值</label>
+                                                </div>
+                                                <div class="row g-2">
+                                                    <div class="col-6">
+                                                        <label class="form-label small">最小值</label>
+                                                        <input type="number" class="form-control form-control-sm"
+                                                            id="vmin" value="0" step="0.1">
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <label class="form-label small">最大值</label>
+                                                        <input type="number" class="form-control form-control-sm"
+                                                            id="vmax" value="1" step="0.1">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div id="barOptions" class="d-none">
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" id="showValues"
+                                                        checked>
+                                                    <label class="form-check-label small">显示数值标签</label>
+                                                </div>
+                                                <div class="row g-2">
+                                                    <div class="col-6">
+                                                        <label class="form-label small">柱宽</label>
+                                                        <input type="number" class="form-control form-control-sm"
+                                                            id="barWidth" value="0.8" min="0.1" max="1" step="0.1">
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <label class="form-label small">透明度</label>
+                                                        <input type="number" class="form-control form-control-sm"
+                                                            id="barAlpha" value="0.8" min="0.1" max="1" step="0.1">
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Action Buttons -->
+                                            <div class="d-grid gap-2 mt-3">
+                                                <button type="button" class="btn btn-primary"
+                                                    onclick="Config.submitAnalysis()">
+                                                    <i class="bi bi-play-circle me-1"></i>开始分析
+                                                </button>
+                                                <button type="button" class="btn btn-outline-secondary"
+                                                    onclick="Config.resetForm()">
+                                                    <i class="bi bi-arrow-clockwise me-1"></i>重置
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+    </form>
+</div>
+
+<!-- Directory Browser Modal -->
+<div class="modal fade" id="directoryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择目录</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="modalPathInput" readonly>
+                        <button class="btn btn-outline-secondary" type="button" onclick="Config.refreshDirectoryTree()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                        <button class="btn btn-primary" type="button" onclick="Config.selectDirectory()">
+                            选择
+                        </button>
+                    </div>
+                </div>
+                <div id="directoryTree" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-muted">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Configuration object
+    const Config = {
+        files: [],
+        scanData: null,
+        detectedSamples: [],
+        currentAnalysisType: 'similarity',
+        availableModules: [],
+        moduleState: {},
+
+        async init() {
+            // Load existing files
+            await this.loadFiles();
+
+            // Setup event listeners
+            this.setupEventListeners();
+
+            // Initialize analysis type
+            this.onAnalysisCategoryChange();
+        },
+
+        setupEventListeners() {
+            // Directory scan - with null checks
+            const scanBtn = document.getElementById('scanDirectoryBtn');
+            if (scanBtn) scanBtn.addEventListener('click', () => this.scanDirectory());
+
+            const browseBtn = document.getElementById('browseDirectoryBtn');
+            if (browseBtn) browseBtn.addEventListener('click', () => this.browseDirectory());
+
+            // File uploads - with null checks
+            const folderUpload = document.getElementById('folderUpload');
+            if (folderUpload) folderUpload.addEventListener('change', (e) => this.handleFolderUpload(e));
+
+            // Field analysis file upload - with null checks
+            const fieldUpload = document.getElementById('fieldSingleFileUpload');
+            if (fieldUpload) fieldUpload.addEventListener('change', (e) => this.handleFieldFileUpload(e));
+
+            // Field file select - with null check
+            const fieldFileSelect = document.getElementById('fieldFileSelect');
+            if (fieldFileSelect) fieldFileSelect.addEventListener('change', (e) =>
+                this.onFieldFileSelect(e));
+
+            // Field sample column select - with null check
+            const fieldSampleColumnSelect = document.getElementById('fieldSampleColumnSelect');
+            if (fieldSampleColumnSelect) {
+                fieldSampleColumnSelect.addEventListener('change', async (e) => {
+                    const fileId = document.getElementById('fieldFileSelect')?.value;
+                    console.log('DEBUG: Sample column changed', { fileId, sampleColumn: e.target.value });
+                    if (!fileId || !e.target.value) return;
+
+                    try {
+                        const requestData = {
+                            file_id: fileId,
+                            sample_column: e.target.value
+                        };
+                        console.log('DEBUG: Sending request:', requestData);
+
+                        const response = await fetch('/api/detect-samples', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestData)
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.samples) {
+                                this.showFieldSampleCheckboxes(data.samples);
+
+                                const fileResponse = await fetch(`/api/files/${fileId}`);
+                                const fileData = await fileResponse.json();
+                                if (fileResponse.ok) {
+                                    this.showFieldNumericFields(fileData.columns, fileId);
+                                }
+                            }
+                        } else {
+                            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+                            console.error('Failed to detect samples. Status:', response.status, 'Error:', errorData);
+                            alert(`样本检测失败 (${response.status}): ${errorData.error || errorData.message || '未知错误'}`);
+                        }
+                    } catch (error) {
+                        console.error('Failed to detect samples:', error);
+                        alert(`样本检测失败: ${error.message}`);
+                    }
+                });
+            }
+        },
+
+        // Handle analysis category change
+        onAnalysisCategoryChange() {
+            const category = document.getElementById('analysisCategory').value;
+            const fieldContainer = document.getElementById('fieldAnalysisTypeContainer');
+            const similarityContent = document.getElementById('similarityContent');
+            const fieldContent = document.getElementById('fieldContent');
+            const similarityInfo = document.getElementById('similarityInfo');
+            const fieldInfo = document.getElementById('fieldInfo');
+
+            if (category === 'field') {
+                fieldContainer.style.display = 'block';
+                similarityContent.style.display = 'none';
+                fieldContent.style.display = 'block';
+                similarityInfo.style.display = 'none';
+                fieldInfo.style.display = 'block';
+                this.updateChartOptions('field');
+                this.onFieldAnalysisTypeChange();
+            } else {
+                fieldContainer.style.display = 'none';
+                similarityContent.style.display = 'block';
+                fieldContent.style.display = 'none';
+                similarityInfo.style.display = 'block';
+                fieldInfo.style.display = 'none';
+                this.updateChartOptions('similarity');
+            }
+        },
+
+        // Handle field analysis type change
+        onFieldAnalysisTypeChange() {
+            const analysisType = document.getElementById('fieldAnalysisType').value;
+
+            // Hide all parameter sections
+            ['customParams', 'igmetricsParams', 'seqdepthParams', 'seqreadsParams'].forEach(id => {
+                const elem = document.getElementById(id);
+                if (elem) elem.style.display = 'none';
+            });
+
+            // Show relevant parameter section
+            const paramsMap = {
+                'custom': 'customParams',
+                'igmetrics': 'igmetricsParams',
+                'seqdepth': 'seqdepthParams',
+                'seqreads': 'seqreadsParams'
+            };
+
+            const paramsId = paramsMap[analysisType];
+            if (paramsId) {
+                const paramsElem = document.getElementById(paramsId);
+                if (paramsElem) paramsElem.style.display = 'block';
+            }
+
+            // Show/hide PDF upload tab based on analysis type
+            const pdfUploadTab = document.getElementById('pdfUploadTab');
+            if (pdfUploadTab) {
+                if (analysisType === 'bcell_isotype_pdf') {
+                    pdfUploadTab.style.display = 'block';
+                } else {
+                    pdfUploadTab.style.display = 'none';
+                }
+            }
+
+            // Update hint text with default fields
+            const hintElement = document.getElementById('fieldSelectionHint');
+            if (hintElement) {
+                const defaultFields = {
+                    'custom': [],
+                    'igmetrics': ['D50', 'Gini_index', 'Shannon', 'Reads'],
+                    'seqdepth': ['Total_Receptor_RNA', 'Reads_per_UMI', 'MigsGood_Total', 'ReadsGood_Total'],
+                    'seqreads': ['TRA', 'TRB', 'TRD', 'TRG', 'IGH', 'IGK', 'IGL']
+                };
+
+                const defaults = defaultFields[analysisType] || [];
+                if (defaults.length > 0) {
+                    hintElement.innerHTML = `<i class="bi bi-info-circle me-1"></i><strong>默认字段：</strong>${defaults.join(', ')}`;
+                } else {
+                    hintElement.innerHTML = '<i class="bi bi-info-circle me-1"></i><strong>默认字段：</strong>根据选择的分析类型，系统会预选相关字段';
+                }
+            }
+        },
+
+        updateChartOptions(analysisType) {
+            const heatmapOptions = document.getElementById('heatmapOptions');
+            const barOptions = document.getElementById('barOptions');
+
+            if (analysisType === 'similarity') {
+                heatmapOptions.classList.remove('d-none');
+                barOptions.classList.add('d-none');
+            } else {
+                heatmapOptions.classList.add('d-none');
+                barOptions.classList.remove('d-none');
+            }
+        },
+
+        async loadFiles() {
+            try {
+                const response = await fetch('/api/files');
+                const files = await response.json();
+
+                if (response.ok) {
+                    this.files = files.files || files;
+                    this.populateFileSelects();
+                }
+            } catch (error) {
+                console.error('Failed to load files:', error);
+            }
+        },
+
+        populateFileSelects() {
+            const selects = [
+                'fieldFileSelect'
+            ];
+
+            selects.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                if (select) {
+                    // Keep first option
+                    const firstOption = select.querySelector('option');
+                    select.innerHTML = '';
+                    if (firstOption) select.appendChild(firstOption);
+
+                    // Add files
+                    this.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file.id;
+                        option.textContent = `${file.name} (${file.row_count?.toLocaleString() || 0} 行)`;
+                        select.appendChild(option);
+                    });
+                }
+            });
+        },
+
+        async scanDirectory() {
+            const path = document.getElementById('dataDirectoryPath').value;
+            if (!path) {
+                alert('请输入目录路径');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/scan-directory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    this.showScanResults(data);
+                } else {
+                    alert('扫描失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Scan failed:', error);
+                alert('扫描失败: ' + error.message);
+            }
+        },
+
+        showScanResults(data) {
+            document.getElementById('directoryResults').classList.remove('d-none');
+            document.getElementById('scanResultText').textContent =
+                `找到 ${data.samples.length} 个样本, ${data.chains.length} 种链类型, 共 ${data.total_files} 个文件`;
+
+            const sampleContainer = document.getElementById('sampleCheckboxes');
+            sampleContainer.innerHTML = data.samples.map(sample => `
+            <div class="col-6 col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input sample-checkbox" type="checkbox" value="${sample}" checked>
+                    <label class="form-check-label small">${sample}</label>
+                </div>
+            </div>
+            `).join('');
+
+            const chainContainer = document.getElementById('chainCheckboxes');
+            chainContainer.innerHTML = data.chains.map(chain => `
+            <div class="col-4 col-md-2">
+                <div class="form-check">
+                    <input class="form-check-input chain-checkbox" type="checkbox" value="${chain}" checked>
+                    <label class="form-check-label small">${chain}</label>
+                </div>
+            </div>
+            `).join('');
+        },
+
+        selectAllSamples() {
+            document.querySelectorAll('.sample-checkbox').forEach(cb => cb.checked = true);
+        },
+
+        deselectAllSamples() {
+            document.querySelectorAll('.sample-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        selectAllChains() {
+            document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = true);
+        },
+
+        deselectAllChains() {
+            document.querySelectorAll('.chain-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        selectAllFieldSamples() {
+            document.querySelectorAll('.field-sample-checkbox').forEach(cb => cb.checked = true);
+            this.updateFieldSampleCount();
+        },
+
+        deselectAllFieldSamples() {
+            document.querySelectorAll('.field-sample-checkbox').forEach(cb => cb.checked = false);
+            this.updateFieldSampleCount();
+        },
+
+        updateFieldSampleCount() {
+            const checked = document.querySelectorAll('.field-sample-checkbox:checked').length;
+            const total = document.querySelectorAll('.field-sample-checkbox').length;
+            document.getElementById('fieldSelectedSampleCount').textContent = checked;
+            document.getElementById('fieldSampleCount').textContent = total;
+        },
+
+        async handleFolderUpload(event) {
+            const files = Array.from(event.target.files);
+            if (files.length === 0) return;
+
+            const pattern = /^(.+)__([A-Z]{3,4})\.(csv\.gz|csv)$/;
+            const matchedFiles = files.filter(f => pattern.test(f.name));
+
+            if (matchedFiles.length === 0) {
+                alert('未找到匹配的文件。文件命名格式应为: {样本名}__{链名}.csv.gz');
+                return;
+            }
+
+            const samples = new Set();
+            const chains = new Set();
+            matchedFiles.forEach(f => {
+                const match = f.name.match(pattern);
+                if (match) {
+                    samples.add(match[1]);
+                    chains.add(match[2]);
+                }
+            });
+
+            document.getElementById('uploadProgress').classList.remove('d-none');
+            document.getElementById('uploadProgressBar').style.width = '0%';
+            document.getElementById('uploadProgressText').textContent = '准备上传...';
+
+            try {
+                const formData = new FormData();
+                for (const file of matchedFiles) {
+                    formData.append('files', file);
+                }
+
+                const response = await fetch('/api/upload-folder', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || '上传失败');
+                }
+
+                const result = await response.json();
+                document.getElementById('uploadProgressBar').style.width = '100%';
+                document.getElementById('uploadProgressText').textContent = '上传完成!';
+
+                this.scanData = {
+                    path: result.upload_path,
+                    samples: Array.from(samples).sort(),
+                    chains: Array.from(chains).sort(),
+                    total_files: matchedFiles.length
+                };
+                this.showScanResults(this.scanData);
+            } catch (error) {
+                console.error('Upload failed:', error);
+                alert('上传失败: ' + error.message);
+            }
+        },
+
+        async handleFieldFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fieldSingleUploadProgress').classList.remove('d-none');
+            document.getElementById('fieldSingleUploadProgressBar').style.width = '0%';
+            document.getElementById('fieldSingleUploadProgressText').textContent = '上传中...';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || '上传失败');
+                }
+
+                const result = await response.json();
+                document.getElementById('fieldSingleUploadProgressBar').style.width = '100%';
+                document.getElementById('fieldSingleUploadProgressText').textContent = '上传完成!';
+
+                // Reload files and select the uploaded file
+                await this.loadFiles();
+                document.getElementById('fieldFileSelect').value = result.file_id;
+                this.onFieldFileSelect({ target: { value: result.file_id } });
+            } catch (error) {
+                console.error('Upload failed:', error);
+                alert('上传失败: ' + error.message);
+            }
+        },
+
+        async onFieldFileSelect(event) {
+            const fileId = event.target.value;
+            if (!fileId) return;
+
+            try {
+                const response = await fetch(`/api/files/${fileId}`);
+                const fileData = await response.json();
+
+                if (response.ok) {
+                    // Show file info
+                    const fileInfo = document.getElementById('fieldFileInfo');
+                    fileInfo.textContent = `${fileData.row_count?.toLocaleString() || 0} 行, ${fileData.column_count} 列`;
+                    fileInfo.classList.remove('d-none');
+
+                    // Show column selection
+                    this.showFieldColumnSelection(fileData.columns);
+
+                    // Auto-detect and select sample column
+                    this.autoSelectSampleColumn(fileData.columns, fileId);
+                }
+            } catch (error) {
+                console.error('Failed to load file info:', error);
+            }
+        },
+
+        showFieldColumnSelection(columns) {
+            const select = document.getElementById('fieldSampleColumnSelect');
+            if (!select) {
+                console.error('fieldSampleColumnSelect element not found');
+                return;
+            }
+
+            select.innerHTML = '<option value="">-- 选择样本名称所在列 --</option>';
+
+            // Add columns as options
+            columns.forEach(column => {
+                const option = document.createElement('option');
+                option.value = column;
+                option.textContent = column;
+                select.appendChild(option);
+            });
+
+            // Show the section
+            const section = document.getElementById('fieldSampleColumnSection');
+            if (section) {
+                section.classList.remove('d-none');
+            }
+        },
+
+        async autoSelectSampleColumn(columns, fileId) {
+            // Try to find sample column (Sample/sample)
+            const sampleColumn = columns.find(col =>
+                col.toLowerCase() === 'sample' ||
+                col.toLowerCase() === 'samples' ||
+                col === 'Sample'
+            );
+
+            if (sampleColumn && fileId) {
+                console.log('DEBUG: Auto-selecting sample column:', sampleColumn, 'for file:', fileId);
+                const select = document.getElementById('fieldSampleColumnSelect');
+                if (select) {
+                    select.value = sampleColumn;
+                    // Trigger change event to load samples
+                    const event = new Event('change', { bubbles: true });
+                    select.dispatchEvent(event);
+                } else {
+                    console.error('fieldSampleColumnSelect element not found for auto-selection');
+                }
+            }
+        },
+
+        showFieldSampleCheckboxes(samples) {
+            const container = document.getElementById('fieldSampleCheckboxesContainer');
+            container.innerHTML = samples.map(sample => `
+                <div class="form-check">
+                    <input class="form-check-input field-sample-checkbox" type="checkbox" value="${sample}" checked>
+                    <label class="form-check-label small">${sample}</label>
+                </div>
+            `).join('');
+
+            document.getElementById('fieldDetectedSamples').classList.remove('d-none');
+            this.updateFieldSampleCount();
+        },
+
+        showFieldNumericFields(columns, fileId) {
+            const container = document.getElementById('fieldFieldList');
+            const analysisType = document.getElementById('fieldAnalysisType').value;
+            const hintElement = document.getElementById('fieldSelectionHint');
+
+            // Define default fields for each analysis type
+            const defaultFields = {
+                'custom': [],
+                'igmetrics': ['D50', 'Gini_index', 'Shannon', 'Reads'],
+                'seqdepth': ['Total_Receptor_RNA', 'Reads_per_UMI', 'MigsGood_Total', 'ReadsGood_Total'],
+                'seqreads': ['TRA', 'TRB', 'TRD', 'TRG', 'IGH', 'IGK', 'IGL']
+            };
+
+            // Update hint text with default fields
+            const defaults = defaultFields[analysisType] || [];
+            if (defaults.length > 0) {
+                hintElement.innerHTML = `<i class="bi bi-info-circle me-1"></i><strong>默认字段：</strong>${defaults.join(', ')}`;
+            } else {
+                hintElement.innerHTML = '<i class="bi bi-info-circle me-1"></i><strong>默认字段：</strong>根据选择的分析类型，系统会预选相关字段';
+            }
+
+            // Filter numeric columns
+            const numericColumns = columns.filter(col =>
+                !['Sample', 'sample', 'Chain', 'chain'].includes(col)
+            );
+
+            container.innerHTML = numericColumns.map(column => {
+                const isDefault = defaultFields[analysisType]?.includes(column);
+                const defaultClass = isDefault ? ' default-field' : '';
+                return `
+                    <div class="form-check${defaultClass}">
+                        <input class="form-check-input field-field-checkbox" type="checkbox" 
+                            value="${column}" ${isDefault ? 'checked' : ''} onchange="Config.updateFieldSelectedFields()">
+                        <label class="form-check-label small">${column}</label>
+                    </div>
+                `;
+            }).join('');
+
+            // Show selected fields section
+            this.updateFieldSelectedFields();
+        },
+
+        updateFieldSelectedFields() {
+            const selected = Array.from(document.querySelectorAll('.field-field-checkbox:checked'))
+                .map(cb => cb.value);
+
+            if (selected.length > 0) {
+                document.getElementById('fieldSelectedFields').classList.remove('d-none');
+                document.getElementById('fieldSelectedFieldTags').innerHTML = selected.map(field =>
+                    `<span class="sample-tag">${field}</span>`
+                ).join('');
+            } else {
+                document.getElementById('fieldSelectedFields').classList.add('d-none');
+            }
+        },
+
+        async submitAnalysis() {
+            const category = document.getElementById('analysisCategory').value;
+
+            if (category === 'similarity') {
+                this.submitSimilarityAnalysis();
+            } else {
+                this.submitFieldAnalysis();
+            }
+        },
+
+        submitSimilarityAnalysis() {
+            const selectedSamples = Array.from(document.querySelectorAll('.sample-checkbox:checked'))
+                .map(cb => cb.value);
+            const selectedChains = Array.from(document.querySelectorAll('.chain-checkbox:checked'))
+                .map(cb => cb.value);
+            const selectedMetrics = Array.from(document.querySelectorAll('#similarityContent input[type="checkbox"]:checked'))
+                .map(cb => cb.value);
+
+            if (selectedSamples.length === 0) {
+                alert('请至少选择一个样本');
+                return;
+            }
+
+            if (selectedChains.length === 0) {
+                alert('请至少选择一种链类型');
+                return;
+            }
+
+            if (selectedMetrics.length === 0) {
+                alert('请至少选择一种相似度指标');
+                return;
+            }
+
+            // Build analysis configuration
+            const config = {
+                analysis_type: 'similarity',
+                samples: selectedSamples,
+                chains: selectedChains,
+                metrics: selectedMetrics,
+                chart_settings: {
+                    title: document.getElementById('chartTitle').value,
+                    color_scheme: document.getElementById('colorScheme').value,
+                    width: parseInt(document.getElementById('figureWidth').value),
+                    height: parseInt(document.getElementById('figureHeight').value),
+                    font_size: parseInt(document.getElementById('fontSize').value),
+                    show_annotation: document.getElementById('showAnnotation').checked,
+                    vmin: parseFloat(document.getElementById('vmin').value),
+                    vmax: parseFloat(document.getElementById('vmax').value)
+                }
+            };
+
+            // Submit to backend
+            this.executeAnalysis(config);
+        },
+
+        submitFieldAnalysis() {
+            const fileId = document.getElementById('fieldFileSelect').value;
+            const sampleColumn = document.getElementById('fieldSampleColumnSelect').value;
+            const selectedSamples = Array.from(document.querySelectorAll('.field-sample-checkbox:checked'))
+                .map(cb => cb.value);
+            const selectedFields = Array.from(document.querySelectorAll('.field-field-checkbox:checked'))
+                .map(cb => cb.value);
+            const analysisType = document.getElementById('fieldAnalysisType').value;
+
+            if (!fileId) {
+                alert('请选择数据文件');
+                return;
+            }
+
+            if (!sampleColumn) {
+                alert('请选择样本列');
+                return;
+            }
+
+            if (selectedSamples.length === 0) {
+                alert('请至少选择一个样本');
+                return;
+            }
+
+            if (selectedFields.length === 0) {
+                alert('请至少选择一个数值字段');
+                return;
+            }
+
+            // Build analysis configuration
+            const config = {
+                analysis_type: 'field',
+                field_analysis_type: analysisType,
+                file_id: fileId,
+                sample_column: sampleColumn,
+                samples: selectedSamples,
+                fields: selectedFields,
+                chart_settings: {
+                    title: document.getElementById('chartTitle').value,
+                    color_scheme: document.getElementById('colorScheme').value,
+                    width: parseInt(document.getElementById('figureWidth').value),
+                    height: parseInt(document.getElementById('figureHeight').value),
+                    font_size: parseInt(document.getElementById('fontSize').value),
+                    show_values: document.getElementById('showValues').checked,
+                    bar_width: parseFloat(document.getElementById('barWidth').value),
+                    bar_alpha: parseFloat(document.getElementById('barAlpha').value)
+                }
+            };
+
+            // Add analysis-specific parameters
+            if (analysisType === 'igmetrics') {
+                config.chains = Array.from(document.querySelectorAll('#igmetricsParams input[type="checkbox"]:checked'))
+                    .map(cb => cb.value);
+                config.plot_type = 'bar';
+            } else if (analysisType === 'seqdepth') {
+                config.plot_type = 'bar';
+            } else if (analysisType === 'seqreads') {
+                config.plot_type = 'bar';
+            } else if (analysisType === 'custom') {
+                config.plot_type = 'bar';
+            }
+
+            // Submit to backend
+            this.executeAnalysis(config);
+        },
+
+        async executeAnalysis(config) {
+            try {
+                const response = await fetch('/api/analysis/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        module_name: config.analysis_type === 'similarity' ? 'similarity_heatmap' : config.field_analysis_type,
+                        data: config.analysis_type === 'similarity' ? this.scanData : { file_id: config.file_id },
+                        params: config
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    // Redirect to results page
+                    window.location.href = `/analysis/results/${result.analysis_id}`;
+                } else {
+                    alert('分析失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('Analysis failed:', error);
+                alert('分析失败: ' + error.message);
+            }
+        },
+
+        resetForm() {
+            if (confirm('确定要重置所有配置吗？')) {
+                document.getElementById('analysisConfigForm').reset();
+                document.getElementById('analysisCategory').value = 'similarity';
+                this.onAnalysisCategoryChange();
+            }
+        },
+
+        browseDirectory() {
+            // Show directory browser modal
+            const modal = new bootstrap.Modal(document.getElementById('directoryModal'));
+            modal.show();
+            this.refreshDirectoryTree();
+        },
+
+        async refreshDirectoryTree() {
+            // Implementation for directory tree browsing
+            // This would typically fetch directory structure from the server
+        },
+
+        selectDirectory() {
+            const selectedPath = document.getElementById('modalPathInput').value;
+            if (selectedPath) {
+                document.getElementById('dataDirectoryPath').value = selectedPath;
+                bootstrap.Modal.getInstance(document.getElementById('directoryModal')).hide();
+            }
+        }
+    };
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+        Config.init();
+    });
+</script>
+{% endblock %}

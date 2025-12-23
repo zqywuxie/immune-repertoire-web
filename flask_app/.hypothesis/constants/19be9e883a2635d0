@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\heatmap_generator.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 0.7, 0.8, 0.995, 1.0, 300, '.3f', 'Agg', 'Arial Unicode MS', 'Blues', 'BrBG', 'DejaVu Sans', 'Greens', 'No Data', 'No matrices provided', 'Oranges', 'PRGn', 'PiYG', 'Purples', 'RdBu', 'RdBu_r', 'RdYlBu', 'RdYlBu_r', 'Reds', 'Sample', 'SimHei', 'Similarity', 'Similarity Score', 'YlGnBu', 'YlOrRd', '_', 'axes.unicode_minus', 'bold', 'cdr3_sharing', 'center', 'cividis', 'color_scheme', 'coolwarm', 'default', 'dpi', 'expression_sharing', 'figure_size', 'flatten', 'font.sans-serif', 'fontsize', 'gray', 'inferno', 'label', 'magma', 'main_title', 'metric_name', 'metrics', 'morisita_horn', 'n_cols', 'n_rows', 'plasma', 'png', 'r2_inner', 'r2_outer', 'samples', 'shrink', 'sorensen', 'tight', 'title', 'viridis', 'vmax', 'vmin', 'x', 'y']

@@ -1,0 +1,189 @@
+<!-- 
+Field Mapper Component
+Allows users to map source columns to required fields for analysis.
+Requirements: 11.2, 11.4, 11.5, 6.4, 6.5 - No inline styles or scripts
+Requirements: 3.2, 3.3, 3.6, 3.7 - Enhanced UI with confidence display
+Enhanced: Support for showing all fields with add/remove functionality
+-->
+
+<!-- Field Mapper CSS -->
+<link href="{{ url_for('static', filename='css/field_mapper.css') }}" rel="stylesheet">
+
+<div class="field-mapper" id="fieldMapper">
+    <!-- Analysis Type Selection -->
+    <div class="mb-4">
+        <label for="analysisType" class="form-label fw-bold">
+            <i class="bi bi-gear me-2"></i>分析类型
+        </label>
+        <select class="form-select" id="analysisType" onchange="FieldMapper.onAnalysisTypeChange()">
+            <option value="">请选择分析类型...</option>
+            <option value="similarity_heatmap">相似度热图分析</option>
+            <option value="sequencing_depth">测序深度分析</option>
+            <option value="diversity_metrics">多样性指标分析</option>
+            <option value="chain_specific">链特异性分析</option>
+        </select>
+        <div class="form-text">
+            <i class="bi bi-info-circle me-1"></i>
+            选择分析类型后，系统将自动检测并建议字段映射
+        </div>
+    </div>
+
+    <!-- View Mode Toggle -->
+    <div class="mb-3" id="viewModeToggle" style="display: none;">
+        <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="viewMode" id="requiredMode" value="required" checked
+                onchange="FieldMapper.onViewModeChange('required')">
+            <label class="btn btn-outline-primary" for="requiredMode">
+                <i class="bi bi-list-check me-1"></i>必需字段
+            </label>
+            <input type="radio" class="btn-check" name="viewMode" id="allFieldsMode" value="all"
+                onchange="FieldMapper.onViewModeChange('all')">
+            <label class="btn btn-outline-primary" for="allFieldsMode">
+                <i class="bi bi-list-ul me-1"></i>所有字段
+            </label>
+        </div>
+    </div>
+
+    <!-- Mapping Status -->
+    <div class="alert alert-info d-none" id="mappingStatus">
+        <i class="bi bi-info-circle me-2"></i>
+        <span id="mappingStatusText"></span>
+    </div>
+
+    <!-- Required Fields View (Default) -->
+    <div class="table-responsive d-none" id="requiredFieldsView">
+        <div class="card">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">
+                    <i class="bi bi-diagram-3 me-2"></i>字段映射配置
+                </h6>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0" id="mappingTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="table-col-30">
+                                <i class="bi bi-tag me-1"></i>必需字段
+                            </th>
+                            <th class="table-col-40">
+                                <i class="bi bi-arrow-left-right me-1"></i>源列
+                            </th>
+                            <th class="table-col-20">
+                                <i class="bi bi-speedometer2 me-1"></i>匹配度
+                            </th>
+                            <th class="table-col-10 text-center">
+                                <i class="bi bi-check-circle me-1"></i>状态
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="mappingTableBody">
+                        <!-- Mapping rows will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer bg-light">
+                <small class="text-muted">
+                    <i class="bi bi-lightbulb me-1"></i>
+                    <strong>置信度说明：</strong>
+                    <span class="badge bg-success ms-2">≥80%</span> 高置信度
+                    <span class="badge bg-warning ms-2">50-80%</span> 中等置信度
+                    <span class="badge bg-danger ms-2">&lt;50%</span> 低置信度，请手动确认
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- All Fields View (Enhanced) -->
+    <div class="d-none" id="allFieldsView">
+        <div class="row">
+            <!-- Available Fields -->
+            <div class="col-md-5">
+                <div class="card h-100">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">
+                            <i class="bi bi-database me-2"></i>可用字段
+                            <small class="text-muted ms-2">({{ columns|length or '0' }})</small>
+                        </h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="search-box p-3 border-bottom">
+                            <input type="text" class="form-control form-control-sm" id="fieldSearch"
+                                placeholder="搜索字段..." onkeyup="FieldMapper.filterFields(this.value)">
+                        </div>
+                        <div class="field-list" id="availableFieldsList" style="height: 400px; overflow-y: auto;">
+                            <!-- Available fields will be listed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mapping Controls -->
+            <div class="col-md-2 d-flex flex-column justify-content-center align-items-center">
+                <button class="btn btn-primary mb-2" id="addFieldBtn" onclick="FieldMapper.addSelectedField()" disabled>
+                    <i class="bi bi-arrow-right"></i>
+                </button>
+                <button class="btn btn-danger" id="removeFieldBtn" onclick="FieldMapper.removeSelectedField()" disabled>
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+            </div>
+
+            <!-- Mapped Fields -->
+            <div class="col-md-5">
+                <div class="card h-100">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">
+                            <i class="bi bi-link me-2"></i>已映射字段
+                            <small class="text-muted ms-2">(<span id="mappedCount">0</span>)</small>
+                        </h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="mapped-fields-list" id="mappedFieldsList" style="height: 400px; overflow-y: auto;">
+                            <!-- Mapped fields will be listed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Actions -->
+    <div class="d-none mt-4" id="templateActions">
+        <div class="card">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">
+                    <i class="bi bi-bookmark me-2"></i>模板管理
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="templateName" class="form-label">保存当前映射为模板</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="templateName" placeholder="输入模板名称">
+                            <button class="btn btn-primary" type="button" onclick="FieldMapper.saveTemplate()">
+                                <i class="bi bi-save me-1"></i>保存模板
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="savedTemplates" class="form-label">加载已保存的模板</label>
+                        <select class="form-select" id="savedTemplates" onchange="FieldMapper.loadTemplate()">
+                            <option value="">选择模板...</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation Result -->
+    <div class="mt-3 d-none" id="validationResult">
+        <div class="alert" id="validationAlert">
+            <i class="bi me-2" id="validationIcon"></i>
+            <span id="validationMessage"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Field Mapper JavaScript -->
+<script src="{{ url_for('static', filename='js/modules/field_mapper.js') }}"></script>

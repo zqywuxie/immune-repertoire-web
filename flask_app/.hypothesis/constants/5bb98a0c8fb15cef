@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\ig_other_isotype_metrics.py
+# hypothesis_version: 6.148.7
+
+[0.01, 0.3, 0.8, 100, 300, '.2f', 'Arial Unicode MS', 'Condition', 'Group', 'IGHA', 'IGHG12', 'IGHG34', 'IGHM_IGHD', 'IG其他亚型指标分布', 'IG其他亚型指标热图', 'IG其他亚型指标趋势', 'Microsoft YaHei', 'Sample', 'SimHei', 'Timepoint', 'YlOrRd', 'axes.unicode_minus', 'bar', 'bar_chart', 'baseline_comparison', 'both', 'bottom', 'center', 'charts', 'color_scheme', 'correlation_matrix', 'data', 'default', 'dominant_isotype', 'error', 'font.sans-serif', 'heatmap', 'husl', 'isotype_analysis', 'isotype_stats', 'isotypes', 'line', 'line_chart', 'max_sample', 'max_value', 'mean_observed', 'mean_percentage', 'o', 'parameters', 'plot_type', 'png', 'records', 'right', 'show_values', 'sort_samples', 'std_observed', 'success', 'summary', 'tight', 'total_observed', 'total_other_isotypes', 'total_samples', '亚型', '样本', '观测值']

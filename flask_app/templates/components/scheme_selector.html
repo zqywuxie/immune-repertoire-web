@@ -1,0 +1,182 @@
+<!-- Scheme Selector Component -->
+<div class="scheme-selector">
+    <div class="row mb-3">
+        <div class="col-12">
+            <h5 class="mb-2">选择分析方案</h5>
+            <p class="text-muted">
+                <i class="bi bi-info-circle me-1"></i>
+                选择一个预定义的分析方案，系统将自动配置所需的字段和参数
+            </p>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="schemesLoading" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">加载中...</span>
+        </div>
+        <p class="text-muted mt-2">正在加载分析方案...</p>
+    </div>
+
+    <!-- Schemes Grid -->
+    <div id="schemesGrid" class="row g-3 d-none">
+        <!-- Schemes will be dynamically loaded here -->
+    </div>
+
+    <!-- No Schemes Message -->
+    <div id="noSchemesMessage" class="alert alert-warning d-none">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        暂无可用的分析方案
+    </div>
+
+    <!-- Selected Scheme Details -->
+    <div id="selectedSchemeDetails" class="card mt-4 d-none">
+        <div class="card-header bg-primary text-white">
+            <i class="bi bi-info-circle me-2"></i>方案详情
+        </div>
+        <div class="card-body">
+            <h5 id="schemeDetailName" class="mb-2"></h5>
+            <p id="schemeDetailDescription" class="text-muted mb-3"></p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="mb-2">必需字段</h6>
+                    <ul id="schemeRequiredFields" class="list-unstyled mb-3">
+                        <!-- Required fields will be listed here -->
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="mb-2">可选字段</h6>
+                    <ul id="schemeOptionalFields" class="list-unstyled mb-3">
+                        <!-- Optional fields will be listed here -->
+                    </ul>
+                </div>
+            </div>
+
+            <div class="text-end">
+                <button class="btn btn-outline-secondary me-2" id="changeSchemeBtn">
+                    <i class="bi bi-arrow-left me-1"></i>更换方案
+                </button>
+                <button class="btn btn-primary" id="confirmSchemeBtn">
+                    <i class="bi bi-check-lg me-1"></i>确认选择
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheme Card Template -->
+<template id="schemeCardTemplate">
+    <div class="col-md-6 col-lg-4">
+        <div class="card scheme-card h-100" data-scheme-id="">
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <i class="scheme-icon"></i>
+                </div>
+                <h5 class="card-title text-center scheme-name"></h5>
+                <p class="card-text text-muted small scheme-description"></p>
+                <div class="text-center mt-3">
+                    <span class="badge bg-secondary scheme-badge"></span>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent border-top-0 text-center">
+                <button class="btn btn-sm btn-outline-primary select-scheme-btn">
+                    <i class="bi bi-check-circle me-1"></i>选择此方案
+                </button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<style>
+    .scheme-card {
+        cursor: pointer;
+        transition: all 0.3s;
+        border: 2px solid #dee2e6;
+    }
+
+    .scheme-card:hover {
+        border-color: #0d6efd;
+        box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+    }
+
+    .scheme-card.selected {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+    }
+
+    .scheme-icon {
+        font-size: 3rem;
+        color: #0d6efd;
+    }
+
+    .scheme-card.selected .scheme-icon {
+        color: #0a58ca;
+    }
+
+    .scheme-name {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .scheme-description {
+        min-height: 3rem;
+        font-size: 0.875rem;
+    }
+
+    .scheme-badge {
+        font-size: 0.75rem;
+    }
+
+    .select-scheme-btn {
+        transition: all 0.2s;
+    }
+
+    .scheme-card:hover .select-scheme-btn {
+        background-color: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+
+    .scheme-card.selected .select-scheme-btn {
+        background-color: #198754;
+        color: white;
+        border-color: #198754;
+    }
+
+    #selectedSchemeDetails {
+        animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    #schemeRequiredFields li,
+    #schemeOptionalFields li {
+        padding: 0.25rem 0;
+    }
+
+    #schemeRequiredFields li::before {
+        content: "✓";
+        color: #198754;
+        font-weight: bold;
+        margin-right: 0.5rem;
+    }
+
+    #schemeOptionalFields li::before {
+        content: "○";
+        color: #6c757d;
+        margin-right: 0.5rem;
+    }
+</style>

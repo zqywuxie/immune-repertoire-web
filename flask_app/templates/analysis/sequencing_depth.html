@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block title %}PPT报告生成{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/file_uploader.css') }}">
+<style>
+    .tab-content {
+        padding: 2rem 0;
+    }
+
+    .card {
+        margin-bottom: 1.5rem;
+    }
+
+    .result-section {
+        min-height: 300px;
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .result-section.has-result {
+        background-color: #fff;
+        text-align: left;
+    }
+
+    .download-link {
+        display: inline-block;
+        margin-top: 1rem;
+    }
+
+    .progress-container {
+        display: none;
+        margin-top: 1rem;
+    }
+
+    .file-upload-section {
+        border: 2px dashed #dee2e6;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+        transition: all 0.3s;
+    }
+
+    .file-upload-section:hover {
+        border-color: #0d6efd;
+        background-color: #f8f9fa;
+    }
+
+    .file-upload-section.has-file {
+        border-color: #198754;
+        background-color: #d1e7dd;
+    }
+
+    .parameter-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .parameter-group label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1><i class="bi bi-file-earmark-ppt"></i> PPT报告生成</h1>
+            <p class="text-muted">生成测序深度分析PPT报告、可视化图表和条形图</p>
+        </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs" id="sequencingDepthTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="ppt-tab-btn" data-bs-toggle="tab" data-bs-target="#ppt-tab"
+                type="button" role="tab" aria-controls="ppt-tab" aria-selected="true">
+                <i class="bi bi-file-earmark-ppt"></i> PPT报告
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="viz-tab-btn" data-bs-toggle="tab" data-bs-target="#viz-tab" type="button"
+                role="tab" aria-controls="viz-tab" aria-selected="false">
+                <i class="bi bi-bar-chart-line"></i> RNA Extraction Summary
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="chart-tab-btn" data-bs-toggle="tab" data-bs-target="#chart-tab" type="button"
+                role="tab" aria-controls="chart-tab" aria-selected="false">
+                <i class="bi bi-bar-chart"></i> RepSeq / Reads Based
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="sequencingDepthTabContent">
+        <!-- PPT报告 Tab -->
+        <div class="tab-pane fade show active" id="ppt-tab" role="tabpanel" aria-labelledby="ppt-tab-btn">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-upload"></i> 数据文件</h5>
+                        </div>
+                        <div class="card-body">
+                            {% include 'components/file_uploader.html' %}
+                            <div id="pptFileInfo" style="display: none;" class="mt-3">
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i>
+                                    <strong>已选择文件:</strong> <span id="pptFileName"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-sliders"></i> 报告参数</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="parameter-group">
+                                <label for="pptTitle">报告标题</label>
+                                <input type="text" class="form-control" id="pptTitle" placeholder="测序深度分析报告">
+                            </div>
+                            <div class="parameter-group">
+                                <label for="pptAuthor">作者</label>
+                                <input type="text" class="form-control" id="pptAuthor" placeholder="输入作者名称">
+                            </div>
+                            <div class="parameter-group">
+                                <label for="pptDate">日期</label>
+                                <input type="date" class="form-control" id="pptDate">
+                            </div>
+                            <button class="btn btn-primary btn-lg w-100" id="generatePptBtn" disabled>
+                                <i class="bi bi-play-fill"></i> 生成PPT报告
+                            </button>
+                            <div class="progress-container" id="pptProgress">
+                                <div class="progress">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                        role="progressbar" style="width: 100%"></div>
+                                </div>
+                                <p class="text-center mt-2 text-muted">正在生成报告，请稍候...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-file-earmark-check"></i> 生成结果</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-section" id="pptResult">
+                                <i class="bi bi-file-earmark-ppt fs-1 text-muted"></i>
+                                <p class="text-muted mt-3">生成的PPT报告将显示在这里</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 可视化 Tab -->
+        <div class="tab-pane fade" id="viz-tab" role="tabpanel" aria-labelledby="viz-tab-btn">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-upload"></i> 数据文件</h5>
+                        </div>
+                        <div class="card-body">
+                            {% include 'components/file_uploader.html' %}
+                            <div id="vizFileInfo" style="display: none;" class="mt-3">
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i>
+                                    <strong>已选择文件:</strong> <span id="vizFileName"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-sliders"></i> 可视化参数</h5>
+                            <div class="card-body">
+                                <div class="parameter-group">
+                                    <label for="vizColorScheme">颜色方案</label>
+                                    <select class="form-select" id="vizColorScheme">
+                                        <option value="viridis">Viridis</option>
+                                        <option value="plasma">Plasma</option>
+                                        <option value="coolwarm">Cool Warm</option>
+                                        <option value="RdYlBu">Red-Yellow-Blue</option>
+                                    </select>
+                                </div>
+                                <div class="parameter-group">
+                                    <label for="vizWidth">图表宽度 (像素)</label>
+                                    <input type="number" class="form-control" id="vizWidth" value="1200" min="600"
+                                        max="2400">
+                                </div>
+                                <div class="parameter-group">
+                                    <label for="vizHeight">图表高度 (像素)</label>
+                                    <input type="number" class="form-control" id="vizHeight" value="800" min="400"
+                                        max="1600">
+                                </div>
+                                <button class="btn btn-primary btn-lg w-100" id="generateVizBtn" disabled>
+                                    <i class="bi bi-play-fill"></i> 生成可视化
+                                </button>
+                                <div class="progress-container" id="vizProgress">
+                                    <div class="progress">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                            role="progressbar" style="width: 100%"></div>
+                                    </div>
+                                    <p class="text-center mt-2 text-muted">正在生成可视化，请稍候...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="bi bi-image"></i> 可视化结果</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="result-section" id="vizResult">
+                                    <i class="bi bi-bar-chart-line fs-1 text-muted"></i>
+                                    <p class="text-muted mt-3">生成的可视化图表将显示在这里</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 条形图 Tab -->
+            <div class="tab-pane fade" id="chart-tab" role="tabpanel" aria-labelledby="chart-tab-btn">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="bi bi-upload"></i> 数据文件</h5>
+                            </div>
+                            <div class="card-body">
+                                {% include 'components/file_uploader.html' %}
+                                <p class="mt-2">点击选择文件或拖放文件到此处</p>
+                                <input type="file" class="form-control" id="chartFileInput" accept=".csv,.xlsx,.txt"
+                                    style="display: none;">
+                                <button class="btn btn-primary"
+                                    onclick="document.getElementById('chartFileInput').click()">
+                                    <i class="bi bi-folder-open"></i> 选择文件
+                                </button>
+                                <p class="text-muted mt-2 mb-0"><small>支持 CSV, XLSX, TXT 格式</small></p>
+                                <p class="text-info mt-2 mb-0"><small><i class="bi bi-info-circle"></i>
+                                        可使用其他Tab上传的文件</small></p>
+                            </div>
+                            <div id="chartFileInfo" style="display: none;" class="mt-3">
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i>
+                                    <strong>已选择文件:</strong> <span id="chartFileName"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-sliders"></i> 条形图参数</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="parameter-group">
+                                <label for="chartTitle">图表标题</label>
+                                <input type="text" class="form-control" id="chartTitle" placeholder="测序Reads条形图">
+                            </div>
+                            <div class="parameter-group">
+                                <label for="chartOrientation">图表方向</label>
+                                <select class="form-select" id="chartOrientation">
+                                    <option value="vertical">垂直</option>
+                                    <option value="horizontal">水平</option>
+                                </select>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="chartColor">条形颜色</label>
+                                <input type="color" class="form-control form-control-color" id="chartColor"
+                                    value="#0d6efd">
+                            </div>
+                            <button class="btn btn-primary btn-lg w-100" id="generateChartBtn" disabled>
+                                <i class="bi bi-play-fill"></i> 生成条形图
+                            </button>
+                            <div class="progress-container" id="chartProgress">
+                                <div class="progress">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                        role="progressbar" style="width: 100%"></div>
+                                </div>
+                                <p class="text-center mt-2 text-muted">正在生成条形图，请稍候...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-bar-chart"></i> 条形图结果</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-section" id="chartResult">
+                                <i class="bi bi-bar-chart fs-1 text-muted"></i>
+                                <p class="text-muted mt-3">生成的条形图将显示在这里</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/tab_manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sequencing_depth.js') }}"></script>
+{% endblock %}

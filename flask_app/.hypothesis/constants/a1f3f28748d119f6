@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\analysis\modules\bcell_isotype.py
+# hypothesis_version: 6.148.7
+
+[0.25, 0.3, 0.7, 0.8, 1.0, 1.05, 1.2, 100, '.2f', 'B细胞同种型分布雷达图', 'B细胞同种型分布（堆叠柱状图）', 'Group', 'IgA', 'IgA_Expression', 'IgA_UCDR3', 'IgD', 'IgD_Expression', 'IgD_UCDR3', 'IgE', 'IgE_Expression', 'IgE_UCDR3', 'IgG', 'IgG_Expression', 'IgG_UCDR3', 'IgM', 'IgM_Expression', 'IgM_UCDR3', 'Sample', 'Timepoint', 'Total_Expression', 'bcell_analysis', 'bcell_isotype', 'bold', 'boxes', 'coerce', 'coolwarm', 'correlation_heatmap', 'correlations', 'distribution', 'distribution_stats', 'error', 'heatmap', 'isotypes', 'max', 'mean', 'median', 'min', 'normalize', 'o-', 'params', 'plot_type', 'polar', 'processed_data', 'radar', 'records', 'show_values', 'stacked_bar', 'std', 'summary', 'upper left', 'x', '各同种型平均表达百分比：\n', '同种型分布箱线图', '同种型相关性热图', '样本', '表达百分比 (%)']

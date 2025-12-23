@@ -1,0 +1,4 @@
+# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\models\database.py
+# hypothesis_version: 6.148.7
+
+[0.0, 100, 255, 500, 'Analysis', 'AnalysisResult', 'File', 'all, delete-orphan', 'analyses', 'analyses.id', 'analysis', 'analysis_results', 'analysis_results.id', 'annotations', 'custom_parameters', 'file', 'files', 'files.id', 'mapping_templates', 'pending', 'results', 'sample_groups']

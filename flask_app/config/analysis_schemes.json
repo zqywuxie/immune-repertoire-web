@@ -1,0 +1,411 @@
+{
+    "schemes": [
+        {
+            "id": "shm_analysis",
+            "name": "SHM分析",
+            "description": "分析体细胞高频突变率和分布",
+            "icon": "bi-graph-up",
+            "category": "mutation_analysis",
+            "required_fields": [
+                {
+                    "field": "Sample",
+                    "display_name": "样本名称",
+                    "type": "string",
+                    "mapping_hints": [
+                        "sample"
+                    ]
+                }
+            ],
+            "optional_fields": [
+                {
+                    "field": "IGHA_SHM0",
+                    "display_name": "IgA SHM0",
+                    "type": "float",
+                    "mapping_hints": [
+                        "igha_shm0"
+                    ]
+                },
+                {
+                    "field": "IGHA_SHM1",
+                    "display_name": "IgA SHM1",
+                    "type": "float",
+                    "mapping_hints": [
+                        "igha_shm1"
+                    ]
+                },
+                {
+                    "field": "IGHG12_SHM0",
+                    "display_name": "IgG1/2 SHM0",
+                    "type": "float",
+                    "mapping_hints": [
+                        "ighg12_shm0"
+                    ]
+                },
+                {
+                    "field": "IGHG12_SHM1",
+                    "display_name": "IgG1/2 SHM1",
+                    "type": "float",
+                    "mapping_hints": [
+                        "ighg12_shm1"
+                    ]
+                },
+                {
+                    "field": "IGH_SHM0",
+                    "display_name": "IGH SHM0",
+                    "type": "float",
+                    "mapping_hints": [
+                        "igh_shm0"
+                    ]
+                },
+                {
+                    "field": "IGH_SHM1",
+                    "display_name": "IGH SHM1",
+                    "type": "float",
+                    "mapping_hints": [
+                        "igh_shm1"
+                    ]
+                }
+            ],
+            "default_parameters": {
+                "sample_column": "Sample",
+                "baseline_sample": null,
+                "chart_config": {
+                    "figsize": [
+                        16,
+                        10
+                    ],
+                    "dpi": 300
+                }
+            },
+            "analyzer_class": "SHMAnalyzer"
+        },
+        {
+            "id": "ig_metrics",
+            "name": "IG指标分析",
+            "description": "分析IGH、IGK、IGL链的多种指标",
+            "icon": "bi-bar-chart",
+            "category": "diversity_analysis",
+            "required_fields": [
+                {
+                    "field": "Sample",
+                    "display_name": "样本名称",
+                    "type": "string",
+                    "mapping_hints": [
+                        "sample",
+                        "sample_name"
+                    ]
+                },
+                {
+                    "field": "Chain",
+                    "display_name": "链类型",
+                    "type": "string",
+                    "mapping_hints": [
+                        "chain",
+                        "chain_type"
+                    ]
+                }
+            ],
+            "optional_fields": [
+                {
+                    "field": "Reads",
+                    "display_name": "Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "reads",
+                        "read_count"
+                    ]
+                },
+                {
+                    "field": "UCDR3",
+                    "display_name": "UCDR3",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "ucdr3",
+                        "unique_cdr3"
+                    ]
+                },
+                {
+                    "field": "D50",
+                    "display_name": "D50",
+                    "type": "float",
+                    "mapping_hints": [
+                        "d50",
+                        "d50_index"
+                    ]
+                },
+                {
+                    "field": "Gini_index",
+                    "display_name": "Gini Index",
+                    "type": "float",
+                    "mapping_hints": [
+                        "gini",
+                        "gini_index"
+                    ]
+                },
+                {
+                    "field": "Shannon",
+                    "display_name": "Shannon",
+                    "type": "float",
+                    "mapping_hints": [
+                        "shannon",
+                        "shannon_entropy"
+                    ]
+                }
+            ],
+            "default_parameters": {
+                "sample_column": "Sample",
+                "chains": [
+                    "IGH",
+                    "IGK",
+                    "IGL"
+                ],
+                "baseline_sample": null,
+                "chart_config": {
+                    "figsize": [
+                        16,
+                        10
+                    ],
+                    "dpi": 300
+                },
+                "metrics": [
+                    "Reads",
+                    "UCDR3",
+                    "D50",
+                    "Gini_index",
+                    "Shannon"
+                ]
+            },
+            "analyzer_class": "IGMetricsAnalyzer"
+        },
+        {
+            "id": "sequencing_reads_chart",
+            "name": "测序Reads条形图",
+            "description": "分析TCR/IG各链的测序reads数量和百分比",
+            "icon": "bi-bar-chart-fill",
+            "category": "sequencing_analysis",
+            "required_fields": [
+                {
+                    "field": "Sample",
+                    "display_name": "样本名称",
+                    "type": "string",
+                    "mapping_hints": [
+                        "sample"
+                    ]
+                }
+            ],
+            "optional_fields": [
+                {
+                    "field": "TRA_reads",
+                    "display_name": "TRA Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "tra_reads"
+                    ]
+                },
+                {
+                    "field": "TRB_reads",
+                    "display_name": "TRB Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "trb_reads"
+                    ]
+                },
+                {
+                    "field": "TRD_reads",
+                    "display_name": "TRD Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "trd_reads"
+                    ]
+                },
+                {
+                    "field": "TRG_reads",
+                    "display_name": "TRG Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "trg_reads"
+                    ]
+                },
+                {
+                    "field": "IGH_reads",
+                    "display_name": "IGH Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "igh_reads"
+                    ]
+                },
+                {
+                    "field": "IGK_reads",
+                    "display_name": "IGK Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "igk_reads"
+                    ]
+                },
+                {
+                    "field": "IGL_reads",
+                    "display_name": "IGL Reads",
+                    "type": "integer",
+                    "mapping_hints": [
+                        "igl_reads"
+                    ]
+                }
+            ],
+            "default_parameters": {
+                "sample_column": "Sample",
+                "baseline_sample": null,
+                "chains": [
+                    "TRA",
+                    "TRB",
+                    "TRD",
+                    "TRG",
+                    "IGH",
+                    "IGK",
+                    "IGL"
+                ],
+                "chart_config": {
+                    "figsize": [
+                        20,
+                        16
+                    ],
+                    "dpi": 300
+                }
+            },
+            "analyzer_class": "SequencingReadsChartAnalyzer"
+        },
+        {
+            "id": "ig_other_isotype",
+            "name": "B细胞成熟状态分析",
+            "description": "分析B细胞的成熟状态分布",
+            "icon": "bi-diagram-3",
+            "category": "isotype_analysis",
+            "required_fields": [
+                {
+                    "field": "Sample",
+                    "display_name": "样本名称",
+                    "type": "string",
+                    "mapping_hints": [
+                        "sample",
+                        "sample_name"
+                    ]
+                }
+            ],
+            "optional_fields": [
+                {
+                    "field": "class_switched_percent_by_reads",
+                    "display_name": "Class-Switched (% Reads)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "class_switched_percent_by_reads"
+                    ]
+                },
+                {
+                    "field": "naive_mutated_percent_by_reads",
+                    "display_name": "Naive-Mutated (% Reads)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "naive_mutated_percent_by_reads"
+                    ]
+                },
+                {
+                    "field": "naive_unmutated_percent_by_reads",
+                    "display_name": "Naive-Unmutated (% Reads)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "naive_unmutated_percent_by_reads"
+                    ]
+                },
+                {
+                    "field": "IGHM_IGHD_mutated_by_reads",
+                    "display_name": "IGHM/IGHD-Mutated (% Reads)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "ighm_ighd_mutated_by_reads"
+                    ]
+                },
+                {
+                    "field": "class_switched_percent_by_clone",
+                    "display_name": "Class-Switched (% Clones)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "class_switched_percent_by_clone"
+                    ]
+                },
+                {
+                    "field": "naive_mutated_percent_by_clone",
+                    "display_name": "Naive-Mutated (% Clones)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "naive_mutated_percent_by_clone"
+                    ]
+                },
+                {
+                    "field": "naive_unmutated_percent_by_clone",
+                    "display_name": "Naive-Unmutated (% Clones)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "naive_unmutated_percent_by_clone"
+                    ]
+                },
+                {
+                    "field": "IGHM_IGHD_mutated_by_clone",
+                    "display_name": "IGHM/IGHD-Mutated (% Clones)",
+                    "type": "float",
+                    "mapping_hints": [
+                        "ighm_ighd_mutated_by_clone"
+                    ]
+                }
+            ],
+            "default_parameters": {},
+            "analyzer_class": "BcellMaturationAnalyzer"
+        },
+        {
+            "id": "ppt_report",
+            "name": "PPT报告生成",
+            "description": "生成测序深度分析PPT报告",
+            "icon": "bi-file-earmark-ppt",
+            "category": "report_generation",
+            "required_fields": [
+                {
+                    "field": "Sample",
+                    "display_name": "样本名称",
+                    "type": "string",
+                    "mapping_hints": [
+                        "sample"
+                    ]
+                }
+            ],
+            "optional_fields": [
+                {
+                    "field": "Total_Receptor_RNA",
+                    "display_name": "Total Receptor RNA",
+                    "type": "float",
+                    "mapping_hints": [
+                        "total_receptor_rna"
+                    ]
+                },
+                {
+                    "field": "MigsGoodTotal",
+                    "display_name": "MigsGoodTotal",
+                    "type": "float",
+                    "mapping_hints": [
+                        "migsgoodtotal"
+                    ]
+                },
+                {
+                    "field": "ReadsGoodTotal",
+                    "display_name": "ReadsGoodTotal",
+                    "type": "float",
+                    "mapping_hints": [
+                        "readsgoodtotal"
+                    ]
+                }
+            ],
+            "default_parameters": {
+                "sample_column": "Sample",
+                "baseline_sample": null
+            },
+            "analyzer_class": "PPTReportGenerator"
+        }
+    ]
+}

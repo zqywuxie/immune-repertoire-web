@@ -1,0 +1,308 @@
+{% extends 'base.html' %}
+
+{% block title %}自定义字段分析 - {{ config.APP_NAME }}{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/field_analysis.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/file_uploader.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/analysis_common.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {# Page Header - Consistent with other analysis pages #}
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="bi bi-table me-2"></i>
+                自定义字段分析
+            </h2>
+            <p class="text-muted mb-4">
+                上传数据文件，选择任意数值字段进行自定义对比分析，支持基准样本百分比差异计算
+            </p>
+        </div>
+    </div>
+
+    <div class="row">
+        {# Left Column: Configuration - Consistent card-based design #}
+        <div class="col-lg-4">
+            {# Step 1: File Upload Card #}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                    选择数据文件
+                </div>
+                <div class="card-body">
+                    {# File Uploader Component #}
+                    {% include 'components/file_uploader.html' %}
+
+                    <div id="fileInfo" class="d-none mt-3">
+                        <div class="alert alert-success py-2 small mb-0">
+                            <i class="bi bi-check-circle me-1"></i>
+                            <span id="fileInfoText"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Step 2: Sample Configuration Card #}
+            <div class="card mb-3" id="sampleColumnCard" style="display: none;">
+                <div class="card-header">
+                    <i class="bi bi-person-lines-fill me-2"></i>
+                    样本设置
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">样本列</label>
+                        <select class="form-select" id="sampleColumnSelect">
+                            <option value="">-- 选择样本列 --</option>
+                        </select>
+                    </div>
+
+                    {# Field Mapping Section (minimal for field analysis) #}
+                    <div id="fieldMappingSection" class="mb-3 d-none">
+                        <div class="alert alert-info py-2 small mb-0">
+                            <i class="bi bi-check-circle me-1"></i>
+                            <span id="mappingStatusText">样本列已映射</span>
+                        </div>
+                    </div>
+
+                    {# Sample Selection #}
+                    <div id="sampleSelectionSection" class="d-none">
+                        <label class="form-label">选择要分析的样本</label>
+                        <div id="sampleListContainer">
+                            <!-- Sample selector will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Step 3: Field Selection Card #}
+            <div class="card mb-3" id="fieldSelectionCard" style="display: none;">
+                <div class="card-header">
+                    <i class="bi bi-list-check me-2"></i>
+                    选择分析字段
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">数值字段</label>
+                        <div>
+                            <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                                onclick="FieldAnalyzer.selectAllFields()">
+                                <i class="bi bi-check-all me-1"></i>全选
+                            </button>
+                            <button type="button" class="btn btn-link btn-sm p-0"
+                                onclick="FieldAnalyzer.deselectAllFields()">
+                                <i class="bi bi-x-circle me-1"></i>清空
+                            </button>
+                        </div>
+                    </div>
+                    <div class="field-list-container border rounded p-2" id="fieldListContainer">
+                        <div class="text-muted small text-center py-3">
+                            <i class="bi bi-info-circle me-1"></i>请先选择文件和样本列
+                        </div>
+                    </div>
+                    <div id="selectedFieldsInfo" class="mt-2 d-none">
+                        <div class="alert alert-info py-2 small mb-0">
+                            <i class="bi bi-check-circle me-1"></i>
+                            已选择 <strong><span id="selectedFieldCount">0</span></strong> 个字段
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Step 4: Baseline Selection Card #}
+            <div class="card mb-3" id="baselineCard" style="display: none;">
+                <div class="card-header">
+                    <i class="bi bi-bullseye me-2"></i>
+                    基准样本（可选）
+                </div>
+                <div class="card-body">
+                    <label class="form-label">选择基准样本</label>
+                    <select class="form-select" id="baselineSelect">
+                        <option value="">-- 不使用基准样本 --</option>
+                    </select>
+                    <div class="form-text">
+                        <i class="bi bi-info-circle me-1"></i>
+                        选择基准样本后，将计算其他样本相对于基准的百分比差异
+                    </div>
+                </div>
+            </div>
+
+            {# Step 5: Chart Configuration Card #}
+            <div class="card mb-3" id="chartConfigCard" style="display: none;">
+                <div class="card-header">
+                    <i class="bi bi-gear me-2"></i>
+                    图表配置
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">图表类型</label>
+                        <select class="form-select" id="plotType">
+                            <option value="bar">柱状图</option>
+                            <option value="grouped_bar">分组柱状图</option>
+                            <option value="line">折线图</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">图表标题</label>
+                        <input type="text" class="form-control" id="chartTitle" placeholder="输入自定义标题（可选）">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">颜色方案</label>
+                        <select class="form-select" id="colorScheme">
+                            <option value="viridis">Viridis（紫绿渐变）</option>
+                            <option value="plasma">Plasma（紫橙渐变）</option>
+                            <option value="Set3">Set3（柔和多彩）</option>
+                            <option value="tab10">Tab10（标准多彩）</option>
+                            <option value="coolwarm">Cool-Warm（冷暖对比）</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <label class="form-label">宽度</label>
+                            <input type="number" class="form-control" id="figureWidth" value="12" min="6" max="20"
+                                step="1">
+                        </div>
+                        <div class="col-6 mb-3">
+                            <label class="form-label">高度</label>
+                            <input type="number" class="form-control" id="figureHeight" value="8" min="4" max="16"
+                                step="1">
+                        </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showValues" checked>
+                        <label class="form-check-label" for="showValues">
+                            在图表上显示数值
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            {# Run Analysis Button - Consistent styling #}
+            <div class="d-grid gap-2" id="runAnalysisSection" style="display: none;">
+                <button type="button" class="btn btn-primary btn-lg" id="runAnalysisBtn"
+                    onclick="FieldAnalyzer.runAnalysis()">
+                    <i class="bi bi-play-fill me-2"></i>运行分析
+                </button>
+            </div>
+        </div>
+
+        {# Right Column: Results - Consistent with other analysis pages #}
+        <div class="col-lg-8">
+            {# Loading Indicator #}
+            <div id="loadingIndicator" class="text-center py-5 d-none">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 text-muted">正在分析数据...</p>
+            </div>
+
+            {# Results Section #}
+            <div id="resultsSection" style="display: none;">
+                {# Charts Card #}
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-graph-up me-2"></i>可视化图表</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary"
+                            onclick="FieldAnalyzer.downloadAllCharts()">
+                            <i class="bi bi-download me-1"></i>下载全部
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="chartsContainer" class="charts-container">
+                        </div>
+                    </div>
+                </div>
+
+                {# Data Table Card #}
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-table me-2"></i>数据表格</span>
+                        <button type="button" class="btn btn-sm btn-outline-success"
+                            onclick="FieldAnalyzer.copyTableToClipboard()">
+                            <i class="bi bi-clipboard me-1"></i>复制表格
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover" id="dataTable">
+                                <thead id="dataTableHead"></thead>
+                                <tbody id="dataTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Empty State - Consistent with overall design #}
+            <div id="emptyState" class="text-center py-5">
+                <i class="bi bi-table display-1 text-muted mb-3"></i>
+                <h5 class="text-muted">开始自定义字段分析</h5>
+                <p class="text-muted mb-4">按照左侧步骤操作，轻松完成数据分析</p>
+                <div class="row g-3 text-start" style="max-width: 600px; margin: 0 auto;">
+                    <div class="col-12">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-primary rounded-circle"
+                                    style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">1</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">上传或选择数据文件</h6>
+                                <p class="text-muted small mb-0">支持 CSV、Excel 格式</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-primary rounded-circle"
+                                    style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">2</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">选择样本列和目标样本</h6>
+                                <p class="text-muted small mb-0">指定包含样本名称的列</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-primary rounded-circle"
+                                    style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">3</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">选择要分析的数值字段</h6>
+                                <p class="text-muted small mb-0">可选择多个字段进行对比</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0">
+                                <span class="badge bg-primary rounded-circle"
+                                    style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">4</span>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">配置图表参数并开始分析</h6>
+                                <p class="text-muted small mb-0">自定义图表样式，生成可视化结果</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/modules/sample_selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modules/field_mapper.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modules/field_analyzer.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        FieldAnalyzer.init();
+    });
+</script>
+{% endblock %}

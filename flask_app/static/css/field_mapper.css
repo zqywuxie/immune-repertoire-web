@@ -1,0 +1,74 @@
+/**
+ * Field Mapper Component Styles
+ * Requirements: 6.4 - No inline styles
+ * Requirements: 3.2, 3.3 - Enhanced UI design
+ * Enhanced: Styles for all fields view with add/remove functionality
+ */
+
+.field-mapper .progress {
+    min-width: 60px;
+    height: 20px;
+}
+
+.field-mapper .table td {
+    vertical-align: middle;
+}
+
+.field-mapper .form-select-sm {
+    font-size: 0.875rem;
+}
+
+.field-mapper .card {
+    border: 1px solid #dee2e6;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.field-mapper .card-header {
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.75rem 1rem;
+}
+
+.field-mapper .card-header h6 {
+    color: #495057;
+    font-weight: 600;
+}
+
+.field-mapper .table-hover tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.field-mapper .badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.field-mapper .form-text {
+    color: #6c757d;
+    font-size: 0.875rem;
+}
+
+.field-mapper .table-col-30 {
+    width: 30%;
+}
+
+.field-mapper .table-col-40 {
+    width: 40%;
+}
+
+.field-mapper .table-col-20 {
+    width: 20%;
+}
+
+.field-mapper .table-col-10 {
+    width: 10%;
+}
+
+.field-mapper .progress-bar {
+    transition: width 0.3s ease;
+}
+
+.field-mapper .card-footer {
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}

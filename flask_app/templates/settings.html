@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}设置{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 settings-page">
+    <h1 class="mb-4">系统设置</h1>
+
+    <div class="row">
+        <div class="col-lg-9">
+            <!-- Visualization Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-palette me-2"></i>可视化设置</h5>
+                </div>
+                <div class="card-body">
+                    <form id="visualizationSettings">
+                        <div class="mb-3">
+                            <label class="form-label">默认颜色方案</label>
+                            <select class="form-select" id="colorScheme">
+                                <option value="viridis">Viridis</option>
+                                <option value="plasma">Plasma</option>
+                                <option value="inferno">Inferno</option>
+                                <option value="magma">Magma</option>
+                                <option value="cividis">Cividis</option>
+                                <option value="RdYlBu_r">Red-Yellow-Blue</option>
+                                <option value="coolwarm">Cool-Warm</option>
+                            </select>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">图表宽度 (英寸)</label>
+                                <input type="number" class="form-control" id="figureWidth" value="10" min="5" max="20">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">图表高度 (英寸)</label>
+                                <input type="number" class="form-control" id="figureHeight" value="8" min="5" max="20">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">字体大小</label>
+                            <input type="number" class="form-control" id="fontSize" value="12" min="8" max="24">
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Export Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-download me-2"></i>导出设置</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">图片分辨率 (DPI)</label>
+                        <select class="form-select" id="exportDpi">
+                            <option value="150">150 DPI (网页)</option>
+                            <option value="300" selected>300 DPI (打印)</option>
+                            <option value="600">600 DPI (高质量)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">默认导出格式</label>
+                        <select class="form-select" id="defaultExportFormat">
+                            <option value="png">PNG 图片</option>
+                            <option value="csv">CSV 数据</option>
+                            <option value="zip">ZIP 压缩包</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bar Chart Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>柱状图设置</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">默认柱宽</label>
+                            <input type="number" class="form-control" id="barWidth" value="0.8" min="0.1" max="1"
+                                step="0.1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">默认柱间距</label>
+                            <input type="number" class="form-control" id="barSpacing" value="0.2" min="0" max="1"
+                                step="0.1">
+                        </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showValuesDefault" checked>
+                        <label class="form-check-label" for="showValuesDefault">默认显示数值标签</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Heatmap Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-grid-3x3 me-2"></i>热图设置</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="showAnnotationDefault" checked>
+                        <label class="form-check-label" for="showAnnotationDefault">默认显示数值注释</label>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">默认最小值</label>
+                            <input type="number" class="form-control" id="vminDefault" value="0" step="0.1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">默认最大值</label>
+                            <input type="number" class="form-control" id="vmaxDefault" value="1" step="0.1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex gap-2 mb-4">
+                <button type="button" class="btn btn-primary" id="saveSettingsBtn">
+                    <i class="bi bi-save me-1"></i>保存设置
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="resetSettingsBtn">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Column: Info and Actions -->
+        <div class="col-lg-3">
+            <!-- Current Settings Summary -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>当前配置</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-2">设置将保存到浏览器本地存储，并在下次访问时自动加载。</p>
+                    <hr>
+                    <div id="settingsSummary">
+                        <p class="mb-1"><strong>颜色方案:</strong> <span id="summaryColorScheme">-</span></p>
+                        <p class="mb-1"><strong>图表尺寸:</strong> <span id="summarySize">-</span></p>
+                        <p class="mb-1"><strong>导出DPI:</strong> <span id="summaryDpi">-</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Management -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-database me-2"></i>数据管理</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">清除本地存储的设置和缓存数据。</p>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="clearLocalDataBtn">
+                        <i class="bi bi-trash me-1"></i>清除本地数据
+                    </button>
+                </div>
+            </div>
+
+            <!-- About -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i>关于</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>免疫组库分析平台</strong></p>
+                    <p class="text-muted small mb-0">版本 1.0.0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}
