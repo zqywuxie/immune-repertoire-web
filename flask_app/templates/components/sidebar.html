@@ -48,6 +48,14 @@
         </li>
 
         <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.statistical_comparison_page' %}active{% endif %}"
+                href="{{ url_for('pages.statistical_comparison_page') }}" title="统计比较">
+                <i class="bi bi-graph-up"></i>
+                <span class="nav-text ms-2">统计比较</span>
+            </a>
+        </li>
+
+        <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.history_page' %}active{% endif %}"
                 href="{{ url_for('pages.history_page') }}" title="历史记录">
                 <i class="bi bi-clock-history"></i>

@@ -1,0 +1,783 @@
+{% extends "base.html" %}
+
+{% block title %}统计比较分析{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/file_uploader.css') }}">
+<style>
+    .tab-content {
+        padding: 2rem 0;
+    }
+
+    .card {
+        margin-bottom: 1.5rem;
+    }
+
+    .result-section {
+        min-height: 300px;
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .result-section.has-result {
+        background-color: #fff;
+        text-align: left;
+    }
+
+    .file-upload-section {
+        border: 2px dashed #dee2e6;
+        border-radius: 0.5rem;
+        padding: 2rem;
+        text-align: center;
+        transition: all 0.3s;
+        cursor: pointer;
+    }
+
+    .file-upload-section:hover {
+        border-color: #0d6efd;
+        background-color: #f8f9fa;
+    }
+
+    .file-upload-section.has-file {
+        border-color: #198754;
+        background-color: #d1e7dd;
+    }
+
+    .file-upload-section.dragover {
+        border-color: #0d6efd;
+        background-color: #e7f1ff;
+    }
+
+    .parameter-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .parameter-group label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .stats-table {
+        font-size: 0.9rem;
+    }
+
+    .stats-table th {
+        background-color: #f8f9fa;
+    }
+
+    .significant {
+        color: #198754;
+        font-weight: bold;
+    }
+
+    .not-significant {
+        color: #6c757d;
+    }
+
+    .boxplot-container {
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .boxplot-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .file-list {
+        list-style: none;
+        padding: 0;
+        margin: 1rem 0;
+    }
+
+    .file-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem;
+        background: #f8f9fa;
+        border-radius: 0.25rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .file-list li .file-name {
+        flex: 1;
+    }
+
+    .file-list li .btn-remove,
+    .file-list li .btn-remove-id {
+        color: #dc3545;
+        cursor: pointer;
+    }
+
+    .loading-spinner {
+        display: none;
+    }
+
+    .loading-spinner.show {
+        display: inline-block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1><i class="bi bi-graph-up"></i> 统计比较分析</h1>
+            <p class="text-muted">对不同分组进行统计比较，计算P值并生成箱线图可视化</p>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs" id="statisticalTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="single-tab-btn" data-bs-toggle="tab" data-bs-target="#single-tab"
+                type="button" role="tab">
+                <i class="bi bi-file-earmark"></i> 单文件分析
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="multi-tab-btn" data-bs-toggle="tab" data-bs-target="#multi-tab" type="button"
+                role="tab">
+                <i class="bi bi-files"></i> 多文件分析
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="statisticalTabContent">
+        <!-- 单文件分析 -->
+        <div class="tab-pane fade show active" id="single-tab" role="tabpanel">
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-file-earmark"></i> 选择数据文件</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="btn-group w-100 mb-3" role="group">
+                                <input type="radio" class="btn-check" name="singleFileSource" id="singleSourceUpload"
+                                    checked>
+                                <label class="btn btn-outline-primary" for="singleSourceUpload"><i
+                                        class="bi bi-cloud-upload"></i> 上传新文件</label>
+                                <input type="radio" class="btn-check" name="singleFileSource" id="singleSourceExisting">
+                                <label class="btn btn-outline-primary" for="singleSourceExisting"><i
+                                        class="bi bi-folder2-open"></i> 已上传文件</label>
+                            </div>
+                            <div id="singleUploadArea">
+                                <div class="file-upload-section" id="singleFileUpload">
+                                    <input type="file" id="singleFileInput" accept=".csv,.xlsx,.xls"
+                                        style="display: none;">
+                                    <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                                    <p class="mt-2 mb-0">点击或拖拽文件到此处</p>
+                                    <small class="text-muted">支持 CSV, Excel 格式</small>
+                                </div>
+                            </div>
+                            <div id="singleExistingArea" style="display: none;">
+                                <div class="parameter-group">
+                                    <label for="singleProjectSelect">选择项目</label>
+                                    <select class="form-select" id="singleProjectSelect">
+                                        <option value="">-- 选择项目 --</option>
+                                    </select>
+                                </div>
+                                <div class="parameter-group">
+                                    <label for="singleExistingFileSelect">选择文件</label>
+                                    <select class="form-select" id="singleExistingFileSelect" disabled>
+                                        <option value="">-- 请先选择项目 --</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="singleFileInfo" class="mt-3" style="display: none;">
+                                <div class="alert alert-success"><i class="bi bi-check-circle"></i> <span
+                                        id="singleFileName"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-gear"></i> 分析参数</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="parameter-group">
+                                <label for="valueColumn">数值列</label>
+                                <select class="form-select" id="valueColumn" disabled>
+                                    <option value="">请先选择文件</option>
+                                </select>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="groupColumn">分组列</label>
+                                <select class="form-select" id="groupColumn" disabled>
+                                    <option value="">请先选择文件</option>
+                                </select>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="groupOrder">分组顺序（可选）</label>
+                                <input type="text" class="form-control" id="groupOrder"
+                                    placeholder="Baseline, 0-1h, 24h, 48h">
+                                <small class="text-muted">用逗号分隔，留空则自动检测</small>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="chartTitle">图表标题（可选）</label>
+                                <input type="text" class="form-control" id="chartTitle"
+                                    placeholder="Expression by Time Point">
+                            </div>
+                            <button class="btn btn-primary w-100" id="runSingleAnalysis" disabled>
+                                <span class="loading-spinner spinner-border spinner-border-sm me-2"></span>
+                                <i class="bi bi-play-fill"></i> 运行分析
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 分析结果</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-section" id="singleResultSection">
+                                <i class="bi bi-inbox fs-1 text-muted"></i>
+                                <p class="mt-2 text-muted">上传文件并运行分析后，结果将显示在这里</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 多文件分析 -->
+        <div class="tab-pane fade" id="multi-tab" role="tabpanel">
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-files"></i> 选择数据文件</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="btn-group w-100 mb-3" role="group">
+                                <input type="radio" class="btn-check" name="multiFileSource" id="multiSourceUpload"
+                                    checked>
+                                <label class="btn btn-outline-primary" for="multiSourceUpload"><i
+                                        class="bi bi-cloud-upload"></i> 上传新文件</label>
+                                <input type="radio" class="btn-check" name="multiFileSource" id="multiSourceExisting">
+                                <label class="btn btn-outline-primary" for="multiSourceExisting"><i
+                                        class="bi bi-folder2-open"></i> 已上传文件</label>
+                            </div>
+                            <div id="multiUploadArea">
+                                <div class="file-upload-section" id="multiFileUpload">
+                                    <input type="file" id="multiFileInput" accept=".csv,.xlsx,.xls" multiple
+                                        style="display: none;">
+                                    <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                                    <p class="mt-2 mb-0">点击或拖拽文件到此处</p>
+                                    <small class="text-muted">支持多选，CSV/Excel 格式</small>
+                                </div>
+                            </div>
+                            <div id="multiExistingArea" style="display: none;">
+                                <div class="parameter-group">
+                                    <label for="multiProjectSelect">选择项目</label>
+                                    <select class="form-select" id="multiProjectSelect">
+                                        <option value="">-- 选择项目 --</option>
+                                    </select>
+                                </div>
+                                <div class="parameter-group">
+                                    <label>选择文件（可多选）</label>
+                                    <div id="multiExistingFileList" class="border rounded p-2"
+                                        style="max-height: 200px; overflow-y: auto;">
+                                        <small class="text-muted">请先选择项目</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <ul class="file-list" id="multiFileList"></ul>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-gear"></i> 分析参数</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="parameter-group">
+                                <label for="multiValueColumn">数值列</label>
+                                <select class="form-select" id="multiValueColumn" disabled>
+                                    <option value="">请先选择文件</option>
+                                </select>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="multiGroupColumn">分组列</label>
+                                <select class="form-select" id="multiGroupColumn" disabled>
+                                    <option value="">请先选择文件</option>
+                                </select>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="multiGroupOrder">分组顺序（可选）</label>
+                                <input type="text" class="form-control" id="multiGroupOrder"
+                                    placeholder="Baseline, 0-1h, 24h, 48h">
+                            </div>
+                            <div class="parameter-group">
+                                <label for="correctionMode">P值校正模式</label>
+                                <select class="form-select" id="correctionMode">
+                                    <option value="per_dataset">单独校正（每个文件内部校正）</option>
+                                    <option value="global">全局校正（所有文件汇总后统一校正）</option>
+                                </select>
+                                <small class="text-muted">全局校正更严格，适用于同一实验的多个数据集</small>
+                            </div>
+                            <div class="parameter-group">
+                                <label for="multiChartTitle">汇总图标题</label>
+                                <input type="text" class="form-control" id="multiChartTitle"
+                                    value="All Tissues Summary">
+                            </div>
+                            <button class="btn btn-primary w-100" id="runMultiAnalysis" disabled>
+                                <span class="loading-spinner spinner-border spinner-border-sm me-2"></span>
+                                <i class="bi bi-play-fill"></i> 运行分析
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 分析结果</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-section" id="multiResultSection">
+                                <i class="bi bi-inbox fs-1 text-muted"></i>
+                                <p class="mt-2 text-muted">上传文件并运行分析后，结果将显示在这里</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // ========== 单文件分析 ==========
+        const singleFileUpload = document.getElementById('singleFileUpload');
+        const singleFileInput = document.getElementById('singleFileInput');
+        const singleFileInfo = document.getElementById('singleFileInfo');
+        const singleFileName = document.getElementById('singleFileName');
+        const runSingleAnalysis = document.getElementById('runSingleAnalysis');
+        const singleResultSection = document.getElementById('singleResultSection');
+        const singleSourceUpload = document.getElementById('singleSourceUpload');
+        const singleSourceExisting = document.getElementById('singleSourceExisting');
+        const singleUploadArea = document.getElementById('singleUploadArea');
+        const singleExistingArea = document.getElementById('singleExistingArea');
+        const singleProjectSelect = document.getElementById('singleProjectSelect');
+        const singleExistingFileSelect = document.getElementById('singleExistingFileSelect');
+
+        let singleFile = null;
+        let singleFileId = null;
+
+        singleSourceUpload.addEventListener('change', function () {
+            singleUploadArea.style.display = 'block';
+            singleExistingArea.style.display = 'none';
+            resetSingleFileSelection();
+        });
+
+        singleSourceExisting.addEventListener('change', async function () {
+            singleUploadArea.style.display = 'none';
+            singleExistingArea.style.display = 'block';
+            resetSingleFileSelection();
+            await loadSingleProjects();
+        });
+
+        function resetSingleFileSelection() {
+            singleFile = null;
+            singleFileId = null;
+            singleFileInfo.style.display = 'none';
+            singleFileUpload.classList.remove('has-file');
+            runSingleAnalysis.disabled = true;
+            document.getElementById('valueColumn').innerHTML = '<option value="">请先选择文件</option>';
+            document.getElementById('groupColumn').innerHTML = '<option value="">请先选择文件</option>';
+            document.getElementById('valueColumn').disabled = true;
+            document.getElementById('groupColumn').disabled = true;
+            singleExistingFileSelect.innerHTML = '<option value="">-- 请先选择项目 --</option>';
+            singleExistingFileSelect.disabled = true;
+        }
+
+        async function loadSingleProjects() {
+            try {
+                const response = await fetch('/api/files/projects');
+                const data = await response.json();
+                if (data.projects) {
+                    singleProjectSelect.innerHTML = '<option value="">-- 选择项目 --</option>';
+                    for (const project of data.projects) {
+                        singleProjectSelect.appendChild(new Option(project, project));
+                    }
+                }
+            } catch (error) { console.error('Error loading projects:', error); }
+        }
+
+        singleProjectSelect.addEventListener('change', async function (e) {
+            const project = e.target.value;
+            if (!project) {
+                singleExistingFileSelect.innerHTML = '<option value="">-- 请先选择项目 --</option>';
+                singleExistingFileSelect.disabled = true;
+                return;
+            }
+            try {
+                const response = await fetch('/api/files?project=' + encodeURIComponent(project));
+                const data = await response.json();
+                singleExistingFileSelect.innerHTML = '<option value="">-- 选择文件 --</option>';
+                if (data.files && data.files.length > 0) {
+                    for (const file of data.files) {
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        if (['csv', 'xlsx', 'xls'].includes(ext)) {
+                            const option = document.createElement('option');
+                            option.value = file.id;
+                            option.textContent = file.name + ' (' + file.row_count + '行, ' + file.column_count + '列)';
+                            option.dataset.columns = JSON.stringify(file.columns);
+                            option.dataset.name = file.name;
+                            singleExistingFileSelect.appendChild(option);
+                        }
+                    }
+                    singleExistingFileSelect.disabled = false;
+                } else {
+                    singleExistingFileSelect.innerHTML = '<option value="">-- 该项目下没有表格文件 --</option>';
+                    singleExistingFileSelect.disabled = true;
+                }
+            } catch (error) { console.error('Error loading files:', error); }
+        });
+
+        singleExistingFileSelect.addEventListener('change', async function (e) {
+            const fileId = e.target.value;
+            if (!fileId) { resetSingleFileSelection(); return; }
+            singleFileId = fileId;
+            singleFile = null;
+            const selectedOption = e.target.selectedOptions[0];
+            singleFileName.textContent = selectedOption.dataset.name;
+            singleFileInfo.style.display = 'block';
+            const columns = JSON.parse(selectedOption.dataset.columns);
+            try {
+                const response = await fetch('/api/statistical/parse-file/' + fileId);
+                const data = await response.json();
+                if (data.success) { populateSingleColumnSelects(data.columns, data.groups); }
+                else { populateSingleColumnSelects(columns, []); }
+                runSingleAnalysis.disabled = false;
+            } catch (error) { populateSingleColumnSelects(columns, []); runSingleAnalysis.disabled = false; }
+        });
+
+        singleFileUpload.addEventListener('click', function () { singleFileInput.click(); });
+        singleFileUpload.addEventListener('dragover', function (e) { e.preventDefault(); singleFileUpload.classList.add('dragover'); });
+        singleFileUpload.addEventListener('dragleave', function () { singleFileUpload.classList.remove('dragover'); });
+        singleFileUpload.addEventListener('drop', function (e) {
+            e.preventDefault();
+            singleFileUpload.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleSingleFile(e.dataTransfer.files[0]);
+        });
+        singleFileInput.addEventListener('change', function (e) { if (e.target.files.length > 0) handleSingleFile(e.target.files[0]); });
+
+        async function handleSingleFile(file) {
+            singleFile = file;
+            singleFileId = null;
+            singleFileName.textContent = file.name;
+            singleFileInfo.style.display = 'block';
+            singleFileUpload.classList.add('has-file');
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const response = await fetch('/api/statistical/parse-columns', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success && data.columns) { populateSingleColumnSelects(data.columns, data.groups); runSingleAnalysis.disabled = false; }
+                else { alert('无法解析文件列: ' + (data.error || '未知错误')); }
+            } catch (error) { console.error('Error parsing file:', error); alert('解析文件失败: ' + error.message); }
+        }
+
+        function populateSingleColumnSelects(columns, groups) {
+            const valueColumn = document.getElementById('valueColumn');
+            const groupColumn = document.getElementById('groupColumn');
+            const groupOrder = document.getElementById('groupOrder');
+            valueColumn.innerHTML = '';
+            groupColumn.innerHTML = '';
+            columns.forEach(function (col) { valueColumn.appendChild(new Option(col, col)); groupColumn.appendChild(new Option(col, col)); });
+            const numericCols = ['expression', 'count', 'value', 'reads', 'umi'];
+            const groupCols = ['category', 'group', 'sample_group', 'condition', 'timepoint'];
+            for (var i = 0; i < numericCols.length; i++) { if (columns.includes(numericCols[i])) { valueColumn.value = numericCols[i]; break; } }
+            for (var j = 0; j < groupCols.length; j++) { if (columns.includes(groupCols[j])) { groupColumn.value = groupCols[j]; break; } }
+            if (groups && groups.length > 0) groupOrder.value = groups.join(', ');
+            valueColumn.disabled = false;
+            groupColumn.disabled = false;
+        }
+
+        runSingleAnalysis.addEventListener('click', async function () {
+            if (!singleFile && !singleFileId) return;
+            var spinner = runSingleAnalysis.querySelector('.loading-spinner');
+            spinner.classList.add('show');
+            runSingleAnalysis.disabled = true;
+            var formData = new FormData();
+            if (singleFile) formData.append('file', singleFile);
+            else if (singleFileId) formData.append('file_id', singleFileId);
+            formData.append('value_column', document.getElementById('valueColumn').value);
+            formData.append('group_column', document.getElementById('groupColumn').value);
+            var groupOrder = document.getElementById('groupOrder').value.trim();
+            if (groupOrder) formData.append('group_order', JSON.stringify(groupOrder.split(',').map(function (s) { return s.trim(); })));
+            var title = document.getElementById('chartTitle').value.trim();
+            if (title) formData.append('title', title);
+            try {
+                var response = await fetch('/api/statistical/analyze-direct', { method: 'POST', body: formData });
+                var data = await response.json();
+                if (data.success) displaySingleResults(data);
+                else singleResultSection.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> ' + data.error + '</div>';
+            } catch (error) {
+                singleResultSection.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> 分析失败: ' + error.message + '</div>';
+            } finally { spinner.classList.remove('show'); runSingleAnalysis.disabled = false; }
+        });
+
+        function displaySingleResults(data) {
+            var results = data.results;
+            var kw = results.kruskal_wallis || {};
+            var html = '<div class="row"><div class="col-md-6"><h6><i class="bi bi-calculator"></i> Kruskal-Wallis 检验</h6><table class="table table-sm stats-table">';
+            html += '<tr><th>统计量</th><td>' + (kw.statistic ? kw.statistic.toFixed(4) : 'N/A') + '</td></tr>';
+            html += '<tr><th>P值</th><td class="' + (kw.significant ? 'significant' : 'not-significant') + '">' + (kw.p_value ? kw.p_value.toFixed(6) : 'N/A') + (kw.significant ? ' *' : '') + '</td></tr>';
+            html += '<tr><th>显著性</th><td>' + (kw.significant ? '<span class="badge bg-success">显著</span>' : '<span class="badge bg-secondary">不显著</span>') + '</td></tr></table>';
+            if (results.pairwise_comparisons && results.pairwise_comparisons.length > 0) {
+                html += '<h6 class="mt-4"><i class="bi bi-arrows-expand"></i> 事后比较 (Dunn\'s test)</h6><table class="table table-sm stats-table"><thead><tr><th>比较</th><th>P值</th><th>校正P值</th></tr></thead><tbody>';
+                for (var i = 0; i < results.pairwise_comparisons.length; i++) {
+                    var comp = results.pairwise_comparisons[i];
+                    var sigClass = comp.significant_corrected ? 'significant' : 'not-significant';
+                    html += '<tr><td>' + comp.group1 + ' vs ' + comp.group2 + '</td><td>' + (comp.p_value ? comp.p_value.toFixed(4) : 'N/A') + '</td><td class="' + sigClass + '">' + (comp.p_value_corrected ? comp.p_value_corrected.toFixed(4) : 'N/A') + (comp.significant_corrected ? ' *' : '') + '</td></tr>';
+                }
+                html += '</tbody></table>';
+            }
+            html += '</div>';
+            if (data.image) { html += '<div class="col-md-6"><div class="boxplot-container"><img src="data:image/png;base64,' + data.image + '" alt="Boxplot"></div><div class="text-center mt-2"><a href="data:image/png;base64,' + data.image + '" download="boxplot.png" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载图片</a></div></div>'; }
+            html += '</div>';
+            if (results.descriptive_stats && results.descriptive_stats.length > 0) {
+                html += '<h6 class="mt-4"><i class="bi bi-table"></i> 描述性统计</h6><div class="table-responsive"><table class="table table-sm stats-table"><thead><tr><th>分组</th><th>N</th><th>均值</th><th>标准差</th><th>中位数</th><th>最小值</th><th>最大值</th></tr></thead><tbody>';
+                for (var j = 0; j < results.descriptive_stats.length; j++) {
+                    var stat = results.descriptive_stats[j];
+                    html += '<tr><td>' + stat.group + '</td><td>' + stat.n + '</td><td>' + (stat.mean ? stat.mean.toFixed(2) : 'N/A') + '</td><td>' + (stat.std ? stat.std.toFixed(2) : 'N/A') + '</td><td>' + (stat.median ? stat.median.toFixed(2) : 'N/A') + '</td><td>' + (stat.min ? stat.min.toFixed(2) : 'N/A') + '</td><td>' + (stat.max ? stat.max.toFixed(2) : 'N/A') + '</td></tr>';
+                }
+                html += '</tbody></table></div>';
+            }
+            singleResultSection.innerHTML = html;
+            singleResultSection.classList.add('has-result');
+        }
+
+        // ========== 多文件分析 ==========
+        const multiFileUpload = document.getElementById('multiFileUpload');
+        const multiFileInput = document.getElementById('multiFileInput');
+        const multiFileList = document.getElementById('multiFileList');
+        const runMultiAnalysis = document.getElementById('runMultiAnalysis');
+        const multiResultSection = document.getElementById('multiResultSection');
+        const multiSourceUpload = document.getElementById('multiSourceUpload');
+        const multiSourceExisting = document.getElementById('multiSourceExisting');
+        const multiUploadArea = document.getElementById('multiUploadArea');
+        const multiExistingArea = document.getElementById('multiExistingArea');
+        const multiProjectSelect = document.getElementById('multiProjectSelect');
+        const multiExistingFileList = document.getElementById('multiExistingFileList');
+
+        let multiFiles = [];
+        let multiFileIds = [];
+        let isMultiExistingMode = false;
+
+        multiSourceUpload.addEventListener('change', function () {
+            multiUploadArea.style.display = 'block';
+            multiExistingArea.style.display = 'none';
+            isMultiExistingMode = false;
+            resetMultiFileSelection();
+        });
+
+        multiSourceExisting.addEventListener('change', async function () {
+            multiUploadArea.style.display = 'none';
+            multiExistingArea.style.display = 'block';
+            isMultiExistingMode = true;
+            resetMultiFileSelection();
+            await loadMultiProjects();
+        });
+
+        function resetMultiFileSelection() {
+            multiFiles = [];
+            multiFileIds = [];
+            multiFileList.innerHTML = '';
+            runMultiAnalysis.disabled = true;
+            document.getElementById('multiValueColumn').innerHTML = '<option value="">请先选择文件</option>';
+            document.getElementById('multiGroupColumn').innerHTML = '<option value="">请先选择文件</option>';
+            document.getElementById('multiValueColumn').disabled = true;
+            document.getElementById('multiGroupColumn').disabled = true;
+        }
+
+        async function loadMultiProjects() {
+            try {
+                var response = await fetch('/api/files/projects');
+                var data = await response.json();
+                if (data.projects) {
+                    multiProjectSelect.innerHTML = '<option value="">-- 选择项目 --</option>';
+                    for (var i = 0; i < data.projects.length; i++) {
+                        multiProjectSelect.appendChild(new Option(data.projects[i], data.projects[i]));
+                    }
+                }
+            } catch (error) { console.error('Error loading projects:', error); }
+        }
+
+        multiProjectSelect.addEventListener('change', async function (e) {
+            var project = e.target.value;
+            if (!project) { multiExistingFileList.innerHTML = '<small class="text-muted">请先选择项目</small>'; return; }
+            try {
+                var response = await fetch('/api/files?project=' + encodeURIComponent(project));
+                var data = await response.json();
+                if (data.files && data.files.length > 0) {
+                    multiExistingFileList.innerHTML = '';
+                    for (var i = 0; i < data.files.length; i++) {
+                        var file = data.files[i];
+                        var ext = file.name.split('.').pop().toLowerCase();
+                        if (['csv', 'xlsx', 'xls'].includes(ext)) {
+                            var div = document.createElement('div');
+                            div.className = 'form-check';
+                            div.innerHTML = '<input class="form-check-input multi-file-checkbox" type="checkbox" value="' + file.id + '" id="multiFile_' + file.id + '" data-name="' + file.name + '" data-columns=\'' + JSON.stringify(file.columns) + '\'><label class="form-check-label" for="multiFile_' + file.id + '">' + file.name + ' (' + file.row_count + '行)</label>';
+                            multiExistingFileList.appendChild(div);
+                        }
+                    }
+                    document.querySelectorAll('.multi-file-checkbox').forEach(function (cb) { cb.addEventListener('change', onMultiFileCheckboxChange); });
+                    if (multiExistingFileList.children.length === 0) {
+                        multiExistingFileList.innerHTML = '<small class="text-muted">该项目下没有表格文件</small>';
+                    }
+                } else { multiExistingFileList.innerHTML = '<small class="text-muted">该项目下没有文件</small>'; }
+            } catch (error) { console.error('Error loading files:', error); }
+        });
+
+        async function onMultiFileCheckboxChange() {
+            var checked = document.querySelectorAll('.multi-file-checkbox:checked');
+            multiFileIds = [];
+            checked.forEach(function (cb) { multiFileIds.push({ id: cb.value, name: cb.dataset.name, columns: JSON.parse(cb.dataset.columns) }); });
+            updateMultiFileListFromIds();
+            if (multiFileIds.length > 0) {
+                try {
+                    var response = await fetch('/api/statistical/parse-file/' + multiFileIds[0].id);
+                    var data = await response.json();
+                    if (data.success) populateMultiColumnSelects(data.columns, data.groups);
+                    else populateMultiColumnSelects(multiFileIds[0].columns, []);
+                } catch (error) { populateMultiColumnSelects(multiFileIds[0].columns, []); }
+            }
+        }
+
+        function updateMultiFileListFromIds() {
+            multiFileList.innerHTML = '';
+            for (var i = 0; i < multiFileIds.length; i++) {
+                var li = document.createElement('li');
+                li.innerHTML = '<span class="file-name"><i class="bi bi-file-earmark"></i> ' + multiFileIds[i].name + '</span><span class="btn-remove-id" data-index="' + i + '"><i class="bi bi-x-circle"></i></span>';
+                multiFileList.appendChild(li);
+            }
+            document.querySelectorAll('.btn-remove-id').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    var idx = parseInt(e.currentTarget.dataset.index);
+                    var fileId = multiFileIds[idx].id;
+                    var cb = document.getElementById('multiFile_' + fileId);
+                    if (cb) cb.checked = false;
+                    multiFileIds.splice(idx, 1);
+                    updateMultiFileListFromIds();
+                });
+            });
+            runMultiAnalysis.disabled = multiFileIds.length === 0;
+        }
+
+        multiFileUpload.addEventListener('click', function () { multiFileInput.click(); });
+        multiFileUpload.addEventListener('dragover', function (e) { e.preventDefault(); multiFileUpload.classList.add('dragover'); });
+        multiFileUpload.addEventListener('dragleave', function () { multiFileUpload.classList.remove('dragover'); });
+        multiFileUpload.addEventListener('drop', function (e) { e.preventDefault(); multiFileUpload.classList.remove('dragover'); addMultiFiles(e.dataTransfer.files); });
+        multiFileInput.addEventListener('change', function (e) { addMultiFiles(e.target.files); });
+
+        async function addMultiFiles(files) {
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                if (!multiFiles.find(function (f) { return f.name === file.name; })) multiFiles.push(file);
+            }
+            updateMultiFileList();
+            if (multiFiles.length > 0) {
+                var formData = new FormData();
+                formData.append('file', multiFiles[0]);
+                try {
+                    var response = await fetch('/api/statistical/parse-columns', { method: 'POST', body: formData });
+                    var data = await response.json();
+                    if (data.success && data.columns) populateMultiColumnSelects(data.columns, data.groups);
+                } catch (error) { console.error('Error parsing file:', error); }
+            }
+        }
+
+        function populateMultiColumnSelects(columns, groups) {
+            var valueColumn = document.getElementById('multiValueColumn');
+            var groupColumn = document.getElementById('multiGroupColumn');
+            var groupOrder = document.getElementById('multiGroupOrder');
+            valueColumn.innerHTML = '';
+            groupColumn.innerHTML = '';
+            columns.forEach(function (col) { valueColumn.appendChild(new Option(col, col)); groupColumn.appendChild(new Option(col, col)); });
+            var numericCols = ['expression', 'count', 'value', 'reads', 'umi'];
+            var groupCols = ['category', 'group', 'sample_group', 'condition', 'timepoint'];
+            for (var i = 0; i < numericCols.length; i++) { if (columns.includes(numericCols[i])) { valueColumn.value = numericCols[i]; break; } }
+            for (var j = 0; j < groupCols.length; j++) { if (columns.includes(groupCols[j])) { groupColumn.value = groupCols[j]; break; } }
+            if (groups && groups.length > 0) groupOrder.value = groups.join(', ');
+            valueColumn.disabled = false;
+            groupColumn.disabled = false;
+        }
+
+        function updateMultiFileList() {
+            multiFileList.innerHTML = '';
+            for (var i = 0; i < multiFiles.length; i++) {
+                var li = document.createElement('li');
+                li.innerHTML = '<span class="file-name"><i class="bi bi-file-earmark"></i> ' + multiFiles[i].name + '</span><span class="btn-remove" data-index="' + i + '"><i class="bi bi-x-circle"></i></span>';
+                multiFileList.appendChild(li);
+            }
+            document.querySelectorAll('.btn-remove').forEach(function (btn) {
+                btn.addEventListener('click', function (e) { multiFiles.splice(parseInt(e.currentTarget.dataset.index), 1); updateMultiFileList(); });
+            });
+            runMultiAnalysis.disabled = multiFiles.length === 0;
+            multiFileUpload.classList.toggle('has-file', multiFiles.length > 0);
+        }
+
+        runMultiAnalysis.addEventListener('click', async function () {
+            if (!isMultiExistingMode && multiFiles.length === 0) return;
+            if (isMultiExistingMode && multiFileIds.length === 0) return;
+            var spinner = runMultiAnalysis.querySelector('.loading-spinner');
+            spinner.classList.add('show');
+            runMultiAnalysis.disabled = true;
+            multiResultSection.innerHTML = '<div class="text-center"><div class="spinner-border"></div><p>正在分析...</p></div>';
+            try {
+                var formData = new FormData();
+                if (isMultiExistingMode) { formData.append('file_ids', JSON.stringify(multiFileIds.map(function (f) { return f.id; }))); }
+                else { for (var i = 0; i < multiFiles.length; i++) formData.append('files', multiFiles[i]); }
+                formData.append('value_column', document.getElementById('multiValueColumn').value);
+                formData.append('group_column', document.getElementById('multiGroupColumn').value);
+                var groupOrder = document.getElementById('multiGroupOrder').value.trim();
+                if (groupOrder) formData.append('group_order', JSON.stringify(groupOrder.split(',').map(function (s) { return s.trim(); })));
+                formData.append('global_correction', document.getElementById('correctionMode').value === 'global' ? 'true' : 'false');
+                var response = await fetch('/api/statistical/analyze-batch', { method: 'POST', body: formData });
+                var data = await response.json();
+                if (data.success) displayMultiResults(data.results, data.images, data.correction_mode);
+                else multiResultSection.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> ' + data.error + '</div>';
+            } catch (error) {
+                multiResultSection.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> 分析失败: ' + error.message + '</div>';
+            } finally { spinner.classList.remove('show'); runMultiAnalysis.disabled = false; }
+        });
+
+        function displayMultiResults(allResults, allImages, correctionMode) {
+            var isGlobal = correctionMode === 'global';
+            var html = '<h5><i class="bi bi-list-check"></i> 分析结果汇总</h5>';
+            html += '<div class="alert alert-info mb-3"><i class="bi bi-info-circle"></i> P值校正模式: <strong>' + (isGlobal ? '全局校正（所有文件汇总后统一FDR校正）' : '单独校正（每个文件内部校正）') + '</strong></div>';
+            html += '<table class="table table-sm stats-table mb-4"><thead><tr><th>数据集</th><th>Kruskal-Wallis 统计量</th><th>原始P值</th>' + (isGlobal ? '<th>校正P值</th>' : '') + '<th>显著性' + (isGlobal ? '(校正后)' : '') + '</th></tr></thead><tbody>';
+            for (var name in allResults) {
+                var results = allResults[name];
+                var kw = results.kruskal_wallis || {};
+                var sig = isGlobal ? kw.significant_corrected : kw.significant;
+                var pCorrected = kw.p_value_corrected;
+                html += '<tr><td>' + name + '</td><td>' + (kw.statistic ? kw.statistic.toFixed(4) : 'N/A') + '</td><td>' + (kw.p_value ? kw.p_value.toFixed(6) : 'N/A') + '</td>';
+                if (isGlobal) html += '<td class="' + (sig ? 'significant' : 'not-significant') + '">' + (pCorrected ? pCorrected.toFixed(6) : 'N/A') + '</td>';
+                html += '<td>' + (sig ? '<span class="badge bg-success">显著</span>' : '<span class="badge bg-secondary">不显著</span>') + '</td></tr>';
+            }
+            html += '</tbody></table><h5 class="mt-4"><i class="bi bi-bar-chart"></i> 箱线图</h5><div class="row">';
+            for (var imgName in allImages) {
+                var image = allImages[imgName];
+                if (image) html += '<div class="col-md-6 mb-3"><div class="card"><div class="card-header">' + imgName + '</div><div class="card-body boxplot-container"><img src="data:image/png;base64,' + image + '" alt="' + imgName + ' Boxplot"></div><div class="card-footer text-center"><a href="data:image/png;base64,' + image + '" download="' + imgName + '_boxplot.png" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载</a></div></div></div>';
+            }
+            html += '</div>';
+            multiResultSection.innerHTML = html;
+            multiResultSection.classList.add('has-result');
+        }
+    });
+</script>
+{% endblock %}

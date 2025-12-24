@@ -149,3 +149,11 @@ def history_page():
 def settings_page():
     """Settings page."""
     return render_template('settings.html')
+
+
+@pages_bp.route('/analysis/statistical')
+def statistical_comparison_page():
+    """Statistical comparison analysis page.
+    Performs group comparison with P-value calculation and boxplot visualization.
+    """
+    return render_template('analysis/statistical_comparison.html')

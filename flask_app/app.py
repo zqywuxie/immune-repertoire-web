@@ -138,11 +138,14 @@ def register_blueprints(app):
     from routes.pages import pages_bp
     from routes.api import api_bp
     from routes.api_analysis import analysis_bp
+    from routes.api_statistical import statistical_bp
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
     # Register the new analysis blueprint
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
+    # Register statistical analysis blueprint
+    app.register_blueprint(statistical_bp)
 
 
 # Application instance for single-command startup

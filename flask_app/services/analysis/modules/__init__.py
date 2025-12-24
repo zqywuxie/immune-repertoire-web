@@ -16,3 +16,4 @@ from . import shm_fields_analysis
 from . import field_analyzer
 from . import bcell_isotype_analyzer
 from . import shm_analyzer
+from . import statistical_comparison
