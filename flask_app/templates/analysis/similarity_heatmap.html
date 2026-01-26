@@ -1,0 +1,703 @@
+{% extends "base.html" %}
+{% block title %}自动热图分析{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 2rem;
+        padding: 0 1rem
+    }
+
+    .step-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1;
+        position: relative
+    }
+
+    .step-item:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        top: 15px;
+        left: 50%;
+        width: 100%;
+        height: 2px;
+        background: #dee2e6;
+        z-index: 0
+    }
+
+    .step-item.completed:not(:last-child)::after {
+        background: #198754
+    }
+
+    .step-number {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #dee2e6;
+        color: #6c757d;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: .875rem;
+        z-index: 1
+    }
+
+    .step-item.active .step-number {
+        background: #0d6efd;
+        color: #fff
+    }
+
+    .step-item.completed .step-number {
+        background: #198754;
+        color: #fff
+    }
+
+    .step-label {
+        margin-top: .5rem;
+        font-size: .75rem;
+        color: #6c757d;
+        text-align: center
+    }
+
+    .step-item.active .step-label {
+        color: #0d6efd;
+        font-weight: 500
+    }
+
+    .step-item.completed .step-label {
+        color: #198754
+    }
+
+    .sample-list {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: .375rem
+    }
+
+    .sample-item {
+        display: flex;
+        align-items: center;
+        padding: .75rem;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background-color 0.15s
+    }
+
+    .sample-item:last-child {
+        border-bottom: none
+    }
+
+    .sample-item:hover {
+        background-color: #f8f9fa
+    }
+
+    .sample-item.selected {
+        background-color: #e7f1ff
+    }
+
+    .sample-item input[type="checkbox"] {
+        margin-right: .75rem;
+        width: 18px;
+        height: 18px
+    }
+
+    .sample-info {
+        flex: 1;
+        min-width: 0
+    }
+
+    .sample-name {
+        font-weight: 500;
+        margin-bottom: .25rem
+    }
+
+    .sample-name-input {
+        width: 200px;
+        font-size: .875rem
+    }
+
+    .sample-files {
+        font-size: .75rem;
+        color: #6c757d
+    }
+
+    .file-type-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem
+    }
+
+    .file-type-item {
+        display: flex;
+        align-items: center;
+        padding: .5rem 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: .375rem;
+        cursor: pointer;
+        transition: all 0.15s
+    }
+
+    .file-type-item:hover {
+        border-color: #0d6efd;
+        background-color: #f8f9fa
+    }
+
+    .file-type-item.selected {
+        border-color: #0d6efd;
+        background-color: #e7f1ff
+    }
+
+    .file-type-item input[type="radio"] {
+        margin-right: .5rem
+    }
+
+    .field-mapping-section {
+        background: #f8f9fa;
+        border-radius: .375rem;
+        padding: 1rem
+    }
+
+    .field-select {
+        min-width: 200px
+    }
+
+    .group-container {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap
+    }
+
+    .group-card {
+        min-width: 220px;
+        max-width: 280px;
+        border: 1px solid #dee2e6;
+        border-radius: .375rem;
+        padding: .75rem;
+        background: #fff
+    }
+
+    .group-card.ungrouped {
+        border-style: dashed;
+        background: #f8f9fa
+    }
+
+    .group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: .5rem;
+        padding-bottom: .5rem;
+        border-bottom: 1px solid #dee2e6
+    }
+
+    .group-name {
+        font-weight: 500;
+        font-size: .875rem
+    }
+
+    .group-count {
+        font-size: .75rem;
+        color: #6c757d
+    }
+
+    .group-samples {
+        min-height: 80px;
+        max-height: 200px;
+        overflow-y: auto
+    }
+
+    .group-sample-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: .25rem .5rem;
+        margin: .25rem 0;
+        background: #fff;
+        border: 1px solid #e9ecef;
+        border-radius: .25rem;
+        font-size: .8rem;
+        cursor: grab
+    }
+
+    .group-card.ungrouped .group-sample-item {
+        background: #fff
+    }
+
+    .group-sample-item:active {
+        cursor: grabbing
+    }
+
+    .group-sample-item .remove-btn {
+        opacity: 0;
+        transition: opacity 0.15s
+    }
+
+    .group-sample-item:hover .remove-btn {
+        opacity: 1
+    }
+
+    .drop-zone {
+        min-height: 60px;
+        border: 2px dashed transparent;
+        border-radius: .375rem;
+        transition: all 0.15s
+    }
+
+    .drop-zone.drag-over {
+        border-color: #0d6efd;
+        background-color: #e7f1ff
+    }
+
+    .dragging {
+        opacity: .5
+    }
+
+    .heatmap-container {
+        text-align: center
+    }
+
+    .heatmap-image {
+        max-width: 100%;
+        height: auto;
+        border: 1px solid #dee2e6;
+        border-radius: .375rem
+    }
+
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, .8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999
+    }
+
+    .loading-content {
+        text-align: center
+    }
+
+    .data-preview-table {
+        font-size: .8rem;
+        max-height: 200px;
+        overflow-y: auto
+    }
+
+    .data-preview-table th {
+        position: sticky;
+        top: 0;
+        background: #f8f9fa
+    }
+
+    .column-badge {
+        display: inline-block;
+        padding: .25rem .5rem;
+        margin: .125rem;
+        background: #e9ecef;
+        border-radius: .25rem;
+        font-size: .75rem;
+        cursor: pointer
+    }
+
+    .column-badge:hover {
+        background: #dee2e6
+    }
+
+    .column-badge.selected-cdr3 {
+        background: #d1e7dd;
+        color: #0f5132
+    }
+
+    .column-badge.selected-copy {
+        background: #cfe2ff;
+        color: #084298
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h4 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>自动热图分析</h4>
+            <p class="text-muted mb-0">自动识别样本文件夹，支持字段映射和样本分组</p>
+        </div>
+    </div>
+
+    <div class="step-indicator" id="stepIndicator">
+        <div class="step-item active" data-step="1">
+            <div class="step-number">1</div>
+            <div class="step-label">扫描文件夹</div>
+        </div>
+        <div class="step-item" data-step="2">
+            <div class="step-number">2</div>
+            <div class="step-label">选择文件与字段映射</div>
+        </div>
+        <div class="step-item" data-step="3">
+            <div class="step-number">3</div>
+            <div class="step-label">样本选择与重命名</div>
+        </div>
+        <div class="step-item" data-step="4">
+            <div class="step-number">4</div>
+            <div class="step-label">分组设置</div>
+        </div>
+        <div class="step-item" data-step="5">
+            <div class="step-number">5</div>
+            <div class="step-label">生成热图</div>
+        </div>
+    </div>
+
+    <!-- Step 1: Scan Folder -->
+    <div class="card mb-4" id="step1Card">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-folder me-2"></i>步骤 1: 扫描样本文件夹</h6>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-9">
+                    <input type="text" class="form-control" id="basePath"
+                        placeholder="输入包含样本文件夹的根目录路径，例如：D:\AnalysisFiles">
+                </div>
+                <div class="col-md-3">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary flex-grow-1" onclick="AutoHeatmap.scanFolder()">
+                            <i class="bi bi-search me-1"></i>扫描
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="AutoHeatmap.browseFolder()" title="选择文件夹">
+                            <i class="bi bi-folder2-open"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    <i class="bi bi-info-circle me-1"></i>
+                    系统将递归扫描该路径下的所有样本子文件夹（支持嵌套结构），识别其中的数据文件
+                </small>
+            </div>
+            <!-- Hidden file input for folder selection -->
+            <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none"
+                onchange="AutoHeatmap.onFolderSelected(event)">
+            <div id="scanSummary" class="alert alert-info mt-3" style="display:none">
+                <i class="bi bi-check-circle me-2"></i><span id="scanSummaryText"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Select File Type and Field Mapping (Combined) -->
+    <div class="card mb-4" id="step2Card" style="display:none">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-file-earmark-spreadsheet me-2"></i>步骤 2: 选择数据文件与字段映射</h6>
+        </div>
+        <div class="card-body">
+            <!-- File Type Selection -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">选择数据文件类型</label>
+                <p class="text-muted small mb-2">选择要用于热图分析的数据文件类型：</p>
+                <div class="file-type-list" id="fileTypeList"></div>
+            </div>
+
+            <!-- Field Mapping (shown after file type selection) -->
+            <div id="fieldMappingSection" style="display:none">
+                <hr class="my-3">
+                <label class="form-label fw-bold">字段映射</label>
+                <p class="text-muted small mb-2">设置CDR3序列和拷贝数对应的列名：</p>
+                <div class="field-mapping-section">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label"><strong>CDR3 序列列</strong></label>
+                            <select class="form-select field-select" id="cdr3Column">
+                                <option value="">-- 请选择 --</option>
+                            </select>
+                            <small class="text-muted">包含CDR3氨基酸序列的列</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label"><strong>拷贝数/表达量列</strong></label>
+                            <select class="form-select field-select" id="copyColumn">
+                                <option value="">-- 请选择 --</option>
+                            </select>
+                            <small class="text-muted">包含序列拷贝数或表达量的列</small>
+                        </div>
+                    </div>
+                    <div id="columnPreview" style="display:none">
+                        <h6 class="mb-2">数据预览</h6>
+                        <div class="data-preview-table">
+                            <table class="table table-sm table-bordered" id="previewTable">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button class="btn btn-primary" onclick="AutoHeatmap.confirmFieldMapping()">
+                        <i class="bi bi-check-lg me-1"></i>确认并继续
+                    </button>
+                    <button class="btn btn-outline-success" onclick="AutoHeatmap.exportSharedCDR3()" id="exportCDR3Btn"
+                        style="display:none">
+                        <i class="bi bi-file-earmark-excel me-1"></i>导出CDR3共享列表
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Sample Selection & Renaming -->
+    <div class="card mb-4" id="step3Card" style="display:none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="bi bi-list-check me-2"></i>步骤 3: 选择样本并重命名</h6>
+            <div>
+                <span class="badge bg-primary me-2" id="selectedCount">已选: 0</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="AutoHeatmap.toggleAllSamples()">
+                    <i class="bi bi-check-all me-1"></i>全选/取消
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">选择要分析的样本，可以修改显示名称：</p>
+            <div class="sample-list" id="sampleList"></div>
+            <div class="mt-3">
+                <small class="text-muted">
+                    <i class="bi bi-info-circle me-1"></i>至少需要选择2个样本才能生成热图
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 4: Grouping -->
+    <div class="card mb-4" id="step4Card" style="display:none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="bi bi-collection me-2"></i>步骤 4: 样本分组 (可选)</h6>
+            <div>
+                <button class="btn btn-sm btn-outline-primary me-2" onclick="AutoHeatmap.createGroup()">
+                    <i class="bi bi-plus-lg me-1"></i>新建分组
+                </button>
+                <button class="btn btn-sm btn-outline-secondary me-2" onclick="AutoHeatmap.exportGroupConfig()">
+                    <i class="bi bi-download me-1"></i>导出配置
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="AutoHeatmap.importGroupConfig()">
+                    <i class="bi bi-upload me-1"></i>导入配置
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">将样本拖放到分组中，分组后将计算组间平均相似度：</p>
+            <div class="group-container" id="groupContainer"></div>
+        </div>
+    </div>
+
+    <!-- Step 5: Generate Heatmap -->
+    <div class="card mb-4" id="step5Card" style="display:none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="bi bi-image me-2"></i>步骤 5: 生成热图</h6>
+            <button class="btn btn-primary" onclick="AutoHeatmap.generateHeatmap()">
+                <i class="bi bi-play-fill me-1"></i>生成热图
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info mb-3">
+                <i class="bi bi-info-circle me-2"></i>
+                系统将自动计算并展示所有6种相似度指标：R<sup>2</sup> Inner、R<sup>2</sup> Outer、CDR3共享率、表达共享、Morisita-Horn指数、Sorensen系数
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">热图标题</label>
+                    <input type="text" class="form-control" id="heatmapTitle" placeholder="可选">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">配色方案</label>
+                    <select class="form-select" id="colorScheme">
+                        <option value="viridis">Viridis</option>
+                        <option value="coolwarm">Coolwarm</option>
+                        <option value="RdYlBu">RdYlBu</option>
+                        <option value="Blues">Blues</option>
+                        <option value="Greens">Greens</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">显示数值</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="showAnnotation" checked>
+                        <label class="form-check-label" for="showAnnotation">在热图上显示数值</label>
+                    </div>
+                </div>
+            </div>
+            <div id="heatmapResults" style="display:none">
+                <hr>
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#originalHeatmap"
+                            type="button">原始样本热图</button>
+                    </li>
+                    <li class="nav-item" role="presentation" id="groupedTabItem" style="display:none">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#groupedHeatmap"
+                            type="button">分组平均热图</button>
+                    </li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="originalHeatmap">
+                        <!-- Metric selector -->
+                        <div class="mt-3 mb-3">
+                            <label class="form-label fw-bold">选择指标：</label>
+                            <ul class="nav nav-pills" id="originalMetricTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" data-metric="expression_sharing"
+                                        type="button">Expression</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="morisita_horn"
+                                        type="button">Morisita-Horn</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="cdr3_sharing" type="button">uCDR3</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="r2_inner" type="button">R<sup>2</sup>
+                                        Inner</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="r2_outer" type="button">R<sup>2</sup>
+                                        Outer</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="sorensen" type="button">Sorensen</button>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="heatmap-container mt-3">
+                            <img id="originalHeatmapImage" class="heatmap-image" src="" alt="原始热图">
+                        </div>
+                        <div class="mt-3 d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-primary btn-sm"
+                                onclick="AutoHeatmap.downloadHeatmap('original','png')">
+                                <i class="bi bi-download me-1"></i>下载当前PNG
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm"
+                                onclick="AutoHeatmap.downloadMatrix('original')">
+                                <i class="bi bi-file-earmark-spreadsheet me-1"></i>下载当前CSV
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="AutoHeatmap.exportSharedCDR3()">
+                                <i class="bi bi-file-earmark-excel me-1"></i>CDR3共享列表
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="AutoHeatmap.downloadAllAsZip('original')">
+                                <i class="bi bi-file-zip me-1"></i>下载全部结果(ZIP)
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="groupedHeatmap">
+                        <!-- Metric selector -->
+                        <div class="mt-3 mb-3">
+                            <label class="form-label fw-bold">选择指标：</label>
+                            <ul class="nav nav-pills" id="groupedMetricTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" data-metric="expression_sharing"
+                                        type="button">Expression</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="morisita_horn"
+                                        type="button">Morisita-Horn</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="cdr3_sharing" type="button">uCDR3</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="r2_inner" type="button">R<sup>2</sup>
+                                        Inner</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="r2_outer" type="button">R<sup>2</sup>
+                                        Outer</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-metric="sorensen" type="button">Sorensen</button>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="heatmap-container mt-3">
+                            <img id="groupedHeatmapImage" class="heatmap-image" src="" alt="分组热图">
+                        </div>
+                        <div class="mt-3 d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-primary btn-sm"
+                                onclick="AutoHeatmap.downloadHeatmap('grouped','png')">
+                                <i class="bi bi-download me-1"></i>下载当前PNG
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm"
+                                onclick="AutoHeatmap.downloadMatrix('grouped')">
+                                <i class="bi bi-file-earmark-spreadsheet me-1"></i>下载当前CSV
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="AutoHeatmap.exportSharedCDR3()">
+                                <i class="bi bi-file-earmark-excel me-1"></i>CDR3共享列表
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="AutoHeatmap.downloadAllAsZip('grouped')">
+                                <i class="bi bi-file-zip me-1"></i>下载全部结果(ZIP)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loadingOverlay" style="display:none">
+    <div class="loading-content">
+        <div class="spinner-border text-primary mb-3" role="status"></div>
+        <div id="loadingText">正在处理...</div>
+    </div>
+</div>
+
+<!-- Create Group Modal -->
+<div class="modal fade" id="createGroupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">新建分组</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">分组名称</label>
+                <input type="text" class="form-control" id="newGroupName" placeholder="输入分组名称">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="AutoHeatmap.doCreateGroup()">创建</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Config Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导入分组配置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <textarea class="form-control" id="importConfigText" rows="10"
+                    placeholder="粘贴JSON格式的分组配置..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="AutoHeatmap.doImportConfig()">导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- JSZip for downloading all results as ZIP -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="{{ url_for('static', filename='js/similarity_heatmap.js') }}"></script>
+{% endblock %}
