@@ -32,10 +32,10 @@
         </li>
 
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.analysis_config_page' %}active{% endif %}"
-                href="{{ url_for('pages.analysis_config_page') }}" title="相似度热图">
-                <i class="bi bi-grid-3x3"></i>
-                <span class="nav-text ms-2">相似度热图</span>
+            <a class="nav-link {% if request.endpoint == 'pages.similarity_heatmap_page' %}active{% endif %}"
+                href="{{ url_for('pages.similarity_heatmap_page') }}" title="相似度热图分析">
+                <i class="bi bi-grid-3x3-gap"></i>
+                <span class="nav-text ms-2">相似度热图分析</span>
             </a>
         </li>
 
@@ -55,14 +55,6 @@
             </a>
         </li>
 
-        <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.history_page' %}active{% endif %}"
-                href="{{ url_for('pages.history_page') }}" title="历史记录">
-                <i class="bi bi-clock-history"></i>
-                <span class="nav-text ms-2">历史记录</span>
-            </a>
-        </li>
-
         <hr class="my-3">
 
         <!-- PDF Extraction Tools -->
@@ -71,6 +63,15 @@
                 href="{{ url_for('pages.pdf_extractor_page') }}" title="PDF提取器">
                 <i class="bi bi-file-earmark-pdf"></i>
                 <span class="nav-text ms-2">PDF提取器</span>
+            </a>
+        </li>
+
+        <!-- PPT Image Replacement -->
+        <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.ppt_heatmap_page' %}active{% endif %}"
+                href="{{ url_for('pages.ppt_heatmap_page') }}" title="PPT图片替换">
+                <i class="bi bi-file-earmark-ppt"></i>
+                <span class="nav-text ms-2">PPT图片替换</span>
             </a>
         </li>
 

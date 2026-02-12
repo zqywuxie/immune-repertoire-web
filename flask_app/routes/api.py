@@ -10,12 +10,12 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify, current_app, send_file
-from services.analysis_service import get_analysis_service
-from services.ppt_service import PPTService
-from services.file_parser import FileParserService
-from services.unified_analysis_service import get_unified_analysis_service
-from models.database import db, File, Analysis, Annotation, CustomParameter
-from exceptions import (
+from flask_app.services.analysis_service import get_analysis_service
+from flask_app.services.ppt_service import PPTService
+from flask_app.services.file_parser import FileParserService
+from flask_app.services.unified_analysis_service import get_unified_analysis_service
+from flask_app.models.database import db, File, Analysis, Annotation, CustomParameter
+from flask_app.exceptions import (
     ValidationError,
     FileFormatInvalidError, 
     FileParseError, 
@@ -1755,10 +1755,15 @@ def download_analysis_result(analysis_id):
     
     Query parameters:
     - result_name: Name of the result to download (optional for zip format)
-    - format: Output format (png, csv, zip)
+    - format: Output format (png, csv, zip, all)
+      - png: Download single heatmap as PNG image
+      - csv: Download single heatmap data as CSV
+      - all: Download single heatmap as ZIP with PNG and CSV
+      - zip: Download all results as ZIP archive
     - include_metadata: Whether to include metadata (default: true)
+    - custom_name: Custom name for ZIP file (optional)
     
-    Requirements: 6.1, 6.2, 6.3, 6.4
+    Requirements: 3.3, 3.4, 3.5, 6.1, 6.2, 6.3, 6.4
     """
     from services.export_service import get_export_service
     from exceptions import AnalysisNotFoundError
@@ -1766,30 +1771,32 @@ def download_analysis_result(analysis_id):
     result_name = request.args.get('result_name')
     export_format = request.args.get('format', 'png').lower()
     include_metadata = request.args.get('include_metadata', 'true').lower() == 'true'
+    custom_name = request.args.get('custom_name')
     
     # Validate format
-    if export_format not in ['png', 'csv', 'zip']:
+    if export_format not in ['png', 'csv', 'zip', 'all']:
         raise ValidationError(
             message=f"Unsupported export format: {export_format}",
             details={
                 'format': export_format,
-                'supported_formats': ['png', 'csv', 'zip']
+                'supported_formats': ['png', 'csv', 'zip', 'all']
             }
         )
     
     export_service = get_export_service()
     
-    # Handle ZIP batch export
+    # Handle ZIP batch export (all results)
     if export_format == 'zip':
         file_bytes, filename, mime_type = export_service.export_all_results(
             analysis_id=analysis_id,
-            include_metadata=include_metadata
+            include_metadata=include_metadata,
+            custom_name=custom_name
         )
     else:
-        # For PNG and CSV, result_name is required
+        # For PNG, CSV, and 'all', result_name is required
         if not result_name:
             raise ValidationError(
-                message="Result name is required for PNG and CSV exports",
+                message="Result name is required for PNG, CSV, and 'all' exports",
                 details={'field': 'result_name'}
             )
         
@@ -2019,109 +2026,6 @@ def get_analysis_types():
     ]
     
     return jsonify({'types': types})
-
-
-# =============================================================================
-# History API - Requirements: 10.1, 10.2, 10.3, 10.4
-# =============================================================================
-
-@api_bp.route('/history', methods=['GET'])
-def get_history():
-    """
-    Get analysis history with pagination.
-    GET /api/history
-    
-    Query parameters:
-    - page: Page number (default: 1)
-    - page_size: Items per page (default: 20)
-    - status: Filter by status (optional)
-    - type: Filter by analysis type (optional)
-    
-    Requirements: 10.2
-    """
-    from services.history_service import get_history_service
-    
-    # Get query parameters
-    page = request.args.get('page', 1, type=int)
-    page_size = request.args.get('page_size', 20, type=int)
-    status_filter = request.args.get('status')
-    type_filter = request.args.get('type')
-    
-    # Validate pagination parameters
-    if page < 1:
-        page = 1
-    if page_size < 1 or page_size > 100:
-        page_size = 20
-    
-    service = get_history_service()
-    result = service.get_history(
-        page=page,
-        page_size=page_size,
-        status_filter=status_filter,
-        type_filter=type_filter
-    )
-    
-    return jsonify(result.to_dict())
-
-
-@api_bp.route('/history/<analysis_id>', methods=['GET'])
-def get_history_item(analysis_id):
-    """
-    Get a single history item by ID.
-    GET /api/history/{analysis_id}
-    
-    Requirements: 10.3
-    """
-    from services.history_service import get_history_service
-    from exceptions import AnalysisNotFoundError
-    
-    service = get_history_service()
-    item = service.get_history_item(analysis_id)
-    
-    if not item:
-        raise AnalysisNotFoundError(
-            message=f"Analysis not found: {analysis_id}",
-            details={'analysis_id': analysis_id}
-        )
-    
-    return jsonify(item.to_dict())
-
-
-@api_bp.route('/history/<analysis_id>', methods=['DELETE'])
-def delete_history_item(analysis_id):
-    """
-    Delete a history item and its associated files.
-    DELETE /api/history/{analysis_id}
-    
-    Requirements: 10.4
-    """
-    from services.history_service import get_history_service
-    
-    service = get_history_service()
-    success = service.delete_history_item(analysis_id)
-    
-    return jsonify({
-        'success': success,
-        'message': 'History item deleted successfully' if success else 'Failed to delete history item'
-    })
-
-
-@api_bp.route('/history/stats', methods=['GET'])
-def get_history_stats():
-    """
-    Get history statistics (counts by status and type).
-    GET /api/history/stats
-    
-    Requirements: 10.2
-    """
-    from services.history_service import get_history_service
-    
-    service = get_history_service()
-    
-    return jsonify({
-        'status_counts': service.get_status_counts(),
-        'type_counts': service.get_type_counts()
-    })
 
 
 # =============================================================================

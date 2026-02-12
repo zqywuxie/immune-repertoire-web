@@ -169,8 +169,12 @@ function initializeSidebarCollapse() {
     const sidebar = document.getElementById('sidebar');
     const mainContent = document.getElementById('mainContent');
     const collapseIcon = document.getElementById('collapseIcon');
+    const rootElement = document.documentElement;
 
-    if (!collapseBtn || !sidebar) return;
+    if (!collapseBtn || !sidebar) {
+        rootElement.classList.remove('sidebar-precollapsed');
+        return;
+    }
 
     // Load saved collapse state
     const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
@@ -179,6 +183,7 @@ function initializeSidebarCollapse() {
         if (mainContent) mainContent.classList.add('sidebar-collapsed');
         if (collapseIcon) collapseIcon.classList.replace('bi-chevron-left', 'bi-chevron-right');
     }
+    rootElement.classList.remove('sidebar-precollapsed');
 
     // Toggle collapse on button click
     collapseBtn.addEventListener('click', function (e) {

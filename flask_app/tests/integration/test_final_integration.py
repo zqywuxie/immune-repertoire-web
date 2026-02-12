@@ -325,22 +325,9 @@ class TestPerformanceAndCompatibility:
         assert elapsed < 5.0
         assert response.status_code in [200, 404]
     
-    def test_history_page_performance(self, client):
-        """Test history page loads quickly."""
-        import time
-        
-        start = time.time()
-        response = client.get('/history')
-        elapsed = time.time() - start
-        
-        # Should load within 3 seconds
-        assert elapsed < 3.0
-        assert response.status_code == 200
-    
     def test_chinese_language_consistency(self, client):
         """Test Chinese language consistency across pages."""
         pages = [
-            '/history',
             '/analysis/similarity-heatmap',
             '/analysis/bcell-isotype',
             '/analysis/shm',

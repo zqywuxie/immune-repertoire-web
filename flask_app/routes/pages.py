@@ -42,8 +42,15 @@ def simple_analysis_page():
 
 @pages_bp.route('/analysis/config')
 def analysis_config_page():
-    """Analysis configuration page."""
-    return render_template('analysis/config.html')
+    """
+    Analysis configuration page.
+
+    ⚠️ DEPRECATED: This route is deprecated and redirects to the unified similarity heatmap page.
+    Please use /analysis/similarity-heatmap instead.
+    """
+    from flask import flash, redirect, url_for
+    flash('相似度热图功能已整合到统一的相似度热图分析模块中', 'info')
+    return redirect(url_for('pages.similarity_heatmap_page'))
 
 
 @pages_bp.route('/analysis/<analysis_id>/results')
@@ -66,9 +73,9 @@ def field_analysis_page():
     # Redirect with query parameters if any
     if query_params:
         from urllib.parse import urlencode
-        return redirect(url_for('pages.unified_analysis_page') + '?' + urlencode(query_params))
+        return redirect(url_for('pages.analysis_page') + '?' + urlencode(query_params))
     
-    return redirect(url_for('pages.unified_analysis_page'))
+    return redirect(url_for('pages.analysis_page'))
 
 
 @pages_bp.route('/analysis/bcell-isotype')
@@ -86,7 +93,7 @@ def bcell_isotype_page():
     query_params['scheme'] = 'bcell_isotype'
     
     from urllib.parse import urlencode
-    return redirect(url_for('pages.unified_analysis_page') + '?' + urlencode(query_params))
+    return redirect(url_for('pages.analysis_page') + '?' + urlencode(query_params))
 
 
 @pages_bp.route('/analysis/shm')
@@ -104,7 +111,7 @@ def shm_analysis_page():
     query_params['scheme'] = 'shm_analysis'
     
     from urllib.parse import urlencode
-    return redirect(url_for('pages.unified_analysis_page') + '?' + urlencode(query_params))
+    return redirect(url_for('pages.analysis_page') + '?' + urlencode(query_params))
 
 
 @pages_bp.route('/analysis/ig-metrics')
@@ -122,7 +129,7 @@ def ig_metrics_page():
     query_params['scheme'] = 'ig_metrics'
     
     from urllib.parse import urlencode
-    return redirect(url_for('pages.unified_analysis_page') + '?' + urlencode(query_params))
+    return redirect(url_for('pages.analysis_page') + '?' + urlencode(query_params))
 
 
 @pages_bp.route('/analysis/pdf-extractor')
@@ -139,16 +146,18 @@ def ppt_report_page():
     return render_template('analysis/sequencing_depth.html')
 
 
-@pages_bp.route('/history')
-def history_page():
-    """History page."""
-    return render_template('history.html')
-
-
 @pages_bp.route('/settings')
 def settings_page():
     """Settings page."""
     return render_template('settings.html')
+
+
+@pages_bp.route('/analysis/ppt-heatmap')
+def ppt_heatmap_page():
+    """PPT heatmap replacement page.
+    Upload PPT template and replace heatmaps with generated images.
+    """
+    return render_template('analysis/ppt_heatmap.html')
 
 
 @pages_bp.route('/analysis/statistical')
@@ -157,3 +166,12 @@ def statistical_comparison_page():
     Performs group comparison with P-value calculation and boxplot visualization.
     """
     return render_template('analysis/statistical_comparison.html')
+
+
+@pages_bp.route('/analysis/similarity-heatmap')
+def similarity_heatmap_page():
+    """Similarity heatmap analysis page with folder-based sample detection.
+    Supports file selection, field mapping, sample renaming/grouping, and group averaging.
+    Requirements: 1.1-1.6, 2.1-2.5, 3.1-3.6, 4.1-4.8, 5.1-5.6, 6.1-6.6
+    """
+    return render_template('analysis/similarity_heatmap.html')

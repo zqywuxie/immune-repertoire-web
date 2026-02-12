@@ -1,4 +1,4 @@
-"""
+﻿"""
 Analysis Service for the Immune Repertoire Analysis Web Application.
 Coordinates analysis task creation, execution, progress updates, and result storage.
 Requirements: 8.1, 8.2, 8.3, 8.4
@@ -22,6 +22,9 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 import pandas as pd
+
+from flask_app.services.heatmap_generator import format_similarity_value, normalize_sample_order
+from flask_app.services.datetime_handler import DateTimeHandler
 
 
 class AnalysisStatus(str, Enum):
@@ -112,7 +115,8 @@ class AnalysisService:
         file_id: str,
         field_mapping: Dict[str, str],
         parameters: Optional[Dict[str, Any]] = None,
-        chart_config: Optional[Dict[str, Any]] = None
+        chart_config: Optional[Dict[str, Any]] = None,
+        check_duplicate: bool = True
     ) -> str:
         """
         Create a new analysis task.
@@ -123,14 +127,15 @@ class AnalysisService:
             field_mapping: Mapping from required fields to source columns
             parameters: Analysis-specific parameters
             chart_config: Chart configuration parameters
+            check_duplicate: Whether to check for duplicate analysis (default: True)
             
         Returns:
             Analysis task ID
             
         Requirements: 8.1
         """
-        from models.database import db, Analysis, File
-        from exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
+        from flask_app.models.database import db, Analysis, File
+        from flask_app.exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
         
         # Validate analysis type
         try:
@@ -143,7 +148,8 @@ class AnalysisService:
                     'supported_types': [t.value for t in AnalysisType]
                 }
             )
-        
+        # History module removed: duplicate check disabled.
+
         # Validate file exists (skip for directory-based similarity analysis)
         if analysis_type == AnalysisType.SIMILARITY_HEATMAP.value:
             # Directory-based analysis - validate directory path exists in parameters
@@ -164,8 +170,20 @@ class AnalysisService:
         
         # Create analysis record
         analysis_id = str(uuid.uuid4())
+        
+        # Generate analysis name
+        type_names = {
+            'similarity_heatmap': 'Similarity Heatmap Analysis',
+            'sequencing_depth': 'Sequencing Depth Analysis',
+            'diversity_metrics': 'Diversity Metrics Analysis',
+            'chain_specific': 'Chain-Specific Analysis',
+            'bcell_isotype': 'B Cell Isotype Analysis'
+        }
+        analysis_name = type_names.get(analysis_type, analysis_type)
+        
         analysis = Analysis(
             id=analysis_id,
+            name=analysis_name,  # Set the name field
             type=analysis_type,
             file_id=file_id,  # Can be None for directory-based analysis
             field_mapping=field_mapping,
@@ -204,8 +222,8 @@ class AnalysisService:
             
         Requirements: 8.2
         """
-        from models.database import Analysis
-        from exceptions import AnalysisNotFoundError
+        from flask_app.models.database import Analysis
+        from flask_app.exceptions import AnalysisNotFoundError
         
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
@@ -227,9 +245,9 @@ class AnalysisService:
             'progress': progress,
             'current_step': current_step,
             'error_message': analysis.error_message,
-            'created_at': analysis.created_at.isoformat() if analysis.created_at else None,
-            'started_at': analysis.started_at.isoformat() if analysis.started_at else None,
-            'completed_at': analysis.completed_at.isoformat() if analysis.completed_at else None
+            'created_at': DateTimeHandler.safe_isoformat(analysis.created_at),
+            'started_at': DateTimeHandler.safe_isoformat(analysis.started_at),
+            'completed_at': DateTimeHandler.safe_isoformat(analysis.completed_at)
         }
     
     def get_analysis_results(self, analysis_id: str) -> Dict[str, Any]:
@@ -244,8 +262,8 @@ class AnalysisService:
             
         Requirements: 8.4
         """
-        from models.database import Analysis, AnalysisResult
-        from exceptions import AnalysisNotFoundError
+        from flask_app.models.database import Analysis, AnalysisResult
+        from flask_app.exceptions import AnalysisNotFoundError
         
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
@@ -304,8 +322,8 @@ class AnalysisService:
             'chart_config': analysis.chart_config,
             'results': combined_results,
             'error_message': analysis.error_message,
-            'created_at': analysis.created_at.isoformat() if analysis.created_at else None,
-            'completed_at': analysis.completed_at.isoformat() if analysis.completed_at else None
+            'created_at': DateTimeHandler.safe_isoformat(analysis.created_at),
+            'completed_at': DateTimeHandler.safe_isoformat(analysis.completed_at)
         }
     
     def get_data_table(self, analysis_id: str, table_name: str) -> Dict[str, Any]:
@@ -321,8 +339,8 @@ class AnalysisService:
             
         Requirements: 8.4
         """
-        from models.database import Analysis, AnalysisResult
-        from exceptions import AnalysisNotFoundError, ValidationError
+        from flask_app.models.database import Analysis, AnalysisResult
+        from flask_app.exceptions import AnalysisNotFoundError, ValidationError
         
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
@@ -367,7 +385,7 @@ class AnalysisService:
             
         Requirements: 8.2
         """
-        from models.database import db, Analysis
+        from flask_app.models.database import db, Analysis
         
         # Ensure progress is monotonically non-decreasing
         with self._progress_lock:
@@ -399,8 +417,8 @@ class AnalysisService:
             
         Requirements: 8.3
         """
-        from models.database import db, Analysis
-        from exceptions import AnalysisNotFoundError, ValidationError
+        from flask_app.models.database import db, Analysis
+        from flask_app.exceptions import AnalysisNotFoundError, ValidationError
         
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
@@ -453,8 +471,8 @@ class AnalysisService:
         Returns:
             True if cancellation was successful
         """
-        from models.database import db, Analysis
-        from exceptions import AnalysisNotFoundError, ValidationError
+        from flask_app.models.database import db, Analysis
+        from flask_app.exceptions import AnalysisNotFoundError, ValidationError
         
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
@@ -487,8 +505,8 @@ class AnalysisService:
         Args:
             analysis_id: Analysis task ID
         """
-        from models.database import db, Analysis, AnalysisResult, File
-        from services.file_parser import FileParserService
+        from flask_app.models.database import db, Analysis, AnalysisResult, File
+        from flask_app.services.file_parser import FileParserService
         
         # Need to use app context for database operations in thread
         with self.app.app_context():
@@ -658,8 +676,8 @@ class AnalysisService:
         results_dir: Path
     ) -> AnalysisResults:
         """Execute similarity heatmap analysis using integrated engine."""
-        from services.integrated_analysis import IntegratedAnalysisEngine
-        from services.data_table import DataTableService
+        from flask_app.services.integrated_analysis import IntegratedAnalysisEngine
+        from flask_app.services.data_table import DataTableService
         
         results = AnalysisResults()
         
@@ -778,7 +796,13 @@ class AnalysisService:
                 continue
             
             # Calculate similarity metrics
-            samples_list = list(chain_samples.keys())
+            # Get available samples from loaded data
+            available_samples = list(chain_samples.keys())
+            
+            # Apply sample ordering if specified - Requirements: 5.1, 5.6, 5.7
+            # This ensures heatmap, data table, and CSV export all use the same sample order
+            requested_sample_order = parameters.get('sample_order')
+            samples_list = normalize_sample_order(available_samples, requested_sample_order)
             n_samples = len(samples_list)
             
             # Build abundance dictionaries
@@ -810,6 +834,7 @@ class AnalysisService:
             # Calculate metrics and generate heatmaps
             for metric in metrics:
                 matrix = np.zeros((n_samples, n_samples))
+                boundary_cases = {}  # Collect boundary case details for R虏 metrics
                 
                 for i, s1 in enumerate(samples_list):
                     for j, s2 in enumerate(samples_list):
@@ -817,45 +842,190 @@ class AnalysisService:
                             matrix[i, j] = 1.0
                         elif s1 in sample_abundance and s2 in sample_abundance:
                             ab1, ab2 = sample_abundance[s1], sample_abundance[s2]
+                            pair_key = f"{s1}_vs_{s2}"
                             
                             if metric == 'r2_inner':
-                                # R² Inner - only shared CDR3s (inner join)
+                                # R虏 Inner - only shared CDR3s (inner join)
                                 common = set(ab1.keys()) & set(ab2.keys())
                                 if len(common) >= 2:
-                                    vals1 = np.array([ab1[k] for k in common])
-                                    vals2 = np.array([ab2[k] for k in common])
-                                    if np.std(vals1) > 0 and np.std(vals2) > 0:
+                                    common_sorted = sorted(common)
+                                    vals1 = np.array([ab1[k] for k in common_sorted])
+                                    vals2 = np.array([ab2[k] for k in common_sorted])
+                                    std1, std2 = np.std(vals1), np.std(vals2)
+                                    if std1 > 0 and std2 > 0:
                                         corr = np.corrcoef(vals1, vals2)[0, 1]
-                                        matrix[i, j] = corr ** 2 if not np.isnan(corr) else 0
+                                        r2_val = corr ** 2 if not np.isnan(corr) else 0
+                                        matrix[i, j] = r2_val
+                                        # Record boundary cases (0.0 or 1.0)
+                                        if r2_val == 0.0 or r2_val == 1.0:
+                                            boundary_cases[pair_key] = {
+                                                'value': r2_val,
+                                                'reason': 'calculated',
+                                                'shared_count': len(common),
+                                                'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1[k], 'copy_b': ab2[k]} for k in common_sorted[:20]]
+                                            }
+                                    elif std1 == 0 and std2 == 0:
+                                        matrix[i, j] = 1.0
+                                        boundary_cases[pair_key] = {
+                                            'value': 1.0,
+                                            'reason': 'both_constant',
+                                            'message': '涓や釜鏍锋湰鐨勫叡浜獵DR3涓板害閮芥槸甯告暟',
+                                            'shared_count': len(common),
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1[k], 'copy_b': ab2[k]} for k in common_sorted[:20]]
+                                        }
+                                    else:
+                                        matrix[i, j] = 0.0
+                                        boundary_cases[pair_key] = {
+                                            'value': 0.0,
+                                            'reason': 'one_constant',
+                                            'message': 'One sample has constant shared CDR3 abundance.',
+                                            'shared_count': len(common),
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1[k], 'copy_b': ab2[k]} for k in common_sorted[:20]]
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'insufficient_shared',
+                                        'message': f'鍏变韩CDR3鏁伴噺涓嶈冻 ({len(common)} < 2)',
+                                        'shared_count': len(common),
+                                        'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1[k], 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]] if common else []
+                                    }
                                         
                             elif metric == 'r2_outer':
-                                # R² Outer - all CDR3s with 0 for missing (outer join)
+                                # R虏 Outer - all CDR3s with 0 for missing (outer join)
                                 all_keys = set(ab1.keys()) | set(ab2.keys())
+                                common = set(ab1.keys()) & set(ab2.keys())
                                 if len(all_keys) >= 2:
-                                    vals1 = np.array([ab1.get(k, 0) for k in all_keys])
-                                    vals2 = np.array([ab2.get(k, 0) for k in all_keys])
-                                    if np.std(vals1) > 0 and np.std(vals2) > 0:
+                                    all_sorted = sorted(all_keys)
+                                    vals1 = np.array([ab1.get(k, 0) for k in all_sorted])
+                                    vals2 = np.array([ab2.get(k, 0) for k in all_sorted])
+                                    std1, std2 = np.std(vals1), np.std(vals2)
+                                    if std1 > 0 and std2 > 0:
                                         corr = np.corrcoef(vals1, vals2)[0, 1]
-                                        matrix[i, j] = corr ** 2 if not np.isnan(corr) else 0
+                                        r2_val = corr ** 2 if not np.isnan(corr) else 0
+                                        matrix[i, j] = r2_val
+                                        # Record boundary cases: 0.0, 1.0, or no shared CDR3
+                                        if r2_val == 0.0 or r2_val == 1.0:
+                                            boundary_cases[pair_key] = {
+                                                'value': r2_val,
+                                                'reason': 'calculated',
+                                                'total_count': len(all_keys),
+                                                'shared_count': len(common),
+                                                'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                            }
+                                        elif len(common) == 0:
+                                            # No shared CDR3 - record as special boundary case
+                                            boundary_cases[pair_key] = {
+                                                'value': r2_val,
+                                                'reason': 'no_shared_cdr3',
+                                                'message': f'鏃犲叡浜獵DR3锛孯虏鍊煎熀浜庡杩炴帴璁＄畻 (鍊?{r2_val:.4f})',
+                                                'total_count': len(all_keys),
+                                                'shared_count': 0,
+                                                'set_a_count': len(ab1),
+                                                'set_b_count': len(ab2)
+                                            }
+                                    elif std1 == 0 and std2 == 0:
+                                        matrix[i, j] = 1.0
+                                        boundary_cases[pair_key] = {
+                                            'value': 1.0,
+                                            'reason': 'both_constant',
+                                            'message': '涓や釜鏍锋湰鐨凜DR3涓板害閮芥槸甯告暟',
+                                            'total_count': len(all_keys),
+                                            'shared_count': len(common),
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                        }
+                                    else:
+                                        matrix[i, j] = 0.0
+                                        boundary_cases[pair_key] = {
+                                            'value': 0.0,
+                                            'reason': 'one_constant',
+                                            'message': 'One sample has constant CDR3 abundance.',
+                                            'total_count': len(all_keys),
+                                            'shared_count': len(common),
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'insufficient_total',
+                                        'message': f'鎬籆DR3鏁伴噺涓嶈冻 ({len(all_keys)} < 2)',
+                                        'total_count': len(all_keys)
+                                    }
                                         
                             elif metric == 'cdr3_sharing':
-                                # CDR3 Sharing (unique) - normalized by min set size
+                                # CDR3 Sharing (unique) - directional
+                                # When i < j: A鈫払 direction (intersection / |CDR3_A|)
+                                # When i > j: B鈫扐 direction (intersection / |CDR3_B|)
                                 set1 = set(ab1.keys())
                                 set2 = set(ab2.keys())
                                 intersection = len(set1 & set2)
-                                min_size = min(len(set1), len(set2))
-                                matrix[i, j] = intersection / min_size if min_size > 0 else 0
+                                common = set1 & set2
+                                # Directional: divide by row sample's CDR3 count
+                                if len(set1) > 0:
+                                    val = intersection / len(set1)
+                                    matrix[i, j] = val
+                                    # Record boundary cases (0.0 or 1.0)
+                                    if val == 0.0 or val == 1.0:
+                                        boundary_cases[pair_key] = {
+                                            'value': val,
+                                            'reason': 'no_overlap' if val == 0.0 else 'full_overlap',
+                                            'message': 'No shared CDR3' if val == 0.0 else 'All CDR3 from sample A exist in sample B',
+                                            'set_a_count': len(set1),
+                                            'set_b_count': len(set2),
+                                            'intersection': intersection,
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'empty_sample',
+                                        'message': '鏍锋湰A鏃燙DR3鏁版嵁',
+                                        'set_a_count': 0,
+                                        'set_b_count': len(set2)
+                                    }
                                 
                             elif metric == 'expression_sharing':
-                                # Expression Sharing (reads) - shared reads proportion
+                                # Expression Sharing (reads) - directional shared reads proportion
+                                # When i < j: A鈫払 direction (shared_reads / N_A)
+                                # When i > j: B鈫扐 direction (shared_reads / N_B)
                                 all_keys = set(ab1.keys()) | set(ab2.keys())
+                                common = set(ab1.keys()) & set(ab2.keys())
                                 shared_reads = sum(min(ab1.get(k, 0), ab2.get(k, 0)) for k in all_keys)
-                                total_reads = sum(ab1.values()) + sum(ab2.values())
-                                matrix[i, j] = (2 * shared_reads) / total_reads if total_reads > 0 else 0
+                                total_reads_a = sum(ab1.values())  # N_A (row sample)
+                                total_reads_b = sum(ab2.values())  # N_B
+                                # Directional: divide by row sample's total reads
+                                if total_reads_a > 0:
+                                    val = shared_reads / total_reads_a
+                                    matrix[i, j] = val
+                                    # Record boundary cases (0.0 or 1.0)
+                                    if val == 0.0 or val == 1.0:
+                                        boundary_cases[pair_key] = {
+                                            'value': val,
+                                            'reason': 'no_shared_reads' if val == 0.0 else 'full_shared_reads',
+                                            'message': '鏃犲叡浜玶eads' if val == 0.0 else '鏍锋湰A鐨勬墍鏈塺eads閮戒笌鏍锋湰B鍏变韩',
+                                            'shared_reads': shared_reads,
+                                            'total_reads_a': total_reads_a,
+                                            'total_reads_b': total_reads_b,
+                                            'shared_count': len(common),
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'zero_reads',
+                                        'message': '鏍锋湰A鎬籸eads涓?',
+                                        'total_reads_a': 0,
+                                        'total_reads_b': total_reads_b
+                                    }
                                 
                             elif metric == 'morisita_horn':
                                 # Morisita-Horn index
                                 all_keys = set(ab1.keys()) | set(ab2.keys())
+                                common = set(ab1.keys()) & set(ab2.keys())
                                 n_A = np.array([ab1.get(k, 0) for k in all_keys])
                                 n_B = np.array([ab2.get(k, 0) for k in all_keys])
                                 N_A, N_B = np.sum(n_A), np.sum(n_B)
@@ -864,15 +1034,71 @@ class AnalysisService:
                                     D_B = np.sum((n_B / N_B) ** 2)
                                     numerator = 2 * np.sum(n_A * n_B)
                                     denominator = (D_A + D_B) * N_A * N_B
-                                    matrix[i, j] = numerator / denominator if denominator > 0 else 0
+                                    if denominator > 0:
+                                        val = numerator / denominator
+                                        matrix[i, j] = val
+                                        # Record boundary cases (0.0 or 1.0)
+                                        if val == 0.0 or val >= 0.9999:
+                                            boundary_cases[pair_key] = {
+                                                'value': val,
+                                                'reason': 'no_overlap' if val == 0.0 else 'high_similarity',
+                                                'message': 'No overlap in shared CDR3 or abundance' if val == 0.0 else 'Highly similar abundance distribution',
+                                                'total_reads_a': float(N_A),
+                                                'total_reads_b': float(N_B),
+                                                'simpson_a': float(D_A),
+                                                'simpson_b': float(D_B),
+                                                'shared_count': len(common),
+                                                'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                            }
+                                    else:
+                                        matrix[i, j] = 0.0
+                                        boundary_cases[pair_key] = {
+                                            'value': 0.0,
+                                            'reason': 'zero_denominator',
+                                            'message': 'Morisita-Horn鍒嗘瘝涓?',
+                                            'total_reads_a': float(N_A),
+                                            'total_reads_b': float(N_B)
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'zero_reads',
+                                        'message': f'鏍锋湰鎬籸eads涓? (N_A={N_A}, N_B={N_B})',
+                                        'total_reads_a': float(N_A),
+                                        'total_reads_b': float(N_B)
+                                    }
                                     
                             elif metric == 'sorensen':
                                 # Sorensen-Dice coefficient
                                 set1 = set(ab1.keys())
                                 set2 = set(ab2.keys())
                                 intersection = len(set1 & set2)
+                                common = set1 & set2
                                 size_sum = len(set1) + len(set2)
-                                matrix[i, j] = (2 * intersection) / size_sum if size_sum > 0 else 0
+                                if size_sum > 0:
+                                    val = (2 * intersection) / size_sum
+                                    matrix[i, j] = val
+                                    # Record boundary cases (0.0 or 1.0)
+                                    if val == 0.0 or val == 1.0:
+                                        boundary_cases[pair_key] = {
+                                            'value': val,
+                                            'reason': 'no_overlap' if val == 0.0 else 'identical_sets',
+                                            'message': '鏃犲叡浜獵DR3' if val == 0.0 else '涓や釜鏍锋湰鐨凜DR3闆嗗悎瀹屽叏鐩稿悓',
+                                            'set_a_count': len(set1),
+                                            'set_b_count': len(set2),
+                                            'intersection': intersection,
+                                            'shared_cdr3': [{'cdr3': k[:30], 'copy_a': ab1.get(k, 0), 'copy_b': ab2.get(k, 0)} for k in sorted(common)[:20]]
+                                        }
+                                else:
+                                    matrix[i, j] = 0.0
+                                    boundary_cases[pair_key] = {
+                                        'value': 0.0,
+                                        'reason': 'empty_samples',
+                                        'message': '涓や釜鏍锋湰閮芥棤CDR3鏁版嵁',
+                                        'set_a_count': 0,
+                                        'set_b_count': 0
+                                    }
                 
                 # Create heatmap with metric-specific color schemes
                 fig, ax = plt.subplots(figsize=(
@@ -902,12 +1128,19 @@ class AnalysisService:
                 # Create mask for diagonal
                 mask = np.eye(n_samples, dtype=bool)
                 
+                # Create smart-formatted annotation array using format_similarity_value
+                # Requirements: 2.5, 2.6 - Use smart formatting for heatmap annotations
+                annot_array = np.empty_like(matrix, dtype=object)
+                for i in range(n_samples):
+                    for j in range(n_samples):
+                        annot_array[i, j] = format_similarity_value(matrix[i, j])
+                
                 sns.heatmap(
                     matrix,
                     xticklabels=samples_list,
                     yticklabels=samples_list,
-                    annot=chart_config.get('annotation', True),
-                    fmt='.3f',
+                    annot=annot_array if chart_config.get('annotation', True) else False,
+                    fmt='',  # Empty format since we provide pre-formatted strings
                     cmap=cmap,
                     mask=mask,
                     vmin=vmin,
@@ -930,12 +1163,17 @@ class AnalysisService:
                 fig.savefig(viz_path, dpi=150, bbox_inches='tight')
                 plt.close(fig)
                 
+                # Prepare metadata with boundary cases for all metrics
+                viz_metadata = {'chain': chain, 'metric': metric}
+                if boundary_cases:
+                    viz_metadata['boundary_cases'] = boundary_cases
+                
                 results.items.append(AnalysisResultItem(
                     result_type='visualization',
                     name=f'{chain}_{metric}_heatmap',
                     file_path=str(viz_path),
                     mime_type='image/png',
-                    metadata={'chain': chain, 'metric': metric}
+                    metadata=viz_metadata
                 ))
                 
                 # Save matrix as CSV
@@ -943,15 +1181,34 @@ class AnalysisService:
                 csv_path = results_dir / f'{chain}_{metric}_matrix.csv'
                 matrix_df.to_csv(csv_path)
                 
+                # Create table_data with both raw values and formatted display values
+                # Requirements: 2.5 - Include formatted display values while preserving raw values
+                formatted_rows = []
+                for i, s in enumerate(samples_list):
+                    row = [s]  # Sample name as first column
+                    for j in range(n_samples):
+                        # Store as dict with raw and formatted values
+                        row.append({
+                            'raw': float(matrix[i, j]),
+                            'formatted': format_similarity_value(matrix[i, j])
+                        })
+                    formatted_rows.append(row)
+                
+                # Prepare table_data with boundary cases for all metrics
+                table_data_dict = {
+                    'columns': ['Sample'] + samples_list,
+                    'rows': formatted_rows,
+                    'raw_rows': [[s] + list(matrix[i]) for i, s in enumerate(samples_list)]
+                }
+                if boundary_cases:
+                    table_data_dict['boundary_cases'] = boundary_cases
+                
                 results.items.append(AnalysisResultItem(
                     result_type='data_table',
                     name=f'{chain}_{metric}_matrix',
                     file_path=str(csv_path),
                     mime_type='text/csv',
-                    table_data={
-                        'columns': ['Sample'] + samples_list,
-                        'rows': [[s] + list(matrix[i]) for i, s in enumerate(samples_list)]
-                    }
+                    table_data=table_data_dict
                 ))
             
             chain_progress += chain_step
@@ -969,7 +1226,7 @@ class AnalysisService:
         results_dir: Path
     ) -> AnalysisResults:
         """Execute sequencing depth analysis using integrated engine."""
-        from services.integrated_analysis import IntegratedAnalysisEngine
+        from flask_app.services.integrated_analysis import IntegratedAnalysisEngine
         
         results = AnalysisResults()
         
@@ -1037,7 +1294,7 @@ class AnalysisService:
         results_dir: Path
     ) -> AnalysisResults:
         """Execute diversity metrics analysis using integrated engine."""
-        from services.integrated_analysis import IntegratedAnalysisEngine
+        from flask_app.services.integrated_analysis import IntegratedAnalysisEngine
         
         results = AnalysisResults()
         
@@ -1104,7 +1361,7 @@ class AnalysisService:
         results_dir: Path
     ) -> AnalysisResults:
         """Execute chain-specific analysis using integrated engine."""
-        from services.integrated_analysis import IntegratedAnalysisEngine
+        from flask_app.services.integrated_analysis import IntegratedAnalysisEngine
         
         results = AnalysisResults()
         
@@ -1204,3 +1461,4 @@ def init_analysis_service(app) -> AnalysisService:
     global analysis_service
     analysis_service = AnalysisService(app)
     return analysis_service
+

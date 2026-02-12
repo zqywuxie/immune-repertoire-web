@@ -560,15 +560,6 @@ S2,IGK,47000,11800,29.1,0.60,3.5,131.5,89.7"""
         # Verify at least one analysis was created
         assert len(analysis_ids) > 0
     
-    def test_analysis_history_tracking(self, client):
-        """Test that all analyses are tracked in history."""
-        # Get analysis history
-        history_response = client.get('/api/history')
-        assert history_response.status_code == 200
-        
-        history_data = history_response.get_json()
-        assert 'analyses' in history_data or 'items' in history_data
-    
     def test_chart_configuration_consistency(self, client):
         """Test that chart configuration is applied consistently across analysis types."""
         # Upload test file

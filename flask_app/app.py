@@ -7,13 +7,17 @@ import json
 import os
 import sys
 
-# Add current directory to Python path to enable absolute imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure project root is importable so `flask_app.*` imports resolve.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 import numpy as np
 from flask import Flask, jsonify
-from config import config
-from models.database import db
+from flask_login import LoginManager
+from flask_app.config import config
+from flask_app.models.database import db
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
@@ -57,6 +61,18 @@ def create_app(config_name=None):
     # Initialize extensions
     db.init_app(app)
     
+    # Initialize Flask-Login
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'auth.login'
+    login_manager.login_message = 'Please log in to access this page.'
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        """Load user by ID for Flask-Login."""
+        from flask_app.models.database import User
+        return User.query.get(int(user_id))
+    
     # Register error handlers
     register_error_handlers(app)
     
@@ -68,27 +84,23 @@ def create_app(config_name=None):
         db.create_all()
     
     # Initialize analysis service
-    from services.analysis_service import init_analysis_service
+    from flask_app.services.analysis_service import init_analysis_service
     init_analysis_service(app)
     
-    # Initialize history service
-    from services.history_service import init_history_service
-    init_history_service(app)
-    
     # Initialize config service
-    from services.config_service import init_config_service
+    from flask_app.services.config_service import init_config_service
     init_config_service(app)
     
     # Initialize parameter template service
-    from services.parameter_template_service import init_parameter_template_service
+    from flask_app.services.parameter_template_service import init_parameter_template_service
     init_parameter_template_service(app)
     
     # Initialize annotation service
-    from services.annotation_service import init_annotation_service
+    from flask_app.services.annotation_service import init_annotation_service
     init_annotation_service(app)
     
     # Initialize modular analysis system
-    from services.analysis.registry import init_analysis_registry
+    from flask_app.services.analysis.registry import init_analysis_registry
     init_analysis_registry()
     
     return app
@@ -96,7 +108,7 @@ def create_app(config_name=None):
 
 def register_error_handlers(app):
     """Register error handlers for the application. Requirements: 1.3, 13.4"""
-    from exceptions import AppException
+    from flask_app.exceptions import AppException
     
     @app.errorhandler(AppException)
     def handle_app_exception(error):
@@ -135,10 +147,16 @@ def register_error_handlers(app):
 
 def register_blueprints(app):
     """Register Flask blueprints for routes."""
-    from routes.pages import pages_bp
-    from routes.api import api_bp
-    from routes.api_analysis import analysis_bp
-    from routes.api_statistical import statistical_bp
+    from flask_app.routes.pages import pages_bp
+    from flask_app.routes.api import api_bp
+    from flask_app.routes.api_analysis import analysis_bp
+    from flask_app.routes.api_statistical import statistical_bp
+    from flask_app.routes.data_split import data_split_bp
+    from flask_app.routes.api_ppt import ppt_bp
+    from flask_app.routes.api_ppt_comparison import ppt_comparison_bp
+    from flask_app.routes.api_similarity import similarity_bp
+    from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
+    from flask_app.routes.auth import auth_bp
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
@@ -146,6 +164,18 @@ def register_blueprints(app):
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
     # Register statistical analysis blueprint
     app.register_blueprint(statistical_bp)
+    # Register data split blueprint
+    app.register_blueprint(data_split_bp)
+    # Register PPT heatmap replacement blueprint
+    app.register_blueprint(ppt_bp)
+    # Register PPT comparison blueprint
+    app.register_blueprint(ppt_comparison_bp)
+    # Register similarity heatmap API blueprint
+    app.register_blueprint(similarity_bp)
+    # Register auto heatmap analysis API blueprint
+    app.register_blueprint(auto_heatmap_bp)
+    # Register authentication blueprint
+    app.register_blueprint(auth_bp)
 
 
 # Application instance for single-command startup

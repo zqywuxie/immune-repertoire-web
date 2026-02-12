@@ -31,11 +31,11 @@ from pptx.util import Inches, Emu
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from PIL import Image
 
-from exceptions import (
+from flask_app.exceptions import (
     PPTError, PPTFileInvalidError, PPTParseError, 
     PPTSlideNotFoundError, PPTImageReplacementError, PPTNoHeatmapsError
 )
-from services.image_border_manager import ImageBorderStyleManager
+from flask_app.services.image_border_manager import ImageBorderStyleManager
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +271,7 @@ class PPTImageService:
         self.presentation = None
         self.slide_image_info: List[SlideImageInfo] = []
         self.image_mappings: List[ImageMapping] = []
+        self.layout_summary: Optional[Dict[str, Any]] = None
     
     # Backward compatibility aliases
     @property
@@ -754,6 +755,8 @@ class PPTImageService:
         network_plot_images: Optional[Dict[str, str]] = None,
         isotype_upset_images: Optional[Dict[str, str]] = None,
         tree_map_images: Optional[Dict[str, str]] = None,
+        module: Optional[str] = None,
+        layout_config: Optional[Dict[str, Any]] = None,
     ) -> List[ImageMapping]:
         """
         Create mappings between available images and PPT positions.
@@ -768,16 +771,37 @@ class PPTImageService:
             List of ImageMapping objects
         """
         self.image_mappings = []
+        self.layout_summary = None
+
+        if module in [IMAGE_TYPE_NETWORK_PLOTS, IMAGE_TYPE_ISOTYPE_UPSET, IMAGE_TYPE_TREE_MAPS]:
+            image_map = {
+                IMAGE_TYPE_NETWORK_PLOTS: network_plot_images or {},
+                IMAGE_TYPE_ISOTYPE_UPSET: isotype_upset_images or {},
+                IMAGE_TYPE_TREE_MAPS: tree_map_images or {},
+            }.get(module, {})
+            module_slides = [
+                slide_info for slide_info in self.slide_image_info
+                if slide_info.image_type == module
+            ]
+            self.layout_summary = self._create_sample_based_mappings_with_layout(
+                module_slides,
+                image_map,
+                module,
+                layout_config or {}
+            )
+            return self.image_mappings
         
         for slide_info in self.slide_image_info:
+            if module and slide_info.image_type != module:
+                continue
             if slide_info.image_type == IMAGE_TYPE_SHARING_ANALYSIS:
                 self._create_sharing_analysis_mappings(slide_info, sharing_analysis_images or {})
             elif slide_info.image_type == IMAGE_TYPE_NETWORK_PLOTS:
-                self._create_sample_based_mappings(slide_info, network_plot_images or {}, IMAGE_TYPE_NETWORK_PLOTS)
+                self._create_sample_based_mappings(slide_info, network_plot_images or {}, IMAGE_TYPE_NETWORK_PLOTS, layout_config)
             elif slide_info.image_type == IMAGE_TYPE_ISOTYPE_UPSET:
-                self._create_sample_based_mappings(slide_info, isotype_upset_images or {}, IMAGE_TYPE_ISOTYPE_UPSET)
+                self._create_sample_based_mappings(slide_info, isotype_upset_images or {}, IMAGE_TYPE_ISOTYPE_UPSET, layout_config)
             elif slide_info.image_type == IMAGE_TYPE_TREE_MAPS:
-                self._create_sample_based_mappings(slide_info, tree_map_images or {}, IMAGE_TYPE_TREE_MAPS)
+                self._create_sample_based_mappings(slide_info, tree_map_images or {}, IMAGE_TYPE_TREE_MAPS, layout_config)
         
         return self.image_mappings
     
@@ -827,7 +851,8 @@ class PPTImageService:
         self,
         slide_info: SlideImageInfo,
         available_images: Dict[str, str],
-        image_type: str
+        image_type: str,
+        layout_config: Optional[Dict[str, Any]] = None
     ):
         """Create mappings for sample-based images (Network Plots, Upset Plots, etc.)"""
         # Sort images by position (top to bottom, left to right)
@@ -858,6 +883,121 @@ class PPTImageService:
                 )
                 self.image_mappings.append(mapping)
                 logger.info(f"Mapped {image_type}/{sample_name} to slide {slide_info.slide_index}, shape {image_info['shape_index']}")
+
+    def _create_sample_based_mappings_with_layout(
+        self,
+        module_slides: List[SlideImageInfo],
+        available_images: Dict[str, str],
+        image_type: str,
+        layout_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create mappings for sample-based modules using an explicit layout configuration."""
+        if not module_slides:
+            return {
+                'image_type': image_type,
+                'total_samples': len(available_images),
+                'mapped_samples': 0,
+                'unmapped_samples': sorted(list(available_images.keys())),
+                'pages_used': 0,
+                'empty_slots': 0,
+            }
+
+        ordered_slide_infos = sorted(module_slides, key=lambda s: s.slide_index)
+        positions_by_slide = []
+        for slide_info in ordered_slide_infos:
+            sorted_positions = sorted(
+                slide_info.image_positions,
+                key=lambda x: (x['top'], x['left'])
+            )
+            positions_by_slide.append((slide_info, sorted_positions))
+
+        configured_order = layout_config.get('sample_order') or list(available_images.keys())
+        ordered_samples = [sample for sample in configured_order if sample in available_images]
+        for sample in available_images.keys():
+            if sample not in ordered_samples:
+                ordered_samples.append(sample)
+
+        items_per_row = int(layout_config.get('items_per_row') or 3)
+        items_per_row = max(1, min(items_per_row, 6))
+        rows_per_page = int(layout_config.get('rows_per_page') or 2)
+        rows_per_page = max(1, rows_per_page)
+        configured_pages = layout_config.get('pages') or []
+
+        mapped_samples = set()
+        empty_slots = 0
+
+        if configured_pages:
+            for page_idx, page in enumerate(configured_pages):
+                if page_idx >= len(positions_by_slide):
+                    break
+                slide_info, slide_positions = positions_by_slide[page_idx]
+                slots = page.get('slots') or []
+                for slot in slots:
+                    sample_name = slot.get('sample_name')
+                    if not sample_name or sample_name not in available_images:
+                        continue
+                    row = int(slot.get('row', 0))
+                    col = int(slot.get('col', 0))
+                    position_idx = row * items_per_row + col
+                    if position_idx >= len(slide_positions):
+                        continue
+                    position = slide_positions[position_idx]
+                    self.image_mappings.append(
+                        ImageMapping(
+                            image_type=image_type,
+                            sample_name=sample_name,
+                            slide_index=slide_info.slide_index,
+                            shape_index=position['shape_index'],
+                            position={
+                                'left': position['left_inches'],
+                                'top': position['top_inches'],
+                                'width': position['width_inches'],
+                                'height': position['height_inches'],
+                            },
+                            image_path=available_images[sample_name]
+                        )
+                    )
+                    mapped_samples.add(sample_name)
+        else:
+            cursor = 0
+            for slide_info, slide_positions in positions_by_slide:
+                max_slots = min(len(slide_positions), items_per_row * rows_per_page)
+                for pos_idx in range(max_slots):
+                    if cursor >= len(ordered_samples):
+                        empty_slots += (max_slots - pos_idx)
+                        break
+                    sample_name = ordered_samples[cursor]
+                    cursor += 1
+                    position = slide_positions[pos_idx]
+                    self.image_mappings.append(
+                        ImageMapping(
+                            image_type=image_type,
+                            sample_name=sample_name,
+                            slide_index=slide_info.slide_index,
+                            shape_index=position['shape_index'],
+                            position={
+                                'left': position['left_inches'],
+                                'top': position['top_inches'],
+                                'width': position['width_inches'],
+                                'height': position['height_inches'],
+                            },
+                            image_path=available_images[sample_name]
+                        )
+                    )
+                    mapped_samples.add(sample_name)
+
+        unmapped_samples = [sample for sample in ordered_samples if sample not in mapped_samples]
+        return {
+            'image_type': image_type,
+            'strategy': 'near_square',
+            'items_per_row': items_per_row,
+            'rows_per_page': rows_per_page,
+            'total_samples': len(ordered_samples),
+            'mapped_samples': len(mapped_samples),
+            'unmapped_samples': unmapped_samples,
+            'pages_used': len({m.slide_index for m in self.image_mappings if m.image_type == image_type}),
+            'empty_slots': empty_slots,
+        }
     
     def _get_slide_metrics(self, slide_info: SlideImageInfo) -> List[str]:
         """

@@ -33,19 +33,6 @@ class TestPageNavigationEndToEnd:
         # Check for common HTML elements
         assert '<html' in html.lower() or '<!doctype' in html.lower()
     
-    def test_history_page_accessibility(self, client):
-        """
-        Test that history page is accessible and contains expected elements.
-        Requirements: 6.1, 6.4, 6.6
-        """
-        response = client.get('/history')
-        assert response.status_code == 200
-        
-        html = response.data.decode('utf-8')
-        
-        # Verify page contains history-related elements
-        assert 'history' in html.lower() or '历史' in html
-    
     def test_upload_page_accessibility(self, client):
         """
         Test that upload page is accessible.
@@ -126,7 +113,6 @@ class TestPageNavigationEndToEnd:
             '/',
             '/upload',
             '/files',
-            '/history',
             '/analysis/config',
             '/analysis/field',
             '/settings'
@@ -145,7 +131,6 @@ class TestPageNavigationEndToEnd:
             '/': 'index',
             '/upload': 'upload',
             '/files': 'files',
-            '/history': 'history',
             '/analysis/config': 'analysis',
             '/analysis/field': 'field'
         }
@@ -164,7 +149,7 @@ class TestPageNavigationEndToEnd:
         Test that navigation elements are consistent across pages.
         Requirements: 6.1, 6.4
         """
-        pages = ['/', '/upload', '/files', '/history']
+        pages = ['/', '/upload', '/files']
         
         for page in pages:
             response = client.get(page)
@@ -186,7 +171,7 @@ class TestPageNavigationEndToEnd:
         Test that Chinese text is present in UI.
         Requirements: 6.1, 6.4, 6.5, 6.6
         """
-        pages = ['/upload', '/files', '/history', '/analysis/config']
+        pages = ['/upload', '/files', '/analysis/config']
         
         for page in pages:
             response = client.get(page)
@@ -208,9 +193,7 @@ class TestPageNavigationEndToEnd:
         """
         # Test GET endpoints that don't require parameters
         endpoints = [
-            '/api/files',
-            '/api/history',
-            '/api/history/stats'
+            '/api/files'
         ]
         
         for endpoint in endpoints:
@@ -239,7 +222,7 @@ class TestPageNavigationEndToEnd:
         """
         import time
         
-        pages = ['/', '/upload', '/files', '/history']
+        pages = ['/', '/upload', '/files']
         
         for page in pages:
             start_time = time.time()
@@ -267,19 +250,15 @@ class TestPageNavigationEndToEnd:
         response = client.get('/files')
         assert response.status_code == 200
         
-        # Step 4: Navigate to history page
-        response = client.get('/history')
-        assert response.status_code == 200
-        
-        # Step 5: Navigate to analysis config page
+        # Step 4: Navigate to analysis config page
         response = client.get('/analysis/config')
         assert response.status_code == 200
         
-        # Step 6: Navigate to field analysis page
+        # Step 5: Navigate to field analysis page
         response = client.get('/analysis/field')
         assert response.status_code == 200
         
-        # Step 7: Navigate to settings page
+        # Step 6: Navigate to settings page
         response = client.get('/settings')
         assert response.status_code == 200
         

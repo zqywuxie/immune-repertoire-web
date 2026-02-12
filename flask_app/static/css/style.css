@@ -999,6 +999,49 @@ body {
     width: calc(100% - var(--sidebar-width-collapsed));
 }
 
+/* Prevent layout jump before JS finishes restoring saved sidebar state */
+html.sidebar-precollapsed .sidebar {
+    width: var(--sidebar-width-collapsed);
+    padding: var(--spacing-3) var(--spacing-2);
+}
+
+html.sidebar-precollapsed .sidebar .nav-link {
+    padding: var(--spacing-3);
+    text-align: center;
+    justify-content: center;
+}
+
+html.sidebar-precollapsed .sidebar .nav-link .nav-text {
+    display: none;
+}
+
+html.sidebar-precollapsed .sidebar .nav-link i {
+    margin-right: 0;
+    font-size: var(--font-size-xl);
+}
+
+html.sidebar-precollapsed .sidebar hr {
+    margin: var(--spacing-2) 0;
+}
+
+html.sidebar-precollapsed .sidebar #sidebarCollapseBtn .nav-text {
+    display: none;
+}
+
+html.sidebar-precollapsed .sidebar #sidebarCollapseBtn {
+    padding: var(--spacing-2);
+}
+
+html.sidebar-precollapsed .main-content {
+    margin-left: var(--sidebar-width-collapsed);
+    width: calc(100% - var(--sidebar-width-collapsed));
+}
+
+html.sidebar-precollapsed .sidebar,
+html.sidebar-precollapsed .main-content {
+    transition: none !important;
+}
+
 /* ============================================
    CUSTOM RESPONSIVE UTILITIES
    ============================================ */

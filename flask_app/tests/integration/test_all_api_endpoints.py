@@ -335,58 +335,6 @@ class TestAnalysisEndpoints:
         assert isinstance(data['types'], list)
 
 
-class TestHistoryEndpoints:
-    """Test history endpoints. Requirements: 14.4"""
-    
-    def test_get_history(self, client):
-        """Test GET /api/history."""
-        response = client.get('/api/history')
-        assert response.status_code == 200
-        assert response.is_json
-        
-        data = response.get_json()
-        assert 'items' in data
-        assert 'total' in data
-        assert 'page' in data
-    
-    def test_get_history_with_pagination(self, client):
-        """Test GET /api/history with pagination."""
-        response = client.get('/api/history?page=1&page_size=10')
-        assert response.status_code == 200
-        assert response.is_json
-        
-        data = response.get_json()
-        assert data['page'] == 1
-    
-    def test_get_history_with_filters(self, client):
-        """Test GET /api/history with filters."""
-        response = client.get('/api/history?status=completed&type=similarity_heatmap')
-        assert response.status_code == 200
-        assert response.is_json
-    
-    def test_get_history_item_not_found(self, client):
-        """Test GET /api/history/{analysis_id} - not found."""
-        response = client.get('/api/history/non-existent-id')
-        assert response.status_code == 404
-        assert response.is_json
-    
-    def test_delete_history_item_not_found(self, client):
-        """Test DELETE /api/history/{analysis_id} - not found."""
-        response = client.delete('/api/history/non-existent-id')
-        assert response.status_code == 404
-        assert response.is_json
-    
-    def test_get_history_stats(self, client):
-        """Test GET /api/history/stats."""
-        response = client.get('/api/history/stats')
-        assert response.status_code == 200
-        assert response.is_json
-        
-        data = response.get_json()
-        assert 'status_counts' in data
-        assert 'type_counts' in data
-
-
 class TestConfigEndpoints:
     """Test configuration endpoints. Requirements: 14.4"""
     

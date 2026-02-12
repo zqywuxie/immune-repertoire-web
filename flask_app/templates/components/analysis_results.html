@@ -1,4 +1,4 @@
-{#
+﻿{#
 Analysis Results Component
 Displays analysis results including charts, tables, and statistics.
 Supports all analysis types from the unified analysis module.
@@ -17,37 +17,33 @@ Requirements: 7.5
                 <div>
                     <h5 class="alert-heading mb-1">
                         <i class="bi bi-check-circle me-2"></i>
-                        分析完成
+                        鍒嗘瀽瀹屾垚
                     </h5>
                     <p class="mb-0 small">
                         <span id="resultsAnalysisInfo"></span>
                     </p>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
-                    <span class="badge bg-success">成功</span>
-                    <button class="btn btn-sm btn-outline-success" id="viewHistoryBtn" title="查看历史记录">
-                        <i class="bi bi-clock-history me-1"></i>
-                        <span class="d-none d-sm-inline">历史</span>
-                    </button>
+                    <span class="badge bg-success">鎴愬姛</span>
                     <div class="btn-group">
                         <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown"
                             aria-expanded="false">
                             <i class="bi bi-download me-1"></i>
-                            <span class="d-none d-sm-inline">下载结果</span>
+                            <span class="d-none d-sm-inline">涓嬭浇缁撴灉</span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end" id="downloadOptionsMenu">
                             <li>
-                                <h6 class="dropdown-header">下载选项</h6>
+                                <h6 class="dropdown-header">涓嬭浇閫夐」</h6>
                             </li>
                             <li><a class="dropdown-item" href="#"
                                     onclick="analysisResultsComponent.downloadAllResults('zip'); return false;">
-                                    <i class="bi bi-file-zip me-2"></i>全部结果 (ZIP)
+                                    <i class="bi bi-file-zip me-2"></i>鍏ㄩ儴缁撴灉 (ZIP)
                                 </a></li>
                             <li>
                                 <hr class="dropdown-divider">
                             </li>
                             <li>
-                                <h6 class="dropdown-header">单个结果</h6>
+                                <h6 class="dropdown-header">鍗曚釜缁撴灉</h6>
                             </li>
                             <!-- Individual download options will be added dynamically -->
                         </ul>
@@ -72,7 +68,7 @@ Requirements: 7.5
     <div id="noResultsMessage" class="d-none">
         <div class="alert alert-info">
             <i class="bi bi-info-circle me-2"></i>
-            暂无分析结果
+            鏆傛棤鍒嗘瀽缁撴灉
         </div>
     </div>
 </div>
@@ -221,33 +217,26 @@ Requirements: 7.5
             const infoSpan = document.getElementById('resultsAnalysisInfo');
 
             if (header && infoSpan) {
-                let infoText = `分析ID: <code>${result.analysis_id || 'N/A'}</code>`;
+                let infoText = `鍒嗘瀽ID: <code>${result.analysis_id || 'N/A'}</code>`;
 
                 if (result.completed_at) {
                     const completedDate = new Date(result.completed_at);
-                    infoText += ` | 完成于: ${completedDate.toLocaleString('zh-CN')}`;
+                    infoText += ` | 瀹屾垚浜? ${completedDate.toLocaleString('zh-CN')}`;
                 }
 
                 if (result.mode) {
-                    const modeText = result.mode === 'scheme' ? '预设方案' : '自定义字段';
-                    infoText += ` | 模式: ${modeText}`;
+                    const modeText = result.mode === 'scheme' ? '棰勮鏂规' : '鑷畾涔夊瓧娈?;
+                    infoText += ` | 妯″紡: ${modeText}`;
                 }
 
                 if (result.scheme_name) {
-                    infoText += ` | 方案: ${result.scheme_name}`;
+                    infoText += ` | 鏂规: ${result.scheme_name}`;
                 }
 
                 infoSpan.innerHTML = infoText;
                 header.classList.remove('d-none');
             }
 
-            // Setup view history button
-            const viewHistoryBtn = document.getElementById('viewHistoryBtn');
-            if (viewHistoryBtn) {
-                viewHistoryBtn.onclick = () => {
-                    window.location.href = '/history';
-                };
-            }
         }
 
         /**
@@ -277,7 +266,7 @@ Requirements: 7.5
                             data-bs-target="#${tabId}" 
                             type="button" 
                             role="tab">
-                        ${this.escapeHtml(result.name || `结果 ${index + 1}`)}
+                        ${this.escapeHtml(result.name || `缁撴灉 ${index + 1}`)}
                     </button>
                 `;
                 tabsContainer.appendChild(tab);
@@ -314,17 +303,17 @@ Requirements: 7.5
 
             // Create tabs for each result type
             if (results.charts && results.charts.length > 0) {
-                this.createTab('charts', '图表', results.charts, tabIndex === 0);
+                this.createTab('charts', '鍥捐〃', results.charts, tabIndex === 0);
                 tabIndex++;
             }
 
             if (results.tables && results.tables.length > 0) {
-                this.createTab('tables', '数据表', results.tables, tabIndex === 0);
+                this.createTab('tables', '鏁版嵁琛?, results.tables, tabIndex === 0);
                 tabIndex++;
             }
 
             if (results.statistics) {
-                this.createTab('statistics', '统计信息', results.statistics, tabIndex === 0);
+                this.createTab('statistics', '缁熻淇℃伅', results.statistics, tabIndex === 0);
                 tabIndex++;
             }
 
@@ -387,7 +376,7 @@ Requirements: 7.5
             html += '<div class="col-12 col-lg-8 mb-4">';
             html += '<div class="card result-card h-100">';
             html += '<div class="card-header d-flex justify-content-between align-items-center">';
-            html += '<h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>可视化结果</h5>';
+            html += '<h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>鍙鍖栫粨鏋?/h5>';
             html += this.createDownloadButton(result, index, 'image');
             html += '</div>';
             html += '<div class="card-body p-2 p-md-3">';
@@ -400,7 +389,7 @@ Requirements: 7.5
             } else if (result.chart_data) {
                 html += `<div id="chart-${index}" class="chart-container"></div>`;
             } else {
-                html += '<div class="chart-placeholder"><i class="bi bi-image me-2"></i>无可视化结果</div>';
+                html += '<div class="chart-placeholder"><i class="bi bi-image me-2"></i>鏃犲彲瑙嗗寲缁撴灉</div>';
             }
 
             html += '</div></div></div>';
@@ -409,7 +398,7 @@ Requirements: 7.5
             html += '<div class="col-12 col-lg-4 mb-4">';
             html += '<div class="card result-card h-100">';
             html += '<div class="card-header d-flex justify-content-between align-items-center">';
-            html += '<h5 class="mb-0"><i class="bi bi-table me-2"></i>数据表格</h5>';
+            html += '<h5 class="mb-0"><i class="bi bi-table me-2"></i>鏁版嵁琛ㄦ牸</h5>';
             html += this.createTableActions(result, index);
             html += '</div>';
             html += '<div class="card-body p-2 p-md-3" style="max-height: 500px; overflow-y: auto;">';
@@ -417,7 +406,7 @@ Requirements: 7.5
             if (result.table_data) {
                 html += this.createDataTable(result.table_data, `dataTable-${index}`);
             } else {
-                html += '<p class="text-muted small">无数据表格</p>';
+                html += '<p class="text-muted small">鏃犳暟鎹〃鏍?/p>';
             }
 
             html += '</div></div></div>';
@@ -441,7 +430,7 @@ Requirements: 7.5
                 html += '<div class="col-12 col-md-6 mb-4">';
                 html += '<div class="card result-card">';
                 html += '<div class="card-header">';
-                html += `<h6 class="mb-0">${this.escapeHtml(chart.title || `图表 ${index + 1}`)}</h6>`;
+                html += `<h6 class="mb-0">${this.escapeHtml(chart.title || `鍥捐〃 ${index + 1}`)}</h6>`;
                 html += '</div>';
                 html += '<div class="card-body">';
                 html += `<div id="chart-${index}" class="chart-container"></div>`;
@@ -461,7 +450,7 @@ Requirements: 7.5
             tables.forEach((table, index) => {
                 html += '<div class="card result-card mb-3">';
                 html += '<div class="card-header d-flex justify-content-between align-items-center">';
-                html += `<h6 class="mb-0">${this.escapeHtml(table.title || `表格 ${index + 1}`)}</h6>`;
+                html += `<h6 class="mb-0">${this.escapeHtml(table.title || `琛ㄦ牸 ${index + 1}`)}</h6>`;
                 html += this.createTableActions(table, index);
                 html += '</div>';
                 html += '<div class="card-body">';
@@ -485,7 +474,7 @@ Requirements: 7.5
         createStatisticsCard(statistics) {
             let html = '<div class="card result-card mb-4">';
             html += '<div class="card-header">';
-            html += '<h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>统计摘要</h5>';
+            html += '<h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>缁熻鎽樿</h5>';
             html += '</div>';
             html += '<div class="card-body">';
             html += '<div class="row">';
@@ -507,7 +496,7 @@ Requirements: 7.5
          */
         createDataTable(tableData, tableId) {
             if (!tableData || !tableData.columns || !tableData.data) {
-                return '<p class="text-muted small">无数据</p>';
+                return '<p class="text-muted small">鏃犳暟鎹?/p>';
             }
 
             let html = `<div class="table-responsive">`;
@@ -548,7 +537,7 @@ Requirements: 7.5
             return `
                 <button class="btn btn-sm btn-outline-primary" 
                         onclick="analysisResultsComponent.downloadResult('${result.name}', '${type}')"
-                        title="下载">
+                        title="涓嬭浇">
                     <i class="bi bi-download"></i>
                 </button>
             `;
@@ -563,12 +552,12 @@ Requirements: 7.5
                 <div class="table-actions">
                     <button class="btn btn-sm btn-outline-secondary" 
                             onclick="analysisResultsComponent.copyTableToClipboard('${tableId}')" 
-                            title="复制">
+                            title="澶嶅埗">
                         <i class="bi bi-clipboard"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" 
                             onclick="analysisResultsComponent.downloadTableAsCSV('${tableId}', '${result.name || 'table'}')" 
-                            title="下载CSV">
+                            title="涓嬭浇CSV">
                         <i class="bi bi-download"></i>
                     </button>
                 </div>
@@ -580,7 +569,7 @@ Requirements: 7.5
          */
         async downloadResult(resultName, type) {
             if (!this.currentAnalysisId) {
-                alert('无法下载：缺少分析ID');
+                alert('鏃犳硶涓嬭浇锛氱己灏戝垎鏋怚D');
                 return;
             }
 
@@ -589,7 +578,7 @@ Requirements: 7.5
                 const response = await fetch(url);
 
                 if (!response.ok) {
-                    throw new Error('下载失败');
+                    throw new Error('涓嬭浇澶辫触');
                 }
 
                 const blob = await response.blob();
@@ -603,7 +592,7 @@ Requirements: 7.5
                 window.URL.revokeObjectURL(blobUrl);
             } catch (error) {
                 console.error('Download error:', error);
-                alert('下载失败，请重试');
+                alert('涓嬭浇澶辫触锛岃閲嶈瘯');
             }
         }
 
@@ -612,7 +601,7 @@ Requirements: 7.5
          */
         async downloadAllResults(format = 'zip') {
             if (!this.currentAnalysisId) {
-                alert('无法下载：缺少分析ID');
+                alert('鏃犳硶涓嬭浇锛氱己灏戝垎鏋怚D');
                 return;
             }
 
@@ -622,7 +611,7 @@ Requirements: 7.5
 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.message || errorData.error || '下载失败');
+                    throw new Error(errorData.message || errorData.error || '涓嬭浇澶辫触');
                 }
 
                 const blob = await response.blob();
@@ -648,7 +637,7 @@ Requirements: 7.5
                 this.showDownloadSuccess();
             } catch (error) {
                 console.error('Download error:', error);
-                alert(`下载失败: ${error.message}`);
+                alert(`涓嬭浇澶辫触: ${error.message}`);
             }
         }
 
@@ -729,7 +718,7 @@ Requirements: 7.5
                 });
             } else {
                 const li = document.createElement('li');
-                li.innerHTML = '<span class="dropdown-item text-muted">无可下载项</span>';
+                li.innerHTML = '<span class="dropdown-item text-muted">鏃犲彲涓嬭浇椤?/span>';
                 menu.appendChild(li);
             }
         }
@@ -754,7 +743,7 @@ Requirements: 7.5
                 this.showCopySuccess();
             }).catch(err => {
                 console.error('Copy failed:', err);
-                alert('复制失败');
+                alert('澶嶅埗澶辫触');
             });
         }
 
@@ -803,7 +792,7 @@ Requirements: 7.5
                 toast.show();
             } else {
                 // Fallback to alert
-                alert('表格已复制到剪贴板');
+                alert('琛ㄦ牸宸插鍒跺埌鍓创鏉?);
             }
         }
 
@@ -862,15 +851,15 @@ Requirements: 7.5
          */
         formatStatLabel(key) {
             const labels = {
-                'min': '最小值',
-                'max': '最大值',
-                'mean': '平均值',
-                'median': '中位数',
-                'std': '标准差',
-                'n_comparisons': '比较数',
-                'cv': '变异系数',
-                'count': '计数',
-                'total': '总计'
+                'min': '鏈€灏忓€?,
+                'max': '鏈€澶у€?,
+                'mean': '骞冲潎鍊?,
+                'median': '涓綅鏁?,
+                'std': '鏍囧噯宸?,
+                'n_comparisons': '姣旇緝鏁?,
+                'cv': '鍙樺紓绯绘暟',
+                'count': '璁℃暟',
+                'total': '鎬昏'
             };
             return labels[key] || this.escapeHtml(key);
         }

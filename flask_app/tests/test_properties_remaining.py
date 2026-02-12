@@ -2,12 +2,11 @@
 Property-Based Tests for Remaining Properties
 **Feature: immune-repertoire-web**
 
-Tests for chain analysis, configuration persistence, task management, history, field mapping, and startup.
-Requirements: 5.2, 5.3, 7.3, 7.4, 7.5, 7.6, 7.7, 8.2, 8.3, 10.1, 10.2, 10.3, 10.4, 11.3, 11.5, 12.4, 13.1, 13.2, 13.3, 14.2
+Tests for chain analysis, configuration persistence, task management, field mapping, and startup.
+Requirements: 5.2, 5.3, 7.3, 7.4, 7.5, 7.6, 7.7, 8.2, 8.3, 11.3, 11.5, 12.4, 13.1, 13.2, 13.3, 14.2
 """
 import json
 import pandas as pd
-import numpy as np
 import pytest
 from hypothesis import given, strategies as st, settings, assume, HealthCheck
 from hypothesis.strategies import composite
@@ -138,102 +137,6 @@ def test_property_15_error_state_consistency(error_message):
     assert status == 'failed'
     assert len(error_message) > 0
     assert error_message.strip() != ''  # Should have non-whitespace content
-
-
-# =============================================================================
-# Property 16: History Completeness
-# **Feature: immune-repertoire-web, Property 16: History Completeness**
-# **Validates: Requirements 10.1, 10.2**
-# =============================================================================
-
-@settings(max_examples=100)
-@given(
-    analysis_id=st.text(min_size=1, max_size=50, alphabet=st.characters(min_codepoint=48, max_codepoint=122)),
-    timestamp=st.floats(min_value=1000000000, max_value=2000000000, allow_nan=False)
-)
-def test_property_16_history_completeness(analysis_id, timestamp):
-    """
-    **Feature: immune-repertoire-web, Property 16: History Completeness**
-    **Validates: Requirements 10.1, 10.2**
-    
-    For any completed analysis,
-    the analysis should appear in the history list with correct timestamp and parameters.
-    """
-    # Create history record
-    history_record = {
-        'id': analysis_id,
-        'timestamp': timestamp,
-        'status': 'completed'
-    }
-    
-    # Verify record has required fields
-    assert 'id' in history_record
-    assert 'timestamp' in history_record
-    assert 'status' in history_record
-    assert history_record['id'] == analysis_id
-    assert history_record['timestamp'] == timestamp
-
-
-# =============================================================================
-# Property 17: History Retrieval Consistency
-# **Feature: immune-repertoire-web, Property 17: History Retrieval Consistency**
-# **Validates: Requirements 10.3**
-# =============================================================================
-
-@settings(max_examples=100)
-@given(
-    result_data=st.dictionaries(
-        keys=st.text(min_size=1, max_size=20, alphabet=st.characters(min_codepoint=97, max_codepoint=122)),
-        values=st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False),
-        min_size=1,
-        max_size=10
-    )
-)
-def test_property_17_history_retrieval_consistency(result_data):
-    """
-    **Feature: immune-repertoire-web, Property 17: History Retrieval Consistency**
-    **Validates: Requirements 10.3**
-    
-    For any historical analysis,
-    selecting it should return results identical to the original analysis results.
-    """
-    # Serialize and deserialize
-    json_str = json.dumps(result_data)
-    retrieved_data = json.loads(json_str)
-    
-    # Verify consistency
-    assert result_data == retrieved_data
-    for key in result_data:
-        assert np.isclose(result_data[key], retrieved_data[key], rtol=1e-10)
-
-
-# =============================================================================
-# Property 18: Deletion Completeness
-# **Feature: immune-repertoire-web, Property 18: Deletion Completeness**
-# **Validates: Requirements 10.4**
-# =============================================================================
-
-@settings(max_examples=100)
-@given(
-    item_ids=st.lists(st.text(min_size=1, max_size=20, alphabet=st.characters(min_codepoint=97, max_codepoint=122)), 
-                     min_size=1, max_size=10, unique=True)
-)
-def test_property_18_deletion_completeness(item_ids):
-    """
-    **Feature: immune-repertoire-web, Property 18: Deletion Completeness**
-    **Validates: Requirements 10.4**
-    
-    For any deleted history item,
-    the item should no longer appear in history queries and associated files should be removed.
-    """
-    # Simulate deletion
-    remaining_items = set(item_ids)
-    deleted_item = item_ids[0]
-    remaining_items.remove(deleted_item)
-    
-    # Verify deletion
-    assert deleted_item not in remaining_items
-    assert len(remaining_items) == len(item_ids) - 1
 
 
 # =============================================================================
