@@ -151,12 +151,9 @@ def register_blueprints(app):
     from flask_app.routes.api import api_bp
     from flask_app.routes.api_analysis import analysis_bp
     from flask_app.routes.api_statistical import statistical_bp
-    from flask_app.routes.data_split import data_split_bp
     from flask_app.routes.api_ppt import ppt_bp
     from flask_app.routes.api_ppt_comparison import ppt_comparison_bp
-    from flask_app.routes.api_similarity import similarity_bp
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
-    from flask_app.routes.auth import auth_bp
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
@@ -164,18 +161,12 @@ def register_blueprints(app):
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
     # Register statistical analysis blueprint
     app.register_blueprint(statistical_bp)
-    # Register data split blueprint
-    app.register_blueprint(data_split_bp)
     # Register PPT heatmap replacement blueprint
     app.register_blueprint(ppt_bp)
     # Register PPT comparison blueprint
     app.register_blueprint(ppt_comparison_bp)
-    # Register similarity heatmap API blueprint
-    app.register_blueprint(similarity_bp)
     # Register auto heatmap analysis API blueprint
     app.register_blueprint(auto_heatmap_bp)
-    # Register authentication blueprint
-    app.register_blueprint(auth_bp)
 
 
 # Application instance for single-command startup

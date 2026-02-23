@@ -13,7 +13,7 @@ from scipy.stats import kruskal
 from typing import Dict, Any, List, Tuple, Optional
 import logging
 
-from services.analysis.base_module import AnalysisModule, AnalysisResult
+from flask_app.services.analysis.base_module import AnalysisModule, AnalysisResult
 
 logger = logging.getLogger(__name__)
 

@@ -10,10 +10,10 @@ import io
 from flask import Blueprint, request, jsonify, current_app
 from typing import Dict, Any
 
-from services.statistical_analysis_service import get_statistical_analysis_service
-from services.file_parser import FileParserService
-from models.database import db, File
-from exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
+from flask_app.services.statistical_analysis_service import get_statistical_analysis_service
+from flask_app.services.file_parser import FileParserService
+from flask_app.models.database import db, File
+from flask_app.exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
 
 logger = logging.getLogger(__name__)
 

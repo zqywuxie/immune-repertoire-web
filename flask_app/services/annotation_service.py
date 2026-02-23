@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 
-from models.database import db, Annotation, Analysis, AnalysisResult
+from flask_app.models.database import db, Annotation, Analysis, AnalysisResult
 
 
 @dataclass

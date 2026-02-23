@@ -11,8 +11,8 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import pandas as pd
 
-from services.analyzers.base_analyzer import BaseAnalyzer
-from models.database import db, Analysis, AnalysisResult as DBAnalysisResult
+from flask_app.services.analyzers.base_analyzer import BaseAnalyzer
+from flask_app.models.database import db, Analysis, AnalysisResult as DBAnalysisResult
 
 logger = logging.getLogger(__name__)
 

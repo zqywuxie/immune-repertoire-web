@@ -24,7 +24,18 @@ import threading
 import pandas as pd
 
 from flask_app.services.heatmap_generator import format_similarity_value, normalize_sample_order
-from flask_app.services.datetime_handler import DateTimeHandler
+
+
+def _safe_isoformat(value: Any) -> Optional[str]:
+    """Best-effort datetime serialization used in API responses."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    try:
+        return value.isoformat()  # type: ignore[attr-defined]
+    except Exception:
+        return str(value)
 
 
 class AnalysisStatus(str, Enum):
@@ -245,9 +256,9 @@ class AnalysisService:
             'progress': progress,
             'current_step': current_step,
             'error_message': analysis.error_message,
-            'created_at': DateTimeHandler.safe_isoformat(analysis.created_at),
-            'started_at': DateTimeHandler.safe_isoformat(analysis.started_at),
-            'completed_at': DateTimeHandler.safe_isoformat(analysis.completed_at)
+            'created_at': _safe_isoformat(analysis.created_at),
+            'started_at': _safe_isoformat(analysis.started_at),
+            'completed_at': _safe_isoformat(analysis.completed_at)
         }
     
     def get_analysis_results(self, analysis_id: str) -> Dict[str, Any]:
@@ -322,8 +333,8 @@ class AnalysisService:
             'chart_config': analysis.chart_config,
             'results': combined_results,
             'error_message': analysis.error_message,
-            'created_at': DateTimeHandler.safe_isoformat(analysis.created_at),
-            'completed_at': DateTimeHandler.safe_isoformat(analysis.completed_at)
+            'created_at': _safe_isoformat(analysis.created_at),
+            'completed_at': _safe_isoformat(analysis.completed_at)
         }
     
     def get_data_table(self, analysis_id: str, table_name: str) -> Dict[str, Any]:

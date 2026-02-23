@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
 import json
 
-from models.database import db
+from flask_app.models.database import db
 
 
 # Database model for user configuration

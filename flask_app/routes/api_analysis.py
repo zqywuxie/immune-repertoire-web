@@ -11,14 +11,14 @@ from flask import Blueprint, request, jsonify, current_app
 from typing import Dict, Any
 from pathlib import Path
 
-from services.analysis.registry import get_registry
-from services.analysis.base_module import AnalysisResult
-from services.unified_analysis_service import get_unified_analysis_service
-from services.scheme_manager import SchemeManager
-from services.field_mapping import FieldMappingService
-from services.file_parser import FileParserService
-from models.database import db, File
-from exceptions import (
+from flask_app.services.analysis.registry import get_registry
+from flask_app.services.analysis.base_module import AnalysisResult
+from flask_app.services.unified_analysis_service import get_unified_analysis_service
+from flask_app.services.scheme_manager import SchemeManager
+from flask_app.services.field_mapping import FieldMappingService
+from flask_app.services.file_parser import FileParserService
+from flask_app.models.database import db, File
+from flask_app.exceptions import (
     ValidationError,
     FileNotFoundError as AppFileNotFoundError,
     StorageError

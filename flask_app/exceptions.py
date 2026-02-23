@@ -137,3 +137,53 @@ class ValidationError(AppException):
     error_code = "VALIDATION_ERROR"
     http_status = 400
     message = "Input validation failed"
+
+
+# PPT-related exceptions
+class PPTError(AppException):
+    """Base exception class for PPT processing errors."""
+    error_code = "PPT_ERROR"
+    http_status = 500
+    message = "PPT processing error"
+
+
+class PPTFileInvalidError(PPTError):
+    """Raised when PPT file is invalid or unsupported."""
+    error_code = "PPT_FILE_INVALID"
+    http_status = 400
+    message = "Invalid PPT file"
+
+
+class PPTParseError(PPTError):
+    """Raised when PPT parsing fails."""
+    error_code = "PPT_PARSE_ERROR"
+    http_status = 400
+    message = "Failed to parse PPT file"
+
+
+class PPTSlideNotFoundError(PPTError):
+    """Raised when requested PPT slide is not found."""
+    error_code = "PPT_SLIDE_NOT_FOUND"
+    http_status = 404
+    message = "PPT slide not found"
+
+
+class PPTImageReplacementError(PPTError):
+    """Raised when PPT image replacement fails."""
+    error_code = "PPT_IMAGE_REPLACEMENT_ERROR"
+    http_status = 500
+    message = "Failed to replace images in PPT"
+
+
+class PPTSessionNotFoundError(PPTError):
+    """Raised when PPT replacement session cannot be found."""
+    error_code = "PPT_SESSION_NOT_FOUND"
+    http_status = 404
+    message = "PPT session not found"
+
+
+class PPTNoHeatmapsError(PPTError):
+    """Raised when no heatmaps/images are found for replacement."""
+    error_code = "PPT_NO_HEATMAPS"
+    http_status = 400
+    message = "No heatmaps found for replacement"

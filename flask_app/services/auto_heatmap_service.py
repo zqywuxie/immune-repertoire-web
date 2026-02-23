@@ -18,7 +18,7 @@ import logging
 import pandas as pd
 import numpy as np
 
-from exceptions import ValidationError
+from flask_app.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 

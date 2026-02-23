@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Tuple, Optional, Union
 import numpy as np
 import pandas as pd
 
-from exceptions import FileParseError, FileFormatInvalidError
+from flask_app.exceptions import FileParseError, FileFormatInvalidError
 
 
 class FileParserService:

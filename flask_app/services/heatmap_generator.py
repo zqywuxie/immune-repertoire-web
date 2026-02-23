@@ -15,6 +15,69 @@ import numpy as np
 import pandas as pd
 
 
+def format_similarity_value(value: Any, precision: int = 4) -> str:
+    """
+    Format similarity values for table/annotation display.
+
+    - Non-numeric/NaN/Inf -> '-'
+    - Values very close to 0 or 1 are normalized to 0.0000 / 1.0000
+    - Other numeric values use fixed decimal precision
+    """
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "-"
+
+    if np.isnan(numeric) or np.isinf(numeric):
+        return "-"
+
+    epsilon = 10 ** (-(precision + 2))
+    if abs(numeric) < epsilon:
+        numeric = 0.0
+    elif abs(numeric - 1.0) < epsilon:
+        numeric = 1.0
+
+    return f"{numeric:.{precision}f}"
+
+
+def normalize_sample_order(
+    available_samples: List[str],
+    requested_order: Optional[List[str]] = None
+) -> List[str]:
+    """
+    Normalize sample ordering while preserving stable behavior.
+
+    Rules:
+    - keep original order when no custom order is provided
+    - include requested samples first (intersection only, de-duplicated)
+    - append remaining available samples in original order
+    """
+    if not available_samples:
+        return []
+
+    available_unique = list(dict.fromkeys(available_samples))
+    if not requested_order:
+        return available_unique
+
+    if not isinstance(requested_order, (list, tuple)):
+        return available_unique
+
+    available_set = set(available_unique)
+    ordered_samples: List[str] = []
+    seen = set()
+
+    for sample in requested_order:
+        if sample in available_set and sample not in seen:
+            ordered_samples.append(sample)
+            seen.add(sample)
+
+    for sample in available_unique:
+        if sample not in seen:
+            ordered_samples.append(sample)
+
+    return ordered_samples
+
+
 @dataclass
 class HeatmapConfig:
     """

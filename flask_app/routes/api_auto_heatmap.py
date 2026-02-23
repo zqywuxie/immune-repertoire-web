@@ -14,16 +14,21 @@ from flask import Blueprint, request, jsonify, send_file
 import pandas as pd
 import numpy as np
 
-from services.auto_heatmap_service import (
+from flask_app.services.auto_heatmap_service import (
     get_auto_heatmap_service,
     SampleFolderInfo,
     FieldMapping,
     SampleGroup,
     DataFileInfo
 )
-from services.heatmap_generator import HeatmapGenerator, HeatmapConfig
-from services.cdr3_export_service import get_cdr3_export_service
-from exceptions import ValidationError
+from flask_app.services.heatmap_generator import HeatmapGenerator, HeatmapConfig
+from flask_app.exceptions import ValidationError
+
+try:
+    from flask_app.services.cdr3_export_service import get_cdr3_export_service
+except ModuleNotFoundError:
+    def get_cdr3_export_service():
+        raise RuntimeError("CDR3 export service is not available in this build.")
 
 logger = logging.getLogger(__name__)
 

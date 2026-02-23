@@ -11,8 +11,8 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, send_file, current_app
 from werkzeug.utils import secure_filename
 
-from services.ppt_comparison_service import PPTComparisonService
-from exceptions import ValidationError
+from flask_app.services.ppt_comparison_service import PPTComparisonService
+from flask_app.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
