@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}自动热图分析{% endblock %}
 
 {% block extra_css %}
@@ -498,14 +498,59 @@
     <div class="card mb-4" id="step5Card" style="display:none">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-image me-2"></i>步骤 5: 生成热图</h6>
-            <button class="btn btn-primary" onclick="AutoHeatmap.generateHeatmap()">
-                <i class="bi bi-play-fill me-1"></i>生成热图
-            </button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary" onclick="AutoHeatmap.generatePipelineComparisonReport()">
+                    <i class="bi bi-file-earmark-richtext me-1"></i>Pipeline对比报告
+                </button>
+                <button class="btn btn-primary" onclick="AutoHeatmap.generateHeatmap()">
+                    <i class="bi bi-play-fill me-1"></i>生成热图
+                </button>
+            </div>
         </div>
         <div class="card-body">
             <div class="alert alert-info mb-3">
                 <i class="bi bi-info-circle me-2"></i>
                 系统将自动计算并展示所有6种相似度指标：R<sup>2</sup> Inner、R<sup>2</sup> Outer、CDR3共享率、表达共享、Morisita-Horn指数、Sorensen系数
+            </div>
+            <div class="card border-0 bg-light mb-3">
+                <div class="card-body py-3">
+                    <div class="fw-semibold mb-2">
+                        <i class="bi bi-gear me-1"></i>Pipeline对比报告参数
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">Pipeline顺序（逗号分隔）</label>
+                            <input type="text" class="form-control form-control-sm" id="pipelineOrderInput" value="YXJ,DW,YPL">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">输出任务名（可选）</label>
+                            <input type="text" class="form-control form-control-sm" id="pipelineOutputName" placeholder="例如：pipeline_cmp_20260304">
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4">
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" id="pipelineEnableVenn" checked>
+                                <label class="form-check-label" for="pipelineEnableVenn">生成Venn图</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" id="pipelineIncludeCdr3">
+                                <label class="form-check-label" for="pipelineIncludeCdr3">附带CDR3导出包</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" id="pipelineEmbedImages">
+                                <label class="form-check-label" for="pipelineEmbedImages">报告内嵌图片（文件更大）</label>
+                            </div>
+                        </div>
+                    </div>
+                    <small class="text-muted d-block mt-2">
+                        这些参数会自动保存在浏览器本地，下次可直接复用。
+                    </small>
+                </div>
             </div>
             <div class="row mb-3">
                 <div class="col-md-4">
@@ -701,3 +746,6 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="{{ url_for('static', filename='js/similarity_heatmap.js') }}"></script>
 {% endblock %}
+
+
+

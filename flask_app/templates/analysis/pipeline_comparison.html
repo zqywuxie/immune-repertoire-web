@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Comparison{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pipeline-page {
+        --pc-bg: linear-gradient(140deg, #eef6ff 0%, #f7fbf8 55%, #fff8ef 100%);
+        --pc-line: #d8e5ef;
+        --pc-text: #1d2a37;
+        --pc-muted: #5f7489;
+        --pc-accent: #1d6ea4;
+        --pc-warm: #be6a1e;
+        color: var(--pc-text);
+    }
+
+    .pipeline-hero {
+        border: 1px solid var(--pc-line);
+        border-radius: 14px;
+        background: var(--pc-bg);
+        padding: 18px 20px;
+        margin-bottom: 16px;
+    }
+
+    .pipeline-hero h2 {
+        margin-bottom: 8px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
+    .pipeline-hero p {
+        margin-bottom: 0;
+        color: var(--pc-muted);
+    }
+
+    .pc-card {
+        border: 1px solid var(--pc-line);
+        border-radius: 14px;
+        box-shadow: 0 8px 20px rgba(15, 37, 56, 0.05);
+    }
+
+    .pc-card .card-header {
+        border-bottom: 1px solid var(--pc-line);
+        background: #f7fbff;
+        font-weight: 600;
+    }
+
+    .pc-label {
+        font-weight: 600;
+        color: #274059;
+    }
+
+    .pc-note {
+        color: var(--pc-muted);
+        font-size: 0.9rem;
+    }
+
+    .pc-structure {
+        margin: 0;
+        white-space: pre-wrap;
+        background: #f9fcff;
+        border: 1px solid var(--pc-line);
+        border-radius: 10px;
+        padding: 12px;
+        line-height: 1.45;
+        color: #28445d;
+    }
+
+    .pc-log {
+        margin: 0;
+        min-height: 220px;
+        max-height: 360px;
+        overflow: auto;
+        white-space: pre-wrap;
+        background: #0f1f2f;
+        color: #daecff;
+        border-radius: 10px;
+        padding: 12px;
+        font-size: 0.86rem;
+        line-height: 1.5;
+    }
+
+    .pc-result-item {
+        border: 1px solid var(--pc-line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #fcfeff;
+        margin-bottom: 8px;
+    }
+
+    .pc-result-key {
+        display: block;
+        font-size: 0.82rem;
+        color: var(--pc-muted);
+        margin-bottom: 2px;
+    }
+
+    .pc-result-value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.88rem;
+        word-break: break-all;
+    }
+
+    .pc-tip {
+        border-left: 4px solid var(--pc-warm);
+        background: #fff9f3;
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: #7a4a1d;
+        margin-top: 10px;
+    }
+
+    .pc-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 pipeline-page">
+    <section class="pipeline-hero">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <h2><i class="bi bi-diagram-3 me-2"></i>Pipeline Comparison</h2>
+                <p>Dedicated workflow for one root folder that contains multiple pipeline subfolders.</p>
+            </div>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('pages.similarity_heatmap_page') }}">
+                <i class="bi bi-grid-3x3-gap me-1"></i>Back To Similarity Heatmap
+            </a>
+        </div>
+    </section>
+
+    <div class="row g-4">
+        <div class="col-xl-5">
+            <div class="card pc-card">
+                <div class="card-header">
+                    <i class="bi bi-sliders me-1"></i>Run Parameters
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label pc-label">Root Folder</label>
+                        <input type="text" class="form-control" id="pcBasePath" value="E:\...\260125">
+                        <div class="pc-note mt-1">This folder should contain pipeline subfolders like YXJ, DW, and YPL.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label pc-label">Pipeline Order (comma-separated)</label>
+                        <input type="text" class="form-control" id="pcPipelines" value="YXJ,DW,YPL">
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label pc-label">Samples Filter (optional)</label>
+                            <input type="text" class="form-control" id="pcSamples" placeholder="DBY,GRD">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label pc-label">Chains Filter (optional)</label>
+                            <input type="text" class="form-control" id="pcChains" placeholder="IGH,IGK,IGL">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label pc-label">Output Job Name (optional)</label>
+                        <input type="text" class="form-control" id="pcOutputName" placeholder="pipeline_cmp_20260304">
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-sm-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pcEnableHeatmap" checked>
+                                <label class="form-check-label" for="pcEnableHeatmap">Generate Heatmaps / Metrics</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pcEnableVenn" checked>
+                                <label class="form-check-label" for="pcEnableVenn">Generate Venn</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pcEnableHtmlReport" checked>
+                                <label class="form-check-label" for="pcEnableHtmlReport">Generate HTML Report</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pcIncludeCdr3">
+                                <label class="form-check-label" for="pcIncludeCdr3">Include CDR3 Export</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pcEmbedImages">
+                                <label class="form-check-label" for="pcEmbedImages">Embed Images Into HTML</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pc-action-row">
+                        <button class="btn btn-primary" id="pcGenerateBtn">
+                            <i class="bi bi-play-fill me-1"></i>Run Pipeline Comparison
+                        </button>
+                        <button class="btn btn-outline-secondary" id="pcSaveConfigBtn">
+                            <i class="bi bi-save me-1"></i>Save Parameters
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card pc-card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-folder2-open me-1"></i>Folder Structure Example
+                </div>
+                <div class="card-body">
+                    <pre class="pc-structure">E:\...\260125
+|- YXJ
+|  |- DBY_IGH.csv
+|  |- DBY_IGK.csv
+|  `- ...
+|- DW
+|  |- SS03P_DBY__IGH.csv
+|  |- SS03P_DBY__IGK.csv
+|  `- ...
+`- YPL
+   |- DBY-PER_DBY_IGH.csv
+   |- DBY-PER_DBY_IGK.csv
+   `- ...
+</pre>
+                    <div class="pc-tip">
+                        Default parser patterns support YXJ / DW / YPL naming conventions.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-7">
+            <div class="card pc-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-terminal me-1"></i>Run Log</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="pcClearLogBtn">
+                        <i class="bi bi-trash3 me-1"></i>Clear
+                    </button>
+                </div>
+                <div class="card-body">
+                    <pre class="pc-log" id="pcLog">Idle.</pre>
+                </div>
+            </div>
+
+            <div class="card pc-card mt-3" id="pcResultCard" style="display:none;">
+                <div class="card-header">
+                    <i class="bi bi-check2-circle me-1"></i>Result
+                </div>
+                <div class="card-body">
+                    <div class="pc-result-item">
+                        <span class="pc-result-key">Job ID</span>
+                        <span class="pc-result-value" id="pcResultJobId">-</span>
+                    </div>
+                    <div class="pc-result-item">
+                        <span class="pc-result-key">Output Folder</span>
+                        <span class="pc-result-value" id="pcResultOutputBase">-</span>
+                    </div>
+                    <div class="pc-result-item">
+                        <span class="pc-result-key">Report Path</span>
+                        <span class="pc-result-value" id="pcResultReportPath">-</span>
+                    </div>
+                    <div class="pc-action-row mt-2">
+                        <a class="btn btn-success btn-sm" id="pcOpenReportBtn" target="_blank" style="display:none;">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open HTML Report
+                        </a>
+                        <a class="btn btn-outline-primary btn-sm" id="pcOpenMetadataBtn" target="_blank" style="display:none;">
+                            <i class="bi bi-filetype-json me-1"></i>Open metadata.json
+                        </a>
+                    </div>
+                    <div class="mt-3 pc-note" id="pcResultSummary"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/pipeline_comparison.js') }}"></script>
+{% endblock %}

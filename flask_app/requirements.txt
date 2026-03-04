@@ -1,5 +1,6 @@
 # Flask and extensions
 flask==3.0.0
+Flask-Login==0.6.3
 flask-sqlalchemy==3.1.1
 flask-executor==1.0.0
 

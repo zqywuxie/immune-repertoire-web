@@ -21,6 +21,7 @@ const AutoHeatmap = {
     heatmapResult: null,
     currentMetric: 'expression_sharing',  // Current selected metric
     currentDataType: 'original',  // 'original' or 'grouped'
+    pipelineReportConfigKey: 'auto_heatmap_pipeline_report_config_v1',
 
     // Metric display names
     METRIC_NAMES: {
@@ -35,6 +36,7 @@ const AutoHeatmap = {
     init() {
         this.initDragAndDrop();
         this.initMetricTabs();
+        this.loadPipelineReportConfig();
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'a') {
                 const activeElement = document.activeElement;
@@ -44,6 +46,82 @@ const AutoHeatmap = {
                 }
             }
         });
+    },
+
+    loadPipelineReportConfig() {
+        const defaults = {
+            pipeline_order: 'YXJ,DW,YPL',
+            output_name: '',
+            enable_venn: true,
+            include_cdr3_analysis: false,
+            embed_images: false
+        };
+
+        let config = { ...defaults };
+        try {
+            const raw = localStorage.getItem(this.pipelineReportConfigKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                config = { ...defaults, ...parsed };
+            }
+        } catch (error) {
+            console.warn('Failed to load pipeline report config from localStorage:', error);
+        }
+
+        const orderInput = document.getElementById('pipelineOrderInput');
+        const outputNameInput = document.getElementById('pipelineOutputName');
+        const enableVennInput = document.getElementById('pipelineEnableVenn');
+        const includeCdr3Input = document.getElementById('pipelineIncludeCdr3');
+        const embedImagesInput = document.getElementById('pipelineEmbedImages');
+
+        if (orderInput) orderInput.value = config.pipeline_order || defaults.pipeline_order;
+        if (outputNameInput) outputNameInput.value = config.output_name || '';
+        if (enableVennInput) enableVennInput.checked = Boolean(config.enable_venn);
+        if (includeCdr3Input) includeCdr3Input.checked = Boolean(config.include_cdr3_analysis);
+        if (embedImagesInput) embedImagesInput.checked = Boolean(config.embed_images);
+    },
+
+    savePipelineReportConfig(config) {
+        try {
+            localStorage.setItem(this.pipelineReportConfigKey, JSON.stringify({
+                pipeline_order: config.pipeline_order,
+                output_name: config.output_name,
+                enable_venn: config.enable_venn,
+                include_cdr3_analysis: config.include_cdr3_analysis,
+                embed_images: config.embed_images
+            }));
+        } catch (error) {
+            console.warn('Failed to save pipeline report config to localStorage:', error);
+        }
+    },
+
+    getPipelineReportConfigFromForm() {
+        const pipelineOrderInput = document.getElementById('pipelineOrderInput');
+        const pipelineOutputName = document.getElementById('pipelineOutputName');
+        const pipelineEnableVenn = document.getElementById('pipelineEnableVenn');
+        const pipelineIncludeCdr3 = document.getElementById('pipelineIncludeCdr3');
+        const pipelineEmbedImages = document.getElementById('pipelineEmbedImages');
+
+        const pipelineText = (pipelineOrderInput?.value || 'YXJ,DW,YPL').trim();
+        const pipelines = pipelineText
+            .split(',')
+            .map(v => v.trim())
+            .filter(Boolean)
+            .map(v => v.toUpperCase());
+
+        if (pipelines.length < 2) {
+            this.showError('至少需要2个pipeline用于比较');
+            return null;
+        }
+
+        return {
+            pipeline_order: pipelines.join(','),
+            pipelines,
+            output_name: (pipelineOutputName?.value || '').trim(),
+            enable_venn: pipelineEnableVenn ? pipelineEnableVenn.checked : true,
+            include_cdr3_analysis: pipelineIncludeCdr3 ? pipelineIncludeCdr3.checked : false,
+            embed_images: pipelineEmbedImages ? pipelineEmbedImages.checked : false
+        };
     },
 
     initMetricTabs() {
@@ -1609,6 +1687,64 @@ const AutoHeatmap = {
             a.click();
             URL.revokeObjectURL(url);
         });
+    },
+
+    /**
+     * Generate integrated pipeline comparison HTML report.
+     * Reuses current scanned base_path and selected chains.
+     */
+    async generatePipelineComparisonReport() {
+        const basePath = (document.getElementById('basePath')?.value || this.basePath || '').trim();
+        if (!basePath) {
+            this.showError('请先填写并扫描base_path');
+            return;
+        }
+
+        const config = this.getPipelineReportConfigFromForm();
+        if (!config) {
+            return;
+        }
+        this.savePipelineReportConfig(config);
+
+        this.showLoading('正在生成Pipeline对比报告...');
+        try {
+            const payload = {
+                base_path: basePath,
+                pipelines: config.pipelines,
+                selected_chains: this.isChainMode ? this.selectedChains : null,
+                output_name: config.output_name || null,
+                enable_heatmap: true,
+                enable_venn: config.enable_venn,
+                enable_html_report: true,
+                include_cdr3_analysis: config.include_cdr3_analysis,
+                embed_images: config.embed_images
+            };
+
+            const response = await fetch('/api/auto-heatmap/generate-pipeline-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '生成Pipeline报告失败');
+            }
+
+            if (data.report_url) {
+                window.open(data.report_url, '_blank');
+            }
+
+            const reportText = data.report_url
+                ? `\n报告地址: ${data.report_url}`
+                : '\n报告未生成，请检查输出目录和日志。';
+
+            alert(`Pipeline对比报告生成完成。Job ID: ${data.job_id}${reportText}`);
+        } catch (error) {
+            this.showError(error.message || '生成Pipeline报告失败');
+        } finally {
+            this.hideLoading();
+        }
     },
 
     /**

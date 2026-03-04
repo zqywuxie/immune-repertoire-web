@@ -1,4 +1,4 @@
-"""
+﻿"""
 API routes for automatic heatmap analysis with folder-based sample detection.
 Provides endpoints for scanning folders, detecting files, field mapping,
 sample renaming/grouping, heatmap generation, and CDR3 shared list export.
@@ -8,8 +8,9 @@ import os
 import io
 import base64
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Any
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, current_app, url_for
 
 import pandas as pd
 import numpy as np
@@ -22,6 +23,7 @@ from flask_app.services.auto_heatmap_service import (
     DataFileInfo
 )
 from flask_app.services.heatmap_generator import HeatmapGenerator, HeatmapConfig
+from flask_app.services.pipeline_comparison_integration_service import get_pipeline_comparison_service
 from flask_app.exceptions import ValidationError
 
 try:
@@ -34,6 +36,17 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 auto_heatmap_bp = Blueprint('auto_heatmap', __name__, url_prefix='/api/auto-heatmap')
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    """Normalize JSON bool-like values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+    return bool(value)
 
 
 @auto_heatmap_bp.route('/scan-folder', methods=['POST'])
@@ -70,7 +83,7 @@ def scan_folder():
         
         if not data:
             raise ValidationError(
-                message="请求体不能为空",
+                message="Request body cannot be empty",
                 details={'field': 'body'}
             )
         
@@ -173,7 +186,7 @@ def get_file_columns():
         
         if not data:
             raise ValidationError(
-                message="请求体不能为空",
+                message="Request body cannot be empty",
                 details={'field': 'body'}
             )
         
@@ -181,7 +194,7 @@ def get_file_columns():
         
         if not filepath:
             raise ValidationError(
-                message="请提供文件路径",
+                message="Please provide filepath",
                 details={'field': 'filepath'}
             )
         
@@ -262,7 +275,7 @@ def generate_heatmap():
         
         if not data:
             raise ValidationError(
-                message="请求体不能为空",
+                message="Request body cannot be empty",
                 details={'field': 'body'}
             )
         
@@ -270,7 +283,7 @@ def generate_heatmap():
         samples_data = data.get('samples', [])
         if not samples_data:
             raise ValidationError(
-                message="请选择至少一个样本",
+                message="Please select at least one sample",
                 details={'field': 'samples'}
             )
         
@@ -310,7 +323,7 @@ def generate_heatmap():
         file_pattern = data.get('file_pattern')
         selected_chains = data.get('selected_chains')
         
-        # 验证：必须提供file_pattern或selected_chains之一
+        # 必须提供 file_pattern 或 selected_chains 二选一
         if not file_pattern and not selected_chains:
             raise ValidationError(
                 message="请选择数据文件类型或链类型",
@@ -421,7 +434,7 @@ def generate_heatmap():
             
             if len(sample_data) < 2:
                 raise ValidationError(
-                    message="至少需要2个有效样本才能生成热图",
+                    message="At least 2 valid samples are required to generate heatmap",
                     details={'loaded_samples': len(sample_data)}
                 )
             
@@ -579,7 +592,7 @@ def preview_data():
         
         if not data:
             raise ValidationError(
-                message="请求体不能为空",
+                message="Request body cannot be empty",
                 details={'field': 'body'}
             )
         
@@ -589,7 +602,7 @@ def preview_data():
         
         if not filepath:
             raise ValidationError(
-                message="请提供文件路径",
+                message="Please provide filepath",
                 details={'field': 'filepath'}
             )
         
@@ -674,7 +687,7 @@ def export_shared_cdr3():
         
         if not data:
             raise ValidationError(
-                message="请求体不能为空",
+                message="Request body cannot be empty",
                 details={'field': 'body'}
             )
         
@@ -682,7 +695,7 @@ def export_shared_cdr3():
         samples_data = data.get('samples', [])
         if not samples_data or len(samples_data) < 2:
             raise ValidationError(
-                message="请选择至少2个样本",
+                message="Please select at least 2 samples",
                 details={'field': 'samples'}
             )
         
@@ -722,7 +735,7 @@ def export_shared_cdr3():
         file_pattern = data.get('file_pattern')
         selected_chains = data.get('selected_chains')
         
-        # 验证：必须提供file_pattern或selected_chains之一
+        # 必须提供 file_pattern 或 selected_chains 二选一
         if not file_pattern and not selected_chains:
             raise ValidationError(
                 message="请选择数据文件类型或链类型",
@@ -787,3 +800,140 @@ def export_shared_cdr3():
             'error': 'EXPORT_ERROR',
             'message': f"导出CDR3共享列表时发生错误: {str(e)}"
         }), 500
+
+
+@auto_heatmap_bp.route('/generate-pipeline-report', methods=['POST'])
+def generate_pipeline_report():
+    """
+    Generate integrated pipeline-comparison outputs and HTML report.
+    POST /api/auto-heatmap/generate-pipeline-report
+
+    Request body (minimum):
+        {
+            "base_path": "E:\\...\\260125"
+        }
+
+    Optional fields:
+        - pipelines: ["YXJ", "DW", "YPL"] or "YXJ,DW,YPL"
+        - pipeline_configs: custom pipeline config object/list
+        - samples: ["DBY", "GRD", ...]
+        - selected_chains / chains: ["IGH", "IGK", ...]
+        - output_name: "custom_job_name"
+        - enable_heatmap: true/false
+        - enable_venn: true/false
+        - enable_html_report: true/false
+        - include_cdr3_analysis: true/false
+        - embed_images: true/false
+    """
+    try:
+        data = request.get_json() or {}
+        base_path = str(data.get('base_path', '')).strip()
+        if not base_path:
+            raise ValidationError(
+                message="base_path is required",
+                details={'field': 'base_path'}
+            )
+
+        pipelines = data.get('pipelines')
+        if isinstance(pipelines, str):
+            pipelines = [item.strip() for item in pipelines.split(',') if item.strip()]
+
+        selected_chains = data.get('selected_chains')
+        if selected_chains is None:
+            selected_chains = data.get('chains')
+
+        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        service = get_pipeline_comparison_service(results_root=results_root)
+
+        run_result = service.generate_pipeline_comparison(
+            base_path=base_path,
+            pipelines=pipelines,
+            pipeline_configs=data.get('pipeline_configs'),
+            samples=data.get('samples'),
+            chains=selected_chains,
+            output_name=data.get('output_name'),
+            enable_heatmap=_as_bool(data.get('enable_heatmap'), True),
+            enable_venn=_as_bool(data.get('enable_venn'), True),
+            enable_html_report=_as_bool(data.get('enable_html_report'), True),
+            include_cdr3_analysis=_as_bool(data.get('include_cdr3_analysis'), False),
+            embed_images=_as_bool(data.get('embed_images'), False),
+        )
+
+        report_url = None
+        if run_result.report_path is not None:
+            report_url = url_for(
+                'auto_heatmap.get_pipeline_comparison_result_file',
+                job_id=run_result.job_id,
+                relative_path='pipeline_comparison_report.html'
+            )
+
+        metadata_url = url_for(
+            'auto_heatmap.get_pipeline_comparison_result_file',
+            job_id=run_result.job_id,
+            relative_path='metadata.json'
+        )
+
+        return jsonify({
+            'success': True,
+            'job_id': run_result.job_id,
+            'output_base': str(run_result.output_base),
+            'report_path': str(run_result.report_path) if run_result.report_path else None,
+            'report_url': report_url,
+            'metadata_url': metadata_url,
+            'metadata': run_result.metadata
+        })
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in generate_pipeline_report: {e.message}")
+        return jsonify({
+            'success': False,
+            'error': e.error_code,
+            'message': e.message,
+            'details': e.details
+        }), 400
+
+    except Exception as e:
+        logger.error(f"Error generating pipeline report: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'PIPELINE_REPORT_ERROR',
+            'message': f"Error generating pipeline comparison report: {str(e)}"
+        }), 500
+
+
+@auto_heatmap_bp.route('/pipeline-comparison/results/<job_id>/<path:relative_path>', methods=['GET'])
+def get_pipeline_comparison_result_file(job_id: str, relative_path: str):
+    """
+    Serve generated pipeline-comparison report assets.
+    GET /api/auto-heatmap/pipeline-comparison/results/<job_id>/<path:relative_path>
+    """
+    try:
+        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        service = get_pipeline_comparison_service(results_root=results_root)
+        target_file = service.resolve_result_file(job_id, relative_path)
+        return send_file(target_file)
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in get_pipeline_comparison_result_file: {e.message}")
+        return jsonify({
+            'success': False,
+            'error': e.error_code,
+            'message': e.message,
+            'details': e.details
+        }), 400
+
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'error': 'NOT_FOUND',
+            'message': 'Report file not found'
+        }), 404
+
+    except Exception as e:
+        logger.error(f"Error serving pipeline comparison result file: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'FILE_SERVE_ERROR',
+            'message': f"Error reading report file: {str(e)}"
+        }), 500
+

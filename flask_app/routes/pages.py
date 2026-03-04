@@ -175,3 +175,11 @@ def similarity_heatmap_page():
     Requirements: 1.1-1.6, 2.1-2.5, 3.1-3.6, 4.1-4.8, 5.1-5.6, 6.1-6.6
     """
     return render_template('analysis/similarity_heatmap.html')
+
+
+@pages_bp.route('/analysis/pipeline-comparison')
+def pipeline_comparison_page():
+    """Pipeline comparison page entry.
+    Dedicated workflow for comparing multiple pipelines under one root directory.
+    """
+    return render_template('analysis/pipeline_comparison.html')
