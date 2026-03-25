@@ -24,6 +24,7 @@ from flask_app.services.auto_heatmap_service import (
 )
 from flask_app.services.heatmap_generator import HeatmapGenerator, HeatmapConfig
 from flask_app.services.pipeline_comparison_integration_service import get_pipeline_comparison_service
+from flask_app.services.similarity_heatmap_report_service import get_similarity_heatmap_report_service
 from flask_app.exceptions import ValidationError
 
 try:
@@ -161,6 +162,53 @@ def scan_folder():
         }), 500
 
 
+@auto_heatmap_bp.route('/scan-pipeline-root', methods=['POST'])
+def scan_pipeline_root():
+    """
+    Scan pipeline-comparison root folder and detect pipeline subfolders + pep files.
+    POST /api/auto-heatmap/scan-pipeline-root
+
+    Request body:
+        {
+            "base_path": "E:\\...\\260125"
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        base_path = str(data.get('base_path', '')).strip()
+        if not base_path:
+            raise ValidationError(
+                message="base_path is required",
+                details={'field': 'base_path'}
+            )
+
+        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        service = get_pipeline_comparison_service(results_root=results_root)
+        scan_result = service.scan_pipeline_root(base_path=base_path)
+
+        return jsonify({
+            'success': True,
+            **scan_result
+        })
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in scan_pipeline_root: {e.message}")
+        return jsonify({
+            'success': False,
+            'error': e.error_code,
+            'message': e.message,
+            'details': e.details
+        }), 400
+
+    except Exception as e:
+        logger.error(f"Error scanning pipeline root: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'PIPELINE_ROOT_SCAN_ERROR',
+            'message': f"Error scanning pipeline root: {str(e)}"
+        }), 500
+
+
 @auto_heatmap_bp.route('/get-file-columns', methods=['POST'])
 def get_file_columns():
     """
@@ -253,6 +301,7 @@ def generate_heatmap():
             "metric": "r2_inner",  // Options: r2_inner, r2_outer, cdr3_sharing, expression_sharing, morisita_horn, sorensen
             "config": {
                 "title": "Similarity Heatmap",
+                "plot_type": "heatmap",
                 "color_scheme": "viridis",
                 "annotation": true
             }
@@ -333,6 +382,16 @@ def generate_heatmap():
         metric = data.get('metric', 'r2_inner')
         config_data = data.get('config', {})
         groups_data = data.get('groups', [])
+        plot_type = (config_data.get('plot_type') or 'heatmap').lower()
+
+        if plot_type not in HeatmapGenerator.get_available_plot_types():
+            raise ValidationError(
+                message="不支持的图表类型",
+                details={
+                    'field': 'config.plot_type',
+                    'supported_values': HeatmapGenerator.get_available_plot_types()
+                }
+            )
         
         # Get service
         service = get_auto_heatmap_service()
@@ -351,6 +410,7 @@ def generate_heatmap():
         # Prepare response
         response = {
             'success': True,
+            'plot_type': plot_type,
             'mode': 'chain' if selected_chains else 'traditional',
             'chains': {},  # For chain mode: {chain: {metrics, images}}
             'metrics': {},  # For traditional mode
@@ -388,6 +448,7 @@ def generate_heatmap():
                     
                     metric_config = HeatmapConfig(
                         title=title,
+                        plot_type=plot_type,
                         color_scheme=config_data.get('color_scheme', 'viridis'),
                         annotation=config_data.get('annotation', True),
                         figure_width=config_data.get('figure_width', 10),
@@ -447,6 +508,7 @@ def generate_heatmap():
                 
                 metric_config = HeatmapConfig(
                     title=title,
+                    plot_type=plot_type,
                     color_scheme=config_data.get('color_scheme', 'viridis'),
                     annotation=config_data.get('annotation', True),
                     figure_width=config_data.get('figure_width', 10),
@@ -509,6 +571,7 @@ def generate_heatmap():
                         
                         grouped_config = HeatmapConfig(
                             title=grouped_title,
+                            plot_type=plot_type,
                             color_scheme=config_data.get('color_scheme', 'viridis'),
                             annotation=True,
                             figure_width=config_data.get('figure_width', 10),
@@ -901,6 +964,84 @@ def generate_pipeline_report():
         }), 500
 
 
+@auto_heatmap_bp.route('/generate-heatmap-report', methods=['POST'])
+def generate_heatmap_report():
+    """
+    Generate a web report directly from the current similarity heatmap result payload.
+    POST /api/auto-heatmap/generate-heatmap-report
+
+    Request body (minimum):
+        {
+            "heatmap_result": {...}
+        }
+
+    Optional fields:
+        - output_name: "custom_report_name"
+        - embed_images: true/false
+        - report_context: object
+    """
+    try:
+        data = request.get_json() or {}
+        heatmap_result = data.get('heatmap_result')
+        if not isinstance(heatmap_result, dict):
+            raise ValidationError(
+                message="heatmap_result is required",
+                details={'field': 'heatmap_result'}
+            )
+
+        report_context = data.get('report_context')
+        if not isinstance(report_context, dict):
+            report_context = {}
+
+        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        service = get_similarity_heatmap_report_service(results_root=results_root)
+
+        run_result = service.generate_report(
+            heatmap_result=heatmap_result,
+            output_name=data.get('output_name'),
+            embed_images=_as_bool(data.get('embed_images'), False),
+            context=report_context,
+        )
+
+        report_url = url_for(
+            'auto_heatmap.get_similarity_heatmap_report_result_file',
+            job_id=run_result.job_id,
+            relative_path='similarity_heatmap_report.html'
+        )
+        metadata_url = url_for(
+            'auto_heatmap.get_similarity_heatmap_report_result_file',
+            job_id=run_result.job_id,
+            relative_path='metadata.json'
+        )
+
+        return jsonify({
+            'success': True,
+            'job_id': run_result.job_id,
+            'output_base': str(run_result.output_base),
+            'report_path': str(run_result.report_path),
+            'report_url': report_url,
+            'metadata_url': metadata_url,
+            'metadata': run_result.metadata
+        })
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in generate_heatmap_report: {e.message}")
+        return jsonify({
+            'success': False,
+            'error': e.error_code,
+            'message': e.message,
+            'details': e.details
+        }), 400
+
+    except Exception as e:
+        logger.error(f"Error generating heatmap report: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'HEATMAP_REPORT_ERROR',
+            'message': f"Error generating heatmap web report: {str(e)}"
+        }), 500
+
+
 @auto_heatmap_bp.route('/pipeline-comparison/results/<job_id>/<path:relative_path>', methods=['GET'])
 def get_pipeline_comparison_result_file(job_id: str, relative_path: str):
     """
@@ -931,6 +1072,43 @@ def get_pipeline_comparison_result_file(job_id: str, relative_path: str):
 
     except Exception as e:
         logger.error(f"Error serving pipeline comparison result file: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'FILE_SERVE_ERROR',
+            'message': f"Error reading report file: {str(e)}"
+        }), 500
+
+
+@auto_heatmap_bp.route('/similarity-report/results/<job_id>/<path:relative_path>', methods=['GET'])
+def get_similarity_heatmap_report_result_file(job_id: str, relative_path: str):
+    """
+    Serve generated similarity heatmap report assets.
+    GET /api/auto-heatmap/similarity-report/results/<job_id>/<path:relative_path>
+    """
+    try:
+        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        service = get_similarity_heatmap_report_service(results_root=results_root)
+        target_file = service.resolve_result_file(job_id, relative_path)
+        return send_file(target_file)
+
+    except ValidationError as e:
+        logger.warning(f"Validation error in get_similarity_heatmap_report_result_file: {e.message}")
+        return jsonify({
+            'success': False,
+            'error': e.error_code,
+            'message': e.message,
+            'details': e.details
+        }), 400
+
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'error': 'NOT_FOUND',
+            'message': 'Report file not found'
+        }), 404
+
+    except Exception as e:
+        logger.error(f"Error serving similarity heatmap report file: {e}", exc_info=True)
         return jsonify({
             'success': False,
             'error': 'FILE_SERVE_ERROR',

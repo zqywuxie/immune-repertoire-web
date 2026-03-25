@@ -17,6 +17,7 @@ class TestHeatmapConfig:
         config = HeatmapConfig()
         
         assert config.title == ""
+        assert config.plot_type == "heatmap"
         assert config.color_scheme == "viridis"
         assert config.figure_width == 10
         assert config.figure_height == 8
@@ -28,6 +29,7 @@ class TestHeatmapConfig:
         """Test custom configuration values."""
         config = HeatmapConfig(
             title="Test Heatmap",
+            plot_type="treemap",
             color_scheme="plasma",
             figure_width=12,
             figure_height=10,
@@ -35,6 +37,7 @@ class TestHeatmapConfig:
         )
         
         assert config.title == "Test Heatmap"
+        assert config.plot_type == "treemap"
         assert config.color_scheme == "plasma"
         assert config.figure_width == 12
         assert config.figure_height == 10
@@ -102,7 +105,23 @@ class TestHeatmapGenerator:
         
         assert metadata['metric_name'] == 'r2_inner'
         assert metadata['color_scheme'] == 'Greens'  # Default for r2_inner
-    
+        assert metadata['plot_type'] == 'heatmap'
+
+    def test_generate_treemap_returns_bytes_and_metadata(self, sample_matrix):
+        """Test treemap generation returns PNG bytes and treemap metadata."""
+        generator = HeatmapGenerator()
+        config = HeatmapConfig(plot_type="treemap", title="Treemap Test")
+
+        image_bytes, metadata = generator.generate_heatmap(sample_matrix, config)
+
+        assert isinstance(image_bytes, bytes)
+        assert len(image_bytes) > 0
+        assert image_bytes[:8] == b'\x89PNG\r\n\x1a\n'
+        assert metadata['plot_type'] == 'treemap'
+        assert metadata['title'] == "Treemap Test"
+        assert metadata['samples'] == ['A', 'B', 'C']
+        assert set(metadata['treemap_scores'].keys()) == {'A', 'B', 'C'}
+
     def test_get_available_palettes(self):
         """Test getting available color palettes."""
         palettes = HeatmapGenerator.get_available_palettes()
@@ -111,6 +130,12 @@ class TestHeatmapGenerator:
         assert 'viridis' in palettes
         assert 'plasma' in palettes
         assert 'Greens' in palettes
+
+    def test_get_available_plot_types(self):
+        """Test getting supported plot types."""
+        plot_types = HeatmapGenerator.get_available_plot_types()
+
+        assert plot_types == ['heatmap', 'treemap']
     
     def test_get_metric_color_scheme(self):
         """Test getting default color scheme for metrics."""

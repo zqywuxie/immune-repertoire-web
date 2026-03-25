@@ -40,6 +40,14 @@
         </li>
 
         <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.treemap_page' %}active{% endif %}"
+                href="{{ url_for('pages.treemap_page') }}" title="Treemap分析">
+                <i class="bi bi-bounding-box"></i>
+                <span class="nav-text ms-2">Treemap分析</span>
+            </a>
+        </li>
+
+        <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.pipeline_comparison_page' %}active{% endif %}"
                 href="{{ url_for('pages.pipeline_comparison_page') }}" title="Pipeline对比">
                 <i class="bi bi-diagram-3"></i>
@@ -65,7 +73,6 @@
 
         <hr class="my-3">
 
-        <!-- PDF Extraction Tools -->
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.pdf_extractor_page' %}active{% endif %}"
                 href="{{ url_for('pages.pdf_extractor_page') }}" title="PDF提取器">
@@ -74,7 +81,6 @@
             </a>
         </li>
 
-        <!-- PPT Image Replacement -->
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.ppt_heatmap_page' %}active{% endif %}"
                 href="{{ url_for('pages.ppt_heatmap_page') }}" title="PPT图片替换">

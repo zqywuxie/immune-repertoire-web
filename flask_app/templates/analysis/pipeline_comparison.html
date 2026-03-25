@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Pipeline Comparison{% endblock %}
+{% block title %}Pipeline 对比{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -114,6 +114,109 @@
         flex-wrap: wrap;
         gap: 8px;
     }
+
+    .pc-step {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: #dceeff;
+        color: #18527d;
+        font-size: 0.82rem;
+        font-weight: 700;
+        margin-right: 8px;
+    }
+
+    .pc-status {
+        border: 1px dashed #bfd7e8;
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #f8fcff;
+        color: #2b516e;
+        font-size: 0.9rem;
+        margin-top: 10px;
+    }
+
+    .pc-pipeline-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .pc-pipeline-item {
+        border: 1px solid #d7e6f2;
+        border-radius: 12px;
+        padding: 12px;
+        background: #fbfdff;
+    }
+
+    .pc-pipeline-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .pc-pipeline-name {
+        font-weight: 700;
+        color: #143d5d;
+    }
+
+    .pc-filepath {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.8rem;
+        color: #3f5f77;
+        word-break: break-all;
+    }
+
+    .pc-select-sm {
+        font-size: 0.9rem;
+    }
+
+    .pc-order-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: grab;
+        user-select: none;
+    }
+
+    .pc-order-item:active {
+        cursor: grabbing;
+    }
+
+    .pc-order-handle {
+        color: #6b86a0;
+    }
+
+    .pc-order-index {
+        min-width: 2ch;
+        color: #537089;
+        font-size: 0.86rem;
+    }
+
+    .pc-order-name {
+        font-weight: 600;
+        color: #143d5d;
+    }
+
+    .pc-order-item.dragging {
+        opacity: 0.55;
+        background: #eef6ff;
+        border-color: #86b5d8;
+    }
+
+    .pc-order-item.drag-over {
+        border-color: #1d6ea4;
+        background: #f2f8fe;
+    }
+
+    .pc-hidden {
+        display: none !important;
+    }
 </style>
 {% endblock %}
 
@@ -122,46 +225,77 @@
     <section class="pipeline-hero">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
             <div>
-                <h2><i class="bi bi-diagram-3 me-2"></i>Pipeline Comparison</h2>
-                <p>Dedicated workflow for one root folder that contains multiple pipeline subfolders.</p>
+                <h2><i class="bi bi-diagram-3 me-2"></i>Pipeline 对比分析</h2>
+                <p>扫描根目录后自动识别各 pipeline 的可用文件，并为每个 pipeline 选择 CDR3 与 Copy 字段。</p>
             </div>
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('pages.similarity_heatmap_page') }}">
-                <i class="bi bi-grid-3x3-gap me-1"></i>Back To Similarity Heatmap
+                <i class="bi bi-grid-3x3-gap me-1"></i>返回相似度热图
             </a>
         </div>
     </section>
 
     <div class="row g-4">
-        <div class="col-xl-5">
+        <div class="col-12 col-xxl-10">
             <div class="card pc-card">
                 <div class="card-header">
-                    <i class="bi bi-sliders me-1"></i>Run Parameters
+                    <i class="bi bi-sliders me-1"></i>运行参数
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
-                        <label class="form-label pc-label">Root Folder</label>
-                        <input type="text" class="form-control" id="pcBasePath" value="E:\...\260125">
-                        <div class="pc-note mt-1">This folder should contain pipeline subfolders like YXJ, DW, and YPL.</div>
+                        <label class="form-label pc-label">
+                            <span class="pc-step">1</span>根目录路径
+                        </label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="pcBasePath" placeholder="E:\Desktop\...\260125">
+                            <button class="btn btn-outline-primary" id="pcScanBtn" type="button">
+                                <i class="bi bi-search me-1"></i>扫描 Pipeline
+                            </button>
+                        </div>
+                        <div class="pc-note mt-1">要求：根目录下包含各 pipeline 子目录（例如 YXJ、DW、YPL）。</div>
+                        <div class="pc-status" id="pcScanSummary">尚未扫描。</div>
+                    </div>
+
+                    <div class="mb-3 pc-hidden" id="pcPipelineConfigSection">
+                        <label class="form-label pc-label">
+                            <span class="pc-step">2</span>Pipeline 文件与字段映射
+                        </label>
+                        <div class="pc-note mb-2">
+                            为每个 pipeline 选择一个代表性文件，并指定 CDR3 与 Copy 字段。
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-6">
+                                <label class="form-label pc-label mb-1">选择要配置的 Pipeline</label>
+                                <select class="form-select form-select-sm" id="pcPipelineSelector"></select>
+                            </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <div class="pc-note" id="pcPipelineSelectorHint"></div>
+                            </div>
+                        </div>
+                        <div class="pc-pipeline-list" id="pcPipelineList"></div>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label pc-label">Pipeline Order (comma-separated)</label>
-                        <input type="text" class="form-control" id="pcPipelines" value="YXJ,DW,YPL">
+                        <label class="form-label pc-label">Pipeline 顺序（拖拽调整）</label>
+                        <ul class="list-group" id="pcPipelineOrderList">
+                            <li class="list-group-item text-muted">请先扫描并识别可配置 pipeline。</li>
+                        </ul>
+                        <input type="hidden" id="pcPipelines" value="">
+                        <div class="pc-note mt-1">拖拽列表可自定义顺序；该顺序用于矩阵展示与报告汇总。</div>
                     </div>
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
-                            <label class="form-label pc-label">Samples Filter (optional)</label>
+                            <label class="form-label pc-label">样本筛选（可选）</label>
                             <input type="text" class="form-control" id="pcSamples" placeholder="DBY,GRD">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label pc-label">Chains Filter (optional)</label>
+                            <label class="form-label pc-label">链筛选（可选）</label>
                             <input type="text" class="form-control" id="pcChains" placeholder="IGH,IGK,IGL">
                         </div>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label pc-label">Output Job Name (optional)</label>
+                        <label class="form-label pc-label">输出任务名（可选）</label>
                         <input type="text" class="form-control" id="pcOutputName" placeholder="pipeline_cmp_20260304">
                     </div>
 
@@ -169,108 +303,69 @@
                         <div class="col-sm-6">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="pcEnableHeatmap" checked>
-                                <label class="form-check-label" for="pcEnableHeatmap">Generate Heatmaps / Metrics</label>
+                                <label class="form-check-label" for="pcEnableHeatmap">生成热图与指标矩阵</label>
                             </div>
                         </div>
                         <div class="col-sm-6">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="pcEnableVenn" checked>
-                                <label class="form-check-label" for="pcEnableVenn">Generate Venn</label>
+                                <label class="form-check-label" for="pcEnableVenn">生成 Venn 图</label>
                             </div>
                         </div>
                         <div class="col-sm-6">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="pcEnableHtmlReport" checked>
-                                <label class="form-check-label" for="pcEnableHtmlReport">Generate HTML Report</label>
+                                <label class="form-check-label" for="pcEnableHtmlReport">生成 HTML 报告</label>
                             </div>
                         </div>
                         <div class="col-sm-6">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="pcIncludeCdr3">
-                                <label class="form-check-label" for="pcIncludeCdr3">Include CDR3 Export</label>
+                                <label class="form-check-label" for="pcIncludeCdr3">包含 CDR3 导出包</label>
                             </div>
                         </div>
                         <div class="col-sm-12">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="pcEmbedImages">
-                                <label class="form-check-label" for="pcEmbedImages">Embed Images Into HTML</label>
+                                <label class="form-check-label" for="pcEmbedImages">在 HTML 中内嵌图片</label>
                             </div>
                         </div>
                     </div>
 
                     <div class="pc-action-row">
                         <button class="btn btn-primary" id="pcGenerateBtn">
-                            <i class="bi bi-play-fill me-1"></i>Run Pipeline Comparison
+                            <i class="bi bi-play-fill me-1"></i>运行 Pipeline 对比
                         </button>
                         <button class="btn btn-outline-secondary" id="pcSaveConfigBtn">
-                            <i class="bi bi-save me-1"></i>Save Parameters
+                            <i class="bi bi-save me-1"></i>保存参数
                         </button>
                     </div>
-                </div>
-            </div>
-
-            <div class="card pc-card mt-3">
-                <div class="card-header">
-                    <i class="bi bi-folder2-open me-1"></i>Folder Structure Example
-                </div>
-                <div class="card-body">
-                    <pre class="pc-structure">E:\...\260125
-|- YXJ
-|  |- DBY_IGH.csv
-|  |- DBY_IGK.csv
-|  `- ...
-|- DW
-|  |- SS03P_DBY__IGH.csv
-|  |- SS03P_DBY__IGK.csv
-|  `- ...
-`- YPL
-   |- DBY-PER_DBY_IGH.csv
-   |- DBY-PER_DBY_IGK.csv
-   `- ...
-</pre>
-                    <div class="pc-tip">
-                        Default parser patterns support YXJ / DW / YPL naming conventions.
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-xl-7">
-            <div class="card pc-card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-terminal me-1"></i>Run Log</span>
-                    <button class="btn btn-sm btn-outline-secondary" id="pcClearLogBtn">
-                        <i class="bi bi-trash3 me-1"></i>Clear
-                    </button>
-                </div>
-                <div class="card-body">
-                    <pre class="pc-log" id="pcLog">Idle.</pre>
                 </div>
             </div>
 
             <div class="card pc-card mt-3" id="pcResultCard" style="display:none;">
                 <div class="card-header">
-                    <i class="bi bi-check2-circle me-1"></i>Result
+                    <i class="bi bi-check2-circle me-1"></i>运行结果
                 </div>
                 <div class="card-body">
                     <div class="pc-result-item">
-                        <span class="pc-result-key">Job ID</span>
+                        <span class="pc-result-key">任务 ID</span>
                         <span class="pc-result-value" id="pcResultJobId">-</span>
                     </div>
                     <div class="pc-result-item">
-                        <span class="pc-result-key">Output Folder</span>
+                        <span class="pc-result-key">输出目录</span>
                         <span class="pc-result-value" id="pcResultOutputBase">-</span>
                     </div>
                     <div class="pc-result-item">
-                        <span class="pc-result-key">Report Path</span>
+                        <span class="pc-result-key">报告路径</span>
                         <span class="pc-result-value" id="pcResultReportPath">-</span>
                     </div>
                     <div class="pc-action-row mt-2">
                         <a class="btn btn-success btn-sm" id="pcOpenReportBtn" target="_blank" style="display:none;">
-                            <i class="bi bi-box-arrow-up-right me-1"></i>Open HTML Report
+                            <i class="bi bi-box-arrow-up-right me-1"></i>打开 HTML 报告
                         </a>
                         <a class="btn btn-outline-primary btn-sm" id="pcOpenMetadataBtn" target="_blank" style="display:none;">
-                            <i class="bi bi-filetype-json me-1"></i>Open metadata.json
+                            <i class="bi bi-filetype-json me-1"></i>打开 metadata.json
                         </a>
                     </div>
                     <div class="mt-3 pc-note" id="pcResultSummary"></div>

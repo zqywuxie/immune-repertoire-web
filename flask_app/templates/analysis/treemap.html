@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+{% block title %}Treemap分析{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        padding: 0 1rem;
+    }
+
+    .step-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1;
+        position: relative;
+    }
+
+    .step-item:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        top: 15px;
+        left: 50%;
+        width: 100%;
+        height: 2px;
+        background: #dee2e6;
+        z-index: 0;
+    }
+
+    .step-item.completed:not(:last-child)::after {
+        background: #198754;
+    }
+
+    .step-number {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #dee2e6;
+        color: #6c757d;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: .875rem;
+        z-index: 1;
+    }
+
+    .step-item.active .step-number {
+        background: #0d6efd;
+        color: #fff;
+    }
+
+    .step-item.completed .step-number {
+        background: #198754;
+        color: #fff;
+    }
+
+    .step-label {
+        margin-top: .5rem;
+        font-size: .75rem;
+        color: #6c757d;
+        text-align: center;
+    }
+
+    .step-item.active .step-label {
+        color: #0d6efd;
+        font-weight: 500;
+    }
+
+    .step-item.completed .step-label {
+        color: #198754;
+    }
+
+    .chain-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: .75rem;
+    }
+
+    .chain-item {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .75rem .85rem;
+        border: 1px solid #dee2e6;
+        border-radius: .5rem;
+        background: #fff;
+        cursor: pointer;
+        transition: border-color .15s ease, background-color .15s ease;
+    }
+
+    .chain-item.selected {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+    }
+
+    .mapping-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .sample-detect-panel {
+        border: 1px solid #dee2e6;
+        border-radius: .75rem;
+        background: #f8f9fa;
+        padding: 1rem;
+    }
+
+    .sample-detect-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: .75rem;
+    }
+
+    .sample-detect-card {
+        border: 1px solid #dee2e6;
+        border-radius: .65rem;
+        background: #fff;
+        padding: .85rem .9rem;
+        cursor: pointer;
+        transition: border-color .15s ease, background-color .15s ease;
+    }
+
+    .sample-detect-card.selected {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+    }
+
+    .sample-detect-head {
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: .5rem;
+    }
+
+    .sample-detect-name {
+        font-weight: 600;
+        margin-bottom: 0;
+        word-break: break-word;
+    }
+
+    .sample-chain-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem;
+    }
+
+    .preview-table-wrapper {
+        max-height: 260px;
+        overflow: auto;
+        border: 1px solid #dee2e6;
+        border-radius: .5rem;
+    }
+
+    .preview-table-wrapper table {
+        margin-bottom: 0;
+        font-size: .875rem;
+    }
+
+    .loading-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(255, 255, 255, .82);
+        backdrop-filter: blur(2px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+
+    .loading-content {
+        padding: 1.5rem 2rem;
+        border-radius: .75rem;
+        background: #fff;
+        box-shadow: 0 1rem 2rem rgba(0, 0, 0, .08);
+        width: min(720px, calc(100vw - 2rem));
+    }
+
+    .progress-log {
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        background: #f8fafc;
+        padding: .75rem;
+        font-size: .875rem;
+    }
+
+    .progress-log-item + .progress-log-item {
+        margin-top: .5rem;
+    }
+
+    .progress-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: .75rem;
+        margin-bottom: .75rem;
+    }
+
+    .progress-meta-card {
+        border: 1px solid #e5e7eb;
+        border-radius: .65rem;
+        background: #f8fafc;
+        padding: .75rem .85rem;
+    }
+
+    .progress-meta-label {
+        color: #64748b;
+        font-size: .75rem;
+        margin-bottom: .2rem;
+    }
+
+    .progress-meta-value {
+        color: #0f172a;
+        font-size: .95rem;
+        font-weight: 600;
+        word-break: break-word;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-2">Treemap分析</h1>
+            <p class="text-muted mb-0">使用与相似度热图模块一致的前三步输入方式，生成单链 treemap 和七链总览文件。</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="step-indicator">
+                <div class="step-item active">
+                    <div class="step-number">1</div>
+                    <div class="step-label">扫描目录</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">2</div>
+                    <div class="step-label">选择链和样本</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">3</div>
+                    <div class="step-label">字段映射</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">4</div>
+                    <div class="step-label">生成结果</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4" id="step1Card">
+        <div class="card-header">
+            <h2 class="h5 mb-0">Step 1. 扫描数据目录</h2>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-9">
+                    <label for="basePath" class="form-label">输入数据目录</label>
+                    <input type="text" class="form-control" id="basePath" placeholder="例如：E:\Data\Repertoire">
+                </div>
+                <div class="col-lg-3 d-grid">
+                    <button class="btn btn-primary" onclick="TreemapAnalysis.scanFolder()">
+                        <i class="bi bi-search me-1"></i>扫描目录
+                    </button>
+                </div>
+            </div>
+            <div class="alert alert-info mt-3 mb-0 d-none" id="scanSummary"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4" id="step2Card" style="display:none;">
+        <div class="card-header">
+            <h2 class="h5 mb-0">Step 2. 选择需要生成的链和样本</h2>
+        </div>
+        <div class="card-body">
+            <div class="chain-grid mb-3" id="chainList"></div>
+            <div class="sample-detect-panel mb-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                    <h3 class="h6 mb-0">识别到的样本</h3>
+                    <span class="text-muted small" id="sampleDetectSummary">尚未选择链</span>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.selectAllDetectedSamples()">全选样本</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.clearDetectedSamples()">清空样本</button>
+                </div>
+                <div class="sample-detect-grid" id="sampleDetectList"></div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.selectAllChains()">全选链</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.clearChains()">清空链</button>
+                <button class="btn btn-primary ms-auto" onclick="TreemapAnalysis.confirmChainSelection()">确认链和样本选择</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4" id="step3Card" style="display:none;">
+        <div class="card-header">
+            <h2 class="h5 mb-0">Step 3. 字段映射</h2>
+        </div>
+        <div class="card-body">
+            <div class="mapping-grid">
+                <div>
+                    <label for="cdr3Column" class="form-label">CDR3 列</label>
+                    <select id="cdr3Column" class="form-select"></select>
+                </div>
+                <div>
+                    <label for="copyColumn" class="form-label">copy 列</label>
+                    <select id="copyColumn" class="form-select"></select>
+                </div>
+                <div>
+                    <label for="vColumn" class="form-label">V 列</label>
+                    <select id="vColumn" class="form-select"></select>
+                </div>
+                <div>
+                    <label for="jColumn" class="form-label">J 列</label>
+                    <select id="jColumn" class="form-select"></select>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                    <h3 class="h6 mb-0">数据预览</h3>
+                    <button class="btn btn-primary btn-sm" onclick="TreemapAnalysis.confirmFieldMapping()">确认字段映射</button>
+                </div>
+                <div class="preview-table-wrapper">
+                    <table class="table table-sm table-striped align-middle mb-0" id="previewTable">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4" id="step4Card" style="display:none;">
+        <div class="card-header">
+            <h2 class="h5 mb-0">Step 4. 生成 treemap 结果</h2>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-4">
+                    <label for="outputName" class="form-label">结果名称（可选）</label>
+                    <input type="text" class="form-control" id="outputName" placeholder="例如：HL_FP1_treemap">
+                </div>
+                <div class="col-lg-3">
+                    <label for="minCopyDefault" class="form-label">默认最小 copy</label>
+                    <input type="number" class="form-control" id="minCopyDefault" value="30" min="0">
+                </div>
+                <div class="col-lg-3">
+                    <label for="topN" class="form-label">右侧表格 Top N</label>
+                    <input type="number" class="form-control" id="topN" value="100" min="1">
+                </div>
+                <div class="col-lg-2 d-grid">
+                    <button class="btn btn-success" onclick="TreemapAnalysis.generateTreemap()">
+                        <i class="bi bi-play-circle me-1"></i>开始生成
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" id="resultsCard" style="display:none;">
+        <div class="card-header">
+            <h2 class="h5 mb-0">结果已生成</h2>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-success mb-3" id="resultSummary"></div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary" onclick="TreemapAnalysis.openViewer()">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>新窗口打开查看器
+                </button>
+                <button class="btn btn-outline-primary" onclick="TreemapAnalysis.downloadZip()">
+                    <i class="bi bi-file-zip me-1"></i>下载 ZIP
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay" style="display:none;">
+    <div class="loading-content">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div>
+                <div class="fw-semibold" id="loadingStage">正在处理...</div>
+                <div class="text-muted small" id="loadingText">任务准备中</div>
+            </div>
+        </div>
+        <div class="progress mb-3" style="height: 18px;">
+            <div id="loadingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+        </div>
+        <div class="progress-meta-grid" id="loadingProgressMeta">
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">任务状态</div>
+                <div class="progress-meta-value" id="loadingMetaPhase">排队中</div>
+            </div>
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">当前样本</div>
+                <div class="progress-meta-value" id="loadingMetaSample">-</div>
+            </div>
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">当前链</div>
+                <div class="progress-meta-value" id="loadingMetaChain">-</div>
+            </div>
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">已完成步数</div>
+                <div class="progress-meta-value" id="loadingMetaUnits">-</div>
+            </div>
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">预计剩余</div>
+                <div class="progress-meta-value" id="loadingMetaEta">估算中</div>
+            </div>
+            <div class="progress-meta-card">
+                <div class="progress-meta-label">当前文件</div>
+                <div class="progress-meta-value" id="loadingMetaFile">-</div>
+            </div>
+        </div>
+        <div class="progress-log" id="loadingProgressLog"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/treemap_analysis.js') }}"></script>
+{% endblock %}

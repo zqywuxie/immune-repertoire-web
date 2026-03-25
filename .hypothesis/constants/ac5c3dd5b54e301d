@@ -1,4 +1,0 @@
-# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\exceptions.py
-# hypothesis_version: 6.148.7
-
-[400, 404, 409, 413, 500, 'ANALYSIS_CANCELLED', 'ANALYSIS_FAILED', 'ANALYSIS_IN_PROGRESS', 'ANALYSIS_NOT_FOUND', 'ANALYSIS_RETRY_LIMIT', 'FILE_FORMAT_INVALID', 'FILE_NOT_FOUND', 'FILE_PARSE_ERROR', 'FILE_TOO_LARGE', 'INTERNAL_ERROR', 'MAPPING_INCOMPLETE', 'STORAGE_ERROR', 'VALIDATION_ERROR', 'details', 'error_code', 'message', 'timestamp']

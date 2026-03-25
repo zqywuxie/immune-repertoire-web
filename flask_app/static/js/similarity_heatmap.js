@@ -21,7 +21,8 @@ const AutoHeatmap = {
     heatmapResult: null,
     currentMetric: 'expression_sharing',  // Current selected metric
     currentDataType: 'original',  // 'original' or 'grouped'
-    pipelineReportConfigKey: 'auto_heatmap_pipeline_report_config_v1',
+    heatmapReportConfigKey: 'auto_heatmap_web_report_config_v1',
+    currentPlotType: 'heatmap',
 
     // Metric display names
     METRIC_NAMES: {
@@ -36,7 +37,7 @@ const AutoHeatmap = {
     init() {
         this.initDragAndDrop();
         this.initMetricTabs();
-        this.loadPipelineReportConfig();
+        this.loadHeatmapReportConfig();
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'a') {
                 const activeElement = document.activeElement;
@@ -48,80 +49,57 @@ const AutoHeatmap = {
         });
     },
 
-    loadPipelineReportConfig() {
+    loadHeatmapReportConfig() {
         const defaults = {
-            pipeline_order: 'YXJ,DW,YPL',
             output_name: '',
-            enable_venn: true,
-            include_cdr3_analysis: false,
             embed_images: false
         };
 
         let config = { ...defaults };
         try {
-            const raw = localStorage.getItem(this.pipelineReportConfigKey);
+            const raw = localStorage.getItem(this.heatmapReportConfigKey);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 config = { ...defaults, ...parsed };
             }
         } catch (error) {
-            console.warn('Failed to load pipeline report config from localStorage:', error);
+            console.warn('Failed to load heatmap report config from localStorage:', error);
         }
 
-        const orderInput = document.getElementById('pipelineOrderInput');
-        const outputNameInput = document.getElementById('pipelineOutputName');
-        const enableVennInput = document.getElementById('pipelineEnableVenn');
-        const includeCdr3Input = document.getElementById('pipelineIncludeCdr3');
-        const embedImagesInput = document.getElementById('pipelineEmbedImages');
+        const outputNameInput = document.getElementById('heatmapReportOutputName');
+        const embedImagesInput = document.getElementById('heatmapReportEmbedImages');
 
-        if (orderInput) orderInput.value = config.pipeline_order || defaults.pipeline_order;
         if (outputNameInput) outputNameInput.value = config.output_name || '';
-        if (enableVennInput) enableVennInput.checked = Boolean(config.enable_venn);
-        if (includeCdr3Input) includeCdr3Input.checked = Boolean(config.include_cdr3_analysis);
         if (embedImagesInput) embedImagesInput.checked = Boolean(config.embed_images);
     },
 
-    savePipelineReportConfig(config) {
+    saveHeatmapReportConfig(config) {
         try {
-            localStorage.setItem(this.pipelineReportConfigKey, JSON.stringify({
-                pipeline_order: config.pipeline_order,
+            localStorage.setItem(this.heatmapReportConfigKey, JSON.stringify({
                 output_name: config.output_name,
-                enable_venn: config.enable_venn,
-                include_cdr3_analysis: config.include_cdr3_analysis,
                 embed_images: config.embed_images
             }));
         } catch (error) {
-            console.warn('Failed to save pipeline report config to localStorage:', error);
+            console.warn('Failed to save heatmap report config to localStorage:', error);
         }
     },
 
-    getPipelineReportConfigFromForm() {
-        const pipelineOrderInput = document.getElementById('pipelineOrderInput');
-        const pipelineOutputName = document.getElementById('pipelineOutputName');
-        const pipelineEnableVenn = document.getElementById('pipelineEnableVenn');
-        const pipelineIncludeCdr3 = document.getElementById('pipelineIncludeCdr3');
-        const pipelineEmbedImages = document.getElementById('pipelineEmbedImages');
-
-        const pipelineText = (pipelineOrderInput?.value || 'YXJ,DW,YPL').trim();
-        const pipelines = pipelineText
-            .split(',')
-            .map(v => v.trim())
-            .filter(Boolean)
-            .map(v => v.toUpperCase());
-
-        if (pipelines.length < 2) {
-            this.showError('至少需要2个pipeline用于比较');
-            return null;
-        }
+    getHeatmapReportConfigFromForm() {
+        const reportOutputName = document.getElementById('heatmapReportOutputName');
+        const reportEmbedImages = document.getElementById('heatmapReportEmbedImages');
 
         return {
-            pipeline_order: pipelines.join(','),
-            pipelines,
-            output_name: (pipelineOutputName?.value || '').trim(),
-            enable_venn: pipelineEnableVenn ? pipelineEnableVenn.checked : true,
-            include_cdr3_analysis: pipelineIncludeCdr3 ? pipelineIncludeCdr3.checked : false,
-            embed_images: pipelineEmbedImages ? pipelineEmbedImages.checked : false
+            output_name: (reportOutputName?.value || '').trim(),
+            embed_images: reportEmbedImages ? reportEmbedImages.checked : false
         };
+    },
+
+    getSelectedPlotType() {
+        return document.getElementById('plotType')?.value || 'heatmap';
+    },
+
+    getPlotFileSuffix() {
+        return this.currentPlotType || this.getSelectedPlotType() || 'heatmap';
     },
 
     initMetricTabs() {
@@ -1331,6 +1309,7 @@ const AutoHeatmap = {
                 groups: validGroups,
                 config: {
                     title: document.getElementById('heatmapTitle').value,
+                    plot_type: this.getSelectedPlotType(),
                     color_scheme: document.getElementById('colorScheme').value,
                     annotation: document.getElementById('showAnnotation').checked
                 }
@@ -1347,6 +1326,7 @@ const AutoHeatmap = {
             if (!data.success) throw new Error(data.message || '生成失败');
 
             this.heatmapResult = data;
+            this.currentPlotType = data.plot_type || requestData.config.plot_type || 'heatmap';
 
             // Handle different modes
             if (data.mode === 'chain' && data.chains) {
@@ -1548,12 +1528,12 @@ const AutoHeatmap = {
             const chainData = this.heatmapResult.chains[this.currentChain];
             if (!chainData || !chainData.images || !chainData.images[this.currentMetric]) return;
             imageData = chainData.images[this.currentMetric];
-            filename = `${this.currentChain}_${this.currentMetric}_heatmap.${format}`;
+            filename = `${this.currentChain}_${this.currentMetric}_${this.getPlotFileSuffix()}.${format}`;
         } else {
             const imagesData = type === 'grouped' ? this.heatmapResult.grouped_images : this.heatmapResult.images;
             if (!imagesData || !imagesData[this.currentMetric]) return;
             imageData = imagesData[this.currentMetric];
-            filename = `${this.currentMetric}${type === 'grouped' ? '_grouped' : ''}_heatmap.${format}`;
+            filename = `${this.currentMetric}${type === 'grouped' ? '_grouped' : ''}_${this.getPlotFileSuffix()}.${format}`;
         }
 
         const link = document.createElement('a');
@@ -1611,7 +1591,7 @@ const AutoHeatmap = {
                 Object.keys(chainData.images).forEach(metricName => {
                     const link = document.createElement('a');
                     link.href = 'data:image/png;base64,' + chainData.images[metricName];
-                    link.download = `${chain}_${metricName}_heatmap.png`;
+                    link.download = `${chain}_${metricName}_${this.getPlotFileSuffix()}.png`;
                     link.click();
                 });
             });
@@ -1625,7 +1605,7 @@ const AutoHeatmap = {
         Object.keys(imagesData).forEach(metricName => {
             const link = document.createElement('a');
             link.href = 'data:image/png;base64,' + imagesData[metricName];
-            link.download = `${metricName}${type === 'grouped' ? '_grouped' : ''}_heatmap.png`;
+            link.download = `${metricName}${type === 'grouped' ? '_grouped' : ''}_${this.getPlotFileSuffix()}.png`;
             link.click();
         });
     },
@@ -1693,34 +1673,37 @@ const AutoHeatmap = {
      * Generate integrated pipeline comparison HTML report.
      * Reuses current scanned base_path and selected chains.
      */
-    async generatePipelineComparisonReport() {
-        const basePath = (document.getElementById('basePath')?.value || this.basePath || '').trim();
-        if (!basePath) {
+    async generateHeatmapWebReport() {
+        if (!this.heatmapResult) {
             this.showError('请先填写并扫描base_path');
             return;
         }
 
-        const config = this.getPipelineReportConfigFromForm();
+        const config = this.getHeatmapReportConfigFromForm();
         if (!config) {
             return;
         }
-        this.savePipelineReportConfig(config);
+        this.saveHeatmapReportConfig(config);
+        this.showLoading('正在生成网页分析报告...');
 
         this.showLoading('正在生成Pipeline对比报告...');
         try {
             const payload = {
-                base_path: basePath,
-                pipelines: config.pipelines,
-                selected_chains: this.isChainMode ? this.selectedChains : null,
+                heatmap_result: this.heatmapResult,
                 output_name: config.output_name || null,
-                enable_heatmap: true,
-                enable_venn: config.enable_venn,
-                enable_html_report: true,
-                include_cdr3_analysis: config.include_cdr3_analysis,
-                embed_images: config.embed_images
+                embed_images: config.embed_images,
+                report_context: {
+                    source: 'similarity_heatmap',
+                    base_path: this.basePath || null,
+                    selected_samples: this.samples
+                        .filter(s => this.selectedSamples.has(s.display_name))
+                        .map(s => s.display_name),
+                    selected_chains: this.isChainMode ? this.selectedChains : null,
+                    generated_at: new Date().toISOString()
+                }
             };
 
-            const response = await fetch('/api/auto-heatmap/generate-pipeline-report', {
+            const response = await fetch('/api/auto-heatmap/generate-heatmap-report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1734,6 +1717,11 @@ const AutoHeatmap = {
             if (data.report_url) {
                 window.open(data.report_url, '_blank');
             }
+            const reportMsgText = data.report_url
+                ? `\n报告地址: ${data.report_url}`
+                : '\n报告未生成，请检查输出目录和日志。';
+            alert(`网页分析报告生成完成。Job ID: ${data.job_id}${reportMsgText}`);
+            return;
 
             const reportText = data.report_url
                 ? `\n报告地址: ${data.report_url}`
@@ -1742,6 +1730,61 @@ const AutoHeatmap = {
             alert(`Pipeline对比报告生成完成。Job ID: ${data.job_id}${reportText}`);
         } catch (error) {
             this.showError(error.message || '生成Pipeline报告失败');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    /**
+     * Generate web report from already generated similarity heatmap result.
+     */
+    async generateHeatmapWebReportV2() {
+        if (!this.heatmapResult) {
+            this.showError('请先生成热图后再创建网页报告');
+            return;
+        }
+
+        const config = this.getHeatmapReportConfigFromForm();
+        this.saveHeatmapReportConfig(config);
+        this.showLoading('正在生成网页分析报告...');
+
+        try {
+            const payload = {
+                heatmap_result: this.heatmapResult,
+                output_name: config.output_name || null,
+                embed_images: config.embed_images,
+                report_context: {
+                    source: 'similarity_heatmap',
+                    base_path: this.basePath || null,
+                    selected_samples: this.samples
+                        .filter(s => this.selectedSamples.has(s.display_name))
+                        .map(s => s.display_name),
+                    selected_chains: this.isChainMode ? this.selectedChains : null,
+                    generated_at: new Date().toISOString()
+                }
+            };
+
+            const response = await fetch('/api/auto-heatmap/generate-heatmap-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '生成网页分析报告失败');
+            }
+
+            if (data.report_url) {
+                window.open(data.report_url, '_blank');
+            }
+
+            const reportMsgText = data.report_url
+                ? `\n报告地址: ${data.report_url}`
+                : '\n报告未生成，请检查输出目录和日志。';
+            alert(`网页分析报告生成完成。Job ID: ${data.job_id}${reportMsgText}`);
+        } catch (error) {
+            this.showError(error.message || '生成网页分析报告失败');
         } finally {
             this.hideLoading();
         }
@@ -1838,7 +1881,7 @@ const AutoHeatmap = {
         // Prompt user for custom zip filename
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         const folderName = type === 'grouped' ? 'grouped_results' : 'original_results';
-        const defaultName = `similarity_heatmap_${folderName}_${timestamp} `;
+        const defaultName = `similarity_${this.getPlotFileSuffix()}_${folderName}_${timestamp} `;
         const customName = prompt('请输入压缩包名称（不含.zip扩展名）:', defaultName);
 
         if (customName === null) {
@@ -1863,7 +1906,7 @@ const AutoHeatmap = {
                     if (chainData.images) {
                         const imagesFolder = chainFolder.folder('heatmaps');
                         for (const [metricName, base64Data] of Object.entries(chainData.images)) {
-                            const fileName = `${chain}_${metricName}_heatmap.png`;
+                            const fileName = `${chain}_${metricName}_${this.getPlotFileSuffix()}.png`;
                             imagesFolder.file(fileName, base64Data, { base64: true });
                         }
                     }
@@ -1898,7 +1941,7 @@ const AutoHeatmap = {
                 if (imagesData) {
                     const imagesFolder = folder.folder('heatmaps');
                     for (const [metricName, base64Data] of Object.entries(imagesData)) {
-                        const fileName = `${metricName}${suffix}_heatmap.png`;
+                        const fileName = `${metricName}${suffix}_${this.getPlotFileSuffix()}.png`;
                         imagesFolder.file(fileName, base64Data, { base64: true });
                     }
                 }

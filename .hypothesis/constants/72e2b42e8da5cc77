@@ -1,4 +1,0 @@
-# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\file_parser.py
-# hypothesis_version: 6.148.7
-
-['.csv', '.csv.gz', '.xlsx', 'application/gzip', 'codec', 'column_count', 'columns', 'error', 'error_type', 'filename', 'gb2312', 'gbk', 'latin-1', 'mime_type', 'openpyxl', 'provided_extension', 'records', 'row_count', 'sample_data', 'size', 'supported_extensions', 'text/csv', 'tried_encodings', 'utf-8']

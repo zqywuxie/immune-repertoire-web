@@ -30,3 +30,12 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+.hypothesis/
+.tmp_pytest/
+flask_app/tests/_tmp_runtime/
+flask_app/pytest-cache-files-*/
+flask_app/.tmp_skillhub*
+flask_app/skills/
+treemap/examples/data/
+treemap/examples/html/
+treemap/examples/result/

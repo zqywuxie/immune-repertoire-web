@@ -154,6 +154,7 @@ def register_blueprints(app):
     from flask_app.routes.api_ppt import ppt_bp
     from flask_app.routes.api_ppt_comparison import ppt_comparison_bp
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
+    from flask_app.routes.api_treemap import treemap_bp
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
@@ -167,6 +168,8 @@ def register_blueprints(app):
     app.register_blueprint(ppt_comparison_bp)
     # Register auto heatmap analysis API blueprint
     app.register_blueprint(auto_heatmap_bp)
+    # Register treemap analysis API blueprint
+    app.register_blueprint(treemap_bp)
 
 
 # Application instance for single-command startup

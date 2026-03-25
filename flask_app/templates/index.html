@@ -52,18 +52,75 @@
         margin-bottom: 0.75rem;
     }
 
-    .feature-item {
-        padding: 1rem 1rem;
-        border-bottom: 1px solid #f1f3f5;
+    .analysis-section-body {
+        padding: 1.25rem;
     }
 
-    .feature-item:last-child {
-        border-bottom: none;
+    .analysis-section-note {
+        color: #6c757d;
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
     }
 
-    .feature-item strong {
-        display: block;
-        margin-bottom: 0.2rem;
+    .analysis-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .analysis-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.9rem;
+        padding: 1rem 1.1rem;
+        min-height: 120px;
+        border: 1px solid #e9ecef;
+        border-radius: 0.85rem;
+        background: #ffffff;
+    }
+
+    .analysis-icon {
+        width: 42px;
+        height: 42px;
+        flex: 0 0 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.75rem;
+        background: #f8f9fa;
+        border: 1px solid #edf0f2;
+        font-size: 1.1rem;
+    }
+
+    .analysis-content {
+        min-width: 0;
+    }
+
+    .analysis-title {
+        display: inline-block;
+        margin-bottom: 0.35rem;
+        color: #212529;
+        font-size: 1rem;
+        font-weight: 600;
+        line-height: 1.4;
+        text-decoration: none;
+    }
+
+    .analysis-title:hover {
+        color: #0d6efd;
+    }
+
+    .analysis-desc {
+        margin-bottom: 0;
+        color: #6c757d;
+        font-size: 0.92rem;
+        line-height: 1.6;
+    }
+
+    @media (max-width: 991.98px) {
+        .analysis-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     @media (max-width: 767.98px) {
@@ -73,6 +130,10 @@
 
         .action-card .card-body {
             min-height: 130px;
+        }
+
+        .analysis-section-body {
+            padding: 1rem;
         }
     }
 </style>
@@ -84,7 +145,7 @@
         <div class="row align-items-center g-3">
             <div class="col-lg-8">
                 <h1 class="hero-title">免疫组库数据分析平台</h1>
-                <p class="hero-desc">支持相似度热图、多样性指标、链特异分析、统计比较与 PPT 图片替换等分析流程。</p>
+                <p class="hero-desc">支持相似度热图、多样性指标、链特异分析、统计比较等常用分析流程。</p>
             </div>
             <div class="col-lg-4 text-lg-end">
                 <a href="{{ url_for('pages.analysis_page') }}" class="btn btn-primary">
@@ -95,7 +156,7 @@
     </div>
 
     <div class="row g-3 mb-4">
-        <div class="col-6 col-lg-3">
+        <div class="col-md-4">
             <a href="{{ url_for('pages.upload_page') }}" class="card action-card h-100 text-decoration-none">
                 <div class="card-body">
                     <div class="action-icon bg-primary bg-opacity-10">
@@ -106,7 +167,7 @@
                 </div>
             </a>
         </div>
-        <div class="col-6 col-lg-3">
+        <div class="col-md-4">
             <a href="{{ url_for('pages.files_page') }}" class="card action-card h-100 text-decoration-none">
                 <div class="card-body">
                     <div class="action-icon bg-success bg-opacity-10">
@@ -117,7 +178,7 @@
                 </div>
             </a>
         </div>
-        <div class="col-6 col-lg-3">
+        <div class="col-md-4">
             <a href="{{ url_for('pages.analysis_page') }}" class="card action-card h-100 text-decoration-none">
                 <div class="card-body">
                     <div class="action-icon bg-info bg-opacity-10">
@@ -128,92 +189,71 @@
                 </div>
             </a>
         </div>
-        <div class="col-6 col-lg-3">
-            <a href="{{ url_for('pages.ppt_heatmap_page') }}" class="card action-card h-100 text-decoration-none">
-                <div class="card-body">
-                    <div class="action-icon bg-warning bg-opacity-10">
-                        <i class="bi bi-file-earmark-ppt text-warning fs-4"></i>
-                    </div>
-                    <h6 class="mb-1">PPT 图片替换</h6>
-                    <small class="text-muted">预览并自定义排版</small>
-                </div>
-            </a>
-        </div>
     </div>
 
     <div class="row g-3">
-        <div class="col-lg-6">
+        <div class="col-lg-12">
             <div class="card h-100">
                 <div class="card-header bg-white">
                     <h6 class="mb-0">支持的分析类型</h6>
                 </div>
-                <div class="card-body p-0">
-                    <div class="feature-item">
-                        <i class="bi bi-grid-3x3 text-primary me-2"></i>
-                        <strong>相似度热图</strong>
-                        <div class="text-muted small">R inner/outer、CDR3 sharing、Morisita-Horn 等指标。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-bar-chart-steps text-success me-2"></i>
-                        <strong>测序深度分析</strong>
-                        <div class="text-muted small">Total RNA、Reads/UMI、QC Rate 等指标。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-diagram-3 text-info me-2"></i>
-                        <strong>链特异分析</strong>
-                        <div class="text-muted small">支持 IGH、IGK、IGL、TRA、TRB 等链类型。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-pie-chart text-warning me-2"></i>
-                        <strong>多样性指标</strong>
-                        <div class="text-muted small">支持 D50、Gini、Shannon 等常用指标。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-graph-up text-danger me-2"></i>
-                        <strong><a href="{{ url_for('pages.statistical_comparison_page') }}"
-                                class="text-decoration-none">统计比较分析</a></strong>
-                        <div class="text-muted small">支持显著性检验与可视化比较。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-grid-3x3-gap me-2" style="color: #5c6f82;"></i>
-                        <strong><a href="{{ url_for('pages.similarity_heatmap_page') }}"
-                                class="text-decoration-none">自动热图分析</a></strong>
-                        <div class="text-muted small">支持字段映射、样本分组与批量处理。</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header bg-white">
-                    <h6 class="mb-0">支持的文件格式</h6>
-                </div>
-                <div class="card-body p-0">
-                    <div class="feature-item">
-                        <i class="bi bi-filetype-csv text-success me-2"></i>
-                        <strong>CSV 文件</strong>
-                        <div class="text-muted small">逗号分隔文本格式。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-file-earmark-excel text-success me-2"></i>
-                        <strong>Excel 文件</strong>
-                        <div class="text-muted small">支持 .xlsx 格式。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-file-zip text-primary me-2"></i>
-                        <strong>压缩 CSV</strong>
-                        <div class="text-muted small">支持 .csv.gz 格式。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-file-pdf text-danger me-2"></i>
-                        <strong>PDF 文件</strong>
-                        <div class="text-muted small">支持报告内容提取。</div>
-                    </div>
-                    <div class="feature-item">
-                        <i class="bi bi-file-earmark-ppt text-warning me-2"></i>
-                        <strong>PPT 文件</strong>
-                        <div class="text-muted small">支持模板图片替换与导出。</div>
+                <div class="analysis-section-body">
+                    <p class="analysis-section-note">覆盖基础指标、统计比较和自动化分析场景，结构保持简洁，便于快速浏览。</p>
+                    <div class="analysis-grid">
+                        <div class="analysis-card">
+                            <div class="analysis-icon text-primary">
+                                <i class="bi bi-grid-3x3"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <div class="analysis-title">相似度热图</div>
+                                <p class="analysis-desc">支持 R inner/outer、CDR3 sharing、Morisita-Horn 等相似度指标。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <div class="analysis-icon text-success">
+                                <i class="bi bi-bar-chart-steps"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <div class="analysis-title">测序深度分析</div>
+                                <p class="analysis-desc">查看 Total RNA、Reads/UMI、QC Rate 等核心质量指标。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <div class="analysis-icon text-info">
+                                <i class="bi bi-diagram-3"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <div class="analysis-title">链特异分析</div>
+                                <p class="analysis-desc">支持 IGH、IGK、IGL、TRA、TRB 等链类型的独立分析。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <div class="analysis-icon text-warning">
+                                <i class="bi bi-pie-chart"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <div class="analysis-title">多样性指标</div>
+                                <p class="analysis-desc">提供 D50、Gini、Shannon 等常用多样性评价指标。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <div class="analysis-icon text-danger">
+                                <i class="bi bi-graph-up"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <a href="{{ url_for('pages.statistical_comparison_page') }}" class="analysis-title">统计比较分析</a>
+                                <p class="analysis-desc">进行显著性检验，并结合图表完成组间差异比较。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <div class="analysis-icon" style="color: #5c6f82;">
+                                <i class="bi bi-grid-3x3-gap"></i>
+                            </div>
+                            <div class="analysis-content">
+                                <a href="{{ url_for('pages.similarity_heatmap_page') }}" class="analysis-title">自动热图分析</a>
+                                <p class="analysis-desc">支持字段映射、样本分组与批量处理，适合标准化流程。</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -177,6 +177,12 @@ def similarity_heatmap_page():
     return render_template('analysis/similarity_heatmap.html')
 
 
+@pages_bp.route('/analysis/treemap')
+def treemap_page():
+    """Treemap analysis page with chain-based sample detection and HTML report viewing."""
+    return render_template('analysis/treemap.html')
+
+
 @pages_bp.route('/analysis/pipeline-comparison')
 def pipeline_comparison_page():
     """Pipeline comparison page entry.

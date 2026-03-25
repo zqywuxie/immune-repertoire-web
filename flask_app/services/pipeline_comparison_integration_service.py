@@ -110,6 +110,7 @@ class PipelineComparisonIntegrationService:
 
     _PIPELINE_RESULT_DIR = "pipeline_comparison"
     _PIPELINE_SCRIPT_NAME = "pipeline_comparison_heatmap.py"
+    _SCAN_FILE_LIMIT = 200
 
     def __init__(self, results_root: Path):
         self.results_root = Path(results_root).resolve()
@@ -202,6 +203,244 @@ class PipelineComparisonIntegrationService:
         parts.append(re.escape(file_pattern[cursor:]))
         pattern = "^" + "".join(parts) + "$"
         return re.compile(pattern, re.IGNORECASE)
+
+    def _read_columns_preview(self, file_path: Path) -> Tuple[List[str], int]:
+        """Read columns and a small row preview size from a data file."""
+        try:
+            sep = self.auto_heatmap_service._detect_separator(str(file_path))
+            preview_df = pd.read_csv(
+                file_path,
+                sep=sep,
+                nrows=20,
+                encoding="utf-8",
+                on_bad_lines="skip",
+            )
+            return preview_df.columns.tolist(), len(preview_df)
+        except Exception:
+            return [], 0
+
+    def _guess_file_pattern_from_filename(self, filename: str) -> str:
+        """
+        Guess a {sample}/{chain} filename template from one filename.
+        This is a best-effort fallback for custom pipelines.
+        """
+        if not filename:
+            return "{sample}_{chain}.csv"
+
+        path_obj = Path(filename)
+        stem = path_obj.stem
+        suffix = path_obj.suffix or ".csv"
+
+        chain_tokens = sorted(
+            set(self.auto_heatmap_service.CHAIN_TYPES),
+            key=len,
+            reverse=True,
+        )
+        chain_regex = re.compile("|".join(re.escape(token) for token in chain_tokens), re.IGNORECASE)
+        chain_matches = list(chain_regex.finditer(stem))
+
+        if not chain_matches:
+            return f"{{sample}}_{{chain}}{suffix}"
+
+        chain_match = chain_matches[-1]
+        before_chain = stem[:chain_match.start()]
+        after_chain = stem[chain_match.end():]
+
+        sample_token = ""
+        sample_candidates = [token for token in re.split(r"[_\-]+", before_chain) if token]
+        if sample_candidates:
+            sample_token = sample_candidates[-1]
+
+        if sample_token:
+            sample_token_regex = re.compile(
+                rf"(?<![A-Za-z0-9]){re.escape(sample_token)}(?![A-Za-z0-9])",
+                re.IGNORECASE,
+            )
+            before_chain = sample_token_regex.sub("{sample}", before_chain)
+        elif "{sample}" not in before_chain:
+            before_chain = "{sample}_" + before_chain
+
+        guessed = f"{before_chain}{{chain}}{after_chain}{suffix}"
+        if "{sample}" not in guessed:
+            guessed = "{sample}_" + guessed
+        if "{chain}" not in guessed:
+            guessed = guessed.replace(suffix, "") + "_{chain}" + suffix
+        return guessed
+
+    def scan_pipeline_root(self, base_path: str) -> Dict[str, Any]:
+        """
+        Scan a root folder and detect:
+        - Pipeline subfolders
+        - pep files under each pipeline
+        - Suggested file pattern and cdr3/copy fields per pipeline
+        """
+        if not str(base_path or "").strip():
+            raise ValidationError(
+                message="base_path is required",
+                details={"field": "base_path"},
+            )
+        base_dir = Path(str(base_path).strip()).expanduser().resolve()
+        if not base_dir.exists():
+            raise ValidationError(
+                message=f"Path does not exist: {base_dir}",
+                details={"field": "base_path"},
+            )
+        if not base_dir.is_dir():
+            raise ValidationError(
+                message=f"Path is not a directory: {base_dir}",
+                details={"field": "base_path"},
+            )
+
+        pipeline_dirs = sorted(
+            [
+                item
+                for item in base_dir.iterdir()
+                if item.is_dir() and not item.name.startswith(".")
+            ],
+            key=lambda p: p.name.lower(),
+        )
+        if not pipeline_dirs:
+            raise ValidationError(
+                message="No subfolders found under base_path.",
+                details={"field": "base_path"},
+            )
+
+        supported_exts = set(ext.lower() for ext in self.auto_heatmap_service.SUPPORTED_EXTENSIONS)
+        pipelines: List[Dict[str, Any]] = []
+        total_recognized_files = 0
+
+        for pipeline_dir in pipeline_dirs:
+            pipeline_name = pipeline_dir.name
+            default_cfg = DEFAULT_PIPELINE_CONFIG.get(pipeline_name, {})
+            default_cdr3 = str(default_cfg.get("cdr3_col", "")).strip()
+            default_copy = str(default_cfg.get("copy_col", "")).strip()
+            default_pattern = str(default_cfg.get("file_pattern", "")).strip()
+
+            default_regex: Optional[re.Pattern[str]] = None
+            if default_pattern:
+                try:
+                    default_regex = self._build_pattern_regex(default_pattern)
+                except Exception:
+                    default_regex = None
+
+            recognized_files: List[Dict[str, Any]] = []
+            visited_candidates = 0
+
+            for file_path in sorted(pipeline_dir.rglob("*"), key=lambda p: str(p).lower()):
+                if not file_path.is_file():
+                    continue
+                if file_path.suffix.lower() not in supported_exts:
+                    continue
+                visited_candidates += 1
+                if visited_candidates > self._SCAN_FILE_LIMIT:
+                    break
+
+                columns, preview_rows = self._read_columns_preview(file_path)
+
+                suggested_cdr3 = self.auto_heatmap_service._find_matching_column(
+                    columns,
+                    self.auto_heatmap_service.CDR3_COLUMN_PATTERNS,
+                )
+                suggested_copy = self.auto_heatmap_service._find_matching_column(
+                    columns,
+                    self.auto_heatmap_service.COPY_COLUMN_PATTERNS,
+                )
+
+                name_has_pep = "pep" in file_path.name.lower()
+                matched_default_pattern = bool(default_regex and default_regex.match(file_path.name))
+                has_cdr3_copy = bool(suggested_cdr3 and suggested_copy)
+
+                # Intelligent recognition rules:
+                # 1) filename contains "pep", OR
+                # 2) columns indicate both CDR3 and copy/count-like fields, OR
+                # 3) filename matches default pipeline pattern (YXJ/DW/YPL, etc.)
+                if not (name_has_pep or has_cdr3_copy or matched_default_pattern):
+                    continue
+
+                if not suggested_cdr3 and default_cdr3 and default_cdr3 in columns:
+                    suggested_cdr3 = default_cdr3
+                if not suggested_copy and default_copy and default_copy in columns:
+                    suggested_copy = default_copy
+
+                score = 0
+                if matched_default_pattern:
+                    score += 5
+                if name_has_pep:
+                    score += 4
+                if suggested_cdr3:
+                    score += 3
+                if suggested_copy:
+                    score += 2
+
+                recognized_files.append(
+                    {
+                        "filename": file_path.name,
+                        "filepath": str(file_path),
+                        "relative_path": str(file_path.relative_to(pipeline_dir)),
+                        "columns": columns,
+                        "preview_rows": preview_rows,
+                        "suggested_cdr3": suggested_cdr3,
+                        "suggested_copy": suggested_copy,
+                        "name_has_pep": name_has_pep,
+                        "matched_default_pattern": matched_default_pattern,
+                        "recognition_score": score,
+                    }
+                )
+
+            recognized_files.sort(
+                key=lambda item: (-int(item.get("recognition_score", 0)), str(item.get("filename", "")).lower())
+            )
+
+            total_recognized_files += len(recognized_files)
+            suggested_pattern = default_pattern
+            suggested_cdr3 = default_cdr3
+            suggested_copy = default_copy
+
+            if recognized_files:
+                first_file = recognized_files[0]
+                if not suggested_pattern:
+                    suggested_pattern = self._guess_file_pattern_from_filename(first_file["filename"])
+                if first_file.get("suggested_cdr3"):
+                    suggested_cdr3 = first_file["suggested_cdr3"]
+                if first_file.get("suggested_copy"):
+                    suggested_copy = first_file["suggested_copy"]
+            elif not suggested_pattern:
+                fallback_files = sorted(
+                    [
+                        file_path
+                        for file_path in pipeline_dir.rglob("*")
+                        if file_path.is_file() and file_path.suffix.lower() in supported_exts
+                    ],
+                    key=lambda p: str(p).lower(),
+                )
+                if fallback_files:
+                    suggested_pattern = self._guess_file_pattern_from_filename(fallback_files[0].name)
+                else:
+                    suggested_pattern = "{sample}_{chain}.csv"
+
+            pipelines.append(
+                {
+                    "name": pipeline_name,
+                    "directory": str(pipeline_dir),
+                    "default_config_matched": pipeline_name in DEFAULT_PIPELINE_CONFIG,
+                    # Keep key name for backward compatibility in frontend.
+                    # Data now includes intelligently recognized compatible files.
+                    "pep_files": recognized_files,
+                    "pep_file_count": len(recognized_files),
+                    "suggested_file_pattern": suggested_pattern,
+                    "suggested_cdr3": suggested_cdr3,
+                    "suggested_copy": suggested_copy,
+                }
+            )
+
+        return {
+            "base_path": str(base_dir),
+            "pipelines": pipelines,
+            "summary": (
+                f"Detected {len(pipelines)} pipeline folders, "
+                f"{total_recognized_files} compatible files in total."
+            ),
+        }
 
     def _resolve_pipeline_definitions(
         self,
@@ -759,4 +998,3 @@ def get_pipeline_comparison_service(
     ):
         _pipeline_comparison_service = PipelineComparisonIntegrationService(resolved_root)
     return _pipeline_comparison_service
-

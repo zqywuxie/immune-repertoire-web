@@ -1,4 +1,0 @@
-# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\similarity_analyzer.py
-# hypothesis_version: 6.148.7
-
-[0.0, 300, 'CDR3(pep)', 'RdYlBu_r', 'all_data', 'cdr3', 'cdr3_sharing', 'copy', 'expression_sharing', 'morisita_horn', 'r2_inner', 'r2_outer', 'reads', 'sample', 'sorensen', 'viridis']

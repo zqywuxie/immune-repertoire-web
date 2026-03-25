@@ -1,4 +1,0 @@
-# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\config_service.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.2, 0.8, 1.0, 300, 600, 'RdBu_r', 'RdYlBu_r', 'Spectral', 'UserConfiguration', 'bar_show_values', 'bar_spacing', 'bar_width', 'cividis', 'coolwarm', 'dark', 'default', 'default_color_scheme', 'default_dpi', 'default_figure_size', 'default_font_size', 'en-US', 'heatmap_annotation', 'heatmap_cmap', 'heatmap_vmax', 'heatmap_vmin', 'inferno', 'light', 'locale', 'magma', 'plasma', 'seismic', 'theme', 'user_configs', 'viridis', 'zh-CN']

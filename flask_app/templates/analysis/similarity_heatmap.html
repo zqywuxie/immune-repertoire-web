@@ -497,13 +497,13 @@
     <!-- Step 5: Generate Heatmap -->
     <div class="card mb-4" id="step5Card" style="display:none">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><i class="bi bi-image me-2"></i>步骤 5: 生成热图</h6>
+            <h6 class="mb-0"><i class="bi bi-image me-2"></i>步骤 5: 生成图表</h6>
             <div class="d-flex gap-2">
-                <button class="btn btn-outline-secondary" onclick="AutoHeatmap.generatePipelineComparisonReport()">
-                    <i class="bi bi-file-earmark-richtext me-1"></i>Pipeline对比报告
+                <button class="btn btn-outline-secondary" onclick="AutoHeatmap.generateHeatmapWebReportV2()">
+                    <i class="bi bi-file-earmark-richtext me-1"></i>生成网页报告
                 </button>
                 <button class="btn btn-primary" onclick="AutoHeatmap.generateHeatmap()">
-                    <i class="bi bi-play-fill me-1"></i>生成热图
+                    <i class="bi bi-play-fill me-1"></i>生成图表
                 </button>
             </div>
         </div>
@@ -515,49 +515,38 @@
             <div class="card border-0 bg-light mb-3">
                 <div class="card-body py-3">
                     <div class="fw-semibold mb-2">
-                        <i class="bi bi-gear me-1"></i>Pipeline对比报告参数
+                        <i class="bi bi-gear me-1"></i>网页分析报告参数
                     </div>
                     <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label mb-1">Pipeline顺序（逗号分隔）</label>
-                            <input type="text" class="form-control form-control-sm" id="pipelineOrderInput" value="YXJ,DW,YPL">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label mb-1">输出任务名（可选）</label>
-                            <input type="text" class="form-control form-control-sm" id="pipelineOutputName" placeholder="例如：pipeline_cmp_20260304">
-                        </div>
-                    </div>
-                    <div class="row g-3 mt-1">
-                        <div class="col-md-4">
-                            <div class="form-check form-switch mt-2">
-                                <input class="form-check-input" type="checkbox" id="pipelineEnableVenn" checked>
-                                <label class="form-check-label" for="pipelineEnableVenn">生成Venn图</label>
-                            </div>
+                        <div class="col-md-8">
+                            <label class="form-label mb-1">报告任务名（可选）</label>
+                            <input type="text" class="form-control form-control-sm" id="heatmapReportOutputName" placeholder="例如：similarity_report_20260305">
                         </div>
                         <div class="col-md-4">
                             <div class="form-check form-switch mt-2">
-                                <input class="form-check-input" type="checkbox" id="pipelineIncludeCdr3">
-                                <label class="form-check-label" for="pipelineIncludeCdr3">附带CDR3导出包</label>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check form-switch mt-2">
-                                <input class="form-check-input" type="checkbox" id="pipelineEmbedImages">
-                                <label class="form-check-label" for="pipelineEmbedImages">报告内嵌图片（文件更大）</label>
+                                <input class="form-check-input" type="checkbox" id="heatmapReportEmbedImages">
+                                <label class="form-check-label" for="heatmapReportEmbedImages">报告内嵌图片（文件更大）</label>
                             </div>
                         </div>
                     </div>
                     <small class="text-muted d-block mt-2">
-                        这些参数会自动保存在浏览器本地，下次可直接复用。
+                        先点击“生成热图”，再点击“生成网页报告”。这些参数会自动保存在浏览器本地。
                     </small>
                 </div>
             </div>
             <div class="row mb-3">
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label class="form-label">图表类型</label>
+                    <select class="form-select" id="plotType">
+                        <option value="heatmap">Heatmap</option>
+                        <option value="treemap">Treemap</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
                     <label class="form-label">热图标题</label>
                     <input type="text" class="form-control" id="heatmapTitle" placeholder="可选">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label">配色方案</label>
                     <select class="form-select" id="colorScheme">
                         <option value="viridis">Viridis</option>
@@ -567,7 +556,7 @@
                         <option value="Greens">Greens</option>
                     </select>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label">显示数值</label>
                     <div class="form-check form-switch mt-2">
                         <input class="form-check-input" type="checkbox" id="showAnnotation" checked>
@@ -580,11 +569,11 @@
                 <ul class="nav nav-tabs" role="tablist">
                     <li class="nav-item" role="presentation">
                         <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#originalHeatmap"
-                            type="button">原始样本热图</button>
+                            type="button">原始样本图</button>
                     </li>
                     <li class="nav-item" role="presentation" id="groupedTabItem" style="display:none">
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#groupedHeatmap"
-                            type="button">分组平均热图</button>
+                            type="button">分组平均图</button>
                     </li>
                 </ul>
                 <div class="tab-content">
@@ -618,7 +607,7 @@
                             </ul>
                         </div>
                         <div class="heatmap-container mt-3">
-                            <img id="originalHeatmapImage" class="heatmap-image" src="" alt="原始热图">
+                            <img id="originalHeatmapImage" class="heatmap-image" src="" alt="原始图表">
                         </div>
                         <div class="mt-3 d-flex flex-wrap gap-2">
                             <button class="btn btn-outline-primary btn-sm"
@@ -667,7 +656,7 @@
                             </ul>
                         </div>
                         <div class="heatmap-container mt-3">
-                            <img id="groupedHeatmapImage" class="heatmap-image" src="" alt="分组热图">
+                            <img id="groupedHeatmapImage" class="heatmap-image" src="" alt="分组图表">
                         </div>
                         <div class="mt-3 d-flex flex-wrap gap-2">
                             <button class="btn btn-outline-primary btn-sm"

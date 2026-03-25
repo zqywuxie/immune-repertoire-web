@@ -10,6 +10,7 @@ Key Features:
 4. Group averaging for similarity calculations
 """
 import os
+import gzip
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Set
@@ -125,7 +126,7 @@ class AutoHeatmapService:
     """
     
     # Common data file extensions to look for
-    SUPPORTED_EXTENSIONS = ['.csv', '.tsv', '.txt']
+    SUPPORTED_EXTENSIONS = ['.csv', '.tsv', '.txt', '.csv.gz', '.tsv.gz', '.txt.gz']
     
     # Directories to skip during scanning
     SKIP_DIRECTORIES = [
@@ -435,15 +436,10 @@ class AutoHeatmapService:
                 entry_path = os.path.join(directory, entry)
                 
                 if os.path.isfile(entry_path):
-                    # Debug: Check if it's a CSV file
-                    if entry.lower().endswith('.csv'):
-                        logger.debug(f"Found CSV file: {entry} at {entry_path}")
-                        if self._is_data_file(entry):
-                            file_info = self._get_file_info(entry, entry_path)
-                            data_files.append(file_info)
-                            logger.debug(f"Added data file: {entry}")
-                        else:
-                            logger.debug(f"CSV file rejected by _is_data_file: {entry}")
+                    if self._is_data_file(entry):
+                        file_info = self._get_file_info(entry, entry_path)
+                        data_files.append(file_info)
+                        logger.debug(f"Added data file: {entry}")
                 elif os.path.isdir(entry_path):
                     # Recurse into subdirectory
                     sub_files = self._find_data_files_recursive(entry_path, max_depth - 1)
@@ -461,6 +457,17 @@ class AutoHeatmapService:
         """Check if a file is a supported data file."""
         lower_name = filename.lower()
         return any(lower_name.endswith(ext) for ext in self.SUPPORTED_EXTENSIONS)
+
+    @staticmethod
+    def _is_gzip_file(filepath: str) -> bool:
+        """Check whether a file path points to a gzip-compressed text file."""
+        return str(filepath).lower().endswith('.gz')
+
+    def _open_text_file(self, filepath: str):
+        """Open plain-text and gzip-text files in one place."""
+        if self._is_gzip_file(filepath):
+            return gzip.open(filepath, 'rt', encoding='utf-8', errors='ignore')
+        return open(filepath, 'r', encoding='utf-8', errors='ignore')
     
     def _get_file_info(self, filename: str, filepath: str) -> DataFileInfo:
         """Get information about a data file."""
@@ -476,17 +483,27 @@ class AutoHeatmapService:
             try:
                 # Detect separator
                 sep = self._detect_separator(filepath)
-                df = pd.read_csv(filepath, sep=sep, nrows=5, encoding='utf-8', on_bad_lines='skip')
+                df = pd.read_csv(
+                    filepath,
+                    sep=sep,
+                    nrows=5,
+                    encoding='utf-8',
+                    on_bad_lines='skip',
+                    compression='infer'
+                )
                 file_info.columns = df.columns.tolist()
                 
-                # Count rows - use a faster method
-                try:
-                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                        file_info.rows = sum(1 for _ in f) - 1
-                    if file_info.rows < 0:
-                        file_info.rows = 0
-                except:
+                # For gzip files, skip full row counting to avoid expensive decompression during scan.
+                if self._is_gzip_file(filepath):
                     file_info.rows = 0
+                else:
+                    try:
+                        with self._open_text_file(filepath) as f:
+                            file_info.rows = sum(1 for _ in f) - 1
+                        if file_info.rows < 0:
+                            file_info.rows = 0
+                    except Exception:
+                        file_info.rows = 0
             except Exception as e:
                 # Even if we can't read the file, still return the file info
                 logger.debug(f"Could not read columns from {filepath}: {e}")
@@ -501,7 +518,7 @@ class AutoHeatmapService:
     def _detect_separator(self, filepath: str) -> str:
         """Detect the separator used in a file."""
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            with self._open_text_file(filepath) as f:
                 first_line = f.readline()
                 if '\t' in first_line:
                     return '\t'
@@ -526,7 +543,14 @@ class AutoHeatmapService:
         
         try:
             sep = self._detect_separator(filepath)
-            df = pd.read_csv(filepath, sep=sep, nrows=5)
+            df = pd.read_csv(
+                filepath,
+                sep=sep,
+                nrows=5,
+                encoding='utf-8',
+                on_bad_lines='skip',
+                compression='infer'
+            )
             columns = df.columns.tolist()
             
             # Try to auto-detect CDR3 and copy columns
@@ -592,7 +616,12 @@ class AutoHeatmapService:
             
             try:
                 sep = self._detect_separator(matching_file.filepath)
-                df = pd.read_csv(matching_file.filepath, sep=sep)
+                df = pd.read_csv(
+                    matching_file.filepath,
+                    sep=sep,
+                    compression='infer',
+                    low_memory=False
+                )
                 
                 # Extract only the needed columns
                 cdr3_col = field_mapping.cdr3_column
@@ -657,7 +686,12 @@ class AutoHeatmapService:
             if matching_file:
                 try:
                     sep = self._detect_separator(matching_file.filepath)
-                    df = pd.read_csv(matching_file.filepath, sep=sep)
+                    df = pd.read_csv(
+                        matching_file.filepath,
+                        sep=sep,
+                        compression='infer',
+                        low_memory=False
+                    )
                     
                     # 提取需要的列
                     cdr3_col = field_mapping.cdr3_column

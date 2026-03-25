@@ -1,4 +1,0 @@
-# file: E:\Desktop\南华\Work\WenJing Pan\immune-repertoire-web\flask_app\services\parameter_template_service.py
-# hypothesis_version: 6.148.7
-
-[100, 'IGH', 'IGK', 'IGL', 'TRA', 'TRB', 'TRD', 'TRG', 'analysis_type', 'baseline_sample', 'cdr3_sharing', 'chain_specific', 'chains', 'copy', 'created_at', 'd50', 'diversity_metrics', 'expression_sharing', 'gini', 'group_by', 'id', 'metric', 'metrics', 'migs_good', 'min_reads', 'morisita_horn', 'name', 'normalize', 'parameters', 'r2_inner', 'r2_outer', 'reads_good', 'reads_umi', 'sequencing_depth', 'shannon', 'show_combined', 'show_group_averages', 'show_percentage_diff', 'show_statistics', 'similarity_heatmap', 'simpson', 'sorensen', 'supported_types', 'template_id', 'total_reads', 'total_rna', 'ucdr3', 'updated_at']
