@@ -1,95 +1,110 @@
-# Immune Repertoire Analysis Web Application
+# Immune Repertoire Web
 
-免疫组库数据分析Web应用程序，提供用户友好的界面进行免疫组库数据分析。
+基于 Flask 的免疫组库分析与报告生成项目，当前仓库主要围绕 `flask_app` 提供网页分析流程、结果导出和辅助脚本。
 
-## 项目结构
+## 当前结构
 
-```
+```text
 immune-repertoire-web/
-├── backend/                 # FastAPI后端
-│   ├── app/
-│   │   ├── api/            # API路由
-│   │   │   └── routes/     # 路由模块
-│   │   ├── models/         # 数据库模型
-│   │   ├── services/       # 业务逻辑服务
-│   │   ├── tasks/          # Celery异步任务
-│   │   ├── utils/          # 工具函数
-│   │   ├── config.py       # 配置管理
-│   │   ├── main.py         # FastAPI入口
-│   │   └── celery_app.py   # Celery配置
-│   ├── alembic/            # 数据库迁移
-│   ├── requirements.txt    # Python依赖
-│   └── .env.example        # 环境变量示例
-├── frontend/               # React前端
-│   ├── src/
-│   │   ├── components/     # React组件
-│   │   ├── pages/          # 页面组件
-│   │   ├── services/       # API服务
-│   │   ├── store/          # Zustand状态管理
-│   │   └── types/          # TypeScript类型定义
-│   ├── package.json        # Node依赖
-│   └── vite.config.ts      # Vite配置
-└── README.md
+├── flask_app/                         # 主应用
+│   ├── app.py                         # Flask 启动入口
+│   ├── config.py                      # 配置
+│   ├── requirements.txt               # Python 依赖
+│   ├── routes/                        # 页面和 API 路由
+│   ├── services/                      # 分析、报表、渲染服务
+│   ├── templates/                     # Jinja 页面模板
+│   ├── static/                        # 前端脚本和样式资源
+│   ├── models/                        # 数据模型
+│   ├── migrations/                    # 数据库迁移
+│   ├── data/                          # 运行期上传与结果目录
+│   └── tests/                         # 测试
+├── treemap/                           # 独立 treemap 脚本与示例
+│   ├── generate_treemap_html.py       # 兼容保留的独立入口
+│   ├── legacy_scripts/                # 历史批处理脚本
+│   └── examples/                      # 示例数据与参考产物
+├── aggregate_shared_analysis_report.py
+├── pipeline_comparison_heatmap.py
+└── standalone_heatmap_cli.py
 ```
 
-## 技术栈
+## 主要功能
 
-### 后端
-- FastAPI - Web框架
-- SQLAlchemy - ORM
-- Celery - 异步任务队列
-- Redis - 消息代理和缓存
-- Alembic - 数据库迁移
+- 文件上传与管理
+- 统一分析页面
+- 相似度热图分析
+- Treemap 分析与 HTML/PNG/ZIP 导出
+- Pipeline 对比分析
+- 统计比较分析
+- PDF 提取
+- PPT 热图替换
 
-### 前端
-- React 18 + TypeScript
-- Ant Design - UI组件库
-- ECharts - 图表库
-- Zustand - 状态管理
-- Axios - HTTP客户端
+## 主要页面
 
-## 快速开始
+- `/`：首页
+- `/upload`：文件上传
+- `/files`：文件管理
+- `/analysis`：统一分析
+- `/analysis/similarity-heatmap`：相似度热图
+- `/analysis/treemap`：Treemap 分析
+- `/analysis/pipeline-comparison`：Pipeline 对比
+- `/analysis/statistical`：统计比较
+- `/analysis/pdf-extractor`：PDF 提取
+- `/analysis/ppt-heatmap`：PPT 热图替换
 
-### 后端
+## 快速启动
+
+### 1. 创建环境并安装依赖
 
 ```bash
-cd backend
+cd flask_app
+python -m venv .venv
+```
 
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或 venv\Scripts\activate  # Windows
+Windows:
 
-# 安装依赖
+```bash
+.venv\Scripts\activate
 pip install -r requirements.txt
-
-# 复制环境变量配置
-cp .env.example .env
-
-# 初始化数据库
-alembic upgrade head
-
-# 启动开发服务器
-uvicorn app.main:app --reload
 ```
 
-### 前端
+macOS / Linux:
 
 ```bash
-cd frontend
-
-# 安装依赖
-npm install
-
-# 启动开发服务器
-npm run dev
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## 功能特性
+### 2. 启动应用
 
-- 文件上传：支持CSV、Excel、gzip压缩文件
-- 相似度分析：R² inner/outer、CDR3 sharing、Morisita-Horn等
-- 测序深度分析：质量指标计算和可视化
-- 多样性指标：D50、Gini、Shannon、Simpson
-- 链特异性分析：支持7种免疫受体链
-- 结果导出：PNG、CSV、ZIP批量下载
+在仓库根目录执行：
+
+```bash
+python flask_app/app.py
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:5000
+```
+
+## Treemap 相关说明
+
+- Flask 正式使用的 treemap 渲染逻辑位于 `flask_app/services/treemap_renderer.py`
+- Treemap 报表生成逻辑位于 `flask_app/services/treemap_report_service.py`
+- `treemap/generate_treemap_html.py` 仅作为兼容保留的独立脚本入口
+- `treemap/legacy_scripts/` 下是历史批处理脚本，已改为复用 `flask_app` 内部渲染器
+
+## 开发说明
+
+- 运行期数据默认写入 `flask_app/data/`
+- 测试缓存、临时运行目录和本地工具目录已加入 `.gitignore`
+- 仓库中仍可能存在个别本地权限受限的测试临时目录，不影响正常开发和运行
+
+## GitHub
+
+远程仓库：
+
+```text
+git@github.com:zqywuxie/immune-repertoire-web.git
+```
