@@ -54,3 +54,19 @@ def test_load_sample_data_for_single_chain_with_csv_gz(tmp_path):
     for df in sample_data.values():
         assert list(df.columns) == ["cdr3", "copy"]
         assert len(df) == 2
+
+
+def test_load_sample_data_for_single_chain_with_lowercase_suffix(tmp_path):
+    svc = AutoHeatmapService()
+
+    csv_content = "cdr3,copy\nCASSA,10\nCASSB,20\n"
+    (tmp_path / "HL_FP1_igh.csv").write_text(csv_content, encoding="utf-8")
+    (tmp_path / "HL_FP2_igh.csv").write_text(csv_content, encoding="utf-8")
+
+    scan_result = svc.scan_base_folder(str(tmp_path))
+    mapping = FieldMapping(cdr3_column="cdr3", copy_column="copy")
+    sample_data = svc.load_sample_data_for_single_chain(scan_result.samples, "IGH", mapping)
+
+    assert scan_result.has_chain_suffix is True
+    assert set(scan_result.all_chains) == {"IGH"}
+    assert set(sample_data.keys()) == {"HL_FP1", "HL_FP2"}

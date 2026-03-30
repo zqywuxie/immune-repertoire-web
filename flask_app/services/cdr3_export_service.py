@@ -11,6 +11,7 @@ Export Formats:
 import io
 import zipfile
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 
@@ -359,74 +360,94 @@ class CDR3ExportService:
             ZIP file as bytes
         """
         zip_buffer = io.BytesIO()
-        
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Check if data is chain-based (nested dict) or simple
-            is_chain_based = any(isinstance(v, dict) for v in sample_data.values())
-            
-            if is_chain_based:
-                # Chain-based export
-                for chain, chain_samples in sample_data.items():
-                    if not chain_samples:
-                        continue
-                    
-                    # 1. Shared CDR3 list for this chain
-                    shared_df = self.export_shared_cdr3_pairs(chain_samples, top_n=top_n)
-                    if not shared_df.empty:
-                        shared_excel = self.create_shared_cdr3_excel(shared_df)
-                        zip_file.writestr(f'{chain}_CDR3_Shared_List.xlsx', shared_excel)
-                    
-                    # 2. Top100 abundance matrix
-                    top100_matrix = self.create_abundance_matrix_excel(
-                        chain_samples, top_n=100, chain_name=chain
-                    )
-                    zip_file.writestr(f'{chain}_Abundance_Union_Top100.xlsx', top100_matrix)
-                    
-                    # 3. Full abundance matrix
-                    full_matrix = self.create_abundance_matrix_excel(
-                        chain_samples, top_n=0, chain_name=chain
-                    )
-                    zip_file.writestr(f'{chain}_Abundance_Union_Full.xlsx', full_matrix)
-                    
-                    # 4. Top100 analysis
-                    top100_analysis = self.create_top100_analysis_excel(
-                        chain_samples, chain_name=chain
-                    )
-                    zip_file.writestr(f'{chain}_Top100_Analysis.xlsx', top100_analysis)
-            
-            else:
-                # Simple export (all samples together)
-                # 1. Shared CDR3 list
-                shared_df = self.export_shared_cdr3_pairs(sample_data, top_n=top_n)
-                if not shared_df.empty:
-                    shared_excel = self.create_shared_cdr3_excel(shared_df)
-                    zip_file.writestr('CDR3_Shared_List.xlsx', shared_excel)
-                
-                # 2. Top100 abundance matrix
-                top100_matrix = self.create_abundance_matrix_excel(
-                    sample_data, top_n=100, chain_name="All"
-                )
-                zip_file.writestr('Abundance_Union_Top100.xlsx', top100_matrix)
-                
-                # 3. Full abundance matrix
-                full_matrix = self.create_abundance_matrix_excel(
-                    sample_data, top_n=0, chain_name="All"
-                )
-                zip_file.writestr('Abundance_Union_Full.xlsx', full_matrix)
-                
-                # 4. Top100 analysis
-                top100_analysis = self.create_top100_analysis_excel(
-                    sample_data, chain_name="All"
-                )
-                zip_file.writestr('Top100_Analysis.xlsx', top100_analysis)
-            
-            # 5. Generate README
-            if include_summary:
-                readme_content = self._generate_readme(sample_data, is_chain_based)
-                zip_file.writestr('README.txt', readme_content.encode('utf-8'))
+            for relative_path, content in self._build_export_files(
+                sample_data=sample_data,
+                include_summary=include_summary,
+                top_n=top_n,
+            ).items():
+                zip_file.writestr(relative_path, content)
         
         zip_buffer.seek(0)
         return zip_buffer.read()
+
+    def write_complete_export_directory(
+        self,
+        output_dir: Path,
+        sample_data: Dict[str, pd.DataFrame],
+        include_summary: bool = True,
+        top_n: int = 100,
+    ) -> List[Path]:
+        """
+        Write the full export package into a directory tree.
+
+        For chain-based payloads, files are written under per-chain subfolders.
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        written_files: List[Path] = []
+        for relative_path, content in self._build_export_files(
+            sample_data=sample_data,
+            include_summary=include_summary,
+            top_n=top_n,
+        ).items():
+            target_path = output_dir / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(content)
+            written_files.append(target_path)
+
+        return written_files
+
+    def _build_export_files(
+        self,
+        sample_data: Dict[str, pd.DataFrame],
+        include_summary: bool,
+        top_n: int,
+    ) -> Dict[str, bytes]:
+        """Build export files keyed by relative path."""
+        files: Dict[str, bytes] = {}
+        is_chain_based = any(isinstance(v, dict) for v in sample_data.values())
+
+        if is_chain_based:
+            for chain, chain_samples in sample_data.items():
+                if not chain_samples:
+                    continue
+
+                chain_prefix = f"{chain}/"
+                shared_df = self.export_shared_cdr3_pairs(chain_samples, top_n=top_n)
+                if not shared_df.empty:
+                    files[f"{chain_prefix}CDR3_Shared_List.xlsx"] = self.create_shared_cdr3_excel(shared_df)
+
+                files[f"{chain_prefix}Abundance_Union_Top100.xlsx"] = self.create_abundance_matrix_excel(
+                    chain_samples, top_n=100, chain_name=chain
+                )
+                files[f"{chain_prefix}Abundance_Union_Full.xlsx"] = self.create_abundance_matrix_excel(
+                    chain_samples, top_n=0, chain_name=chain
+                )
+                files[f"{chain_prefix}Top100_Analysis.xlsx"] = self.create_top100_analysis_excel(
+                    chain_samples, chain_name=chain
+                )
+        else:
+            shared_df = self.export_shared_cdr3_pairs(sample_data, top_n=top_n)
+            if not shared_df.empty:
+                files['CDR3_Shared_List.xlsx'] = self.create_shared_cdr3_excel(shared_df)
+
+            files['Abundance_Union_Top100.xlsx'] = self.create_abundance_matrix_excel(
+                sample_data, top_n=100, chain_name="All"
+            )
+            files['Abundance_Union_Full.xlsx'] = self.create_abundance_matrix_excel(
+                sample_data, top_n=0, chain_name="All"
+            )
+            files['Top100_Analysis.xlsx'] = self.create_top100_analysis_excel(
+                sample_data, chain_name="All"
+            )
+
+        if include_summary:
+            readme_content = self._generate_readme(sample_data, is_chain_based)
+            files['README.txt'] = readme_content.encode('utf-8')
+
+        return files
     
     def _generate_readme(
         self, 

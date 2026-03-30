@@ -23,6 +23,7 @@ const AutoHeatmap = {
     currentDataType: 'original',  // 'original' or 'grouped'
     heatmapReportConfigKey: 'auto_heatmap_web_report_config_v1',
     currentPlotType: 'heatmap',
+    draggedSampleIndex: null,
 
     // Metric display names
     METRIC_NAMES: {
@@ -94,12 +95,65 @@ const AutoHeatmap = {
         };
     },
 
+    getSelectedSamplesPayload() {
+        return this.samples
+            .filter(s => this.selectedSamples.has(s.display_name))
+            .map(s => ({
+                original_name: s.original_name,
+                display_name: s.display_name,
+                folder_path: s.folder_path,
+                data_files: s.data_files.map(f => ({
+                    filename: f.filename,
+                    filepath: f.filepath,
+                    size: f.size,
+                    rows: f.rows,
+                    columns: f.columns
+                }))
+            }));
+    },
+
+    buildCDR3ExportRequestData() {
+        return {
+            samples: this.getSelectedSamplesPayload(),
+            file_pattern: this.isChainMode ? null : this.selectedFileType,
+            selected_chains: this.isChainMode ? this.selectedChains : null,
+            field_mapping: this.fieldMapping,
+            top_n: 100
+        };
+    },
+
+    buildHeatmapReportPayload(config = {}, extraPayload = {}) {
+        return {
+            heatmap_result: this.heatmapResult,
+            output_name: config.output_name || null,
+            embed_images: Boolean(config.embed_images),
+            report_context: {
+                source: 'similarity_heatmap',
+                base_path: this.basePath || null,
+                selected_samples: this.samples
+                    .filter(s => this.selectedSamples.has(s.display_name))
+                    .map(s => s.display_name),
+                selected_chains: this.isChainMode ? this.selectedChains : null,
+                generated_at: new Date().toISOString()
+            },
+            cdr3_export_request: this.buildCDR3ExportRequestData(),
+            ...extraPayload
+        };
+    },
+
     getSelectedPlotType() {
         return document.getElementById('plotType')?.value || 'heatmap';
     },
 
     getPlotFileSuffix() {
         return this.currentPlotType || this.getSelectedPlotType() || 'heatmap';
+    },
+
+    filenameMatchesChain(filename, chain) {
+        const nameWithoutExt = filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
+        const normalizedName = nameWithoutExt.toUpperCase();
+        const normalizedChain = String(chain || '').toUpperCase();
+        return normalizedName.endsWith(`__${normalizedChain}`) || normalizedName.endsWith(`_${normalizedChain}`);
     },
 
     initMetricTabs() {
@@ -320,10 +374,7 @@ const AutoHeatmap = {
 
     countSamplesWithChain(chain) {
         return this.samples.filter(s =>
-            s.data_files.some(f => {
-                const nameWithoutExt = f.filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                return nameWithoutExt.endsWith(`__${chain}`) || nameWithoutExt.endsWith(`_${chain}`);
-            })
+            s.data_files.some(f => this.filenameMatchesChain(f.filename, chain))
         ).length;
     },
 
@@ -574,10 +625,7 @@ const AutoHeatmap = {
 
     countSamplesWithChain(chain) {
         return this.samples.filter(s =>
-            s.data_files.some(f => {
-                const nameWithoutExt = f.filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                return nameWithoutExt.endsWith(`__${chain}`) || nameWithoutExt.endsWith(`_${chain}`);
-            })
+            s.data_files.some(f => this.filenameMatchesChain(f.filename, chain))
         ).length;
     },
 
@@ -599,12 +647,9 @@ const AutoHeatmap = {
 
         let sampleFilePath = null;
         for (const sample of this.samples) {
-            const matchingFile = sample.data_files.find(f => {
-                const nameWithoutExt = f.filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                return this.selectedChains.some(chain =>
-                    nameWithoutExt.endsWith(`__${chain}`) || nameWithoutExt.endsWith(`_${chain}`)
-                );
-            });
+            const matchingFile = sample.data_files.find(f =>
+                this.selectedChains.some(chain => this.filenameMatchesChain(f.filename, chain))
+            );
             if (matchingFile) {
                 sampleFilePath = matchingFile.filepath;
                 break;
@@ -852,12 +897,9 @@ const AutoHeatmap = {
         if (this.isChainMode) {
             // 链模式：过滤包含选中链类型的样本
             this.samples = this.samples.filter(s =>
-                s.data_files.some(f => {
-                    const nameWithoutExt = f.filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                    return this.selectedChains.some(chain =>
-                        nameWithoutExt.endsWith(`__${chain}`) || nameWithoutExt.endsWith(`_${chain}`)
-                    );
-                })
+                s.data_files.some(f =>
+                    this.selectedChains.some(chain => this.filenameMatchesChain(f.filename, chain))
+                )
             );
         } else {
             // 传统模式：按文件类型过滤
@@ -923,12 +965,9 @@ const AutoHeatmap = {
 
             if (this.isChainMode) {
                 // 链模式：找到所有匹配选中链的文件
-                matchingFiles = sample.data_files.filter(f => {
-                    const nameWithoutExt = f.filename.replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                    return this.selectedChains.some(chain =>
-                        nameWithoutExt.endsWith(`__${chain}`) || nameWithoutExt.endsWith(`_${chain}`)
-                    );
-                });
+                matchingFiles = sample.data_files.filter(f =>
+                    this.selectedChains.some(chain => this.filenameMatchesChain(f.filename, chain))
+                );
             } else {
                 // 传统模式：找到匹配文件类型的文件
                 const matchingFile = sample.data_files.find(f =>
@@ -946,6 +985,7 @@ const AutoHeatmap = {
 
             item.innerHTML = `
                 <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="AutoHeatmap.toggleSample(${index})">
+                <span class="sample-order-badge" title="当前顺序">#${index + 1}</span>
                 <div class="sample-info">
                     <div class="d-flex align-items-center gap-2">
                         <span class="text-muted small">${sample.original_name}</span>
@@ -959,10 +999,20 @@ const AutoHeatmap = {
                         ${fileInfo}
                     </div>
                 </div>
+                <span class="sample-drag-handle" title="拖拽调整顺序" draggable="true">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
             `;
 
+            const dragHandle = item.querySelector('.sample-drag-handle');
+            dragHandle.addEventListener('dragstart', (e) => this.startSampleDrag(e, index));
+            dragHandle.addEventListener('dragend', () => this.endSampleDrag());
+            item.addEventListener('dragover', (e) => this.onSampleDragOver(e, index));
+            item.addEventListener('dragleave', () => this.onSampleDragLeave(index));
+            item.addEventListener('drop', (e) => this.dropSample(e, index));
+
             item.addEventListener('click', (e) => {
-                if (e.target.tagName !== 'INPUT') {
+                if (e.target.tagName !== 'INPUT' && !e.target.closest('.sample-drag-handle')) {
                     this.toggleSample(index);
                 }
             });
@@ -971,6 +1021,74 @@ const AutoHeatmap = {
         });
 
         this.updateSelectedCount();
+    },
+
+    startSampleDrag(event, index) {
+        this.draggedSampleIndex = index;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(index));
+        const sourceItem = event.target.closest('.sample-item');
+        if (sourceItem) {
+            sourceItem.classList.add('dragging');
+        }
+    },
+
+    onSampleDragOver(event, index) {
+        if (this.draggedSampleIndex === null || this.draggedSampleIndex === index) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const targetItem = event.currentTarget;
+        if (targetItem) {
+            targetItem.classList.add('drag-over');
+        }
+    },
+
+    onSampleDragLeave(index) {
+        const item = document.querySelector(`.sample-item[data-index="${index}"]`);
+        if (item) {
+            item.classList.remove('drag-over');
+        }
+    },
+
+    dropSample(event, index) {
+        event.preventDefault();
+        const sourceIndex = this.draggedSampleIndex;
+        this.clearSampleDragState();
+        if (sourceIndex === null || sourceIndex === index) {
+            return;
+        }
+
+        this.moveSampleToIndex(sourceIndex, index);
+    },
+
+    endSampleDrag() {
+        this.clearSampleDragState();
+    },
+
+    clearSampleDragState() {
+        document.querySelectorAll('.sample-item.dragging, .sample-item.drag-over').forEach(item => {
+            item.classList.remove('dragging', 'drag-over');
+        });
+        this.draggedSampleIndex = null;
+    },
+
+    moveSampleToIndex(sourceIndex, targetIndex) {
+        if (
+            sourceIndex < 0 || sourceIndex >= this.samples.length ||
+            targetIndex < 0 || targetIndex >= this.samples.length
+        ) {
+            return;
+        }
+
+        const reordered = [...this.samples];
+        const [movedSample] = reordered.splice(sourceIndex, 1);
+        const insertIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        reordered.splice(insertIndex, 0, movedSample);
+        this.samples = reordered;
+        this.renderSampleList();
+        this.renderGroups();
     },
 
     toggleSample(index) {
@@ -1688,20 +1806,7 @@ const AutoHeatmap = {
 
         this.showLoading('正在生成Pipeline对比报告...');
         try {
-            const payload = {
-                heatmap_result: this.heatmapResult,
-                output_name: config.output_name || null,
-                embed_images: config.embed_images,
-                report_context: {
-                    source: 'similarity_heatmap',
-                    base_path: this.basePath || null,
-                    selected_samples: this.samples
-                        .filter(s => this.selectedSamples.has(s.display_name))
-                        .map(s => s.display_name),
-                    selected_chains: this.isChainMode ? this.selectedChains : null,
-                    generated_at: new Date().toISOString()
-                }
-            };
+            const payload = this.buildHeatmapReportPayload(config);
 
             const response = await fetch('/api/auto-heatmap/generate-heatmap-report', {
                 method: 'POST',
@@ -1795,7 +1900,7 @@ const AutoHeatmap = {
      */
     async exportSharedCDR3() {
         // Check if we have enough samples
-        const selectedSamplesData = this.samples.filter(s => this.selectedSamples.has(s.display_name));
+        const selectedSamplesData = this.getSelectedSamplesPayload();
 
         if (selectedSamplesData.length < 2) {
             this.showError('至少需要选择2个样本才能导出CDR3分析数据');
@@ -1810,24 +1915,7 @@ const AutoHeatmap = {
         this.showLoading('正在生成CDR3分析数据（Excel + CSV）...');
 
         try {
-            const requestData = {
-                samples: selectedSamplesData.map(s => ({
-                    original_name: s.original_name,
-                    display_name: s.display_name,
-                    folder_path: s.folder_path,
-                    data_files: s.data_files.map(f => ({
-                        filename: f.filename,
-                        filepath: f.filepath,
-                        size: f.size,
-                        rows: f.rows,
-                        columns: f.columns
-                    }))
-                })),
-                file_pattern: this.isChainMode ? null : this.selectedFileType,
-                selected_chains: this.isChainMode ? this.selectedChains : null,
-                field_mapping: this.fieldMapping,
-                top_n: 100
-            };
+            const requestData = this.buildCDR3ExportRequestData();
 
             const response = await fetch('/api/auto-heatmap/export-shared-cdr3', {
                 method: 'POST',
@@ -1863,6 +1951,62 @@ const AutoHeatmap = {
     },
 
     /**
+     * Download all results from the backend-generated shared_analysis bundle.
+     * @param {string} type - 'original' or 'grouped'
+     */
+    async downloadBundledResults(type) {
+        if (!this.heatmapResult) {
+            this.showError('娌℃湁鍙笅杞界殑缁撴灉');
+            return;
+        }
+
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const defaultName = `Shared_Analysis_${timestamp}`;
+        const customName = prompt('璇疯緭鍏ュ帇缂╁寘鍚嶇О锛堜笉鍚?zip鎵╁睍鍚嶏級:', defaultName);
+
+        if (customName === null) {
+            return;
+        }
+
+        const zipFileName = (customName.trim() || defaultName) + '.zip';
+        this.showLoading('姝ｅ湪鐢熸垚鍘嬬缉鍖?..');
+
+        try {
+            const config = this.getHeatmapReportConfigFromForm();
+            this.saveHeatmapReportConfig(config);
+
+            const response = await fetch('/api/auto-heatmap/generate-heatmap-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.buildHeatmapReportPayload(config, { create_archive: true }))
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success || !data.archive_url) {
+                throw new Error(data.message || '鐢熸垚鍘嬬缉鍖呭け璐?');
+            }
+
+            const archiveResponse = await fetch(data.archive_url);
+            if (!archiveResponse.ok) {
+                throw new Error('涓嬭浇鍘嬬缉鍖呭け璐?');
+            }
+
+            const blob = await archiveResponse.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = zipFileName;
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error creating bundled ZIP:', error);
+            this.showError('鐢熸垚鍘嬬缉鍖呭け璐? ' + error.message);
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    /**
      * Download all results (heatmaps + CSV matrices + CDR3 shared list) as a single ZIP file
      * @param {string} type - 'original' or 'grouped'
      */
@@ -1880,8 +2024,7 @@ const AutoHeatmap = {
 
         // Prompt user for custom zip filename
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const folderName = type === 'grouped' ? 'grouped_results' : 'original_results';
-        const defaultName = `similarity_${this.getPlotFileSuffix()}_${folderName}_${timestamp} `;
+        const defaultName = `Shared_Analysis_${timestamp}`;
         const customName = prompt('请输入压缩包名称（不含.zip扩展名）:', defaultName);
 
         if (customName === null) {

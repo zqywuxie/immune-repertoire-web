@@ -7,7 +7,9 @@ sample renaming/grouping, heatmap generation, and CDR3 shared list export.
 import os
 import io
 import base64
+import json
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from flask import Blueprint, request, jsonify, send_file, current_app, url_for
@@ -48,6 +50,124 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     return bool(value)
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert numpy/NaN/Inf payloads into strict JSON-safe values."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        float_value = float(value)
+        if math.isnan(float_value) or math.isinf(float_value):
+            return None
+        return float_value
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    return value
+
+
+def _parse_auto_heatmap_samples(samples_data: Any) -> List[SampleFolderInfo]:
+    """Build SampleFolderInfo objects from request payload."""
+    if not isinstance(samples_data, list) or len(samples_data) < 2:
+        raise ValidationError(
+            message="Please select at least 2 samples",
+            details={'field': 'samples'}
+        )
+
+    samples: List[SampleFolderInfo] = []
+    for sample_item in samples_data:
+        data_files = []
+        for data_file in sample_item.get('data_files', []):
+            data_files.append(DataFileInfo(
+                filename=data_file.get('filename', ''),
+                filepath=data_file.get('filepath', ''),
+                size=data_file.get('size', 0),
+                rows=data_file.get('rows', 0),
+                columns=data_file.get('columns', [])
+            ))
+
+        samples.append(SampleFolderInfo(
+            original_name=sample_item.get('original_name', ''),
+            display_name=sample_item.get('display_name', sample_item.get('original_name', '')),
+            folder_path=sample_item.get('folder_path', ''),
+            data_files=data_files,
+            group_name=sample_item.get('group_name')
+        ))
+
+    return samples
+
+
+def _parse_auto_heatmap_field_mapping(field_mapping_data: Any) -> FieldMapping:
+    """Build field mapping object from request payload."""
+    if not isinstance(field_mapping_data, dict):
+        field_mapping_data = {}
+
+    field_mapping = FieldMapping(
+        cdr3_column=field_mapping_data.get('cdr3_column', ''),
+        copy_column=field_mapping_data.get('copy_column', '')
+    )
+
+    if not field_mapping.cdr3_column or not field_mapping.copy_column:
+        raise ValidationError(
+            message="请设置CDR3和Copy字段映射",
+            details={'field': 'field_mapping'}
+        )
+
+    return field_mapping
+
+
+def _load_cdr3_export_sample_data(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
+    """Load CDR3 export sample data for direct download or report bundling."""
+    samples = _parse_auto_heatmap_samples(payload.get('samples', []))
+    field_mapping = _parse_auto_heatmap_field_mapping(payload.get('field_mapping', {}))
+
+    file_pattern = payload.get('file_pattern')
+    selected_chains = payload.get('selected_chains')
+    if not file_pattern and not selected_chains:
+        raise ValidationError(
+            message="请选择数据文件类型或链类型",
+            details={'field': 'file_pattern/selected_chains'}
+        )
+
+    heatmap_service = get_auto_heatmap_service()
+    if selected_chains:
+        sample_data = heatmap_service.load_sample_data_by_chains(samples, selected_chains, field_mapping)
+    else:
+        sample_data = heatmap_service.load_sample_data(samples, file_pattern, field_mapping)
+
+    if any(isinstance(value, dict) for value in sample_data.values()):
+        has_valid_chain = any(
+            isinstance(chain_samples, dict) and len(chain_samples) >= 2
+            for chain_samples in sample_data.values()
+        )
+        if not has_valid_chain:
+            raise ValidationError(
+                message="至少需要1条链包含2个有效样本才能导出共享CDR3列表",
+                details={'loaded_chains': len(sample_data)}
+            )
+    elif len(sample_data) < 2:
+        raise ValidationError(
+            message="至少需要2个有效样本才能导出共享CDR3列表",
+            details={'loaded_samples': len(sample_data)}
+        )
+
+    top_n = int(payload.get('top_n', 100) or 100)
+    return sample_data, top_n
+
+
+def _write_heatmap_report_metadata(metadata_path: Path, metadata: Dict[str, Any]) -> None:
+    """Persist updated similarity heatmap metadata."""
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(metadata_path, 'w', encoding='utf-8') as file_obj:
+        json.dump(metadata, file_obj, ensure_ascii=False, indent=2)
 
 
 @auto_heatmap_bp.route('/scan-folder', methods=['POST'])
@@ -142,7 +262,7 @@ def scan_folder():
             'quick_test': quick_result
         }
         
-        return jsonify(response)
+        return jsonify(_json_safe(response))
     
     except ValidationError as e:
         logger.warning(f"Validation error in scan_folder: {e.message}")
@@ -249,10 +369,10 @@ def get_file_columns():
         service = get_auto_heatmap_service()
         result = service.get_file_columns(filepath)
         
-        return jsonify({
+        return jsonify(_json_safe({
             'success': True,
             **result
-        })
+        }))
     
     except ValidationError as e:
         logger.warning(f"Validation error in get_file_columns: {e.message}")
@@ -603,7 +723,7 @@ def generate_heatmap():
                             'table_data': table_data
                         }
         
-        return jsonify(response)
+        return jsonify(_json_safe(response))
     
     except ValidationError as e:
         logger.warning(f"Validation error in generate_heatmap: {e.message}")
@@ -694,12 +814,12 @@ def preview_data():
         else:
             preview_df = df.head(max_rows)
         
-        return jsonify({
+        return jsonify(_json_safe({
             'success': True,
             'preview': preview_df.to_dict('records'),
             'total_rows': len(df),
             'unique_cdr3': df[cdr3_col].nunique() if cdr3_col and cdr3_col in df.columns else 0
-        })
+        }))
     
     except ValidationError as e:
         logger.warning(f"Validation error in preview_data: {e.message}")
@@ -754,79 +874,10 @@ def export_shared_cdr3():
                 details={'field': 'body'}
             )
         
-        # Parse samples
-        samples_data = data.get('samples', [])
-        if not samples_data or len(samples_data) < 2:
-            raise ValidationError(
-                message="Please select at least 2 samples",
-                details={'field': 'samples'}
-            )
-        
-        samples = []
-        for s in samples_data:
-            data_files = []
-            for df in s.get('data_files', []):
-                data_files.append(DataFileInfo(
-                    filename=df.get('filename', ''),
-                    filepath=df.get('filepath', ''),
-                    size=df.get('size', 0),
-                    rows=df.get('rows', 0),
-                    columns=df.get('columns', [])
-                ))
-            
-            samples.append(SampleFolderInfo(
-                original_name=s.get('original_name', ''),
-                display_name=s.get('display_name', s.get('original_name', '')),
-                folder_path=s.get('folder_path', ''),
-                data_files=data_files,
-                group_name=s.get('group_name')
-            ))
-        
-        # Parse field mapping
-        field_mapping_data = data.get('field_mapping', {})
-        field_mapping = FieldMapping(
-            cdr3_column=field_mapping_data.get('cdr3_column', ''),
-            copy_column=field_mapping_data.get('copy_column', '')
-        )
-        
-        if not field_mapping.cdr3_column or not field_mapping.copy_column:
-            raise ValidationError(
-                message="请设置CDR3和Copy字段映射",
-                details={'field': 'field_mapping'}
-            )
-        
-        file_pattern = data.get('file_pattern')
-        selected_chains = data.get('selected_chains')
-        
-        # 必须提供 file_pattern 或 selected_chains 二选一
-        if not file_pattern and not selected_chains:
-            raise ValidationError(
-                message="请选择数据文件类型或链类型",
-                details={'field': 'file_pattern/selected_chains'}
-            )
-        
         return_type = data.get('return_type', 'base64')  # 'base64' or 'download'
         
-        # Get services
-        heatmap_service = get_auto_heatmap_service()
         export_service = get_cdr3_export_service()
-        
-        # Load sample data based on mode
-        if selected_chains:
-            # 链模式：加载所有选中链的数据
-            sample_data = heatmap_service.load_sample_data_by_chains(samples, selected_chains, field_mapping)
-        else:
-            # 传统模式：按文件模式加载
-            sample_data = heatmap_service.load_sample_data(samples, file_pattern, field_mapping)
-        
-        if len(sample_data) < 2:
-            raise ValidationError(
-                message="至少需要2个有效样本才能导出共享CDR3列表",
-                details={'loaded_samples': len(sample_data)}
-            )
-        
-        # Generate complete ZIP file (Excel + CSV abundance matrices)
-        top_n = data.get('top_n', 100)
+        sample_data, top_n = _load_cdr3_export_sample_data(data)
         zip_bytes = export_service.generate_complete_export_zip(sample_data, include_summary=True, top_n=top_n)
         
         # Return based on return_type
@@ -992,6 +1043,8 @@ def generate_heatmap_report():
         report_context = data.get('report_context')
         if not isinstance(report_context, dict):
             report_context = {}
+        cdr3_export_request = data.get('cdr3_export_request')
+        create_archive = _as_bool(data.get('create_archive'), False)
 
         results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_similarity_heatmap_report_service(results_root=results_root)
@@ -1002,6 +1055,34 @@ def generate_heatmap_report():
             embed_images=_as_bool(data.get('embed_images'), False),
             context=report_context,
         )
+
+        if isinstance(cdr3_export_request, dict):
+            export_service = get_cdr3_export_service()
+            sample_data, top_n = _load_cdr3_export_sample_data(cdr3_export_request)
+            cdr3_output_dir = run_result.output_base / 'CDR3_Shared_List'
+            export_service.write_complete_export_directory(
+                output_dir=cdr3_output_dir,
+                sample_data=sample_data,
+                include_summary=True,
+                top_n=top_n,
+            )
+            run_result.metadata['cdr3_shared_list_path'] = str(cdr3_output_dir.relative_to(run_result.output_base))
+
+        archive_url = None
+        archive_path = None
+        if create_archive:
+            archive_name = 'shared_analysis.zip'
+            created_archive = service.create_archive(run_result.job_id, archive_name=archive_name)
+            archive_path = str(created_archive)
+            archive_relative_path = created_archive.relative_to(run_result.output_base).as_posix()
+            run_result.metadata['archive_path'] = archive_relative_path
+            archive_url = url_for(
+                'auto_heatmap.get_similarity_heatmap_report_result_file',
+                job_id=run_result.job_id,
+                relative_path=archive_relative_path
+            )
+
+        _write_heatmap_report_metadata(run_result.metadata_path, run_result.metadata)
 
         report_url = url_for(
             'auto_heatmap.get_similarity_heatmap_report_result_file',
@@ -1021,6 +1102,8 @@ def generate_heatmap_report():
             'report_path': str(run_result.report_path),
             'report_url': report_url,
             'metadata_url': metadata_url,
+            'archive_path': archive_path,
+            'archive_url': archive_url,
             'metadata': run_result.metadata
         })
 

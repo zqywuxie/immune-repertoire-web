@@ -236,6 +236,21 @@ class AutoHeatmapService:
                 return '_'.join(parts[:-1])
         
         return None
+
+    def _filename_matches_chain(self, filename: str, chain: str) -> bool:
+        """Match chain suffixes case-insensitively after stripping supported extensions."""
+        name = filename
+        for ext in ['.csv.gz', '.tsv.gz', '.txt.gz', '.csv', '.tsv', '.txt']:
+            if name.lower().endswith(ext):
+                name = name[:-len(ext)]
+                break
+
+        normalized_name = name.upper()
+        normalized_chain = (chain or '').upper()
+        return (
+            normalized_name.endswith(f'__{normalized_chain}')
+            or normalized_name.endswith(f'_{normalized_chain}')
+        )
     
     def scan_base_folder(self, base_path: str) -> FolderScanResult:
         """
@@ -557,8 +572,9 @@ class AutoHeatmapService:
             suggested_cdr3 = self._find_matching_column(columns, self.CDR3_COLUMN_PATTERNS)
             suggested_copy = self._find_matching_column(columns, self.COPY_COLUMN_PATTERNS)
             
-            # Get sample data for preview
-            sample_data = df.head(5).values.tolist()
+            # Get sample data for preview, replacing pandas NaN with JSON-safe None
+            preview_df = df.head(5)
+            sample_data = preview_df.where(pd.notna(preview_df), None).values.tolist()
             
             return {
                 'columns': columns,
@@ -672,14 +688,7 @@ class AutoHeatmapService:
             # 查找匹配此链的文件
             matching_file = None
             for df_info in sample.data_files:
-                nameWithoutExt = df_info.filename
-                for ext in ['.csv.gz', '.tsv.gz', '.txt.gz', '.csv', '.tsv', '.txt']:
-                    if nameWithoutExt.lower().endswith(ext):
-                        nameWithoutExt = nameWithoutExt[:-len(ext)]
-                        break
-                
-                # 检查是否匹配当前链
-                if nameWithoutExt.endswith(f'__{chain}') or nameWithoutExt.endswith(f'_{chain}'):
+                if self._filename_matches_chain(df_info.filename, chain):
                     matching_file = df_info
                     break
             

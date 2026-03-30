@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import uuid
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -679,8 +680,8 @@ class SimilarityHeatmapReportService:
                         metric_name=metric_name,
                         metric_info=metric_info,
                         image_base64=images_map.get(metric_name),
-                        image_path=output_base / "heatmap" / "chain" / chain_name / f"{metric_name}.png",
-                        csv_path=output_base / "metric" / "chain" / chain_name / f"{metric_name}.csv",
+                        image_path=output_base / "heatmap" / chain_name / f"{metric_name}.png",
+                        csv_path=output_base / "metric" / chain_name / f"{metric_name}.csv",
                         output_base=output_base,
                         embed_images=embed_images,
                     )
@@ -817,6 +818,23 @@ class SimilarityHeatmapReportService:
         if not target_path.exists() or not target_path.is_file():
             raise FileNotFoundError(f"Result file not found: {relative_path}")
         return target_path
+
+    def create_archive(self, job_id: str, archive_name: str = "shared_analysis.zip") -> Path:
+        """Create a ZIP archive from the shared_analysis directory contents."""
+        output_base = (self.results_root / self._RESULT_DIR / job_id / "shared_analysis").resolve()
+        if not output_base.exists() or not output_base.is_dir():
+            raise FileNotFoundError(f"Report job not found: {job_id}")
+
+        archive_path = output_base / archive_name
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for file_path in sorted(output_base.rglob("*")):
+                if not file_path.is_file():
+                    continue
+                if file_path.resolve() == archive_path.resolve():
+                    continue
+                zip_file.write(file_path, arcname=str(Path(output_base.name) / file_path.relative_to(output_base)))
+
+        return archive_path
 
 
 _similarity_heatmap_report_service: Optional[SimilarityHeatmapReportService] = None
