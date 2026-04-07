@@ -1,4 +1,4 @@
-const TreemapAnalysis = {
+const ChordDiagramAnalysis = {
     basePath: '',
     scanResult: null,
     samples: [],
@@ -11,15 +11,11 @@ const TreemapAnalysis = {
     activeTaskId: null,
     pollTimer: null,
     fieldMapping: {
-        cdr3_column: '',
-        copy_column: '',
         v_column: '',
         j_column: ''
     },
 
     COLUMN_HINTS: {
-        cdr3_column: ['cdr3(pep)', 'cdr3_pep', 'cdr3aa', 'cdr3_aa', 'cdr3'],
-        copy_column: ['copy', 'copies', 'count', 'reads', 'umis', 'umi'],
         v_column: ['v', 'v_gene', 'vgene', 'bestvgene', 'v_call'],
         j_column: ['j', 'j_gene', 'jgene', 'bestjgene', 'j_call']
     },
@@ -55,15 +51,8 @@ const TreemapAnalysis = {
     formatPhaseLabel(phase, status) {
         const phaseMap = {
             queued: '排队中',
-            init: '初始化',
-            sample_prepare: '准备样本',
-            read_chain: '读取链数据',
-            individual_html: '生成单链 HTML',
-            overview_html: '生成七链 HTML',
-            individual_png: '导出单链 PNG',
-            trim_png: '裁切 PNG',
-            overview_png: '导出七链 PNG',
-            metadata: '写入结果',
+            read_input: '读取输入',
+            render_plot: '绘图中',
             completed: '已完成',
             failed: '已失败'
         };
@@ -99,10 +88,8 @@ const TreemapAnalysis = {
             return new Date(now.getFullYear(), now.getMonth(), now.getDate(), parts[0], parts[1], parts[2]).getTime();
         };
 
-        const first = history[0];
-        const last = history[history.length - 1];
-        const startTime = parseTimestamp(first.timestamp);
-        const endTime = parseTimestamp(last.timestamp);
+        const startTime = parseTimestamp(history[0]?.timestamp);
+        const endTime = parseTimestamp(history[history.length - 1]?.timestamp);
         if (!startTime || !endTime || endTime <= startTime) return null;
 
         const elapsedSeconds = (endTime - startTime) / 1000;
@@ -120,14 +107,12 @@ const TreemapAnalysis = {
         const fileEl = document.getElementById('loadingMetaFile');
 
         const sampleText = meta.current_sample
-            ? `${meta.current_sample}${meta.current_sample_index ? ` (${meta.current_sample_index}/${meta.total_samples || '-'})` : ''}`
-            : (meta.total_samples ? `共 ${meta.total_samples} 个样本` : '-');
-        const chainText = meta.current_chain
-            ? `${meta.current_chain}${meta.current_chain_index ? ` (${meta.current_chain_index}/${meta.current_chain_total || '-'})` : ''}`
-            : (meta.selected_chain_count ? `已选 ${meta.selected_chain_count} 条链` : '-');
-        const unitsText = meta.total_units
-            ? `${meta.completed_units || 0}/${meta.total_units}`
+            ? `${meta.current_sample}${meta.current_sample_index ? ` (${meta.current_sample_index}/${meta.total_units || '-'})` : ''}`
             : '-';
+        const chainText = meta.current_chain
+            ? meta.current_chain
+            : (meta.selected_chain_count ? `已选 ${meta.selected_chain_count} 条链` : '-');
+        const unitsText = meta.total_units ? `${meta.completed_units || 0}/${meta.total_units}` : '-';
 
         if (phaseEl) phaseEl.textContent = this.formatPhaseLabel(meta.phase, status);
         if (sampleEl) sampleEl.textContent = sampleText;
@@ -158,6 +143,7 @@ const TreemapAnalysis = {
         }
         if (stageEl) stageEl.textContent = stage || '正在处理...';
         if (detailEl) detailEl.textContent = detail || '';
+
         const nextMeta = { ...(meta || {}) };
         const estimatedRemaining = this.estimateRemainingSeconds(value, history || []);
         if (estimatedRemaining) nextMeta.estimated_remaining_seconds = estimatedRemaining;
@@ -185,7 +171,7 @@ const TreemapAnalysis = {
 
     async pollTaskStatus(taskId) {
         try {
-            const response = await fetch(`/api/treemap/task/${encodeURIComponent(taskId)}`);
+            const response = await fetch(`/api/chord/task/${encodeURIComponent(taskId)}`);
             const data = await response.json();
             if (!data.success) {
                 throw new Error(data.message || '读取任务状态失败');
@@ -197,7 +183,7 @@ const TreemapAnalysis = {
                 this.stopTaskPolling();
                 this.result = data.result;
                 document.getElementById('resultSummary').textContent =
-                    `已生成 ${data.result.sample_count} 个样本的 treemap 结果。点击“新窗口打开查看器”进行查看。`;
+                    `已生成 ${data.result.output_count} 个 chord 图结果，覆盖 ${data.result.sample_count} 个样本。`;
                 document.getElementById('resultsCard').style.display = 'block';
                 document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 this.hideLoading();
@@ -207,7 +193,7 @@ const TreemapAnalysis = {
             if (data.status === 'failed') {
                 this.stopTaskPolling();
                 this.hideLoading();
-                this.showError(data.error || data.detail || 'Treemap 任务失败');
+                this.showError(data.error || data.detail || 'Chord 任务失败');
                 return;
             }
 
@@ -263,7 +249,7 @@ const TreemapAnalysis = {
             summary.textContent = data.summary || '扫描完成';
 
             if (!data.has_chain_suffix || !Array.isArray(data.all_chains) || data.all_chains.length === 0) {
-                throw new Error('当前 treemap 模块仅支持包含链后缀的文件命名，例如 SAMPLE__TRA.csv.gz');
+                throw new Error('当前 chord 模块仅支持包含链后缀的文件命名，例如 SAMPLE__TRA.csv.gz');
             }
 
             this.renderChainSelection(data.all_chains);
@@ -491,6 +477,17 @@ const TreemapAnalysis = {
             .filter(sample => this.selectedSampleKeys.has(sample.sample_key));
     },
 
+    findSampleFilePath() {
+        for (const sample of this.getSelectedDetectedSamples()) {
+            for (const fileInfo of sample.data_files || []) {
+                const name = String(fileInfo.filename || '').replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
+                const matched = this.selectedChains.some(chain => name.endsWith(`__${chain}`) || name.endsWith(`_${chain}`));
+                if (matched) return fileInfo.filepath;
+            }
+        }
+        return null;
+    },
+
     async confirmChainSelection() {
         if (!this.selectedChains.length) {
             this.showError('请至少选择一条链');
@@ -535,20 +532,9 @@ const TreemapAnalysis = {
         }
     },
 
-    findSampleFilePath() {
-        for (const sample of this.getSelectedDetectedSamples()) {
-            for (const fileInfo of sample.data_files || []) {
-                const name = String(fileInfo.filename || '').replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
-                const matched = this.selectedChains.some(chain => name.endsWith(`__${chain}`) || name.endsWith(`_${chain}`));
-                if (matched) return fileInfo.filepath;
-            }
-        }
-        return null;
-    },
-
-    buildSelectOptions(selectId, columns, selectedValue = '') {
+    buildSelectOptions(selectId, columns, selectedValue = '', includeEmpty = true) {
         const select = document.getElementById(selectId);
-        select.innerHTML = '<option value="">-- 请选择 --</option>';
+        select.innerHTML = includeEmpty ? '<option value="">-- 请选择 --</option>' : '';
         columns.forEach(column => {
             const option = document.createElement('option');
             option.value = column;
@@ -560,24 +546,12 @@ const TreemapAnalysis = {
 
     renderFieldMapping(data) {
         const columns = data.columns || [];
-        const suggested = {
-            cdr3_column: data.suggested_cdr3 || this.findSuggestedColumn(columns, 'cdr3_column'),
-            copy_column: data.suggested_copy || this.findSuggestedColumn(columns, 'copy_column'),
-            v_column: this.findSuggestedColumn(columns, 'v_column'),
-            j_column: this.findSuggestedColumn(columns, 'j_column')
-        };
+        this.fieldMapping.v_column = this.findSuggestedColumn(columns, 'v_column');
+        this.fieldMapping.j_column = this.findSuggestedColumn(columns, 'j_column');
 
-        Object.entries(suggested).forEach(([key, value]) => {
-            this.fieldMapping[key] = value || '';
-        });
-
-        this.buildSelectOptions('cdr3Column', columns, this.fieldMapping.cdr3_column);
-        this.buildSelectOptions('copyColumn', columns, this.fieldMapping.copy_column);
         this.buildSelectOptions('vColumn', columns, this.fieldMapping.v_column);
         this.buildSelectOptions('jColumn', columns, this.fieldMapping.j_column);
 
-        document.getElementById('cdr3Column').onchange = () => { this.fieldMapping.cdr3_column = document.getElementById('cdr3Column').value; };
-        document.getElementById('copyColumn').onchange = () => { this.fieldMapping.copy_column = document.getElementById('copyColumn').value; };
         document.getElementById('vColumn').onchange = () => { this.fieldMapping.v_column = document.getElementById('vColumn').value; };
         document.getElementById('jColumn').onchange = () => { this.fieldMapping.j_column = document.getElementById('jColumn').value; };
 
@@ -610,19 +584,9 @@ const TreemapAnalysis = {
     },
 
     confirmFieldMapping() {
-        this.fieldMapping.cdr3_column = document.getElementById('cdr3Column').value;
-        this.fieldMapping.copy_column = document.getElementById('copyColumn').value;
         this.fieldMapping.v_column = document.getElementById('vColumn').value;
         this.fieldMapping.j_column = document.getElementById('jColumn').value;
 
-        if (!this.fieldMapping.cdr3_column) {
-            this.showError('请选择 CDR3 列');
-            return;
-        }
-        if (!this.fieldMapping.copy_column) {
-            this.showError('请选择 copy 列');
-            return;
-        }
         if (!this.fieldMapping.v_column) {
             this.showError('请选择 V 列');
             return;
@@ -637,7 +601,7 @@ const TreemapAnalysis = {
         document.getElementById('step4Card').scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
 
-    async generateTreemap() {
+    async generateChord() {
         if (!this.samples.length) {
             this.showError('请先扫描目录');
             return;
@@ -646,7 +610,7 @@ const TreemapAnalysis = {
             this.showError('请至少选择一条链');
             return;
         }
-        if (!this.fieldMapping.cdr3_column || !this.fieldMapping.copy_column || !this.fieldMapping.v_column || !this.fieldMapping.j_column) {
+        if (!this.fieldMapping.v_column || !this.fieldMapping.j_column) {
             this.showError('请先完成字段映射');
             return;
         }
@@ -662,22 +626,20 @@ const TreemapAnalysis = {
             selected_chains: this.selectedChains,
             field_mapping: this.fieldMapping,
             config: {
-                output_name: document.getElementById('outputName').value.trim(),
-                min_copy_default: Number(document.getElementById('minCopyDefault').value || 30),
-                top_n: Number(document.getElementById('topN').value || 100)
+                output_name: document.getElementById('outputName').value.trim()
             }
         };
 
-        this.showLoading('正在生成 treemap 结果...');
+        this.showLoading('正在生成 chord 结果...');
         try {
-            const response = await fetch('/api/treemap/generate', {
+            const response = await fetch('/api/chord/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
             const data = await response.json();
             if (!data.success) {
-                throw new Error(data.message || '生成 treemap 失败');
+                throw new Error(data.message || '生成 chord 失败');
             }
 
             this.activeTaskId = data.task_id;
@@ -685,14 +647,12 @@ const TreemapAnalysis = {
                 0,
                 '任务已创建',
                 '任务已进入队列，等待开始。',
-                [
-                    {
-                        progress: 0,
-                        stage: '任务已创建',
-                        detail: '任务已进入队列，等待开始。',
-                        timestamp: new Date().toLocaleTimeString()
-                    }
-                ],
+                [{
+                    progress: 0,
+                    stage: '任务已创建',
+                    detail: '任务已进入队列，等待开始。',
+                    timestamp: new Date().toLocaleTimeString()
+                }],
                 {
                     phase: 'queued',
                     total_samples: detectedSamples.length,
@@ -727,5 +687,5 @@ const TreemapAnalysis = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    TreemapAnalysis.init();
+    ChordDiagramAnalysis.init();
 });

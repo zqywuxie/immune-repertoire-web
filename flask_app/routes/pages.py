@@ -183,6 +183,12 @@ def treemap_page():
     return render_template('analysis/treemap.html')
 
 
+@pages_bp.route('/analysis/chord-diagram')
+def chord_diagram_page():
+    """Chord diagram analysis page with batch V/J frequency plotting."""
+    return render_template('analysis/chord_diagram.html')
+
+
 @pages_bp.route('/analysis/pipeline-comparison')
 def pipeline_comparison_page():
     """Pipeline comparison page entry.
