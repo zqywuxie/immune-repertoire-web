@@ -10,6 +10,19 @@ const ChordDiagramAnalysis = {
     result: null,
     activeTaskId: null,
     pollTimer: null,
+    activeSyncTaskId: null,
+    syncPollTimer: null,
+    dataSourceMode: 'local',
+    remoteSources: [],
+    remoteSourceId: '',
+    remoteBrowsePath: '',
+    remoteSelectedPath: '',
+    remoteParentPath: null,
+    remoteTreeNodes: {},
+    remoteTreeRootPath: '',
+    remoteTreeFilter: '',
+    remoteBrowserMessage: '',
+    isBrowsingRemote: false,
     fieldMapping: {
         v_column: '',
         j_column: ''
@@ -22,6 +35,25 @@ const ChordDiagramAnalysis = {
 
     init() {
         this.updateStepIndicator(1);
+        const modeSelect = document.getElementById('dataSourceMode');
+        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
+        const remoteTreeSearch = document.getElementById('remoteTreeSearch');
+
+        if (modeSelect) {
+            this.dataSourceMode = modeSelect.value || 'local';
+            modeSelect.addEventListener('change', () => this.toggleDataSourceMode(modeSelect.value));
+            this.toggleDataSourceMode(this.dataSourceMode);
+        }
+
+        if (remoteSourceSelect) {
+            remoteSourceSelect.addEventListener('change', () => this.handleRemoteSourceChange());
+        }
+
+        if (remoteTreeSearch) {
+            remoteTreeSearch.addEventListener('input', event => this.handleRemoteTreeSearch(event.target.value));
+        }
+
+        this.loadRemoteSources();
     },
 
     updateStepIndicator(step) {
@@ -31,6 +63,33 @@ const ChordDiagramAnalysis = {
             if (stepNum < step) item.classList.add('completed');
             if (stepNum === step) item.classList.add('active');
         });
+    },
+
+    toggleDataSourceMode(mode = 'local') {
+        this.dataSourceMode = mode;
+        const localPanel = document.getElementById('localSourcePanel');
+        const remotePanel = document.getElementById('remoteSourcePanel');
+        if (localPanel) localPanel.classList.toggle('d-none', mode !== 'local');
+        if (remotePanel) remotePanel.classList.toggle('d-none', mode !== 'remote');
+        if (mode === 'remote' && this.remoteSourceId && !this.remoteBrowsePath) {
+            this.browseRemoteRoot();
+        }
+    },
+
+    setScanSummary(message, tone = 'info') {
+        const summary = document.getElementById('scanSummary');
+        if (!summary) return;
+        summary.classList.remove('d-none', 'alert-info', 'alert-danger', 'alert-success', 'alert-secondary');
+        summary.classList.add(`alert-${tone}`);
+        summary.textContent = message || '';
+    },
+
+    updateRemoteHint(message, tone = 'secondary') {
+        const hint = document.getElementById('remoteSourceHint');
+        if (!hint) return;
+        hint.classList.remove('alert-secondary', 'alert-info', 'alert-danger', 'alert-success');
+        hint.classList.add(`alert-${tone}`);
+        hint.textContent = message;
     },
 
     showLoading(text = '正在处理...') {
@@ -169,6 +228,301 @@ const ChordDiagramAnalysis = {
         }
     },
 
+    stopSyncPolling() {
+        if (this.syncPollTimer) {
+            clearTimeout(this.syncPollTimer);
+            this.syncPollTimer = null;
+        }
+    },
+
+    async loadRemoteSources() {
+        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
+        if (!remoteSourceSelect) return;
+
+        try {
+            const response = await fetch('/api/remote-sources');
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || '加载 SSH 数据源失败');
+            }
+
+            this.remoteSources = Array.isArray(data.sources) ? data.sources : [];
+            remoteSourceSelect.innerHTML = '';
+
+            if (!this.remoteSources.length) {
+                remoteSourceSelect.disabled = true;
+                remoteSourceSelect.innerHTML = '<option value="">未配置 SSH 数据源</option>';
+                this.remoteSourceId = '';
+                this.remoteBrowsePath = '';
+                this.remoteSelectedPath = '';
+                this.remoteParentPath = null;
+                this.renderRemoteBrowser([], '当前未配置 SSH Linux 数据源。请先在服务端配置 SSH_REMOTE_SOURCES。');
+                this.updateRemotePathDisplay();
+                this.updateRemoteHint('当前未配置 SSH Linux 数据源。', 'danger');
+                return;
+            }
+
+            remoteSourceSelect.disabled = false;
+            this.remoteSources.forEach(source => {
+                const option = document.createElement('option');
+                option.value = source.id;
+                option.textContent = `${source.name} (${source.username}@${source.host}:${source.port})`;
+                remoteSourceSelect.appendChild(option);
+            });
+
+            this.remoteSourceId = this.remoteSources[0].id;
+            remoteSourceSelect.value = this.remoteSourceId;
+            this.updateRemoteHint('已加载 SSH 数据源，可以浏览远端 Linux 目录。', 'secondary');
+
+            if (this.dataSourceMode === 'remote') {
+                await this.browseRemoteRoot();
+            }
+        } catch (error) {
+            this.remoteSources = [];
+            this.remoteSourceId = '';
+            this.renderRemoteBrowser([], error.message);
+            this.updateRemoteHint(error.message, 'danger');
+        }
+    },
+
+    async handleRemoteSourceChange() {
+        const select = document.getElementById('remoteSourceSelect');
+        this.remoteSourceId = select ? select.value : '';
+        this.remoteBrowsePath = '';
+        this.remoteSelectedPath = '';
+        this.remoteParentPath = null;
+        this.updateRemotePathDisplay();
+
+        if (this.remoteSourceId) {
+            await this.browseRemoteRoot();
+        }
+    },
+
+    updateRemotePathDisplay() {
+        const currentPathEl = document.getElementById('remoteCurrentPath');
+        const selectedPathEl = document.getElementById('remoteSelectedPath');
+        if (currentPathEl) currentPathEl.textContent = this.remoteBrowsePath || '-';
+        if (selectedPathEl) selectedPathEl.textContent = this.remoteSelectedPath || '-';
+    },
+
+    renderRemoteBrowser(entries = [], emptyMessage = '当前目录为空') {
+        const container = document.getElementById('remoteBrowserList');
+        if (!container) return;
+
+        container.innerHTML = '';
+        if (!entries.length) {
+            const emptyHint = this.remoteBrowsePath
+                ? `${emptyMessage}<div class="mt-2">褰撳墠宸茶繘鍏ユ牴鐩綍锛屽鏋滈渶瑕佸悓姝ユ暣涓洰褰曪紝鍙洿鎺ラ€夋嫨“褰撳墠鐩綍”。</div>`
+                : emptyMessage;
+            container.innerHTML = `<div class="text-muted small">${emptyHint}</div>`;
+            return;
+        }
+
+        entries.forEach(entry => {
+            const item = document.createElement('div');
+            item.className = `remote-browser-item${this.remoteSelectedPath === entry.path ? ' selected' : ''}`;
+
+            const title = document.createElement('div');
+            title.className = 'fw-semibold mb-2';
+            title.textContent = entry.name || entry.path;
+            item.appendChild(title);
+
+            const path = document.createElement('div');
+            path.className = 'remote-browser-path text-muted mb-3';
+            path.textContent = entry.path;
+            item.appendChild(path);
+
+            const meta = document.createElement('div');
+            meta.className = 'small text-muted mb-3';
+            meta.textContent = entry.is_dir ? '目录' : `文件 ${entry.size || 0} bytes`;
+            item.appendChild(meta);
+
+            const actions = document.createElement('div');
+            actions.className = 'd-flex flex-wrap gap-2';
+
+            if (entry.is_dir) {
+                const browseBtn = document.createElement('button');
+                browseBtn.className = 'btn btn-outline-secondary btn-sm';
+                browseBtn.textContent = '进入';
+                browseBtn.addEventListener('click', () => this.browseRemote(entry.path));
+                actions.appendChild(browseBtn);
+
+                const selectBtn = document.createElement('button');
+                selectBtn.className = 'btn btn-outline-primary btn-sm';
+                selectBtn.textContent = '选择此目录';
+                selectBtn.addEventListener('click', () => this.selectRemotePath(entry.path));
+                actions.appendChild(selectBtn);
+            }
+
+            item.appendChild(actions);
+            container.appendChild(item);
+        });
+    },
+
+    selectRemotePath(path) {
+        this.remoteSelectedPath = path || '';
+        this.updateRemotePathDisplay();
+        this.browseRemote(this.remoteBrowsePath || this.remoteSelectedPath, true);
+    },
+
+    async browseRemoteRoot() {
+        await this.browseRemote(null);
+    },
+
+    async browseRemoteParent() {
+        if (!this.remoteParentPath) return;
+        await this.browseRemote(this.remoteParentPath);
+    },
+
+    selectCurrentRemotePath() {
+        if (!this.remoteBrowsePath) {
+            this.showError('当前没有可选择的远端目录');
+            return;
+        }
+        this.remoteSelectedPath = this.remoteBrowsePath;
+        this.updateRemotePathDisplay();
+        this.browseRemote(this.remoteBrowsePath, true);
+    },
+
+    async browseRemote(path = null, skipLoading = false) {
+        if (!this.remoteSourceId) {
+            this.showError('请先选择 SSH 数据源');
+            return;
+        }
+
+        if (this.isBrowsingRemote) {
+            return;
+        }
+        this.isBrowsingRemote = true;
+
+        if (!skipLoading) {
+            this.showLoading('正在读取远端目录...');
+        }
+
+        try {
+            const response = await fetch('/api/remote-sources/browse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: this.remoteSourceId, path })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || '读取远端目录失败');
+            }
+
+            this.remoteBrowsePath = data.current_path || '';
+            this.remoteParentPath = data.parent_path || null;
+            this.updateRemotePathDisplay();
+            this.renderRemoteBrowser(data.entries || []);
+            this.updateRemoteHint(`正在浏览 ${data.source?.name || this.remoteSourceId} : ${this.remoteBrowsePath}`, 'info');
+        } catch (error) {
+            this.updateRemoteHint(error.message, 'danger');
+            this.renderRemoteBrowser([], error.message);
+            if (!skipLoading) this.showError(error.message);
+        } finally {
+            this.isBrowsingRemote = false;
+            if (!skipLoading) this.hideLoading();
+        }
+    },
+
+    async testRemoteSource() {
+        if (!this.remoteSourceId) {
+            this.showError('请先选择 SSH 数据源');
+            return;
+        }
+
+        this.showLoading('正在测试 SSH 连接...');
+        try {
+            const response = await fetch('/api/remote-sources/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: this.remoteSourceId })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'SSH 连接测试失败');
+            }
+
+            this.updateRemoteHint(`SSH 连接成功，根目录: ${data.test_result.root_path}`, 'success');
+        } catch (error) {
+            this.updateRemoteHint(error.message, 'danger');
+            this.showError(error.message);
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    async syncRemoteAndScan() {
+        if (!this.remoteSourceId) {
+            this.showError('请先选择 SSH 数据源');
+            return;
+        }
+        if (!this.remoteSelectedPath) {
+            this.showError('请先选择需要同步的远端目录');
+            return;
+        }
+
+        this.showLoading('正在同步远端目录...');
+        try {
+            const response = await fetch('/api/remote-sources/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_id: this.remoteSourceId,
+                    remote_path: this.remoteSelectedPath
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || '远端目录同步失败');
+            }
+
+            this.activeSyncTaskId = data.task_id;
+            this.stopSyncPolling();
+            this.pollSyncTaskStatus(data.task_id);
+        } catch (error) {
+            this.hideLoading();
+            this.showError(error.message);
+        }
+    },
+
+    async pollSyncTaskStatus(taskId) {
+        try {
+            const response = await fetch(`/api/remote-sources/sync-task/${encodeURIComponent(taskId)}`);
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || '读取远端同步状态失败');
+            }
+
+            this.updateProgress(data.progress, data.stage, data.detail, data.history || [], data.meta || {}, data.status);
+
+            if (data.status === 'completed') {
+                this.stopSyncPolling();
+                const localCachePath = data.result?.local_cache_path || '';
+                document.getElementById('basePath').value = localCachePath;
+                this.setScanSummary(
+                    `远端目录 ${data.result?.remote_path || this.remoteSelectedPath} 已同步到本地缓存，开始扫描...`,
+                    'info'
+                );
+                await this.scanLocalFolder(localCachePath, '正在扫描已同步目录...');
+                return;
+            }
+
+            if (data.status === 'failed') {
+                this.stopSyncPolling();
+                this.hideLoading();
+                this.showError(data.error || data.detail || '远端目录同步失败');
+                return;
+            }
+
+            this.syncPollTimer = setTimeout(() => this.pollSyncTaskStatus(taskId), 1000);
+        } catch (error) {
+            this.stopSyncPolling();
+            this.hideLoading();
+            this.showError(error.message);
+        }
+    },
+
     async pollTaskStatus(taskId) {
         try {
             const response = await fetch(`/api/chord/task/${encodeURIComponent(taskId)}`);
@@ -220,11 +574,19 @@ const ChordDiagramAnalysis = {
     },
 
     async scanFolder() {
+        if (this.dataSourceMode === 'remote') {
+            await this.syncRemoteAndScan();
+            return;
+        }
+
         const basePath = document.getElementById('basePath').value.trim();
         if (!basePath) {
             this.showError('请输入分析目录路径');
             return;
         }
+
+        await this.scanLocalFolder(basePath, '正在扫描目录...');
+        return;
 
         this.showLoading('正在扫描目录...');
         try {
@@ -247,6 +609,48 @@ const ChordDiagramAnalysis = {
             summary.classList.remove('d-none', 'alert-danger', 'alert-info');
             summary.classList.add(data.has_chain_suffix ? 'alert-info' : 'alert-danger');
             summary.textContent = data.summary || '扫描完成';
+
+            if (!data.has_chain_suffix || !Array.isArray(data.all_chains) || data.all_chains.length === 0) {
+                throw new Error('当前 chord 模块仅支持包含链后缀的文件命名，例如 SAMPLE__TRA.csv.gz');
+            }
+
+            this.renderChainSelection(data.all_chains);
+            document.getElementById('step2Card').style.display = 'block';
+            document.getElementById('step3Card').style.display = 'none';
+            document.getElementById('step4Card').style.display = 'none';
+            document.getElementById('resultsCard').style.display = 'none';
+            this.updateStepIndicator(2);
+            document.getElementById('step2Card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (error) {
+            this.showError(error.message);
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    async scanLocalFolder(basePath, loadingText = '正在扫描目录...') {
+        if (!basePath) {
+            this.showError('请输入分析目录路径');
+            return;
+        }
+
+        this.showLoading(loadingText);
+        try {
+            const response = await fetch('/api/auto-heatmap/scan-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_path: basePath })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || '扫描目录失败');
+            }
+
+            this.basePath = basePath;
+            this.scanResult = data;
+            this.samples = data.samples || [];
+            this.result = null;
+            this.setScanSummary(data.summary || '扫描完成', data.has_chain_suffix ? 'info' : 'danger');
 
             if (!data.has_chain_suffix || !Array.isArray(data.all_chains) || data.all_chains.length === 0) {
                 throw new Error('当前 chord 模块仅支持包含链后缀的文件命名，例如 SAMPLE__TRA.csv.gz');
@@ -665,6 +1069,486 @@ const ChordDiagramAnalysis = {
             this.pollTaskStatus(data.task_id);
         } catch (error) {
             this.showError(error.message);
+            this.hideLoading();
+        }
+    },
+
+    resetRemoteTreeState() {
+        this.remoteBrowsePath = '';
+        this.remoteSelectedPath = '';
+        this.remoteParentPath = null;
+        this.remoteTreeNodes = {};
+        this.remoteTreeRootPath = '';
+        this.remoteTreeFilter = '';
+        this.remoteBrowserMessage = '';
+
+        const searchInput = document.getElementById('remoteTreeSearch');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+    },
+
+    getRemoteNodeLabel(path, fallback = '/') {
+        if (!path || path === '/') {
+            return fallback;
+        }
+        const parts = String(path).split('/').filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : fallback;
+    },
+
+    getRemoteRootLabel(rootPath, source = null) {
+        return source?.name || this.getRemoteNodeLabel(rootPath, '/');
+    },
+
+    upsertRemoteTreeNode(payload = {}) {
+        const path = String(payload.path || '').trim();
+        if (!path) return null;
+
+        const existing = this.remoteTreeNodes[path] || {
+            path,
+            name: this.getRemoteNodeLabel(path, '/'),
+            parentPath: null,
+            childrenPaths: [],
+            childrenLoaded: false,
+            expanded: false,
+            isLoading: false,
+            fileCount: 0,
+            sourceName: ''
+        };
+
+        const next = { ...existing };
+        if (payload.name !== undefined && payload.name !== null && payload.name !== '') next.name = payload.name;
+        if (payload.parentPath !== undefined) next.parentPath = payload.parentPath;
+        if (payload.childrenPaths !== undefined) next.childrenPaths = payload.childrenPaths;
+        if (payload.childrenLoaded !== undefined) next.childrenLoaded = !!payload.childrenLoaded;
+        if (payload.expanded !== undefined) next.expanded = !!payload.expanded;
+        if (payload.isLoading !== undefined) next.isLoading = !!payload.isLoading;
+        if (payload.fileCount !== undefined) next.fileCount = Number(payload.fileCount || 0);
+        if (payload.sourceName !== undefined && payload.sourceName !== null) next.sourceName = payload.sourceName;
+
+        this.remoteTreeNodes[path] = next;
+        return next;
+    },
+
+    handleRemoteTreeSearch(value = '') {
+        this.remoteTreeFilter = String(value || '').trim().toLowerCase();
+        this.renderRemoteBrowser();
+    },
+
+    remoteTreeNodeMatchesFilter(path) {
+        const node = this.remoteTreeNodes[path];
+        if (!node) return false;
+        if (!this.remoteTreeFilter) return true;
+
+        const haystacks = [node.name, node.path, node.sourceName]
+            .filter(Boolean)
+            .map(item => String(item).toLowerCase());
+        if (haystacks.some(item => item.includes(this.remoteTreeFilter))) {
+            return true;
+        }
+
+        return (node.childrenPaths || []).some(childPath => this.remoteTreeNodeMatchesFilter(childPath));
+    },
+
+    async loadRemoteSources() {
+        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
+        if (!remoteSourceSelect) return;
+
+        this.resetRemoteTreeState();
+
+        try {
+            const response = await fetch('/api/remote-sources');
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to load SSH data sources');
+            }
+
+            this.remoteSources = Array.isArray(data.sources) ? data.sources : [];
+            remoteSourceSelect.innerHTML = '';
+
+            if (!this.remoteSources.length) {
+                remoteSourceSelect.disabled = true;
+                remoteSourceSelect.innerHTML = '<option value="">No SSH source configured</option>';
+                this.remoteSourceId = '';
+                this.remoteBrowserMessage = 'No SSH data source is configured yet.';
+                this.renderRemoteBrowser();
+                this.updateRemotePathDisplay();
+                this.updateRemoteHint(this.remoteBrowserMessage, 'danger');
+                return;
+            }
+
+            remoteSourceSelect.disabled = false;
+            this.remoteSources.forEach(source => {
+                const option = document.createElement('option');
+                option.value = source.id;
+                option.textContent = `${source.name} (${source.username}@${source.host}:${source.port})`;
+                remoteSourceSelect.appendChild(option);
+            });
+
+            this.remoteSourceId = this.remoteSources[0].id;
+            remoteSourceSelect.value = this.remoteSourceId;
+            this.remoteBrowserMessage = 'Test the connection or expand the tree to choose a folder.';
+            this.renderRemoteBrowser();
+            this.updateRemoteHint('SSH data sources loaded. Use the tree to expand folders in place.', 'secondary');
+
+            if (this.dataSourceMode === 'remote') {
+                await this.browseRemoteRoot();
+            }
+        } catch (error) {
+            this.remoteSources = [];
+            this.remoteSourceId = '';
+            this.remoteBrowserMessage = error.message;
+            this.renderRemoteBrowser();
+            this.updateRemoteHint(error.message, 'danger');
+        }
+    },
+
+    async handleRemoteSourceChange() {
+        const select = document.getElementById('remoteSourceSelect');
+        this.remoteSourceId = select ? select.value : '';
+        this.resetRemoteTreeState();
+        this.updateRemotePathDisplay();
+
+        if (this.remoteSourceId) {
+            await this.browseRemoteRoot();
+        }
+    },
+
+    updateRemotePathDisplay() {
+        const currentPathEl = document.getElementById('remoteCurrentPath');
+        const selectedPathEl = document.getElementById('remoteSelectedPath');
+        if (currentPathEl) currentPathEl.textContent = this.remoteBrowsePath || '-';
+        if (selectedPathEl) selectedPathEl.textContent = this.remoteSelectedPath || '-';
+    },
+
+    renderRemoteBrowser() {
+        const container = document.getElementById('remoteBrowserList');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (!this.remoteTreeRootPath) {
+            const empty = document.createElement('div');
+            empty.className = 'remote-tree-empty';
+            empty.textContent = this.remoteBrowserMessage || 'Test the SSH connection to load the root folder tree.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const rootNode = this.remoteTreeNodes[this.remoteTreeRootPath];
+        if (!rootNode) {
+            const empty = document.createElement('div');
+            empty.className = 'remote-tree-empty';
+            empty.textContent = this.remoteBrowserMessage || 'Remote root is not available yet.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const rootElement = this.renderRemoteTreeNode(rootNode, 0);
+        if (!rootElement) {
+            const empty = document.createElement('div');
+            empty.className = 'remote-tree-empty';
+            empty.textContent = 'No loaded folder matches the current filter.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const shell = document.createElement('div');
+        shell.className = 'remote-tree-shell';
+        shell.appendChild(rootElement);
+        container.appendChild(shell);
+    },
+
+    renderRemoteTreeNode(node, depth) {
+        if (!node || !this.remoteTreeNodeMatchesFilter(node.path)) {
+            return null;
+        }
+
+        const branch = document.createElement('div');
+        branch.className = 'remote-tree-branch';
+
+        const row = document.createElement('div');
+        row.className = 'remote-tree-node';
+        row.style.setProperty('--tree-depth', String(depth));
+        if (this.remoteBrowsePath === node.path) {
+            row.classList.add('active');
+        }
+        if (this.remoteSelectedPath === node.path) {
+            row.classList.add('selected');
+        }
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'remote-tree-toggle';
+        const hasKnownChildren = !node.childrenLoaded || (node.childrenPaths || []).length > 0;
+        if (!hasKnownChildren && depth > 0) {
+            toggleBtn.disabled = true;
+            toggleBtn.innerHTML = '<i class="bi bi-dot"></i>';
+        } else {
+            toggleBtn.innerHTML = `<i class="bi ${node.expanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>`;
+            toggleBtn.addEventListener('click', async event => {
+                event.stopPropagation();
+                await this.toggleRemoteNode(node.path);
+            });
+        }
+        row.appendChild(toggleBtn);
+
+        const entryBtn = document.createElement('button');
+        entryBtn.type = 'button';
+        entryBtn.className = 'remote-tree-entry';
+        entryBtn.addEventListener('click', () => this.selectRemotePath(node.path));
+
+        const icon = document.createElement('i');
+        icon.className = `bi ${node.expanded ? 'bi-folder2-open' : 'bi-folder'} remote-tree-icon`;
+        entryBtn.appendChild(icon);
+
+        const textWrap = document.createElement('div');
+        textWrap.className = 'remote-tree-text';
+
+        const title = document.createElement('div');
+        title.className = 'remote-tree-name';
+        title.textContent = node.name || this.getRemoteNodeLabel(node.path, '/');
+        textWrap.appendChild(title);
+
+        const meta = document.createElement('div');
+        meta.className = 'remote-tree-meta';
+        const metaParts = [node.path];
+        if (node.fileCount > 0) {
+            metaParts.push(`${node.fileCount} file(s)`);
+        }
+        if (this.remoteSelectedPath === node.path) {
+            metaParts.push('selected');
+        } else if (this.remoteBrowsePath === node.path) {
+            metaParts.push('current');
+        }
+        meta.textContent = metaParts.join('  |  ');
+        textWrap.appendChild(meta);
+
+        entryBtn.appendChild(textWrap);
+        row.appendChild(entryBtn);
+        branch.appendChild(row);
+
+        if (node.expanded) {
+            if (node.isLoading) {
+                const loading = document.createElement('div');
+                loading.className = 'remote-tree-empty';
+                loading.style.setProperty('--tree-depth', String(depth + 1));
+                loading.textContent = 'Loading subfolders...';
+                branch.appendChild(loading);
+            } else if (node.childrenLoaded && !(node.childrenPaths || []).length) {
+                const empty = document.createElement('div');
+                empty.className = 'remote-tree-empty';
+                empty.style.setProperty('--tree-depth', String(depth + 1));
+                empty.textContent = 'No subfolders under this node. You can select it directly.';
+                branch.appendChild(empty);
+            } else if ((node.childrenPaths || []).length) {
+                const children = document.createElement('div');
+                children.className = 'remote-tree-children';
+                node.childrenPaths.forEach(childPath => {
+                    const childElement = this.renderRemoteTreeNode(this.remoteTreeNodes[childPath], depth + 1);
+                    if (childElement) {
+                        children.appendChild(childElement);
+                    }
+                });
+                if (children.childElementCount > 0) {
+                    branch.appendChild(children);
+                }
+            }
+        }
+
+        return branch;
+    },
+
+    selectRemotePath(path) {
+        this.remoteSelectedPath = path || '';
+        this.remoteBrowsePath = path || '';
+        const node = this.remoteTreeNodes[this.remoteSelectedPath];
+        this.remoteParentPath = node?.parentPath || null;
+        this.updateRemotePathDisplay();
+        this.renderRemoteBrowser();
+    },
+
+    async browseRemoteRoot() {
+        await this.browseRemote(this.remoteTreeRootPath || null);
+    },
+
+    async browseRemoteParent() {
+        if (!this.remoteParentPath) return;
+
+        const parentNode = this.remoteTreeNodes[this.remoteParentPath];
+        if (parentNode) {
+            parentNode.expanded = true;
+            this.remoteTreeNodes[parentNode.path] = parentNode;
+            this.remoteBrowsePath = parentNode.path;
+            this.remoteParentPath = parentNode.parentPath || null;
+            this.updateRemotePathDisplay();
+            this.renderRemoteBrowser();
+            return;
+        }
+
+        await this.browseRemote(this.remoteParentPath);
+    },
+
+    selectCurrentRemotePath() {
+        if (!this.remoteBrowsePath) {
+            this.showError('There is no remote folder selected yet');
+            return;
+        }
+        this.selectRemotePath(this.remoteBrowsePath);
+    },
+
+    async refreshRemoteNode() {
+        if (!this.remoteSourceId) {
+            this.showError('Please select an SSH data source first');
+            return;
+        }
+        await this.browseRemote(this.remoteBrowsePath || this.remoteTreeRootPath || null);
+    },
+
+    async toggleRemoteNode(path) {
+        const node = this.remoteTreeNodes[path];
+        if (!node) return;
+
+        this.remoteBrowsePath = path;
+        this.remoteParentPath = node.parentPath || null;
+        this.updateRemotePathDisplay();
+
+        if (node.childrenLoaded) {
+            node.expanded = !node.expanded;
+            this.remoteTreeNodes[path] = node;
+            this.renderRemoteBrowser();
+            return;
+        }
+
+        node.isLoading = true;
+        node.expanded = true;
+        this.remoteTreeNodes[path] = node;
+        this.renderRemoteBrowser();
+        await this.browseRemote(path, true);
+    },
+
+    async browseRemote(path = null, skipLoading = false) {
+        if (!this.remoteSourceId) {
+            this.showError('Please select an SSH data source first');
+            return;
+        }
+
+        if (this.isBrowsingRemote) {
+            return;
+        }
+        this.isBrowsingRemote = true;
+
+        if (!skipLoading) {
+            this.showLoading('Loading remote folders...');
+        }
+
+        try {
+            const response = await fetch('/api/remote-sources/browse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: this.remoteSourceId, path })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to load remote directory');
+            }
+
+            const rootPath = data.root_path || data.current_path || '/';
+            const currentPath = data.current_path || rootPath;
+            const currentEntries = Array.isArray(data.entries) ? data.entries : [];
+            const childDirs = currentEntries.filter(entry => entry && entry.is_dir);
+            const fileCount = currentEntries.length - childDirs.length;
+
+            if (!this.remoteTreeRootPath || currentPath === rootPath) {
+                this.remoteTreeRootPath = rootPath;
+            }
+
+            this.upsertRemoteTreeNode({
+                path: this.remoteTreeRootPath,
+                name: this.getRemoteRootLabel(this.remoteTreeRootPath, data.source),
+                parentPath: null,
+                expanded: true,
+                sourceName: data.source?.name || ''
+            });
+
+            const currentNodeName = currentPath === this.remoteTreeRootPath
+                ? this.getRemoteRootLabel(this.remoteTreeRootPath, data.source)
+                : this.getRemoteNodeLabel(currentPath, currentPath);
+
+            const childPaths = [];
+            childDirs.forEach(entry => {
+                childPaths.push(entry.path);
+                const existingNode = this.remoteTreeNodes[entry.path];
+                this.upsertRemoteTreeNode({
+                    path: entry.path,
+                    name: entry.name || this.getRemoteNodeLabel(entry.path, entry.path),
+                    parentPath: currentPath,
+                    childrenLoaded: existingNode?.childrenLoaded || false,
+                    expanded: existingNode?.expanded || false,
+                    isLoading: false,
+                    fileCount: existingNode?.fileCount || 0
+                });
+            });
+
+            this.upsertRemoteTreeNode({
+                path: currentPath,
+                name: currentNodeName,
+                parentPath: currentPath === this.remoteTreeRootPath ? null : (data.parent_path || this.remoteTreeNodes[currentPath]?.parentPath || null),
+                childrenPaths: childPaths,
+                childrenLoaded: true,
+                expanded: true,
+                isLoading: false,
+                fileCount
+            });
+
+            this.remoteBrowsePath = currentPath;
+            this.remoteParentPath = data.parent_path || null;
+            this.remoteBrowserMessage = childDirs.length
+                ? ''
+                : 'This folder has no subfolders. Select it directly if this is the folder you want to sync.';
+            this.updateRemotePathDisplay();
+            this.renderRemoteBrowser();
+            this.updateRemoteHint(`Browsing ${data.source?.name || this.remoteSourceId}: ${this.remoteBrowsePath}`, 'info');
+        } catch (error) {
+            const targetNode = path ? this.remoteTreeNodes[path] : null;
+            if (targetNode) {
+                targetNode.isLoading = false;
+                this.remoteTreeNodes[path] = targetNode;
+            }
+            this.remoteBrowserMessage = error.message;
+            this.updateRemoteHint(error.message, 'danger');
+            this.renderRemoteBrowser();
+            if (!skipLoading) this.showError(error.message);
+        } finally {
+            this.isBrowsingRemote = false;
+            if (!skipLoading) this.hideLoading();
+        }
+    },
+
+    async testRemoteSource() {
+        if (!this.remoteSourceId) {
+            this.showError('Please select an SSH data source first');
+            return;
+        }
+
+        this.showLoading('Testing SSH connection...');
+        try {
+            const response = await fetch('/api/remote-sources/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: this.remoteSourceId })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'SSH connection test failed');
+            }
+
+            this.updateRemoteHint(`SSH connected. Root path: ${data.test_result.root_path}`, 'success');
+            await this.browseRemoteRoot();
+        } catch (error) {
+            this.updateRemoteHint(error.message, 'danger');
+            this.showError(error.message);
+        } finally {
             this.hideLoading();
         }
     },

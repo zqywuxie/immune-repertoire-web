@@ -39,3 +39,7 @@ flask_app/skills/
 treemap/examples/data/
 treemap/examples/html/
 treemap/examples/result/
+.tmp_chord_smoke/
+flask_app/data/remote_cache/
+.pytest_cache/
+flask_app/.tmp_pytest_auto/

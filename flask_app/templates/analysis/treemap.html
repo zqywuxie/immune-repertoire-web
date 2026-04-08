@@ -2,6 +2,7 @@
 {% block title %}Treemap分析{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
 <style>
     .step-indicator {
         display: flex;
@@ -234,6 +235,15 @@
 
     <div class="card mb-4">
         <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-lg-4">
+                    <label for="dataSourceMode" class="form-label">数据来源</label>
+                    <select class="form-select" id="dataSourceMode">
+                        <option value="local">本地目录</option>
+                        <option value="remote">SSH Linux 服务器</option>
+                    </select>
+                </div>
+            </div>
             <div class="step-indicator">
                 <div class="step-item active">
                     <div class="step-number">1</div>
@@ -260,7 +270,8 @@
             <h2 class="h5 mb-0">Step 1. 扫描数据目录</h2>
         </div>
         <div class="card-body">
-            <div class="row g-3 align-items-end">
+            <div id="localSourcePanel" class="source-panel">
+                <div class="row g-3 align-items-end">
                 <div class="col-lg-9">
                     <label for="basePath" class="form-label">输入数据目录</label>
                     <input type="text" class="form-control" id="basePath" placeholder="例如：E:\Data\Repertoire">
@@ -271,6 +282,60 @@
                     </button>
                 </div>
             </div>
+            </div>
+
+            <div id="remoteSourcePanel" class="source-panel d-none">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-lg-6">
+                        <label for="remoteSourceSelect" class="form-label">SSH 数据源</label>
+                        <select class="form-select" id="remoteSourceSelect"></select>
+                    </div>
+                    <div class="col-lg-3 d-grid">
+                        <button class="btn btn-outline-secondary" onclick="TreemapAnalysis.browseRemoteRoot()">
+                            <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
+                        </button>
+                    </div>
+                    <div class="col-lg-3 d-grid">
+                        <button class="btn btn-outline-primary" onclick="TreemapAnalysis.testRemoteSource()">
+                            <i class="bi bi-plug me-1"></i>测试连接
+                        </button>
+                    </div>
+                </div>
+
+                <div class="alert alert-secondary mb-3" id="remoteSourceHint">
+                    从已配置的 SSH Linux 服务器中选择目录，系统会先同步到本地缓存，再按 treemap 模块现有流程扫描。
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="small text-muted mb-1">当前浏览路径</div>
+                        <div class="remote-browser-path" id="remoteCurrentPath">-</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="small text-muted mb-1">待同步目录</div>
+                        <div class="remote-browser-path" id="remoteSelectedPath">-</div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.browseRemoteParent()">上一级</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="TreemapAnalysis.selectCurrentRemotePath()">选择当前目录</button>
+                    <button class="btn btn-primary btn-sm" onclick="TreemapAnalysis.syncRemoteAndScan()">同步并扫描目录</button>
+                </div>
+
+                <div class="remote-tree-toolbar">
+                    <div>
+                        <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">Tree Filter</label>
+                        <input type="text" class="form-control form-control-sm" id="remoteTreeSearch" placeholder="Filter loaded folders by name or path">
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="TreemapAnalysis.refreshRemoteNode()">
+                        <i class="bi bi-arrow-repeat me-1"></i>Refresh Node
+                    </button>
+                </div>
+
+                <div class="remote-tree-panel" id="remoteBrowserList"></div>
+            </div>
+
             <div class="alert alert-info mt-3 mb-0 d-none" id="scanSummary"></div>
         </div>
     </div>
@@ -347,19 +412,26 @@
         </div>
         <div class="card-body">
             <div class="row g-3 align-items-end">
-                <div class="col-lg-4">
+                <div class="col-lg-3">
                     <label for="outputName" class="form-label">结果名称（可选）</label>
                     <input type="text" class="form-control" id="outputName" placeholder="例如：HL_FP1_treemap">
                 </div>
-                <div class="col-lg-3">
+                <div class="col-lg-2">
                     <label for="minCopyDefault" class="form-label">默认最小 copy</label>
                     <input type="number" class="form-control" id="minCopyDefault" value="30" min="0">
                 </div>
-                <div class="col-lg-3">
+                <div class="col-lg-2">
                     <label for="topN" class="form-label">右侧表格 Top N</label>
                     <input type="number" class="form-control" id="topN" value="100" min="1">
                 </div>
-                <div class="col-lg-2 d-grid">
+                <div class="col-lg-2">
+                    <label for="layoutModeSelect" class="form-label">Treemap 形式</label>
+                    <select class="form-select" id="layoutModeSelect">
+                        <option value="tetris">俄罗斯方块</option>
+                        <option value="qr">二维码形式</option>
+                    </select>
+                </div>
+                <div class="col-lg-3 d-grid">
                     <button class="btn btn-success" onclick="TreemapAnalysis.generateTreemap()">
                         <i class="bi bi-play-circle me-1"></i>开始生成
                     </button>

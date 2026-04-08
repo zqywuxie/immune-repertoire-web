@@ -2,6 +2,7 @@
 {% block title %}自动热图分析{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
 <style>
     .step-indicator {
         display: flex;
@@ -405,31 +406,95 @@
             <h6 class="mb-0"><i class="bi bi-folder me-2"></i>步骤 1: 扫描样本文件夹</h6>
         </div>
         <div class="card-body">
-            <div class="row">
-                <div class="col-md-9">
-                    <input type="text" class="form-control" id="basePath"
-                        placeholder="输入包含样本文件夹的根目录路径，例如：D:\AnalysisFiles">
+            <div class="row g-3 mb-3">
+                <div class="col-lg-4">
+                    <label for="dataSourceMode" class="form-label">数据来源</label>
+                    <select class="form-select" id="dataSourceMode">
+                        <option value="local">本地目录</option>
+                        <option value="remote">SSH Linux 服务器</option>
+                    </select>
                 </div>
-                <div class="col-md-3">
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary flex-grow-1" onclick="AutoHeatmap.scanFolder()">
-                            <i class="bi bi-search me-1"></i>扫描
+            </div>
+
+            <div id="localSourcePanel" class="source-panel">
+                <div class="row">
+                    <div class="col-md-9">
+                        <input type="text" class="form-control" id="basePath"
+                            placeholder="输入包含样本文件夹的根目录路径，例如：D:\AnalysisFiles">
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary flex-grow-1" onclick="AutoHeatmap.scanFolder()">
+                                <i class="bi bi-search me-1"></i>扫描
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="AutoHeatmap.browseFolder()" title="选择文件夹">
+                                <i class="bi bi-folder2-open"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        系统将递归扫描该路径下的所有样本子文件夹（支持嵌套结构），识别其中的数据文件
+                    </small>
+                </div>
+                <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none"
+                    onchange="AutoHeatmap.onFolderSelected(event)">
+            </div>
+
+            <div id="remoteSourcePanel" class="source-panel d-none">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-lg-6">
+                        <label for="remoteSourceSelect" class="form-label">SSH 数据源</label>
+                        <select class="form-select" id="remoteSourceSelect"></select>
+                    </div>
+                    <div class="col-lg-3 d-grid">
+                        <button class="btn btn-outline-secondary" onclick="AutoHeatmap.browseRemoteRoot()">
+                            <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
                         </button>
-                        <button class="btn btn-outline-secondary" onclick="AutoHeatmap.browseFolder()" title="选择文件夹">
-                            <i class="bi bi-folder2-open"></i>
+                    </div>
+                    <div class="col-lg-3 d-grid">
+                        <button class="btn btn-outline-primary" onclick="AutoHeatmap.testRemoteSource()">
+                            <i class="bi bi-plug me-1"></i>测试连接
                         </button>
                     </div>
                 </div>
+
+                <div class="alert alert-secondary mb-3" id="remoteSourceHint">
+                    从已配置的 SSH Linux 服务器中选择目录，系统会先同步到本地缓存，再按 heatmap 模块现有流程扫描。
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="small text-muted mb-1">当前浏览路径</div>
+                        <div class="remote-browser-path" id="remoteCurrentPath">-</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="small text-muted mb-1">待同步目录</div>
+                        <div class="remote-browser-path" id="remoteSelectedPath">-</div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="AutoHeatmap.browseRemoteParent()">上一级</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="AutoHeatmap.selectCurrentRemotePath()">选择当前目录</button>
+                    <button class="btn btn-primary btn-sm" onclick="AutoHeatmap.syncRemoteAndScan()">同步并扫描目录</button>
+                </div>
+
+                <div class="remote-tree-toolbar">
+                    <div>
+                        <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">Tree Filter</label>
+                        <input type="text" class="form-control form-control-sm" id="remoteTreeSearch" placeholder="Filter loaded folders by name or path">
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="AutoHeatmap.refreshRemoteNode()">
+                        <i class="bi bi-arrow-repeat me-1"></i>Refresh Node
+                    </button>
+                </div>
+
+                <div class="remote-tree-panel" id="remoteBrowserList"></div>
             </div>
-            <div class="mt-2">
-                <small class="text-muted">
-                    <i class="bi bi-info-circle me-1"></i>
-                    系统将递归扫描该路径下的所有样本子文件夹（支持嵌套结构），识别其中的数据文件
-                </small>
-            </div>
-            <!-- Hidden file input for folder selection -->
-            <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none"
-                onchange="AutoHeatmap.onFolderSelected(event)">
+
             <div id="scanSummary" class="alert alert-info mt-3" style="display:none">
                 <i class="bi bi-check-circle me-2"></i><span id="scanSummaryText"></span>
             </div>

@@ -20,6 +20,11 @@ from flask_app.config import config
 from flask_app.models.database import db
 
 
+OPTIONAL_DEPENDENCY_HINTS = {
+    'pptx': 'Missing dependency "python-pptx". Install it with: pip install python-pptx or pip install -r requirements.txt',
+}
+
+
 class NumpyJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles numpy types and NaN values."""
     
@@ -151,11 +156,20 @@ def register_blueprints(app):
     from flask_app.routes.api import api_bp
     from flask_app.routes.api_analysis import analysis_bp
     from flask_app.routes.api_statistical import statistical_bp
-    from flask_app.routes.api_ppt import ppt_bp
-    from flask_app.routes.api_ppt_comparison import ppt_comparison_bp
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
     from flask_app.routes.api_chord import chord_bp
+    from flask_app.routes.api_remote_sources import remote_sources_bp
     from flask_app.routes.api_treemap import treemap_bp
+
+    try:
+        from flask_app.routes.api_ppt import ppt_bp
+        from flask_app.routes.api_ppt_comparison import ppt_comparison_bp
+    except ModuleNotFoundError as exc:
+        missing_module = getattr(exc, 'name', None)
+        hint = OPTIONAL_DEPENDENCY_HINTS.get(missing_module)
+        if hint:
+            raise RuntimeError(hint) from exc
+        raise
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
@@ -171,6 +185,8 @@ def register_blueprints(app):
     app.register_blueprint(auto_heatmap_bp)
     # Register chord diagram analysis API blueprint
     app.register_blueprint(chord_bp)
+    # Register SSH Linux remote data source API blueprint
+    app.register_blueprint(remote_sources_bp)
     # Register treemap analysis API blueprint
     app.register_blueprint(treemap_bp)
 

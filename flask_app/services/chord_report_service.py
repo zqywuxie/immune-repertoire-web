@@ -514,10 +514,10 @@ class ChordReportService:
         total_weight = sum(float(row["_count_value"]) for row in ordered_rows)
         ax.text(0, 1.28, title, ha="center", va="center", fontsize=18, fontweight="bold", color="#111827")
         ax.text(
-            0,
+            1.22,
             1.17,
-            f"V genes: {len(v_items)}   J genes: {len(j_items)}   Pairs: {total_pairs}",
-            ha="center",
+            f"V: {len(v_items)}   J: {len(j_items)}   VJ pairs: {total_pairs}",
+            ha="right",
             va="center",
             fontsize=10,
             color="#4b5563",
@@ -531,9 +531,6 @@ class ChordReportService:
             fontsize=10,
             color="#6b7280",
         )
-        ax.text(-1.22, 0, "V genes", ha="center", va="center", fontsize=11, color="#475569", fontweight="bold")
-        ax.text(1.22, 0, "J genes", ha="center", va="center", fontsize=11, color="#475569", fontweight="bold")
-
         ax.set_xlim(-1.35, 1.35)
         ax.set_ylim(-1.35, 1.35)
 
@@ -702,7 +699,7 @@ class ChordReportService:
           </div>
         </div>
         <div class="stats">
-          <div class="stat"><div class="label">Pairs</div><div class="value" id="statPairs">-</div></div>
+          <div class="stat"><div class="label">VJ Pairs</div><div class="value" id="statPairs">-</div></div>
           <div class="stat"><div class="label">V Genes</div><div class="value" id="statV">-</div></div>
           <div class="stat"><div class="label">J Genes</div><div class="value" id="statJ">-</div></div>
         </div>
@@ -714,7 +711,7 @@ class ChordReportService:
       <aside class="side-panel">
         <div>
           <h2 class="section-title" id="selectionTitle">-</h2>
-          <p class="muted" id="selectionDesc">Switch sample and chain to view the chord diagram built from the V/J frequency table.</p>
+          <p class="muted" id="selectionDesc">Switch sample and chain to view the chord diagram.</p>
         </div>
         <div class="actions">
           <a id="downloadCsvLink" href="#" target="_blank" rel="noopener">VJ CSV</a>
@@ -1000,9 +997,7 @@ class ChordReportService:
       addLabels(vItems, vLayout);
       addLabels(jItems, jLayout);
       labelGroup.appendChild(svgEl('text', {{ x: 0, y: -470, 'text-anchor': 'middle', fill: '#0f172a', 'font-size': 28, 'font-weight': 700 }}, `${{current.sample.display_name}} · ${{chainName}}`));
-      labelGroup.appendChild(svgEl('text', {{ x: 0, y: -438, 'text-anchor': 'middle', fill: '#64748b', 'font-size': 14 }}, 'Built from V/J frequency table'));
-      labelGroup.appendChild(svgEl('text', {{ x: -470, y: 0, 'text-anchor': 'middle', fill: '#475569', 'font-size': 16, 'font-weight': 700 }}, 'V genes'));
-      labelGroup.appendChild(svgEl('text', {{ x: 470, y: 0, 'text-anchor': 'middle', fill: '#475569', 'font-size': 16, 'font-weight': 700 }}, 'J genes'));
+      labelGroup.appendChild(svgEl('text', {{ x: 470, y: -438, 'text-anchor': 'end', fill: '#475569', 'font-size': 15, 'font-weight': 700 }}, `V: ${{vItems.length}}   J: ${{jItems.length}}   VJ pairs: ${{rows.length}}`));
 
       document.getElementById('statPairs').textContent = rows.length;
       document.getElementById('statV').textContent = vItems.length;

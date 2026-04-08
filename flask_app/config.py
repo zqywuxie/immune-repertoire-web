@@ -3,6 +3,7 @@ Configuration management module for the Immune Repertoire Analysis Web Applicati
 Supports environment variable configuration and single-command startup.
 Requirements: 13.1, 13.2, 13.3
 """
+import json
 import os
 from pathlib import Path
 
@@ -33,6 +34,7 @@ class Config:
     UPLOAD_FOLDER = BASE_DIR / 'data' / 'uploads'
     RESULTS_FOLDER = BASE_DIR / 'data' / 'results'
     PDF_EXTRACTION_FOLDER = BASE_DIR / 'data' / 'pdf_extractions'
+    REMOTE_CACHE_FOLDER = BASE_DIR / 'data' / 'remote_cache'
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max upload size
     
     # Allowed file extensions
@@ -46,6 +48,11 @@ class Config:
     # Empty list means no restrictions - can browse all directories
     ALLOWED_BASE_PATHS = []
     HIDDEN_DIRECTORIES = ['.git', '__pycache__', 'node_modules', '.hypothesis', '$RECYCLE.BIN', 'System Volume Information']
+
+    # Remote SSH data source configuration
+    SSH_REMOTE_SOURCES = json.loads(os.environ.get('SSH_REMOTE_SOURCES', '[]'))
+    REMOTE_SYNC_ALLOWED_EXTENSIONS = {'.csv', '.csv.gz', '.tsv', '.tsv.gz', '.txt', '.txt.gz'}
+    REMOTE_SYNC_HIDDEN_DIRECTORIES = ['.git', '__pycache__', '.snakemake', '.nextflow', 'node_modules']
     
     # Visualization defaults
     DEFAULT_COLOR_SCHEME = 'viridis'
@@ -60,6 +67,7 @@ class Config:
         cls.UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
         cls.RESULTS_FOLDER.mkdir(parents=True, exist_ok=True)
         cls.PDF_EXTRACTION_FOLDER.mkdir(parents=True, exist_ok=True)
+        cls.REMOTE_CACHE_FOLDER.mkdir(parents=True, exist_ok=True)
         cls.DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 

@@ -13,8 +13,27 @@ from typing import Any
 
 
 HEADER_ALIASES = {
-    "cdr3": ["cdr3(pep)", "cdr3_pep", "cdr3pep", "cdr3aa", "cdr3_aa", "cdr3", "aa_cdr3"],
-    "copy": ["copy", "copies", "count", "clonecount", "clone_count", "readcount", "read_count", "reads", "umis", "umi"],
+    "cdr3": [
+        "cdr3(pep)",
+        "cdr3_pep",
+        "cdr3pep",
+        "cdr3aa",
+        "cdr3_aa",
+        "cdr3",
+        "aa_cdr3",
+    ],
+    "copy": [
+        "copy",
+        "copies",
+        "count",
+        "clonecount",
+        "clone_count",
+        "readcount",
+        "read_count",
+        "reads",
+        "umis",
+        "umi",
+    ],
     "v": ["v", "vgene", "v_gene", "bestvgene", "v_call"],
     "j": ["j", "jgene", "j_gene", "bestjgene", "j_call"],
     "c": ["c", "cgene", "c_gene", "constant", "constant_gene", "isotype"],
@@ -50,12 +69,16 @@ def detect_dialect(sample: str) -> csv.Dialect:
     try:
         return csv.Sniffer().sniff(sample, delimiters=",\t;|")
     except csv.Error:
+
         class DefaultDialect(csv.excel):
             delimiter = ","
+
         return DefaultDialect()
 
 
-def detect_columns(fieldnames: list[str], overrides: dict[str, str | None]) -> dict[str, str | None]:
+def detect_columns(
+    fieldnames: list[str], overrides: dict[str, str | None]
+) -> dict[str, str | None]:
     normalized = {normalize_header(name): name for name in fieldnames}
     detected: dict[str, str | None] = {}
     for logical_name, aliases in HEADER_ALIASES.items():
@@ -122,7 +145,9 @@ def make_title(path: Path, title: str | None) -> str:
     return title or f"{path.stem} clonotype tetris map"
 
 
-def read_repertoire(path: Path, columns: dict[str, str | None]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def read_repertoire(
+    path: Path, columns: dict[str, str | None]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     aggregated: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     stats = {
         "input_rows": 0,
@@ -140,21 +165,35 @@ def read_repertoire(path: Path, columns: dict[str, str | None]) -> tuple[list[di
 
         for row in reader:
             stats["input_rows"] += 1
-            cdr3 = clean_text(row.get(columns["cdr3"] or "", "") if columns["cdr3"] else "")
+            cdr3 = clean_text(
+                row.get(columns["cdr3"] or "", "") if columns["cdr3"] else ""
+            )
             if not cdr3:
                 stats["skipped_missing_cdr3"] += 1
                 continue
 
-            copy_value = parse_copy(row.get(columns["copy"] or "", "") if columns["copy"] else "")
+            copy_value = parse_copy(
+                row.get(columns["copy"] or "", "") if columns["copy"] else ""
+            )
             if copy_value is None or copy_value <= 0:
                 stats["skipped_missing_copy"] += 1
                 continue
 
-            v = clean_text(row.get(columns["v"] or "", "") if columns["v"] else "") or "V?"
-            j = clean_text(row.get(columns["j"] or "", "") if columns["j"] else "") or "J?"
+            v = (
+                clean_text(row.get(columns["v"] or "", "") if columns["v"] else "")
+                or "V?"
+            )
+            j = (
+                clean_text(row.get(columns["j"] or "", "") if columns["j"] else "")
+                or "J?"
+            )
             c = clean_text(row.get(columns["c"] or "", "") if columns["c"] else "")
-            raw_chain = clean_text(row.get(columns["chain"] or "", "") if columns["chain"] else "")
-            raw_cell_type = clean_text(row.get(columns["cell_type"] or "", "") if columns["cell_type"] else "")
+            raw_chain = clean_text(
+                row.get(columns["chain"] or "", "") if columns["chain"] else ""
+            )
+            raw_cell_type = clean_text(
+                row.get(columns["cell_type"] or "", "") if columns["cell_type"] else ""
+            )
 
             chain = infer_chain(raw_chain, c, v, j)
             cell_type = infer_cell_type(raw_cell_type, chain)
@@ -179,11 +218,23 @@ def read_repertoire(path: Path, columns: dict[str, str | None]) -> tuple[list[di
             stats["used_rows"] += 1
 
     clones = list(aggregated.values())
-    clones.sort(key=lambda item: (-item["copy"], item["chain"], item["v"], item["j"], item["cdr3"]))
+    clones.sort(
+        key=lambda item: (
+            -item["copy"],
+            item["chain"],
+            item["v"],
+            item["j"],
+            item["cdr3"],
+        )
+    )
     total_copy = sum(float(item["copy"]) for item in clones)
     for item in clones:
         copy_value = float(item["copy"])
-        item["copy"] = int(copy_value) if math.isclose(copy_value, round(copy_value)) else round(copy_value, 4)
+        item["copy"] = (
+            int(copy_value)
+            if math.isclose(copy_value, round(copy_value))
+            else round(copy_value, 4)
+        )
         item["frequency"] = (copy_value / total_copy) if total_copy else 0.0
         item["vj_pair"] = vj_pair_name(item["v"], item["j"])
 
@@ -192,7 +243,13 @@ def read_repertoire(path: Path, columns: dict[str, str | None]) -> tuple[list[di
 
 
 def escape_html_text(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 
 def load_d3_script_tag() -> str:
@@ -383,6 +440,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       .control-inline{grid-template-columns:1fr}
       #treemap{aspect-ratio:1 / 1}
     }
+    .minimal-style {
+      background: #f8f9fa;
+    }
+    .minimal-style .card {
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .minimal-style .intro h1 {
+      color: #2c3e50;
+      font-weight: 600;
+    }
+    .minimal-style .controls h2 {
+      color: #34495e;
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .minimal-style .legend-shape {
+      background: #ecf0f1;
+      border: 1px solid #bdc3c7;
+    }
+    .minimal-style #treemap {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+    }
+    .minimal-style .tooltip {
+      background: rgba(255, 255, 255, 0.95);
+      color: #2c3e50;
+      border: 1px solid #ddd;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
   </style>
 </head>
 <body>
@@ -409,7 +497,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="stat"><span class="label">全部总 copy</span><span class="value" id="allCopyTotal">0</span></div>
         </div>
         <div class="control-row">
-          <label>俄罗斯方块形状</label>
+          <label>Treemap 形式</label>
+          <select id="layoutSelect">
+            <option value="tetris">俄罗斯方块</option>
+            <option value="qr">二维码形式</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label id="legendLabel">图例</label>
           <div class="legend" id="legend"></div>
         </div>
       </div>
@@ -417,14 +512,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <section class="layout">
       <div class="card chart-panel">
         <div class="panel-head">
-          <div><h2>Clone Matrix</h2><p>按 V/J gene 分层后连续拼接成矩阵，每个 clone 用一个 tetromino 表示</p></div>
+          <div><h2>Clone Matrix</h2><p id="chartDescription">按 V/J gene 分层后连续拼接成矩阵，每个 clone 用一个 tetromino 表示</p></div>
           <p id="chartHint"></p>
         </div>
         <svg id="treemap" viewBox="0 0 960 960" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
       <div class="card table-panel">
         <div class="panel-head">
-          <div><h2>Top 100 Clones</h2><p>右侧列出当前阈值下丰度最高的 clone，并标记其方块类型</p></div>
+          <div><h2>Top 100 Clones</h2><p>右侧列出当前阈值下丰度最高的 clone，并显示其当前布局形式</p></div>
           <p id="tableHint"></p>
         </div>
         <div class="table-wrap">
@@ -447,7 +542,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const VISUAL_LIMIT = 1800;
     const MATRIX_W = 960;
     const MATRIX_H = 960;
-    const VIVID_PALETTE = ["#ef84c2","#61e72a","#fff36b","#4be4df","#4890ef","#ff6458","#d4008f","#8d18ff","#41b39e","#ffd87f","#d7ff6d","#ff941c","#2d67d7","#ffb4b4","#cfd3d8"];
+    const TREEMAP_REFERENCE_PALETTE = ["#89b8c8","#9fd183","#d8d856","#73b6df","#4e7fc9","#a36fd6","#6d4aa8","#ef8a78","#eca9c4","#cb4fa0","#b99673","#7b5438","#a6b84d","#67b8b5","#d5dde2","#c8cdd5","#f0dc88","#f0aa4b","#9fded0","#76caef","#b291e5","#96ab72","#dfa9d0","#eac0a3","#3f97cb","#58c45a","#de679b","#d7ea79"];
+    const VIVID_PALETTE = TREEMAP_REFERENCE_PALETTE;
+    const QR_REFERENCE_PALETTE = TREEMAP_REFERENCE_PALETTE;
+    const QR_HOTSPOT_COLORS = ["#4f84b5","#69b052","#6d5094","#d986bc","#875a3e","#b2b04c","#6ea2e0","#9767cc","#ddd25f","#58aaa4","#cad6dc","#e2adc8"];
+    const QR_MICRO_PALETTE = ["#8ec7d0","#b8d98b","#e0db76","#95c7e4","#6f93cf","#b592db","#efb5a5","#f0bfd2","#86c2b1","#dad7b3","#f1dea1","#e3b36d","#9fd6df","#c7b5e2","#d88db4","#d2e38b"];
+    const QR_NEUTRAL_PALETTE = ["#d7dbe1","#cfdada","#e2e4e8","#d3d3d6","#b4baa9","#c8c09d","#e0cec2","#dde2bc"];
     const SHAPES = {
       I:[[0,0],[1,0],[2,0],[3,0]],
       O:[[0,0],[1,0],[0,1],[1,1]],
@@ -459,7 +559,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     };
     const SHAPE_ORDER = ["I","O","T","S","Z","J","L"];
     const SHAPE_ROTATIONS = Object.fromEntries(SHAPE_ORDER.map((name) => [name, buildRotations(SHAPES[name])]));
-    const state = {threshold: SETTINGS.defaultMinCopy};
+    const state = {
+      threshold: SETTINGS.defaultMinCopy,
+      layoutMode: SETTINGS.layoutMode || "tetris"
+    };
     const svg = d3.select("#treemap");
     if (panelFillMode) {
       svg.attr("preserveAspectRatio", "none");
@@ -478,8 +581,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     thresholdInput.value = String(state.threshold);
     thresholdSlider.addEventListener("input", () => setThreshold(Number(thresholdSlider.value || 0)));
     thresholdInput.addEventListener("change", () => setThreshold(Number(thresholdInput.value || 0)));
+    const layoutSelect = document.getElementById("layoutSelect");
+    if (layoutSelect) {
+      layoutSelect.value = state.layoutMode;
+      layoutSelect.addEventListener("change", () => {
+        state.layoutMode = layoutSelect.value;
+        renderLegend();
+        updateChartDescription();
+        safeRender();
+      });
+    }
     renderMeta();
     renderLegend();
+    updateChartDescription();
     setThreshold(state.threshold);
 
     function setThreshold(v) {
@@ -507,18 +621,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderLegend() {
-      document.getElementById("legend").innerHTML = SHAPE_ORDER.map((shape) =>
+      const legend = document.getElementById("legend");
+      const legendLabel = document.getElementById("legendLabel");
+      if (state.layoutMode === "qr") {
+        if (legendLabel) legendLabel.textContent = "二维码图例";
+        legend.innerHTML = [
+          `<div class="legend-item">${miniQrSvg(1, 1, "qr-dot")}<span>像素点</span></div>`,
+          `<div class="legend-item">${miniQrSvg(2, 3, "qr-mid")}<span>矩形块</span></div>`,
+          `<div class="legend-item">${miniQrSvg(4, 5, "qr-core")}<span>热点块</span></div>`
+        ].join("");
+        return;
+      }
+      if (legendLabel) legendLabel.textContent = "俄罗斯方块图例";
+      legend.innerHTML = SHAPE_ORDER.map((shape) =>
         `<div class="legend-item">${miniShapeSvg(shape)}<span>${shape}</span></div>`
       ).join("");
+    }
+
+    function updateChartDescription() {
+      const chartDescription = document.getElementById("chartDescription");
+      if (!chartDescription) return;
+      chartDescription.textContent = state.layoutMode === "qr"
+        ? "按 V/J gene 分层后压缩成二维码风格像素矩阵，每个 clone 占据一块离散网格区域"
+        : "按 V/J gene 分层后连续拼接成矩阵，每个 clone 用一个 tetromino 表示";
     }
 
     function render() {
       const filtered = CLONES
         .filter((d) => d.copy >= state.threshold)
-        .sort((a, b) => b.copy - a.copy || geneSort(a.v, b.v) || a.cdr3.localeCompare(b.cdr3));
+        .sort((a, b) => b.copy - a.copy || geneSort(a.v, b.v) || a.cdr3.localeCompare(b.cdr3))
+        .map((d, index) => ({...d, displayRank: index + 1}));
       const filteredTotal = d3.sum(filtered, (d) => d.copy);
       const visualRecords = filtered.length > VISUAL_LIMIT ? filtered.slice(0, VISUAL_LIMIT) : filtered;
-      const layout = computeGroupLayout(visualRecords);
+      const layout = computeLayout(visualRecords);
       document.getElementById("filteredCloneCount").textContent = fmtInt(filtered.length);
       document.getElementById("filteredCopyTotal").textContent = fmtInt(filteredTotal);
       document.getElementById("chartHint").textContent = "";
@@ -527,6 +662,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         : "Top 100 为空";
       renderTable(filtered, filteredTotal);
       renderPuzzle(layout, filtered.length > VISUAL_LIMIT ? filtered.length - VISUAL_LIMIT : 0);
+    }
+
+    function computeLayout(records) {
+      return state.layoutMode === "qr"
+        ? computeQrLayout(records)
+        : computeGroupLayout(records);
     }
 
     function safeRender() {
@@ -563,7 +704,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const top = records.slice(0, SETTINGS.topN);
       topTableBody.innerHTML = top.length ? top.map((d, i) => `
         <tr>
-          <td>${i + 1}</td>
+          <td>${d.displayRank || i + 1}</td>
           <td class="cdr3">${esc(d.cdr3)}</td>
           <td>${fmtInt(d.copy)}</td>
           <td>${fmtPct(totalCopy ? d.copy / totalCopy : d.frequency)}</td>
@@ -691,13 +832,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       if (piece.rects && piece.rects.length) {
         piece.rects.forEach((rect) => {
+          const rectWidth = rect.w * cellSize + 0.3;
+          const rectHeight = rect.h * cellSize + 0.3;
+          const rounded = state.layoutMode === "qr" && !piece.filler
+            ? Math.min(Math.max(1.4, cellSize * 0.24), Math.min(rectWidth, rectHeight) * 0.22)
+            : 0;
           body.append("rect")
             .attr("x", rect.x * cellSize - 0.15)
             .attr("y", rect.y * cellSize - 0.15)
-            .attr("width", rect.w * cellSize + 0.3)
-            .attr("height", rect.h * cellSize + 0.3)
+            .attr("width", rectWidth)
+            .attr("height", rectHeight)
             .attr("fill", fill)
-            .attr("shape-rendering", "crispEdges");
+            .attr("rx", rounded)
+            .attr("ry", rounded)
+            .attr("shape-rendering", rounded ? null : "crispEdges");
         });
         return;
       }
@@ -733,6 +881,69 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       return packMatrix(ordered, MATRIX_W, MATRIX_H);
+    }
+
+    function computeQrLayout(records) {
+      if (!records.length) return {cellSize: 0, placed: []};
+
+      const pairTotals = new Map();
+      records.forEach((record) => {
+        const key = `${record.v || "V?"}|${record.j || "J?"}`;
+        pairTotals.set(key, (pairTotals.get(key) || 0) + record.copy);
+      });
+
+      const ordered = records.slice().sort((a, b) => {
+        const pairA = `${a.v || "V?"}|${a.j || "J?"}`;
+        const pairB = `${b.v || "V?"}|${b.j || "J?"}`;
+        return (pairTotals.get(pairB) || 0) - (pairTotals.get(pairA) || 0)
+          || b.copy - a.copy
+          || geneSort(a.v, b.v)
+          || geneSort(a.j, b.j)
+          || a.cdr3.localeCompare(b.cdr3);
+      });
+
+      const side = chooseQrGridSide(ordered.length);
+      const cols = side;
+      const rows = side;
+      const weightedItems = ordered.map((record, index) => ({
+        ...record,
+        qrWeight: computeQrWeight(record, index),
+      }));
+      const totalCells = Math.max(weightedItems.length, Math.floor(cols * rows * 0.968));
+      const cellAllocations = allocateDiscreteByWeights(
+        totalCells,
+        weightedItems.map((item) => item.qrWeight || 1),
+        1
+      );
+      const fragments = expandQrFragments(weightedItems, cellAllocations);
+      const hotspotItems = fragments.filter((item) => item.fragmentKind === "hotspot");
+      const remainingItems = fragments.filter((item) => item.fragmentKind !== "hotspot");
+      const occupancy = Array.from({length: rows}, () => new Uint8Array(cols));
+      const placed = [];
+      const hotspotRemainder = placeQrHotspots(hotspotItems, occupancy, cols, rows, placed);
+      const unplacedItems = remainingItems.concat(hotspotRemainder);
+      const freeZones = extractQrFreeZones(occupancy, cols, rows);
+      const zoneAssignments = assignQrItemsToZones(unplacedItems, freeZones);
+      freeZones.forEach((zone, index) => {
+        const zoneItems = zoneAssignments[index] || [];
+        if (!zoneItems.length) return;
+        layoutQrPartition(zoneItems, zone.x, zone.y, zone.w, zone.h, 1, placed);
+      });
+
+      const pieceGrid = Array.from({length: rows}, () => new Uint32Array(cols));
+      placed.forEach((piece, index) => {
+        piece._pid = index + 1;
+        stampPieceId(pieceGrid, piece, piece._pid);
+      });
+      assignDisplayColors(placed, pieceGrid, cols, rows);
+
+      return {
+        cellSize: Math.min(MATRIX_W / cols, MATRIX_H / rows),
+        placed,
+        omitted: Math.max(0, records.length - placed.length),
+        cols,
+        rows
+      };
     }
 
     function packMatrix(items, width, height) {
@@ -802,6 +1013,468 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return scales;
     }
 
+    function chooseQrGridSide(itemCount) {
+      const targetCells = Math.max(9216, Math.min(32400, Math.ceil(itemCount * 7.2)));
+      return clamp(Math.ceil(Math.sqrt(targetCells)), 96, 180);
+    }
+
+    function computeQrWeight(record, index) {
+      const base = Math.max(1, Number(record.copy) || 1);
+      const pairSeed = Math.abs(hashCode(`${record.v || "V?"}|${record.j || "J?"}|${index}`)) % 9;
+      return Math.pow(base, 0.68) * (1 + pairSeed * 0.025);
+    }
+
+    function allocateDiscreteByWeights(total, weights, minSize = 1) {
+      if (!weights.length) return [];
+      if (weights.length === 1) return [total];
+      if (total < weights.length * minSize) return null;
+
+      const baseSizes = weights.map(() => minSize);
+      let remaining = total - weights.length * minSize;
+      const totalWeight = d3.sum(weights) || 1;
+      const scaled = weights.map((weight) => (weight / totalWeight) * remaining);
+      const sizes = baseSizes.map((size, index) => size + Math.floor(scaled[index]));
+      remaining = total - d3.sum(sizes);
+
+      if (remaining > 0) {
+        const order = scaled
+          .map((value, index) => ({index, frac: value - Math.floor(value)}))
+          .sort((a, b) => b.frac - a.frac || a.index - b.index);
+        for (let i = 0; i < remaining; i += 1) {
+          sizes[order[i % order.length].index] += 1;
+        }
+      }
+
+      return sizes;
+    }
+
+    function expandQrFragments(items, cellAllocations) {
+      const fragments = [];
+      items.forEach((item, index) => {
+        const totalArea = Math.max(1, cellAllocations[index] || 1);
+        const areaFragments = splitQrAreaFragments(totalArea, index, index < 14);
+        areaFragments.forEach((fragment, fragmentIndex) => {
+          fragments.push({
+            ...item,
+            cloneRank: index,
+            fragmentArea: fragment.area,
+            fragmentKind: fragment.kind,
+            qrWeight: fragment.area,
+            fragmentIndex,
+            fragmentSeed: Math.abs(hashCode(`${item.cdr3}|${item.v}|${item.j}|${fragmentIndex}|${fragment.kind}`)),
+            displayColor: qrFragmentColor(item, index, fragmentIndex, fragment.kind),
+          });
+        });
+      });
+
+      return fragments.sort((a, b) => {
+        const priorityA = qrFragmentPriority(a.fragmentKind);
+        const priorityB = qrFragmentPriority(b.fragmentKind);
+        return priorityA - priorityB
+          || b.fragmentArea - a.fragmentArea
+          || b.copy - a.copy
+          || a.cdr3.localeCompare(b.cdr3);
+      });
+    }
+
+    function splitQrAreaFragments(totalArea, seed, allowHotspot) {
+      const fragments = [];
+      let remaining = totalArea;
+      const maxFragments = clamp(Math.round(Math.sqrt(totalArea) * 1.9), 1, 40);
+
+      if (allowHotspot && totalArea >= 24) {
+        const hotspotArea = clamp(
+          Math.round(totalArea * 0.16),
+          16,
+          Math.max(16, Math.round(totalArea * 0.28))
+        );
+        fragments.push({area: hotspotArea, kind: "hotspot"});
+        remaining -= hotspotArea;
+      }
+
+      if (remaining <= 0) {
+        return fragments;
+      }
+
+      const tailCount = Math.max(1, maxFragments - fragments.length);
+      const weights = Array.from({length: tailCount}, (_, idx) => {
+        const jitter = 1 + (((seed + idx * 3) % 7) - 3) * 0.035;
+        return (1 / Math.pow(idx + 1.35, 1.06)) * jitter;
+      });
+      const areas = allocateDiscreteByWeights(remaining, weights, 1) || [remaining];
+      areas.forEach((area, idx) => {
+        const kind = area >= 10 ? "mid" : area >= 4 ? "small" : "tile";
+        fragments.push({area, kind});
+      });
+
+      return fragments;
+    }
+
+    function qrFragmentPriority(kind) {
+      if (kind === "hotspot") return 0;
+      if (kind === "mid") return 1;
+      if (kind === "small") return 2;
+      return 3;
+    }
+
+    function qrFragmentColor(record, cloneRank, fragmentIndex, kind) {
+      const seed = Math.abs(hashCode(`${record.cdr3}|${record.v}|${record.j}|${fragmentIndex}|${kind}`));
+      let sourcePalette = QR_MICRO_PALETTE;
+      let baseHex = paletteColor(`${record.cdr3}|${record.v}|${record.j}`, QR_REFERENCE_PALETTE);
+
+      if (kind === "hotspot") {
+        sourcePalette = QR_HOTSPOT_COLORS;
+        baseHex = sourcePalette[cloneRank % sourcePalette.length];
+      } else if (kind === "mid") {
+        sourcePalette = QR_REFERENCE_PALETTE;
+        baseHex = sourcePalette[(cloneRank * 3 + fragmentIndex) % sourcePalette.length];
+      } else if (kind === "small") {
+        sourcePalette = (seed % 6 === 0) ? QR_NEUTRAL_PALETTE : QR_MICRO_PALETTE;
+        baseHex = sourcePalette[(cloneRank + fragmentIndex + seed) % sourcePalette.length];
+      } else {
+        sourcePalette = (seed % 4 <= 1) ? QR_NEUTRAL_PALETTE : QR_MICRO_PALETTE;
+        baseHex = sourcePalette[(cloneRank * 5 + fragmentIndex + seed) % sourcePalette.length];
+      }
+
+      const base = d3.hcl(baseHex);
+      const shift = ((seed % 15) - 7) * (kind === "hotspot" ? 1.0 : 1.35);
+      base.h = ((base.h || 0) + shift + 360) % 360;
+      base.c = clamp(
+        base.c + (kind === "hotspot" ? 14 : kind === "mid" ? 8 : kind === "small" ? 3 : 1),
+        kind === "tile" ? 8 : 14,
+        kind === "hotspot" ? 72 : 58
+      );
+      base.l = clamp(
+        kind === "hotspot" ? 51 : kind === "mid" ? 59 : kind === "small" ? 67 : 73,
+        44,
+        82
+      );
+      return base.formatHex();
+    }
+
+    function qrHotspotTemplates() {
+      return [
+        {x: 0.66, y: 0.54, w: 0.11, h: 0.30, round: 0.42},
+        {x: 0.91, y: 0.50, w: 0.12, h: 0.23, round: 0.42},
+        {x: 0.87, y: 0.26, w: 0.14, h: 0.12, round: 0.4},
+        {x: 0.70, y: 0.17, w: 0.09, h: 0.16, round: 0.42},
+        {x: 0.39, y: 0.89, w: 0.12, h: 0.14, round: 0.42},
+        {x: 0.15, y: 0.88, w: 0.07, h: 0.15, round: 0.42},
+        {x: 0.54, y: 0.43, w: 0.07, h: 0.17, round: 0.4},
+        {x: 0.30, y: 0.13, w: 0.07, h: 0.07, round: 0.38},
+        {x: 0.08, y: 0.56, w: 0.05, h: 0.13, round: 0.4},
+        {x: 0.93, y: 0.86, w: 0.07, h: 0.11, round: 0.42},
+        {x: 0.52, y: 0.69, w: 0.06, h: 0.19, round: 0.4},
+        {x: 0.23, y: 0.76, w: 0.05, h: 0.10, round: 0.38},
+      ];
+    }
+
+    function placeQrHotspots(items, occupancy, cols, rows, placed) {
+      const templates = qrHotspotTemplates();
+      const hotspotCount = Math.min(templates.length, Math.max(6, Math.min(items.length, Math.ceil(Math.sqrt(items.length) * 1.05))));
+      const pending = [];
+
+      items.forEach((item, index) => {
+        if (index >= hotspotCount) {
+          pending.push(item);
+          return;
+        }
+
+        const template = templates[index];
+        const placement = findQrHotspotPlacement(item, template, index, occupancy, cols, rows);
+        if (!placement) {
+          pending.push(item);
+          return;
+        }
+
+        stampRect(occupancy, placement.x, placement.y, placement.w, placement.h);
+        placed.push({
+          ...item,
+          shape: "QR",
+          qr: true,
+          hotspot: true,
+          x: placement.x,
+          y: placement.y,
+          scale: 1,
+          rects: [{x: 0, y: 0, w: placement.w, h: placement.h}]
+        });
+      });
+
+      return pending;
+    }
+
+    function findQrHotspotPlacement(item, template, rank, occupancy, cols, rows) {
+      const seed = Math.abs(hashCode(`${item.cdr3}|${item.v}|${item.j}|hotspot|${rank}`));
+      const intensity = clamp(1.08 - rank * 0.038, 0.72, 1.08);
+      const templateW = clamp(Math.round(cols * template.w * intensity), 4, Math.max(4, cols - 2));
+      const templateH = clamp(Math.round(rows * template.h * intensity), 4, Math.max(4, rows - 2));
+      const targetArea = Math.max(8, item.fragmentArea || Math.round(templateW * templateH * 0.5));
+      const templateRatio = templateW / Math.max(1, templateH);
+      const areaWidth = Math.max(4, Math.round(Math.sqrt(targetArea * templateRatio)));
+      const areaHeight = Math.max(4, Math.round(targetArea / Math.max(1, areaWidth)));
+      const baseW = clamp(Math.min(templateW, areaWidth), 4, Math.max(4, cols - 2));
+      const baseH = clamp(Math.min(templateH, areaHeight), 4, Math.max(4, rows - 2));
+      const variants = hotspotDimensionVariants(baseW, baseH, seed);
+      const anchorX = clamp(Math.round(cols * template.x), 0, cols - 1);
+      const anchorY = clamp(Math.round(rows * template.y), 0, rows - 1);
+
+      for (const variant of variants) {
+        for (let radius = 0; radius <= 18; radius += 1) {
+          const offsets = hotspotOffsets(radius, seed);
+          for (const [dx, dy] of offsets) {
+            const x = clamp(anchorX - Math.floor(variant.w / 2) + dx, 0, cols - variant.w);
+            const y = clamp(anchorY - Math.floor(variant.h / 2) + dy, 0, rows - variant.h);
+            if (fitsRect(occupancy, x, y, variant.w, variant.h)) {
+              return {x, y, w: variant.w, h: variant.h};
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    function hotspotDimensionVariants(baseW, baseH, seed) {
+      const variants = [];
+      const seen = new Set();
+      const deltas = [0, -1, 1, -2, 2, -3, 3];
+      deltas.forEach((dw, index) => {
+        const dh = deltas[(index + (seed % deltas.length)) % deltas.length];
+        const w = Math.max(4, baseW + dw);
+        const h = Math.max(4, baseH + dh);
+        const key = `${w}x${h}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          variants.push({w, h});
+        }
+      });
+      return variants.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+    }
+
+    function hotspotOffsets(radius, seed) {
+      if (radius === 0) return [[0, 0]];
+      const offsets = [];
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        offsets.push([dx, -radius], [dx, radius]);
+      }
+      for (let dy = -radius + 1; dy <= radius - 1; dy += 1) {
+        offsets.push([-radius, dy], [radius, dy]);
+      }
+      const rotate = seed % Math.max(1, offsets.length);
+      return offsets.map((_, index) => offsets[(index + rotate) % offsets.length]);
+    }
+
+    function extractQrFreeZones(occupancy, cols, rows) {
+      const scratch = occupancy.map((row) => Uint8Array.from(row));
+      const zones = [];
+      for (let y = 0; y < rows; y += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          if (scratch[y][x]) continue;
+          const zone = growQrFreeZone(scratch, x, y, cols, rows);
+          if (!zone) continue;
+          stampRect(scratch, zone.x, zone.y, zone.w, zone.h);
+          if (zone.w * zone.h >= 4) zones.push(zone);
+        }
+      }
+      return zones.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+    }
+
+    function growQrFreeZone(grid, startX, startY, cols, rows) {
+      let width = 0;
+      while (startX + width < cols && !grid[startY][startX + width]) width += 1;
+      if (width <= 0) return null;
+
+      let best = {x: startX, y: startY, w: width, h: 1, area: width};
+      let minWidth = width;
+      for (let h = 1; startY + h < rows; h += 1) {
+        let rowWidth = 0;
+        while (rowWidth < minWidth && startX + rowWidth < cols && !grid[startY + h][startX + rowWidth]) {
+          rowWidth += 1;
+        }
+        minWidth = rowWidth;
+        if (minWidth <= 0) break;
+        const area = minWidth * (h + 1);
+        if (area >= best.area) {
+          best = {x: startX, y: startY, w: minWidth, h: h + 1, area};
+        }
+      }
+      return best;
+    }
+
+    function assignQrItemsToZones(items, zones) {
+      const groups = zones.map(() => []);
+      if (!items.length || !zones.length) return groups;
+
+      const loads = zones.map(() => 0);
+      const areas = zones.map((zone) => Math.max(1, zone.w * zone.h));
+
+      items.forEach((item) => {
+        let bestIndex = 0;
+        let bestScore = Infinity;
+        for (let i = 0; i < zones.length; i += 1) {
+          const projected = (loads[i] + (item.qrWeight || 1)) / areas[i];
+          if (projected < bestScore) {
+            bestScore = projected;
+            bestIndex = i;
+          }
+        }
+        groups[bestIndex].push(item);
+        loads[bestIndex] += item.qrWeight || 1;
+      });
+
+      return groups;
+    }
+
+    function layoutQrPartition(items, x, y, w, h, depth, placed) {
+      if (!items.length || w <= 0 || h <= 0) return;
+      if (items.length === 1) {
+        placed.push({
+          ...items[0],
+          shape: "QR",
+          qr: true,
+          x,
+          y,
+          scale: 1,
+          rects: [{x: 0, y: 0, w, h}]
+        });
+        return;
+      }
+
+      if (w === 1 || h === 1 || items.length <= 3 || (w * h <= items.length * 2.4 && Math.min(w, h) <= 3)) {
+        layoutQrStrip(items, x, y, w, h, depth, placed);
+        return;
+      }
+
+      const orientation = chooseQrOrientation(items, w, h, depth);
+      const maxGroups = Math.min(Math.max(2, Math.min(w, h)), items.length);
+      let desiredGroups = 2;
+      if (items.length >= 64 && Math.min(w, h) >= 10) desiredGroups = 6;
+      else if (items.length >= 36 && Math.min(w, h) >= 8) desiredGroups = 5;
+      else if (items.length >= 18 && Math.min(w, h) >= 6) desiredGroups = 4;
+      else if (items.length >= 8 && Math.min(w, h) >= 4) desiredGroups = 3;
+      desiredGroups = Math.min(desiredGroups, maxGroups);
+      const groups = splitQrGroups(items, desiredGroups);
+      const span = orientation === "vertical" ? w : h;
+
+      if (!groups.length || span < groups.length) {
+        layoutQrStrip(items, x, y, w, h, depth, placed);
+        return;
+      }
+
+      const spans = allocateQrSpans(
+        span,
+        groups.map((group) => d3.sum(group, (item) => item.qrWeight || 1))
+      );
+      if (!spans) {
+        layoutQrStrip(items, x, y, w, h, depth, placed);
+        return;
+      }
+
+      let offset = 0;
+      groups.forEach((group, index) => {
+        const seg = spans[index];
+        if (orientation === "vertical") {
+          layoutQrPartition(group, x + offset, y, seg, h, depth + 1, placed);
+        } else {
+          layoutQrPartition(group, x, y + offset, w, seg, depth + 1, placed);
+        }
+        offset += seg;
+      });
+    }
+
+    function layoutQrStrip(items, x, y, w, h, depth, placed) {
+      const stripeBias = depth >= 4 && Math.min(w, h) <= 5;
+      const orientation = stripeBias
+        ? (w >= h ? "vertical" : "horizontal")
+        : ((w >= h && w > 1) || h === 1 ? "vertical" : "horizontal");
+      const span = orientation === "vertical" ? w : h;
+      const sizes = allocateQrSpans(span, items.map((item) => item.qrWeight || 1), 1);
+      if (!sizes) return;
+
+      let offset = 0;
+      items.forEach((item, index) => {
+        const seg = sizes[index];
+        const rect = orientation === "vertical"
+          ? {x: x + offset, y, w: seg, h}
+          : {x, y: y + offset, w, h: seg};
+        placed.push({
+          ...item,
+          shape: "QR",
+          qr: true,
+          x: rect.x,
+          y: rect.y,
+          scale: 1,
+          rects: [{x: 0, y: 0, w: rect.w, h: rect.h}]
+        });
+        offset += seg;
+      });
+    }
+
+    function chooseQrOrientation(items, w, h, depth) {
+      if (depth >= 4 && Math.min(w, h) <= 6) {
+        return w >= h ? "vertical" : "horizontal";
+      }
+      if (w / h >= 1.22) return "vertical";
+      if (h / w >= 1.22) return "horizontal";
+      const seedBase = items.length
+        ? Math.abs(hashCode(`${items[0].cdr3}|${items[items.length - 1].cdr3}|${depth}|qr-split`))
+        : depth;
+      return ((seedBase + depth) % 2 === 0) ? "vertical" : "horizontal";
+    }
+
+    function splitQrGroups(items, groupCount) {
+      if (groupCount <= 1 || items.length <= 1) return [items];
+      const weights = items.map((item) => item.qrWeight || 1);
+      const totalWeight = d3.sum(weights) || 1;
+      const target = totalWeight / groupCount;
+      const groups = [];
+      let current = [];
+      let currentWeight = 0;
+      let created = 0;
+
+      items.forEach((item, index) => {
+        current.push(item);
+        currentWeight += item.qrWeight || 1;
+        const remainingItems = items.length - index - 1;
+        const remainingGroups = groupCount - created - 1;
+        const shouldSplit = remainingGroups > 0
+          && remainingItems >= remainingGroups
+          && currentWeight >= target * 0.92;
+        if (shouldSplit) {
+          groups.push(current);
+          current = [];
+          currentWeight = 0;
+          created += 1;
+        }
+      });
+      if (current.length) groups.push(current);
+      return groups.filter((group) => group.length);
+    }
+
+    function allocateQrSpans(total, weights, minSize = 1) {
+      if (!weights.length) return [];
+      if (weights.length === 1) return [total];
+      if (total < weights.length * minSize) return null;
+
+      const minSizes = weights.map(() => minSize);
+      let remaining = total - (weights.length * minSize);
+      const totalWeight = d3.sum(weights) || 1;
+      const extras = weights.map((weight) => (weight / totalWeight) * remaining);
+      const sizes = minSizes.map((size, index) => size + Math.floor(extras[index]));
+      remaining = total - d3.sum(sizes);
+
+      if (remaining > 0) {
+        const order = extras
+          .map((value, index) => ({index, frac: value - Math.floor(value)}))
+          .sort((a, b) => b.frac - a.frac || a.index - b.index);
+        for (let i = 0; i < remaining; i += 1) {
+          sizes[order[i % order.length].index] += 1;
+        }
+      }
+
+      return sizes;
+    }
+
     function clampScale(value, maxScale) {
       return Math.max(1, Math.min(maxScale, Number.isFinite(value) ? value : 1));
     }
@@ -846,12 +1519,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return true;
     }
 
+    function fitsRect(occupancy, x, y, w, h) {
+      for (let yy = 0; yy < h; yy += 1) {
+        for (let xx = 0; xx < w; xx += 1) {
+          if (occupancy[y + yy][x + xx]) return false;
+        }
+      }
+      return true;
+    }
+
     function stampShape(occupancy, x, y, cells, scale) {
       for (const [cx, cy] of cells) {
         for (let yy = 0; yy < scale; yy += 1) {
           for (let xx = 0; xx < scale; xx += 1) {
             occupancy[y + cy * scale + yy][x + cx * scale + xx] = 1;
           }
+        }
+      }
+    }
+
+    function stampRect(occupancy, x, y, w, h) {
+      for (let yy = 0; yy < h; yy += 1) {
+        for (let xx = 0; xx < w; xx += 1) {
+          occupancy[y + yy][x + xx] = 1;
         }
       }
     }
@@ -928,55 +1618,134 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return area;
     }
 
-    function adjacentPieceIds(piece, grid, cols, rows) {
-      const ids = new Set();
+    function adjacentPieceWeights(piece, grid, cols, rows) {
+      const weights = new Map();
+      const addNeighbor = (id) => {
+        if (!id || id === piece._pid) return;
+        weights.set(id, (weights.get(id) || 0) + 1);
+      };
       forEachPieceUnit(piece, (gx, gy) => {
         if (gx > 0) {
           const left = grid[gy][gx - 1];
-          if (left && left !== piece._pid) ids.add(left);
+          addNeighbor(left);
         }
         if (gx + 1 < cols) {
           const right = grid[gy][gx + 1];
-          if (right && right !== piece._pid) ids.add(right);
+          addNeighbor(right);
         }
         if (gy > 0) {
           const top = grid[gy - 1][gx];
-          if (top && top !== piece._pid) ids.add(top);
+          addNeighbor(top);
         }
         if (gy + 1 < rows) {
           const bottom = grid[gy + 1][gx];
-          if (bottom && bottom !== piece._pid) ids.add(bottom);
+          addNeighbor(bottom);
         }
       });
-      return ids;
+      return weights;
+    }
+
+    function colorDistance(hexA, hexB) {
+      const a = d3.lab(hexA);
+      const b = d3.lab(hexB);
+      return Math.hypot((a.l || 0) - (b.l || 0), (a.a || 0) - (b.a || 0), (a.b || 0) - (b.b || 0));
+    }
+
+    function hueDistance(hexA, hexB) {
+      const a = d3.hcl(hexA);
+      const b = d3.hcl(hexB);
+      const hueA = Number.isFinite(a.h) ? a.h : 0;
+      const hueB = Number.isFinite(b.h) ? b.h : 0;
+      const diff = Math.abs(hueA - hueB) % 360;
+      return Math.min(diff, 360 - diff);
+    }
+
+    function closestPaletteIndex(color, palette) {
+      let bestIndex = 0;
+      let bestScore = Infinity;
+      for (let i = 0; i < palette.length; i += 1) {
+        const distance = colorDistance(color, palette[i]);
+        if (distance < bestScore) {
+          bestScore = distance;
+          bestIndex = i;
+        }
+      }
+      return bestIndex;
     }
 
     function assignDisplayColors(pieces, grid, cols, rows) {
+      const palette = currentPalette();
       const piecesById = new Map(pieces.map((piece) => [piece._pid, piece]));
-      const order = pieces.slice().sort((a, b) => pieceArea(b) - pieceArea(a) || a._pid - b._pid);
+      const adjacency = new Map(
+        pieces.map((piece) => [piece._pid, adjacentPieceWeights(piece, grid, cols, rows)])
+      );
+      const order = pieces.slice().sort((a, b) => {
+        const aTouch = Array.from(adjacency.get(a._pid)?.values() || []).reduce((sum, value) => sum + value, 0);
+        const bTouch = Array.from(adjacency.get(b._pid)?.values() || []).reduce((sum, value) => sum + value, 0);
+        return bTouch - aTouch || pieceArea(b) - pieceArea(a) || a._pid - b._pid;
+      });
 
       order.forEach((piece) => {
-        const neighborIds = adjacentPieceIds(piece, grid, cols, rows);
-        const used = new Set();
-        neighborIds.forEach((id) => {
-          const neighbor = piecesById.get(id);
-          if (neighbor && Number.isInteger(neighbor.colorIndex)) used.add(neighbor.colorIndex);
-        });
+        if (piece.qr && piece.displayColor && !piece.filler) {
+          piece.colorIndex = closestPaletteIndex(piece.displayColor, palette);
+          return;
+        }
+        const neighborWeights = adjacency.get(piece._pid) || new Map();
 
         const seed = Math.abs(hashCode(`${piece.x}|${piece.y}|${piece.cdr3 || piece._pid}`));
+        const semanticAnchor = piece.filler ? "#d7ddd2" : pieceColor(piece);
         let bestIndex = 0;
         let bestScore = -Infinity;
 
-        for (let i = 0; i < VIVID_PALETTE.length; i += 1) {
-          const candidate = (seed + i * 7) % VIVID_PALETTE.length;
-          let score = used.has(candidate) ? -100 : 0;
-          neighborIds.forEach((id) => {
+        for (let i = 0; i < palette.length; i += 1) {
+          const candidate = (seed + i * 7) % palette.length;
+          const candidateColor = palette[candidate];
+          let score = 0;
+          let minNeighborDistance = Infinity;
+          let minNeighborHue = Infinity;
+
+          neighborWeights.forEach((touchCount, id) => {
             const neighbor = piecesById.get(id);
-            if (!neighbor || !Number.isInteger(neighbor.colorIndex)) return;
-            const dist = Math.abs(candidate - neighbor.colorIndex);
-            score += Math.min(dist, VIVID_PALETTE.length - dist);
+            if (!neighbor || !neighbor.displayColor) return;
+            const distance = colorDistance(candidateColor, neighbor.displayColor);
+            const hueGap = hueDistance(candidateColor, neighbor.displayColor);
+            const weight = 1 + Math.min(8, touchCount) * 0.42;
+
+            minNeighborDistance = Math.min(minNeighborDistance, distance);
+            minNeighborHue = Math.min(minNeighborHue, hueGap);
+            score += distance * weight;
+            score += hueGap * 0.18 * weight;
+
+            if (distance < 26) {
+              score -= Math.pow(26 - distance, 2) * 0.34 * weight;
+            }
+            if (hueGap < 24) {
+              score -= (24 - hueGap) * 0.95 * weight;
+            }
+            if (String(neighbor.displayColor).toLowerCase() === candidateColor.toLowerCase()) {
+              score -= 36 + touchCount * 10;
+            }
           });
-          if (piece.filler) score += candidate % 2 === 0 ? 1 : 0;
+
+          if (Number.isFinite(minNeighborDistance)) {
+            score += minNeighborDistance * 2.7;
+            score += minNeighborHue * 0.35;
+          } else {
+            score += 24;
+          }
+
+          const anchorDistance = colorDistance(candidateColor, semanticAnchor);
+          score += piece.filler
+            ? -anchorDistance * 0.05
+            : Math.max(0, 54 - anchorDistance) * 0.2;
+
+          if (piece.filler) {
+            const muted = d3.hcl(candidateColor);
+            score += clamp(76 - muted.c, 0, 42) * 0.65;
+            score += clamp(muted.l - 58, 0, 18) * 0.3;
+          }
+
+          score += ((seed + candidate * 13) % 17) * 0.01;
           if (score > bestScore) {
             bestScore = score;
             bestIndex = candidate;
@@ -984,7 +1753,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         piece.colorIndex = bestIndex;
-        piece.displayColor = VIVID_PALETTE[bestIndex];
+        piece.displayColor = palette[bestIndex];
       });
     }
 
@@ -1049,26 +1818,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function pieceColor(record) {
       const base = d3.hcl(pairBaseColor(record));
-      const hueShift = ((Math.abs(hashCode(`${record.shape}|${record.cdr3}`)) % 17) - 8) * 2.2;
+      const hueShift = ((Math.abs(hashCode(`${record.shape}|${record.cdr3}`)) % 17) - 8) * 1.7;
       base.h = ((base.h || 0) + hueShift + 360) % 360;
-      base.c = clamp(base.c + 22, 48, 88);
-      base.l = clamp(60 + Math.min(14, Math.log2((record.copy || 1) + 1) * 2.2), 54, 82);
+      base.c = clamp(base.c + 12, 30, 78);
+      base.l = clamp(62 + Math.min(12, Math.log2((record.copy || 1) + 1) * 1.6), 56, 80);
       return base.formatHex();
     }
 
     function groupColor(name) {
-      return paletteColor(name, VIVID_PALETTE);
+      return paletteColor(name, currentPalette());
     }
 
     function jColor(name) {
-      return paletteColor(`j:${name}`, VIVID_PALETTE);
+      return paletteColor(`j:${name}`, currentPalette());
     }
 
     function pairBaseColor(record) {
       const mixed = d3.interpolateLab(groupColor(record.v || record.name || "V?"), jColor(record.j || "J?"))(0.5);
       const c = d3.hcl(mixed);
-      c.c = clamp(c.c + 18, 42, 84);
-      c.l = clamp(c.l + 8, 56, 80);
+      c.c = clamp(c.c + 10, 26, 68);
+      c.l = clamp(c.l + 6, 56, 80);
       return c.formatHex();
     }
 
@@ -1077,6 +1846,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
     function showTip(event, d) {
       tooltip.innerHTML = `<h3>${esc(d.cdr3)}</h3><dl class="tip-grid">
+        <dt>序号</dt><dd>${fmtInt(d.displayRank || 0)}</dd>
         <dt>copy</dt><dd>${fmtInt(d.copy)}</dd>
         <dt>V</dt><dd>${esc(d.v)}</dd>
         <dt>J</dt><dd>${esc(d.j)}</dd>
@@ -1094,7 +1864,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const cells = SHAPES[shape];
       const dims = shapeDimensions(cells);
       const size = 8;
-      const fill = paletteColor(shape, VIVID_PALETTE);
+      const fill = paletteColor(shape, currentPalette());
       const blocks = cells.map(([x, y]) =>
         `<rect x="${x * size + 4}" y="${y * size + 3}" width="${size}" height="${size}" rx="2" ry="2" fill="${fill}" stroke="rgba(0,0,0,.25)" stroke-width="1"></rect>`
       ).join("");
@@ -1110,6 +1880,52 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function hashHue(text) { return Math.abs(hashCode(text)) % 360; }
     function hexToRgba(hex, alpha) { const c = d3.color(hex); return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`; }
     function textColor(hex) { const c = d3.color(hex); const y = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255; return y > .66 ? "#151410" : "#fffef9"; }
+    function currentPalette() { return TREEMAP_REFERENCE_PALETTE; }
+
+    function groupColor(name) {
+      return paletteColor(name, currentPalette());
+    }
+    
+    function jColor(name) {
+      return paletteColor(`j:${name}`, currentPalette());
+    }
+    
+    function pairBaseColor(record) {
+      const mixed = d3.interpolateLab(groupColor(record.v || record.name || "V?"), jColor(record.j || "J?"))(0.5);
+      const c = d3.hcl(mixed);
+      c.c = clamp(c.c + 18, 42, 84);
+      c.l = clamp(c.l + 8, 56, 80);
+      return c.formatHex();
+    }
+    
+    function pieceColor(record) {
+      const base = d3.hcl(pairBaseColor(record));
+      const hueShift = ((Math.abs(hashCode(`${record.shape}|${record.cdr3}`)) % 17) - 8) * 2.2;
+      base.h = ((base.h || 0) + hueShift + 360) % 360;
+      base.c = clamp(base.c + 22, 48, 88);
+      base.l = clamp(60 + Math.min(14, Math.log2((record.copy || 1) + 1) * 2.2), 54, 82);
+      return base.formatHex();
+    }
+    
+    function miniShapeSvg(shape) {
+      const cells = SHAPES[shape];
+      const dims = shapeDimensions(cells);
+      const size = 8;
+      const fill = paletteColor(shape, currentPalette());
+      const blocks = cells.map(([x, y]) =>
+        `<rect x="${x * size + 4}" y="${y * size + 3}" width="${size}" height="${size}" rx="2" ry="2" fill="${fill}" stroke="rgba(0,0,0,.25)" stroke-width="1"></rect>`
+      ).join("");
+      return `<svg class="legend-shape" viewBox="0 0 ${(dims.w + 1) * size} ${(dims.h + 1) * size}" aria-hidden="true">${blocks}</svg>`;
+    }
+
+    function miniQrSvg(w, h, key) {
+      const size = 7;
+      const width = w * size + 8;
+      const height = h * size + 8;
+      const fill = paletteColor(key, currentPalette());
+      const radius = Math.min(6, Math.max(2, Math.min(w * size, h * size) * 0.18));
+      return `<svg class="legend-shape" viewBox="0 0 ${width} ${height}" aria-hidden="true"><rect x="4" y="4" width="${w * size}" height="${h * size}" rx="${radius}" ry="${radius}" fill="${fill}" stroke="rgba(0,0,0,.18)" stroke-width="1"></rect></svg>`;
+    }
   </script>
 </body>
 </html>
@@ -1124,6 +1940,8 @@ def build_html(
     columns: dict[str, str | None],
     default_min_copy: int,
     top_n: int,
+    style: str = "classic",
+    layout_mode: str = "tetris",
 ) -> str:
     max_copy = int(max((float(item["copy"]) for item in clones), default=0))
     settings = {
@@ -1132,11 +1950,15 @@ def build_html(
         "columns": columns,
         "summary": {
             **summary,
-            "total_copy": int(summary["total_copy"]) if math.isclose(summary["total_copy"], round(summary["total_copy"])) else round(summary["total_copy"], 4),
+            "total_copy": int(summary["total_copy"])
+            if math.isclose(summary["total_copy"], round(summary["total_copy"]))
+            else round(summary["total_copy"], 4),
         },
         "defaultMinCopy": min(default_min_copy, max_copy),
         "topN": top_n,
         "maxCopy": max_copy,
+        "style": style,
+        "layoutMode": layout_mode,
     }
     html = HTML_TEMPLATE.replace("__PAGE_TITLE__", escape_html_text(title))
     html = html.replace("__D3_SCRIPT__", load_d3_script_tag())
@@ -1146,12 +1968,20 @@ def build_html(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="根据 repertoire pep 数据生成可交互 clonotype treemap HTML。")
+    parser = argparse.ArgumentParser(
+        description="根据 repertoire pep 数据生成可交互 clonotype treemap HTML。"
+    )
     parser.add_argument("input", help="输入文件路径，支持 csv/csv.gz/tsv/tsv.gz")
-    parser.add_argument("-o", "--output", help="输出 HTML 路径，默认与输入同目录同名后缀 _treemap.html")
+    parser.add_argument(
+        "-o", "--output", help="输出 HTML 路径，默认与输入同目录同名后缀 _treemap.html"
+    )
     parser.add_argument("--title", help="页面标题")
-    parser.add_argument("--min-copy-default", type=int, default=30, help="默认表达量阈值")
-    parser.add_argument("--top-n", type=int, default=100, help="旁侧表格显示的 top N 条目")
+    parser.add_argument(
+        "--min-copy-default", type=int, default=30, help="默认表达量阈值"
+    )
+    parser.add_argument(
+        "--top-n", type=int, default=100, help="旁侧表格显示的 top N 条目"
+    )
     parser.add_argument("--cdr3-column", help="显式指定 CDR3 列名")
     parser.add_argument("--copy-column", help="显式指定 copy 列名")
     parser.add_argument("--v-column", help="显式指定 V 列名")
@@ -1202,7 +2032,10 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
     if not columns["cdr3"] or not columns["copy"]:
-        print("至少需要识别到 CDR3 列和 copy 列。可通过 --cdr3-column / --copy-column 手工指定。", file=sys.stderr)
+        print(
+            "至少需要识别到 CDR3 列和 copy 列。可通过 --cdr3-column / --copy-column 手工指定。",
+            file=sys.stderr,
+        )
         return 1
 
     clones, summary = read_repertoire(input_path, columns)

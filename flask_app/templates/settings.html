@@ -120,6 +120,22 @@
                 </div>
             </div>
 
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                    <h5 class="mb-0"><i class="bi bi-hdd-network me-2"></i>SSH Linux 数据源</h5>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="addRemoteSourceBtn">
+                        <i class="bi bi-plus-circle me-1"></i>新增数据源
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        在这里配置 chord 模块可用的 SSH Linux 服务器目录。保存后，Chord Diagram 页面会直接读取这些数据源。
+                    </p>
+                    <div id="remoteSourcesList" class="d-grid gap-3"></div>
+                    <div id="remoteSourcesEmpty" class="text-muted small">当前还没有配置 SSH 数据源。</div>
+                </div>
+            </div>
+
             <!-- Action Buttons -->
             <div class="d-flex gap-2 mb-4">
                 <button type="button" class="btn btn-primary" id="saveSettingsBtn">
@@ -142,6 +158,7 @@
                     <p class="text-muted small mb-2">设置将保存到浏览器本地存储，并在下次访问时自动加载。</p>
                     <hr>
                     <div id="settingsSummary">
+                        <p class="mb-1 d-none" id="summaryRemoteSourcesRow"><strong>SSH 数据源:</strong> <span id="summaryRemoteSources">-</span></p>
                         <p class="mb-1"><strong>颜色方案:</strong> <span id="summaryColorScheme">-</span></p>
                         <p class="mb-1"><strong>图表尺寸:</strong> <span id="summarySize">-</span></p>
                         <p class="mb-1"><strong>导出DPI:</strong> <span id="summaryDpi">-</span></p>

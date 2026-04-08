@@ -70,3 +70,20 @@ def test_load_sample_data_for_single_chain_with_lowercase_suffix(tmp_path):
     assert scan_result.has_chain_suffix is True
     assert set(scan_result.all_chains) == {"IGH"}
     assert set(sample_data.keys()) == {"HL_FP1", "HL_FP2"}
+
+
+def test_scan_base_folder_ignores_vj_freq_derivatives_for_chain_detection(tmp_path):
+    svc = AutoHeatmapService()
+
+    csv_content = "cdr3,copy\nCASSA,10\nCASSB,20\n"
+    _write_gzip_table(tmp_path / "AL_BCRHIV1__IGH.csv.gz", csv_content)
+    _write_gzip_table(tmp_path / "AL_BCRHIV1__IGK.csv.gz", csv_content)
+    (tmp_path / "AL_BCRHIV1__IGH.vj_freq.csv").write_text("v,j,freq\nIGHV1,IGHJ1,0.5\n", encoding="utf-8")
+    (tmp_path / "AL_BCRHIV1__IGK.vj_freq.csv").write_text("v,j,freq\nIGKV1,IGKJ1,0.5\n", encoding="utf-8")
+
+    result = svc.scan_base_folder(str(tmp_path))
+
+    assert result.has_chain_suffix is True
+    assert set(result.all_chains) == {"IGH", "IGK"}
+    assert {sample.original_name for sample in result.samples} == {"AL_BCRHIV1"}
+    assert all(".vj_freq." not in file_info.filename for sample in result.samples for file_info in sample.data_files)

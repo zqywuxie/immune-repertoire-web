@@ -2043,7 +2043,7 @@ def get_config():
     
     Requirements: 7.4
     """
-    from services.config_service import get_config_service
+    from flask_app.services.config_service import get_config_service
     
     config_id = request.args.get('config_id', 'default')
     
@@ -2074,7 +2074,7 @@ def save_config():
     
     Requirements: 7.3
     """
-    from services.config_service import get_config_service, UserConfiguration
+    from flask_app.services.config_service import get_config_service, UserConfiguration
     
     data = request.get_json()
     
@@ -2132,7 +2132,7 @@ def update_config():
     
     Requirements: 7.3
     """
-    from services.config_service import get_config_service
+    from flask_app.services.config_service import get_config_service
     
     data = request.get_json()
     
@@ -2185,7 +2185,7 @@ def reset_config():
     
     Requirements: 7.3
     """
-    from services.config_service import get_config_service
+    from flask_app.services.config_service import get_config_service
     
     data = request.get_json() or {}
     config_id = data.get('config_id', 'default')
@@ -2209,7 +2209,7 @@ def get_config_options():
     
     Requirements: 7.1, 7.2
     """
-    from services.config_service import get_config_service
+    from flask_app.services.config_service import get_config_service
     
     service = get_config_service()
     

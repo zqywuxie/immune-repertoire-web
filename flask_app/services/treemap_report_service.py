@@ -387,13 +387,15 @@ class TreemapReportService:
 
     def _build_html_cached(
         self,
-        clones: List[Dict[str, Any]],
-        summary: Dict[str, Any],
+        clones: list[dict[str, Any]],
+        summary: dict[str, Any],
         title: str,
         source_name: str,
-        columns: Dict[str, str | None],
+        columns: dict[str, str | None],
         default_min_copy: int,
         top_n: int,
+        style: str = "classic",
+        layout_mode: str = "tetris",
     ) -> str:
         max_copy = int(max((float(item["copy"]) for item in clones), default=0))
         settings = {
@@ -407,6 +409,8 @@ class TreemapReportService:
             "defaultMinCopy": min(default_min_copy, max_copy),
             "topN": top_n,
             "maxCopy": max_copy,
+            "style": style,
+            "layoutMode": layout_mode,
         }
         html_text = HTML_TEMPLATE.replace("__PAGE_TITLE__", escape_html_text(title))
         html_text = html_text.replace("__D3_SCRIPT__", self._get_d3_script_tag())
@@ -669,6 +673,8 @@ class TreemapReportService:
         output_name: Optional[str] = None,
         min_copy_default: int = 30,
         top_n: int = 100,
+        style: str = "classic",
+        layout_mode: str = "tetris",
         progress_callback: Optional[Callable[[float, str, str, Optional[Dict[str, Any]]], None]] = None,
     ) -> TreemapReportResult:
         def emit(
@@ -686,6 +692,13 @@ class TreemapReportService:
         normalized_chains = [chain for chain in (self._normalize_chain(item) for item in selected_chains) if chain]
         if not normalized_chains:
             raise ValidationError(message="至少需要选择一条链。")
+
+        style = str(style or "classic").strip().lower()
+        if style not in {"classic", "minimal"}:
+            style = "classic"
+        layout_mode = str(layout_mode or "tetris").strip().lower()
+        if layout_mode not in {"tetris", "qr"}:
+            layout_mode = "tetris"
 
         overrides = {
             "cdr3": field_mapping.get("cdr3_column"),
@@ -869,6 +882,8 @@ class TreemapReportService:
                     columns=columns,
                     default_min_copy=max(0, int(min_copy_default)),
                     top_n=max(1, int(top_n)),
+                    style=style,
+                    layout_mode=layout_mode,
                 )
                 html_path.write_text(html_content, encoding="utf-8")
                 advance(
@@ -980,6 +995,8 @@ class TreemapReportService:
             "field_mapping": overrides,
             "min_copy_default": max(0, int(min_copy_default)),
             "top_n": max(1, int(top_n)),
+            "style": style,
+            "layout_mode": layout_mode,
             "samples": result_samples,
         }
         metadata_path = output_base / self._METADATA_FILE_NAME

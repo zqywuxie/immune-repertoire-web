@@ -139,6 +139,8 @@ def _run_treemap_task(
     output_name: str | None,
     min_copy_default: Any,
     top_n: Any,
+    style: Any,
+    layout_mode: Any,
 ) -> None:
     try:
         service = get_treemap_report_service(results_root=results_root)
@@ -177,6 +179,8 @@ def _run_treemap_task(
             output_name=output_name,
             min_copy_default=min_copy_default,
             top_n=top_n,
+            style=style,
+            layout_mode=layout_mode,
             progress_callback=on_progress,
         )
 
@@ -279,6 +283,12 @@ def generate_treemap():
         output_name = str(config.get("output_name") or "").strip() or None
         min_copy_default = config.get("min_copy_default", 30)
         top_n = config.get("top_n", 100)
+        style = str(config.get("style") or "classic").strip().lower()
+        if style not in {"classic", "minimal"}:
+            style = "classic"
+        layout_mode = str(config.get("layout_mode") or "tetris").strip().lower()
+        if layout_mode not in {"tetris", "qr"}:
+            layout_mode = "tetris"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
@@ -328,6 +338,8 @@ def generate_treemap():
             output_name=output_name,
             min_copy_default=min_copy_default,
             top_n=top_n,
+            style=style,
+            layout_mode=layout_mode,
         )
 
         return jsonify(
