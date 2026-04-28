@@ -1,0 +1,812 @@
+{% extends "base.html" %}
+{% block title %}Script Hub{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
+<style>
+    .script-hub-page {
+        --sh-page: linear-gradient(180deg, #f4f8fb 0%, #fbfcfd 48%, #f8f5ef 100%);
+        --sh-panel: #ffffff;
+        --sh-line: #d7e2ea;
+        --sh-ink: #163247;
+        --sh-muted: #61778a;
+        --sh-accent: #11597c;
+        --sh-accent-soft: #e9f6ff;
+        --sh-warm: #9a4f13;
+        --sh-warm-soft: #fff4e7;
+        --sh-success: #0b6b5f;
+        --sh-success-soft: #ecfbf6;
+        background:
+            radial-gradient(circle at top right, rgba(17, 89, 124, 0.08), transparent 28%),
+            radial-gradient(circle at top left, rgba(154, 79, 19, 0.06), transparent 24%),
+            var(--sh-page);
+        color: var(--sh-ink);
+    }
+
+    .sh-stage,
+    .sh-loading-card {
+        border: 1px solid var(--sh-line);
+        border-radius: 22px;
+        background: var(--sh-panel);
+        box-shadow: 0 20px 40px rgba(22, 50, 71, 0.05);
+    }
+
+    .sh-stage-title,
+    .sh-metric-value {
+        color: var(--sh-ink);
+    }
+
+    .sh-stage-meta,
+    .sh-muted,
+    .sh-preview-meta,
+    .sh-path-block {
+        color: var(--sh-muted);
+    }
+
+    .sh-flow {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .sh-stage {
+        overflow: hidden;
+        transform: translateY(0);
+        transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+    }
+
+    .sh-stage.is-visible {
+        animation: shStageReveal .28s ease;
+    }
+
+    @keyframes shStageReveal {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .sh-stage-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1.05rem 1.2rem;
+        border-bottom: 1px solid var(--sh-line);
+        background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+    }
+
+    .sh-stage-left {
+        display: flex;
+        gap: .95rem;
+        align-items: flex-start;
+    }
+
+    .sh-stage-index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.55rem;
+        height: 2.55rem;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #eff7fd 0%, #e1eff8 100%);
+        color: var(--sh-accent);
+        font-weight: 800;
+        font-size: 1rem;
+        flex: 0 0 auto;
+        box-shadow: inset 0 0 0 1px rgba(17, 89, 124, 0.08);
+    }
+
+    .sh-stage-title {
+        font-size: 1.08rem;
+        font-weight: 760;
+        margin-bottom: .22rem;
+    }
+
+    .sh-stage-meta {
+        font-size: .93rem;
+        max-width: 72ch;
+        line-height: 1.58;
+    }
+
+    .sh-stage-status {
+        display: inline-flex;
+        align-items: center;
+        gap: .42rem;
+        padding: .34rem .75rem;
+        border-radius: 999px;
+        background: #f3f6f8;
+        color: var(--sh-muted);
+        font-size: .78rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .sh-stage-status.is-active {
+        background: var(--sh-accent-soft);
+        color: var(--sh-accent);
+    }
+
+    .sh-stage-status.is-success {
+        background: var(--sh-success-soft);
+        color: var(--sh-success);
+    }
+
+    .sh-stage-status.is-warning {
+        background: var(--sh-warm-soft);
+        color: var(--sh-warm);
+    }
+
+    .sh-stage-body {
+        padding: 1.2rem;
+    }
+
+    .sh-source-shell {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .sh-source-intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: center;
+        padding: 1rem 1.05rem;
+        border-radius: 18px;
+        border: 1px solid #e0e8ee;
+        background: linear-gradient(180deg, #fbfdfe 0%, #f7fafb 100%);
+    }
+
+    .sh-source-intro h3 {
+        margin: 0 0 .28rem;
+        font-size: 1.12rem;
+        font-weight: 760;
+    }
+
+    .sh-source-intro p {
+        margin: 0;
+        color: var(--sh-muted);
+        line-height: 1.6;
+    }
+
+    .sh-step-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .42rem;
+        padding: .35rem .72rem;
+        border-radius: 999px;
+        background: #fff;
+        border: 1px solid #d8e4eb;
+        font-size: .8rem;
+        font-weight: 700;
+        color: var(--sh-accent);
+    }
+
+    .sh-source-feedback {
+        display: none;
+        margin: 0;
+        border-radius: 16px;
+        border-width: 1px;
+    }
+
+    .sh-source-feedback.is-visible {
+        display: block;
+    }
+
+    .sh-source-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .sh-remote-shell {
+        margin-top: .25rem;
+        padding: 1rem;
+        border-radius: 18px;
+        border: 1px solid #deebf2;
+        background: linear-gradient(180deg, #f8fbfd 0%, #ffffff 100%);
+    }
+
+    .sh-path-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .85rem;
+        margin-bottom: .95rem;
+    }
+
+    .sh-path-card {
+        padding: .9rem .95rem;
+        border-radius: 16px;
+        border: 1px solid #dde7ee;
+        background: #fff;
+    }
+
+    .sh-path-label {
+        display: block;
+        margin-bottom: .38rem;
+        color: var(--sh-muted);
+        font-size: .78rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+
+    .sh-path-block {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: .85rem;
+        word-break: break-all;
+    }
+
+    .sh-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: .85rem;
+    }
+
+    .sh-metric {
+        padding: .95rem 1rem;
+        border-radius: 18px;
+        border: 1px solid #d9e5ed;
+        background: linear-gradient(180deg, #fbfdfe 0%, #f4f9fb 100%);
+    }
+
+    .sh-metric-label {
+        display: block;
+        color: #688093;
+        font-size: .78rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        margin-bottom: .32rem;
+    }
+
+    .sh-metric-value {
+        font-size: 1.08rem;
+        line-height: 1.4;
+        font-weight: 760;
+        word-break: break-word;
+    }
+
+    .sh-subpanel {
+        padding: 1rem 1.05rem;
+        border-radius: 18px;
+        border: 1px solid #dde7ee;
+        background: #fff;
+    }
+
+    .sh-subpanel-title {
+        margin: 0 0 .22rem;
+        font-size: .98rem;
+        font-weight: 720;
+    }
+
+    .sh-subpanel-copy {
+        margin: 0 0 .8rem;
+        color: var(--sh-muted);
+        font-size: .9rem;
+        line-height: 1.55;
+    }
+
+    .sh-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .55rem;
+    }
+
+    .sh-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .46rem .78rem;
+        border-radius: 999px;
+        border: 1px solid #dbe7ef;
+        background: #f9fbfc;
+        font-size: .84rem;
+    }
+
+    .sh-config-grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: .9rem;
+        margin-bottom: 1rem;
+    }
+
+    .sh-col-12 { grid-column: span 12; }
+    .sh-col-7 { grid-column: span 7; }
+    .sh-col-6 { grid-column: span 6; }
+    .sh-col-5 { grid-column: span 5; }
+
+    .sh-config-banner {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: .75rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding: .95rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(17, 89, 124, 0.12);
+        background: linear-gradient(180deg, rgba(233, 246, 255, 0.72) 0%, rgba(255, 255, 255, 0.95) 100%);
+    }
+
+    .sh-config-banner strong {
+        display: block;
+        margin-bottom: .22rem;
+        font-size: .97rem;
+    }
+
+    .sh-config-banner p {
+        margin: 0;
+        color: var(--sh-muted);
+        font-size: .9rem;
+    }
+
+    .sh-auto-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        border-radius: 999px;
+        padding: .34rem .7rem;
+        background: var(--sh-success-soft);
+        color: var(--sh-success);
+        font-size: .78rem;
+        font-weight: 700;
+    }
+
+    .sh-table-shell,
+    .sh-log {
+        border: 1px solid var(--sh-line);
+        border-radius: 18px;
+        overflow: auto;
+        background: #fff;
+    }
+
+    .sh-table-shell {
+        max-height: 300px;
+    }
+
+    .sh-preview-table {
+        margin-bottom: 0;
+        font-size: .88rem;
+    }
+
+    .sh-preview-table th {
+        position: sticky;
+        top: 0;
+        background: #f7fafc;
+    }
+
+    .sh-preview-meta {
+        margin-bottom: .75rem;
+        font-size: .9rem;
+    }
+
+    .sh-log {
+        background: #0f2130;
+        color: #ddedff;
+        padding: 1rem;
+        white-space: pre-wrap;
+        font-size: .86rem;
+        line-height: 1.52;
+        max-height: 280px;
+    }
+
+    .sh-result-actions,
+    .sh-remote-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .65rem;
+    }
+
+    .sh-loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.82);
+        backdrop-filter: blur(2px);
+        z-index: 2200;
+    }
+
+    .sh-loading-card {
+        width: min(760px, calc(100vw - 2rem));
+        padding: 1.2rem 1.25rem;
+    }
+
+    .sh-hidden {
+        display: none !important;
+    }
+
+    .sh-boxplot-img-card {
+        border: 1px solid var(--sh-line);
+        border-radius: 14px;
+        padding: .5rem;
+        background: #fff;
+        max-width: 320px;
+    }
+
+    .sh-boxplot-thumb {
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: transform .18s ease;
+    }
+
+    .sh-boxplot-thumb:hover {
+        transform: scale(1.03);
+    }
+
+    @media (max-width: 992px) {
+        .sh-source-intro,
+        .sh-path-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .sh-config-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .sh-col-12,
+        .sh-col-7,
+        .sh-col-6,
+        .sh-col-5 {
+            grid-column: auto;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 script-hub-page">
+    <div class="sh-flow">
+        <section class="sh-stage" id="scriptHubSourceStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">01</div>
+                    <div>
+                        <div class="sh-stage-title">Select Module & Source Workspace</div>
+                        <div class="sh-stage-meta">Choose the analysis module, then provide a local or remote data source. Only after inspection the remaining stages unlock.</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status is-active" id="scriptHubSourceState">Awaiting input</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="sh-source-shell">
+                    <div class="sh-source-intro">
+                        <div>
+                            <h3>Point Script Hub at your data.</h3>
+                            <p>Select module and workspace. Remote data will be synced to a local cache automatically.</p>
+                        </div>
+                        <span class="sh-step-pill"><i class="bi bi-stars"></i> Detect first, then configure</span>
+                    </div>
+
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">等待输入目录。</div>
+
+                    <div class="sh-source-grid">
+                        <div class="row g-3">
+                            <div class="col-lg-4">
+                                <label for="scriptHubModule" class="form-label">Analysis Module</label>
+                                <select class="form-select" id="scriptHubModule">
+                                    <option value="db-alignment">DB Alignment</option>
+                                    <option value="boxplot">BoxPlot Analysis</option>
+                                </select>
+                            </div>
+                            <div class="col-lg-4">
+                                <label for="scriptHubDataSourceMode" class="form-label">数据来源</label>
+                                <select class="form-select" id="scriptHubDataSourceMode">
+                                    <option value="local">本地目录</option>
+                                    <option value="remote">SSH Linux 服务器</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="scriptHubLocalPanel">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-lg-9">
+                                    <label for="scriptHubBasePath" class="form-label">基础目录</label>
+                                    <input type="text" class="form-control" id="scriptHubBasePath" placeholder="例如: E:\Data\pep_root">
+                                </div>
+                                <div class="col-lg-3 d-grid">
+                                    <button class="btn btn-primary btn-lg" type="button" id="scriptHubInspectBtn">
+                                        <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">Detect Assets</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="scriptHubRemotePanel" class="sh-hidden sh-remote-shell">
+                            <div class="row g-3 align-items-end mb-3">
+                                <div class="col-lg-6">
+                                    <label for="scriptHubRemoteSourceSelect" class="form-label">SSH 数据源</label>
+                                    <select class="form-select" id="scriptHubRemoteSourceSelect"></select>
+                                </div>
+                                <div class="col-lg-3 d-grid">
+                                    <button class="btn btn-outline-secondary" type="button" id="scriptHubBrowseRemoteRootBtn">读取根目录</button>
+                                </div>
+                                <div class="col-lg-3 d-grid">
+                                    <button class="btn btn-outline-primary" type="button" id="scriptHubTestRemoteBtn">测试连接</button>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-secondary mb-3" id="scriptHubRemoteHint">选择远程目录后会先同步到本地缓存，再对缓存目录执行检测与分析。</div>
+
+                            <div class="sh-path-grid">
+                                <div class="sh-path-card">
+                                    <span class="sh-path-label">Current path</span>
+                                    <p class="sh-path-block" id="scriptHubRemoteCurrentPath">-</p>
+                                </div>
+                                <div class="sh-path-card">
+                                    <span class="sh-path-label">Selected for sync</span>
+                                    <p class="sh-path-block" id="scriptHubRemoteSelectedPath">-</p>
+                                </div>
+                            </div>
+
+                            <div class="sh-remote-actions mb-3">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubBrowseRemoteParentBtn">上一级</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubSelectRemoteCurrentBtn">选择当前目录</button>
+                                <button class="btn btn-primary btn-sm" type="button" id="scriptHubSyncRemoteBtn">同步并检测</button>
+                            </div>
+
+                            <div class="remote-tree-panel" id="scriptHubRemoteBrowserList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="sh-stage sh-hidden" id="scriptHubAssetsStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">02</div>
+                    <div>
+                        <div class="sh-stage-title">Detected Assets</div>
+                        <div class="sh-stage-meta">这里展示目录检测结果。当前模式不会要求逐个样本勾选，而是直接使用兼容的全部数据进入下一步。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubAssetsState">Hidden</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="alert alert-info mb-3" id="scriptHubInspectSummary">等待检测目录。</div>
+
+                <div class="sh-metrics mb-3" id="scriptHubSummaryGrid">
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Samples</span>
+                        <div class="sh-metric-value">-</div>
+                    </div>
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Chains</span>
+                        <div class="sh-metric-value">-</div>
+                    </div>
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Pep Files</span>
+                        <div class="sh-metric-value">-</div>
+                    </div>
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Profile</span>
+                        <div class="sh-metric-value">-</div>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-xl-6" data-module="db-alignment">
+                        <div class="sh-subpanel h-100">
+                            <h3 class="sh-subpanel-title">Sample Preview</h3>
+                            <p class="sh-subpanel-copy">展示即将纳入本次 DB alignment 的样本与检测到的链类型。</p>
+                            <div class="sh-chip-list" id="scriptHubSamplePreview">
+                                <span class="sh-chip">No sample detected</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-6" data-module="db-alignment">
+                        <div class="sh-subpanel h-100">
+                            <h3 class="sh-subpanel-title">Detected Context</h3>
+                            <p class="sh-subpanel-copy">识别到的 Profile 分类字段与 Datapoint 线索会用于自动填充后续运行配置。</p>
+                            <div class="mb-3">
+                                <div class="fw-semibold mb-2">Profile Categories</div>
+                                <div class="sh-chip-list" id="scriptHubCategoryChips">
+                                    <span class="sh-chip">No profile columns</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="fw-semibold mb-2">Datapoint Hints</div>
+                                <div class="sh-chip-list" id="scriptHubDatapointChips">
+                                    <span class="sh-chip">No datapoint file detected</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12" data-module="boxplot">
+                        <div class="sh-subpanel">
+                            <h3 class="sh-subpanel-title">Datapoint Columns</h3>
+                            <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select classification and parameter ranges in the next step.</p>
+                            <div class="mb-3">
+                                <div class="fw-semibold mb-2">Available Columns (<span id="scriptHubColumnCount">0</span>)</div>
+                                <div class="sh-chip-list" id="scriptHubColumnChips">
+                                    <span class="sh-chip">No columns detected</span>
+                                </div>
+                            </div>
+                            <div id="scriptHubBpSuggestions" class="sh-hidden">
+                                <div class="fw-semibold mb-2">Suggested Ranges</div>
+                                <p class="sh-muted small">Classification: <span id="scriptHubBpClassSuggestion">-</span></p>
+                                <p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="sh-stage sh-hidden" id="scriptHubConfigStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">03</div>
+                    <div>
+                        <div class="sh-stage-title">Run Configuration</div>
+                        <div class="sh-stage-meta">检测成功后自动带入推荐字段和默认参数。你可以直接使用，也可以在运行前手动修正。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubConfigState">Locked</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="sh-config-banner">
+                    <div>
+                        <strong>Auto-filled, but still editable.</strong>
+                        <p id="scriptHubConfigHint">字段与 Profile 设置会基于检测结果自动填充；之后你可以逐项修改。</p>
+                    </div>
+                    <span class="sh-auto-pill"><i class="bi bi-stars"></i> Smart recognition enabled</span>
+                </div>
+
+                <div class="sh-config-grid">
+                    <div class="sh-col-12">
+                        <label for="scriptHubOutputName" class="form-label">任务名称（可选）</label>
+                        <input type="text" class="form-control" id="scriptHubOutputName" placeholder="例如: project_db_alignment">
+                    </div>
+
+                    <div class="sh-col-6" data-module="db-alignment">
+                        <label for="scriptHubCdr3Column" class="form-label">CDR3 列</label>
+                        <select class="form-select" id="scriptHubCdr3Column"></select>
+                    </div>
+
+                    <div class="sh-col-6" data-module="db-alignment">
+                        <label for="scriptHubCopyColumn" class="form-label">Copy 列</label>
+                        <select class="form-select" id="scriptHubCopyColumn"></select>
+                    </div>
+
+                    <div class="sh-col-12" data-module="db-alignment">
+                        <label for="scriptHubProfilePath" class="form-label">Profile 路径（可选）</label>
+                        <input type="text" class="form-control" id="scriptHubProfilePath" placeholder="留空时优先自动搜索 Profile*.csv">
+                    </div>
+
+                    <div class="sh-col-12" data-module="db-alignment">
+                        <label for="scriptHubCategories" class="form-label">合并分类列（逗号分隔）</label>
+                        <input type="text" class="form-control" id="scriptHubCategories" placeholder="therapy,disease">
+                    </div>
+
+                    <div class="sh-col-5" data-module="db-alignment">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="scriptHubPathologyFilter">
+                            <label class="form-check-label" for="scriptHubPathologyFilter">启用 Pathology 过滤</label>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-7" data-module="db-alignment">
+                        <label for="scriptHubPathologyValues" class="form-label">Pathology 白名单</label>
+                        <textarea class="form-control" id="scriptHubPathologyValues" rows="3" placeholder="每行一个值，或逗号分隔"></textarea>
+                    </div>
+
+                    <div class="sh-col-12" data-module="boxplot">
+                        <label class="form-label">Datapoint 文件</label>
+                        <input type="text" class="form-control" id="scriptHubDatapointPath" readonly>
+                    </div>
+
+                    <div class="sh-col-12" data-module="boxplot">
+                        <label class="form-label fw-semibold">Classification Range</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label for="scriptHubClassBegin" class="form-label small">Begin</label>
+                                <select class="form-select" id="scriptHubClassBegin"></select>
+                            </div>
+                            <div class="col-6">
+                                <label for="scriptHubClassOver" class="form-label small">Over</label>
+                                <select class="form-select" id="scriptHubClassOver"></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-12" data-module="boxplot">
+                        <label class="form-label fw-semibold">Parameter Range</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label for="scriptHubParamBegin" class="form-label small">Begin</label>
+                                <select class="form-select" id="scriptHubParamBegin"></select>
+                            </div>
+                            <div class="col-6">
+                                <label for="scriptHubParamOver" class="form-label small">Over</label>
+                                <select class="form-select" id="scriptHubParamOver"></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-6" data-module="boxplot">
+                        <label for="scriptHubPvalueThreshold" class="form-label">P-value Threshold</label>
+                        <input type="number" class="form-control" id="scriptHubPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
+                    </div>
+                </div>
+
+                <div class="sh-subpanel mb-3" data-module="db-alignment">
+                    <h3 class="sh-subpanel-title">Preview & Recognition Check</h3>
+                    <p class="sh-preview-meta" id="scriptHubPreviewFileMeta">等待检测 preview 文件。</p>
+                    <div class="sh-table-shell">
+                        <table class="table table-sm sh-preview-table" id="scriptHubPreviewTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="d-grid">
+                    <button class="btn btn-success btn-lg" type="button" id="scriptHubRunBtn">
+                        <i class="bi bi-play-circle me-1"></i><span id="scriptHubRunBtnLabel">Run DB Alignment</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section class="sh-stage sh-hidden" id="scriptHubResultStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">04</div>
+                    <div>
+                        <div class="sh-stage-title">Result</div>
+                        <div class="sh-stage-meta" id="scriptHubResultMeta">任务完成后在这里查看输出、下载结果或打开 viewer。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubResultState">Waiting</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="alert alert-success mb-3" id="scriptHubResultSummary">DB alignment completed.</div>
+                <div class="sh-result-actions mb-3" data-module="db-alignment">
+                    <button class="btn btn-primary" type="button" id="scriptHubOpenViewerBtn">打开 Viewer</button>
+                    <button class="btn btn-outline-primary" type="button" id="scriptHubOpenZipBtn">下载 ZIP</button>
+                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenMetadataBtn">Metadata</button>
+                </div>
+                <div class="sh-result-actions mb-3" data-module="boxplot">
+                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenBpMetadataBtn">Metadata</button>
+                </div>
+                <div data-module="boxplot" id="scriptHubBoxPlotGallery" class="mb-3">
+                    <div class="fw-semibold mb-2">BoxPlots</div>
+                    <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotImages"></div>
+                </div>
+                <div data-module="boxplot" id="scriptHubBoxPlotPvalues" class="mb-3">
+                    <div class="fw-semibold mb-2">P-value CSVs</div>
+                    <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotPvalueLinks"></div>
+                </div>
+                <div class="sh-log" id="scriptHubResultLog">等待结果。</div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="sh-loading-overlay" id="scriptHubLoadingOverlay">
+    <div class="sh-loading-card">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div>
+                <div class="fw-semibold" id="scriptHubLoadingStage">处理中...</div>
+                <div class="text-muted small" id="scriptHubLoadingText">任务准备中</div>
+            </div>
+        </div>
+        <div class="progress mb-3" style="height: 18px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="scriptHubLoadingProgressBar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+        </div>
+        <div class="sh-log" id="scriptHubLoadingLog">等待任务开始。</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/script_hub.js') }}"></script>
+{% endblock %}

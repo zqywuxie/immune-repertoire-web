@@ -154,11 +154,14 @@ def register_blueprints(app):
     """Register Flask blueprints for routes."""
     from flask_app.routes.pages import pages_bp
     from flask_app.routes.api import api_bp
+    from flask_app.routes.api_projects import project_api_bp
     from flask_app.routes.api_analysis import analysis_bp
     from flask_app.routes.api_statistical import statistical_bp
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
     from flask_app.routes.api_chord import chord_bp
+    from flask_app.routes.api_combined_analysis import combined_analysis_bp
     from flask_app.routes.api_remote_sources import remote_sources_bp
+    from flask_app.routes.api_script_hub import script_hub_bp
     from flask_app.routes.api_treemap import treemap_bp
 
     try:
@@ -173,6 +176,7 @@ def register_blueprints(app):
     
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(project_api_bp)
     # Register the new analysis blueprint
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
     # Register statistical analysis blueprint
@@ -185,6 +189,10 @@ def register_blueprints(app):
     app.register_blueprint(auto_heatmap_bp)
     # Register chord diagram analysis API blueprint
     app.register_blueprint(chord_bp)
+    # Register combined one-click analysis API blueprint
+    app.register_blueprint(combined_analysis_bp)
+    # Register script hub API blueprint
+    app.register_blueprint(script_hub_bp)
     # Register SSH Linux remote data source API blueprint
     app.register_blueprint(remote_sources_bp)
     # Register treemap analysis API blueprint
