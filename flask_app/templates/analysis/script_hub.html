@@ -492,6 +492,7 @@
                                 <select class="form-select" id="scriptHubModule">
                                     <option value="db-alignment">DB Alignment</option>
                                     <option value="boxplot">BoxPlot Analysis</option>
+                                    <option value="profile">Profile Analysis</option>
                                 </select>
                             </div>
                             <div class="col-lg-4">
@@ -618,10 +619,10 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-12" data-module="boxplot">
+                    <div class="col-12" data-module="boxplot profile">
                         <div class="sh-subpanel">
                             <h3 class="sh-subpanel-title">Datapoint Columns</h3>
-                            <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select classification and parameter ranges in the next step.</p>
+                            <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select parameter range in the next step.</p>
                             <div class="mb-3">
                                 <div class="fw-semibold mb-2">Available Columns (<span id="scriptHubColumnCount">0</span>)</div>
                                 <div class="sh-chip-list" id="scriptHubColumnChips">
@@ -630,8 +631,12 @@
                             </div>
                             <div id="scriptHubBpSuggestions" class="sh-hidden">
                                 <div class="fw-semibold mb-2">Suggested Ranges</div>
-                                <p class="sh-muted small">Classification: <span id="scriptHubBpClassSuggestion">-</span></p>
                                 <p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p>
+                            </div>
+                            <div id="scriptHubProfileSuggestions" class="sh-hidden">
+                                <div class="fw-semibold mb-2">Suggested Ranges</div>
+                                <p class="sh-muted small">Grouping: <span id="scriptHubProfileGroupSuggestion">-</span></p>
+                                <p class="sh-muted small">Parameters: <span id="scriptHubProfileParamSuggestion">-</span></p>
                             </div>
                         </div>
                     </div>
@@ -697,26 +702,28 @@
                         <textarea class="form-control" id="scriptHubPathologyValues" rows="3" placeholder="每行一个值，或逗号分隔"></textarea>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot">
+                    <div class="sh-col-12" data-module="boxplot profile">
                         <label class="form-label">Datapoint 文件</label>
-                        <input type="text" class="form-control" id="scriptHubDatapointPath" readonly>
+                        <select class="form-select" id="scriptHubDatapointPath">
+                            <option value="">-- Select a datapoint file --</option>
+                        </select>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot">
-                        <label class="form-label fw-semibold">Classification Range</label>
+                    <div class="sh-col-12" data-module="profile">
+                        <label class="form-label fw-semibold">Grouping Range</label>
                         <div class="row g-2">
                             <div class="col-6">
-                                <label for="scriptHubClassBegin" class="form-label small">Begin</label>
-                                <select class="form-select" id="scriptHubClassBegin"></select>
+                                <label for="scriptHubProfileGroupBegin" class="form-label small">Begin</label>
+                                <select class="form-select" id="scriptHubProfileGroupBegin"></select>
                             </div>
                             <div class="col-6">
-                                <label for="scriptHubClassOver" class="form-label small">Over</label>
-                                <select class="form-select" id="scriptHubClassOver"></select>
+                                <label for="scriptHubProfileGroupOver" class="form-label small">Over</label>
+                                <select class="form-select" id="scriptHubProfileGroupOver"></select>
                             </div>
                         </div>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot">
+                    <div class="sh-col-12" data-module="boxplot profile">
                         <label class="form-label fw-semibold">Parameter Range</label>
                         <div class="row g-2">
                             <div class="col-6">
@@ -730,7 +737,7 @@
                         </div>
                     </div>
 
-                    <div class="sh-col-6" data-module="boxplot">
+                    <div class="sh-col-6" data-module="boxplot profile">
                         <label for="scriptHubPvalueThreshold" class="form-label">P-value Threshold</label>
                         <input type="number" class="form-control" id="scriptHubPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
                     </div>
@@ -773,14 +780,14 @@
                     <button class="btn btn-outline-primary" type="button" id="scriptHubOpenZipBtn">下载 ZIP</button>
                     <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenMetadataBtn">Metadata</button>
                 </div>
-                <div class="sh-result-actions mb-3" data-module="boxplot">
+                <div class="sh-result-actions mb-3" data-module="boxplot profile">
                     <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenBpMetadataBtn">Metadata</button>
                 </div>
-                <div data-module="boxplot" id="scriptHubBoxPlotGallery" class="mb-3">
+                <div data-module="boxplot profile" id="scriptHubBoxPlotGallery" class="mb-3">
                     <div class="fw-semibold mb-2">BoxPlots</div>
                     <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotImages"></div>
                 </div>
-                <div data-module="boxplot" id="scriptHubBoxPlotPvalues" class="mb-3">
+                <div data-module="boxplot profile" id="scriptHubBoxPlotPvalues" class="mb-3">
                     <div class="fw-semibold mb-2">P-value CSVs</div>
                     <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotPvalueLinks"></div>
                 </div>

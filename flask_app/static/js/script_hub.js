@@ -59,6 +59,10 @@ const ScriptHubPage = {
         document.getElementById('scriptHubOpenZipBtn')?.addEventListener('click', () => this.openResultUrl('zip_url'));
         document.getElementById('scriptHubOpenMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
         document.getElementById('scriptHubOpenBpMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
+        document.getElementById('scriptHubDatapointPath')?.addEventListener('change', () => {
+            if (this.activeModule === 'boxplot') this.onDatapointFileChange();
+            if (this.activeModule === 'profile') this.onProfileFileChange();
+        });
         document.getElementById('scriptHubBasePath')?.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -135,30 +139,39 @@ const ScriptHubPage = {
     syncModuleUI() {
         const module = this.activeModule || 'db-alignment';
         const isBoxPlot = module === 'boxplot';
+        const isProfile = module === 'profile';
 
         document.querySelectorAll('[data-module]').forEach((el) => {
-            const allowed = el.getAttribute('data-module');
-            if (allowed === module) {
+            const allowed = (el.getAttribute('data-module') || '').split(/\s+/);
+            if (allowed.includes(module)) {
                 el.style.display = '';
             } else {
                 el.style.display = 'none';
             }
         });
 
-        document.getElementById('scriptHubRunBtnLabel').textContent = isBoxPlot ? 'Run BoxPlot Analysis' : 'Run DB Alignment';
-        document.getElementById('scriptHubConfigHint').textContent = isBoxPlot
-            ? 'Classification and parameter ranges can be adjusted before running the BoxPlot analysis.'
-            : '字段与 Profile 设置会基于检测结果自动填充；之后你可以逐项修改。';
-        document.getElementById('scriptHubResultSummary').textContent = isBoxPlot ? 'BoxPlot analysis completed.' : 'DB alignment completed.';
-        document.getElementById('scriptHubResultMeta').textContent = isBoxPlot
-            ? '任务完成后在这里查看 BoxPlot 结果、PNGs 和 p-value CSVs。'
-            : '任务完成后在这里查看输出、下载结果或打开 viewer。';
+        if (isBoxPlot) {
+            document.getElementById('scriptHubRunBtnLabel').textContent = 'Run BoxPlot Analysis';
+            document.getElementById('scriptHubConfigHint').textContent = 'Parameter range can be adjusted before running the BoxPlot analysis.';
+            document.getElementById('scriptHubResultSummary').textContent = 'BoxPlot analysis completed.';
+            document.getElementById('scriptHubResultMeta').textContent = 'View BoxPlot results, PNGs and p-value CSVs after the task completes.';
+        } else if (isProfile) {
+            document.getElementById('scriptHubRunBtnLabel').textContent = 'Run Profile Analysis';
+            document.getElementById('scriptHubConfigHint').textContent = 'Grouping and parameter ranges can be adjusted before running the Profile analysis.';
+            document.getElementById('scriptHubResultSummary').textContent = 'Profile analysis completed.';
+            document.getElementById('scriptHubResultMeta').textContent = 'View Profile results, PNGs and p-value CSVs after the task completes.';
+        } else {
+            document.getElementById('scriptHubRunBtnLabel').textContent = 'Run DB Alignment';
+            document.getElementById('scriptHubConfigHint').textContent = 'Fields and Profile settings are auto-filled based on detected assets; you can adjust them afterwards.';
+            document.getElementById('scriptHubResultSummary').textContent = 'DB alignment completed.';
+            document.getElementById('scriptHubResultMeta').textContent = 'View output, download results or open the viewer after the task completes.';
+        }
 
         const inspectBtn = document.getElementById('scriptHubInspectBtn');
         if (inspectBtn) {
-            inspectBtn.querySelector('i').className = isBoxPlot ? 'bi bi-table me-1' : 'bi bi-search me-1';
+            inspectBtn.querySelector('i').className = (isBoxPlot || isProfile) ? 'bi bi-table me-1' : 'bi bi-search me-1';
             const btnLabel = document.getElementById('scriptHubInspectBtnLabel');
-            if (btnLabel) btnLabel.textContent = isBoxPlot ? 'Detect Datapoint' : 'Detect Assets';
+            if (btnLabel) btnLabel.textContent = (isBoxPlot || isProfile) ? 'Detect Datapoint' : 'Detect Assets';
         }
     },
 
@@ -357,21 +370,28 @@ const ScriptHubPage = {
         this.stopTaskPolling();
         this.setInspectSummary('等待检测目录。', 'info');
         document.getElementById('scriptHubResultLog').textContent = '等待结果。';
-        document.getElementById('scriptHubResultSummary').textContent = this.activeModule === 'boxplot' ? 'BoxPlot analysis completed.' : 'DB alignment completed.';
-        document.getElementById('scriptHubResultMeta').textContent = this.activeModule === 'boxplot'
+        const isBp = this.activeModule === 'boxplot';
+        const isPf = this.activeModule === 'profile';
+        document.getElementById('scriptHubResultSummary').textContent = isBp ? 'BoxPlot analysis completed.' : (isPf ? 'Profile analysis completed.' : 'DB alignment completed.');
+        document.getElementById('scriptHubResultMeta').textContent = isBp
             ? '任务完成后在这里查看 BoxPlot 结果、PNGs 和 p-value CSVs。'
-            : '任务完成后在这里查看输出、下载结果或打开 viewer。';
+            : (isPf ? '任务完成后在这里查看 Profile 结果、PNGs 和 p-value CSVs。' : '任务完成后在这里查看输出、下载结果或打开 viewer。');
         document.getElementById('scriptHubPreviewFileMeta').textContent = '等待检测 preview 文件。';
         this.renderPreviewTable([], []);
-        document.getElementById('scriptHubDatapointPath').value = '';
-        document.getElementById('scriptHubClassBegin').innerHTML = '<option value="">Select column</option>';
-        document.getElementById('scriptHubClassOver').innerHTML = '<option value="">Select column</option>';
+        const dpSelect = document.getElementById('scriptHubDatapointPath');
+        if (dpSelect) dpSelect.innerHTML = '<option value="">-- Select a datapoint file --</option>';
         document.getElementById('scriptHubParamBegin').innerHTML = '<option value="">Select column</option>';
         document.getElementById('scriptHubParamOver').innerHTML = '<option value="">Select column</option>';
+        const groupBegin = document.getElementById('scriptHubProfileGroupBegin');
+        if (groupBegin) groupBegin.innerHTML = '<option value="">Select column</option>';
+        const groupOver = document.getElementById('scriptHubProfileGroupOver');
+        if (groupOver) groupOver.innerHTML = '<option value="">Select column</option>';
         document.getElementById('scriptHubColumnChips').innerHTML = '<span class="sh-chip">No columns detected</span>';
-        document.getElementById('scriptHubBpClassSuggestion').textContent = '-';
         document.getElementById('scriptHubBpParamSuggestion').textContent = '-';
         document.getElementById('scriptHubBpSuggestions')?.classList.add('sh-hidden');
+        document.getElementById('scriptHubProfileGroupSuggestion').textContent = '-';
+        document.getElementById('scriptHubProfileParamSuggestion').textContent = '-';
+        document.getElementById('scriptHubProfileSuggestions')?.classList.add('sh-hidden');
         document.getElementById('scriptHubBoxPlotImages').innerHTML = '';
         document.getElementById('scriptHubBoxPlotPvalueLinks').innerHTML = '';
         this.setUiState('idle');
@@ -773,6 +793,9 @@ const ScriptHubPage = {
         if (module === 'boxplot') {
             return this.inspectBoxPlot(explicitBasePath, loadingText);
         }
+        if (module === 'profile') {
+            return this.inspectProfile(explicitBasePath, loadingText);
+        }
 
         const basePath = explicitBasePath || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         if (!basePath) {
@@ -852,6 +875,21 @@ const ScriptHubPage = {
             this.lastInspectedBasePath = basePath;
             this.setUiState('inspected');
 
+            const fileSelect = document.getElementById('scriptHubDatapointPath');
+            const candidates = Array.isArray(data.file_candidates) ? data.file_candidates : [];
+            if (fileSelect) {
+                fileSelect.innerHTML = candidates.length
+                    ? candidates.map((f) => {
+                        const parts = f.replace(/\\/g, '/').split('/');
+                        const basename = parts[parts.length - 1] || f;
+                        return `<option value="${this.escapeHtml(f)}">${this.escapeHtml(basename)}</option>`;
+                    }).join('')
+                    : '<option value="">No CSV/TSV files found</option>';
+                if (data.datapoint_path) {
+                    fileSelect.value = data.datapoint_path;
+                }
+            }
+
             this.showSourceFeedback(
                 `BoxPlot inspection completed. Detected ${data.column_count || 0} columns in ${data.datapoint_path || 'the datapoint file'}.`,
                 'success'
@@ -878,22 +916,17 @@ const ScriptHubPage = {
                 ? columns.map((col) => `<span class="sh-chip">${this.escapeHtml(col)}</span>`).join('')
                 : '<span class="sh-chip">No columns detected</span>';
 
-            const classBegin = document.getElementById('scriptHubClassBegin');
-            const classOver = document.getElementById('scriptHubClassOver');
             const paramBegin = document.getElementById('scriptHubParamBegin');
             const paramOver = document.getElementById('scriptHubParamOver');
 
-            [classBegin, classOver, paramBegin, paramOver].forEach((select) => {
+            [paramBegin, paramOver].forEach((select) => {
                 select.innerHTML = columns.map((col) => `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`).join('');
             });
 
-            if (classBegin && columns.length) classBegin.value = data.suggested_classification_begin || columns[0];
-            if (classOver && columns.length) classOver.value = data.suggested_classification_over || columns[0];
             if (paramBegin && columns.length) paramBegin.value = data.suggested_param_begin || columns[0];
             if (paramOver && columns.length) paramOver.value = data.suggested_param_over || (columns.length > 1 ? columns[columns.length - 1] : columns[0]);
 
             document.getElementById('scriptHubDatapointPath').value = data.datapoint_path || '';
-            document.getElementById('scriptHubBpClassSuggestion').textContent = `${data.suggested_classification_begin || '-'} → ${data.suggested_classification_over || '-'}`;
             document.getElementById('scriptHubBpParamSuggestion').textContent = `${data.suggested_param_begin || '-'} → ${data.suggested_param_over || '-'}`;
             document.getElementById('scriptHubBpSuggestions')?.classList.remove('sh-hidden');
 
@@ -914,6 +947,236 @@ const ScriptHubPage = {
         }
     },
 
+    async onDatapointFileChange() {
+        const filePath = document.getElementById('scriptHubDatapointPath')?.value?.trim();
+        if (!filePath) return;
+
+        const sourceId = this.remoteSourceId || null;
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPath || null) : null;
+
+        try {
+            const body = { file_path: filePath };
+            if (sourceId && remotePath) {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            }
+
+            const response = await fetch('/api/script-hub/boxplot/columns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to read columns');
+            }
+
+            const columns = Array.isArray(data.columns) ? data.columns : [];
+            const paramBegin = document.getElementById('scriptHubParamBegin');
+            const paramOver = document.getElementById('scriptHubParamOver');
+
+            [paramBegin, paramOver].forEach((select) => {
+                if (select) {
+                    select.innerHTML = columns.map((col) =>
+                        `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`
+                    ).join('');
+                }
+            });
+
+            if (paramBegin && columns.length) paramBegin.value = data.suggested_param_begin || columns[0];
+            if (paramOver && columns.length) paramOver.value = data.suggested_param_over || (columns.length > 1 ? columns[columns.length - 1] : columns[0]);
+
+            document.getElementById('scriptHubColumnCount').textContent = columns.length;
+            document.getElementById('scriptHubColumnChips').innerHTML = columns.length
+                ? columns.map((col) => `<span class="sh-chip">${this.escapeHtml(col)}</span>`).join('')
+                : '<span class="sh-chip">No columns detected</span>';
+            document.getElementById('scriptHubBpParamSuggestion').textContent =
+                `${data.suggested_param_begin || '-'} → ${data.suggested_param_over || '-'}`;
+            this.setInspectSummary(`Datapoint: ${filePath} — ${columns.length} columns`, 'success');
+            this.showSourceFeedback(`Loaded ${columns.length} columns from the selected file.`, 'success');
+        } catch (error) {
+            this.showError(error.message || 'Failed to read file columns');
+            this.showSourceFeedback(error.message || 'Failed to read columns.', 'danger');
+        }
+    },
+
+    async inspectProfile(explicitBasePath = '', loadingText = 'Scanning for Profile files...') {
+        const basePath = explicitBasePath || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const sourceId = this.remoteSourceId || '';
+        const remotePath = this.remoteSelectedPath || '';
+
+        if (!basePath && !(sourceId && remotePath)) {
+            this.showSourceFeedback('Please provide a base path or select a remote directory first.', 'warning');
+            this.showError('Please provide a base path or select a remote directory first');
+            return;
+        }
+
+        this.setUiState('inspecting');
+        this.showSourceFeedback('Inspecting for Profile datapoint...', 'secondary');
+        this.showLoading(loadingText || 'Scanning for Profile files...', 'Inspect Profile assets');
+        try {
+            const body = {};
+            if (!explicitBasePath && sourceId && remotePath && this.dataSourceMode === 'remote') {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            } else {
+                body.base_path = basePath;
+            }
+
+            const response = await fetch('/api/script-hub/profile/inspect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to inspect Profile assets');
+            }
+
+            this.inspectData = data;
+            this.result = null;
+            this.lastInspectedBasePath = basePath;
+            this.setUiState('inspected');
+
+            const fileSelect = document.getElementById('scriptHubDatapointPath');
+            const candidates = Array.isArray(data.file_candidates) ? data.file_candidates : [];
+            if (fileSelect) {
+                fileSelect.innerHTML = candidates.length
+                    ? candidates.map((f) => {
+                        const parts = f.replace(/\\/g, '/').split('/');
+                        const basename = parts[parts.length - 1] || f;
+                        return `<option value="${this.escapeHtml(f)}">${this.escapeHtml(basename)}</option>`;
+                    }).join('')
+                    : '<option value="">No CSV/TSV files found</option>';
+                if (data.datapoint_path) fileSelect.value = data.datapoint_path;
+            }
+
+            this.showSourceFeedback(
+                `Profile inspection completed. Detected ${data.column_count || 0} columns.`,
+                'success'
+            );
+            this.setInspectSummary(`Datapoint: ${data.datapoint_path} — ${data.column_count} columns`, 'success');
+
+            const summaryGrid = document.getElementById('scriptHubSummaryGrid');
+            if (summaryGrid) {
+                summaryGrid.innerHTML = `
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Datapoint</span>
+                        <div class="sh-metric-value sh-path-block">${this.escapeHtml(data.datapoint_path || '-')}</div>
+                    </div>
+                    <div class="sh-metric">
+                        <span class="sh-metric-label">Columns</span>
+                        <div class="sh-metric-value">${this.escapeHtml(String(data.column_count || 0))}</div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('scriptHubColumnCount').textContent = data.column_count || 0;
+            const columns = Array.isArray(data.columns) ? data.columns : [];
+            document.getElementById('scriptHubColumnChips').innerHTML = columns.length
+                ? columns.map((col) => `<span class="sh-chip">${this.escapeHtml(col)}</span>`).join('')
+                : '<span class="sh-chip">No columns detected</span>';
+
+            const groupBegin = document.getElementById('scriptHubProfileGroupBegin');
+            const groupOver = document.getElementById('scriptHubProfileGroupOver');
+            const paramBegin = document.getElementById('scriptHubParamBegin');
+            const paramOver = document.getElementById('scriptHubParamOver');
+
+            [groupBegin, groupOver, paramBegin, paramOver].forEach((select) => {
+                if (select) {
+                    select.innerHTML = columns.map((col) =>
+                        `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`
+                    ).join('');
+                }
+            });
+
+            if (groupBegin && columns.length) groupBegin.value = data.suggested_grouping_begin || columns[0];
+            if (groupOver && columns.length) groupOver.value = data.suggested_grouping_over || columns[0];
+            if (paramBegin && columns.length) paramBegin.value = data.suggested_param_begin || columns[0];
+            if (paramOver && columns.length) paramOver.value = data.suggested_param_over || (columns.length > 1 ? columns[columns.length - 1] : columns[0]);
+
+            document.getElementById('scriptHubProfileGroupSuggestion').textContent =
+                `${data.suggested_grouping_begin || '-'} → ${data.suggested_grouping_over || '-'}`;
+            document.getElementById('scriptHubProfileParamSuggestion').textContent =
+                `${data.suggested_param_begin || '-'} → ${data.suggested_param_over || '-'}`;
+            document.getElementById('scriptHubProfileSuggestions')?.classList.remove('sh-hidden');
+
+            document.getElementById('scriptHubResultLog').textContent = '等待结果。';
+            document.getElementById('scriptHubResultSummary').textContent = 'Profile analysis completed.';
+            document.getElementById('scriptHubResultMeta').textContent = '任务完成后在这里查看 Profile 结果、PNGs 和 p-value CSVs。';
+
+            window.setTimeout(() => {
+                document.getElementById('scriptHubAssetsStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 80);
+        } catch (error) {
+            this.setUiState(this.inspectData ? 'inspected' : 'idle');
+            this.setInspectSummary(error.message || 'Profile inspection failed', 'danger');
+            this.showSourceFeedback(error.message || 'Profile inspection failed.', 'danger');
+            this.showError(error.message || 'Profile inspection failed');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    async onProfileFileChange() {
+        const filePath = document.getElementById('scriptHubDatapointPath')?.value?.trim();
+        if (!filePath) return;
+
+        const sourceId = this.remoteSourceId || null;
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPath || null) : null;
+
+        try {
+            const body = { file_path: filePath };
+            if (sourceId && remotePath) {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            }
+
+            const response = await fetch('/api/script-hub/profile/columns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to read columns');
+            }
+
+            const columns = Array.isArray(data.columns) ? data.columns : [];
+            const groupBegin = document.getElementById('scriptHubProfileGroupBegin');
+            const groupOver = document.getElementById('scriptHubProfileGroupOver');
+            const paramBegin = document.getElementById('scriptHubParamBegin');
+            const paramOver = document.getElementById('scriptHubParamOver');
+
+            [groupBegin, groupOver, paramBegin, paramOver].forEach((select) => {
+                if (select) {
+                    select.innerHTML = columns.map((col) =>
+                        `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`
+                    ).join('');
+                }
+            });
+
+            if (groupBegin && columns.length) groupBegin.value = data.suggested_grouping_begin || columns[0];
+            if (groupOver && columns.length) groupOver.value = data.suggested_grouping_over || columns[0];
+            if (paramBegin && columns.length) paramBegin.value = data.suggested_param_begin || columns[0];
+            if (paramOver && columns.length) paramOver.value = data.suggested_param_over || (columns.length > 1 ? columns[columns.length - 1] : columns[0]);
+
+            document.getElementById('scriptHubColumnCount').textContent = columns.length;
+            document.getElementById('scriptHubColumnChips').innerHTML = columns.length
+                ? columns.map((col) => `<span class="sh-chip">${this.escapeHtml(col)}</span>`).join('')
+                : '<span class="sh-chip">No columns detected</span>';
+            document.getElementById('scriptHubProfileGroupSuggestion').textContent =
+                `${data.suggested_grouping_begin || '-'} → ${data.suggested_grouping_over || '-'}`;
+            document.getElementById('scriptHubProfileParamSuggestion').textContent =
+                `${data.suggested_param_begin || '-'} → ${data.suggested_param_over || '-'}`;
+            this.setInspectSummary(`Datapoint: ${filePath} — ${columns.length} columns`, 'success');
+            this.showSourceFeedback(`Loaded ${columns.length} columns from the selected file.`, 'success');
+        } catch (error) {
+            this.showError(error.message || 'Failed to read file columns');
+            this.showSourceFeedback(error.message || 'Failed to read columns.', 'danger');
+        }
+    },
+
     collectRunPayload() {
         if (this.activeModule === 'boxplot') {
             const datapointPath = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
@@ -925,8 +1188,27 @@ const ScriptHubPage = {
             return {
                 module: 'boxplot',
                 datapoint_path: datapointPath,
-                classification_begin: document.getElementById('scriptHubClassBegin')?.value || '',
-                classification_over: document.getElementById('scriptHubClassOver')?.value || '',
+                param_begin: document.getElementById('scriptHubParamBegin')?.value || '',
+                param_over: document.getElementById('scriptHubParamOver')?.value || '',
+                pvalue_threshold: parseFloat(document.getElementById('scriptHubPvalueThreshold')?.value || '0.05'),
+                output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
+                source_id: sourceId,
+                remote_path: remotePath,
+            };
+        }
+
+        if (this.activeModule === 'profile') {
+            const datapointPath = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+            if (!datapointPath || !this.inspectData) {
+                throw new Error('Please inspect a datapoint file before running Profile');
+            }
+            const sourceId = this.remoteSourceId || null;
+            const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPath || null) : null;
+            return {
+                module: 'profile',
+                datapoint_path: datapointPath,
+                grouping_begin: document.getElementById('scriptHubProfileGroupBegin')?.value || '',
+                grouping_over: document.getElementById('scriptHubProfileGroupOver')?.value || '',
                 param_begin: document.getElementById('scriptHubParamBegin')?.value || '',
                 param_over: document.getElementById('scriptHubParamOver')?.value || '',
                 pvalue_threshold: parseFloat(document.getElementById('scriptHubPvalueThreshold')?.value || '0.05'),
@@ -966,8 +1248,9 @@ const ScriptHubPage = {
             const payload = this.collectRunPayload();
             const module = this.activeModule || 'db-alignment';
             const isBoxPlot = module === 'boxplot';
-            const endpoint = isBoxPlot ? '/api/script-hub/boxplot/run' : '/api/script-hub/db-alignment/run';
-            const label = isBoxPlot ? 'BoxPlot' : 'DB alignment';
+            const isProfile = module === 'profile';
+            const endpoint = isBoxPlot ? '/api/script-hub/boxplot/run' : (isProfile ? '/api/script-hub/profile/run' : '/api/script-hub/db-alignment/run');
+            const label = isBoxPlot ? 'BoxPlot' : (isProfile ? 'Profile' : 'DB alignment');
 
             this.setUiState('running');
             this.showSourceFeedback(`Configuration locked. Submitting ${label} task...`, 'info');
@@ -1038,9 +1321,10 @@ const ScriptHubPage = {
         if (!result) return;
 
         const isBoxPlot = (result.module || '') === 'boxplot';
+        const isProfile = (result.module || '') === 'profile';
         this.setUiState('completed');
 
-        if (isBoxPlot) {
+        if (isBoxPlot || isProfile) {
             this.renderBoxPlotResult(result);
             return;
         }
@@ -1063,7 +1347,7 @@ const ScriptHubPage = {
         document.getElementById('scriptHubResultSummary').textContent =
             `BoxPlot analysis completed. Generated ${result.png_urls?.length || 0} plot(s).`;
         document.getElementById('scriptHubResultMeta').textContent =
-            `P-value threshold: ${result.metadata?.pvalue_threshold || 0.05} | Classification: ${result.metadata?.classification_begin || '-'} → ${result.metadata?.classification_over || '-'} | Parameters: ${result.metadata?.param_begin || '-'} → ${result.metadata?.param_over || '-'}`;
+            `P-value threshold: ${result.metadata?.pvalue_threshold || 0.05} | Parameters: ${result.metadata?.param_begin || '-'} → ${result.metadata?.param_over || '-'}`;
         document.getElementById('scriptHubResultLog').textContent =
             JSON.stringify(result.metadata || {}, null, 2);
 

@@ -117,7 +117,7 @@ class BoxPlotService:
                                        significant_pairs, class_dir)
                     png_paths.append(str(class_dir / f"{param}.png"))
 
-                plot_df = df[["sample"] if "sample" in df.columns else [] + [class_col, param]]
+                plot_df = df[(["sample"] if "sample" in df.columns else []) + [class_col, param]]
                 concat_df = pd.concat([
                     plot_df[plot_df[class_col] == t] for t in class_types
                 ])

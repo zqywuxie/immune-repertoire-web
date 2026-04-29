@@ -33,7 +33,7 @@ _script_task_lock = threading.Lock()
 _script_tasks: Dict[str, Dict[str, Any]] = {}
 
 _RESULT_DIR = "script_hub"
-_ALLOWED_MODULES = {"db-alignment", "boxplot"}
+_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile"}
 _COLUMN_HINTS = {
     "cdr3_column": ["cdr3(pep)", "cdr3_pep", "cdr3aa", "cdr3_aa", "cdr3", "aminoacid", "sequence"],
     "copy_column": ["copy", "copies", "count", "reads", "umis", "umi", "frequency"],
@@ -549,18 +549,28 @@ def _discover_boxplot_inputs(base_path: str, datapoint_path: Optional[str], sour
             raise ValidationError(message="remote_path is required", details={"field": "remote_path"})
         source = get_remote_data_source_service().get_source(source_id)
         provider = build_ssh_file_provider(source)
-        if datapoint_path and datapoint_path.startswith("/"):
+        file_candidates: List[str] = []
+        seen_remote: set[str] = set()
+        for pat in ["*.csv", "*.tsv"]:
+            found = provider.search_files(remote_path, pat) or []
+            for f in found:
+                if f not in seen_remote:
+                    seen_remote.add(f)
+                    file_candidates.append(f)
+                    if len(file_candidates) >= 50:
+                        break
+            if len(file_candidates) >= 50:
+                break
+
+        if datapoint_path and datapoint_path.startswith("/") and datapoint_path in seen_remote:
             dp_path = datapoint_path
+        elif file_candidates:
+            dp_path = file_candidates[0]
         else:
-            candidates = provider.search_files(remote_path, "Datapoint*.csv") or []
-            if not candidates:
-                candidates = provider.search_files(remote_path, "Datapoint*.tsv") or []
-            if not candidates:
-                raise ValidationError(
-                    message="No Datapoint file found under the selected remote path",
-                    details={"source_id": source_id, "remote_path": remote_path},
-                )
-            dp_path = candidates[0]
+            raise ValidationError(
+                message="No CSV/TSV files found under the selected remote path",
+                details={"source_id": source_id, "remote_path": remote_path},
+            )
         dp_bytes = provider.read_file_bytes(dp_path)
         df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
         columns = df.columns.tolist()
@@ -570,39 +580,49 @@ def _discover_boxplot_inputs(base_path: str, datapoint_path: Optional[str], sour
             "datapoint_path": dp_path,
             "columns": columns,
             "column_count": len(columns),
-            "suggested_classification_begin": columns[0] if columns else "",
-            "suggested_classification_over": columns[-1] if columns else "",
             "suggested_param_begin": columns[0] if columns else "",
             "suggested_param_over": columns[-1] if columns else "",
             "source_name": source.name,
+            "file_candidates": file_candidates,
         }
 
     datapoint = None
+    file_candidates: List[str] = []
+
     if datapoint_path:
         dp = Path(datapoint_path)
         if dp.exists() and dp.is_file():
             datapoint = dp
-    if datapoint is None and base_path:
+            file_candidates.append(str(dp.resolve()))
+
+    if not file_candidates and base_path:
         base = Path(base_path)
         if not base.exists():
             raise ValidationError(message="Base path does not exist", details={"base_path": base_path})
         search_roots = [base]
         if base.parent != base:
             search_roots.append(base.parent)
+        seen: set[str] = set()
         for root in search_roots:
-            for candidate in sorted(root.glob("Datapoint*.csv"))[:5]:
-                datapoint = candidate
+            for pattern in ["*.csv", "*.tsv", "*/*.csv", "*/*.tsv", "**/*.csv", "**/*.tsv"]:
+                for candidate in sorted(root.glob(pattern)):
+                    resolved = str(candidate.resolve())
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        file_candidates.append(resolved)
+                        if len(file_candidates) >= 50:
+                            break
+                if len(file_candidates) >= 50:
+                    break
+            if len(file_candidates) >= 50:
                 break
-            if datapoint:
-                break
-            for candidate in sorted(root.glob("Datapoint*.tsv"))[:5]:
-                datapoint = candidate
-                break
-            if datapoint:
-                break
+
+    if datapoint is None and file_candidates:
+        datapoint = Path(file_candidates[0])
+
     if datapoint is None:
         raise ValidationError(
-            message="No Datapoint file found. Provide a specific datapoint_path or ensure the base_path contains Datapoint*.csv/tsv files.",
+            message="No CSV/TSV files found. Provide a specific datapoint_path or ensure the base_path contains .csv/.tsv files.",
             details={"base_path": base_path, "datapoint_path": datapoint_path},
         )
     df = pd.read_csv(datapoint, nrows=0)
@@ -612,10 +632,9 @@ def _discover_boxplot_inputs(base_path: str, datapoint_path: Optional[str], sour
         "datapoint_path": str(datapoint.resolve()),
         "columns": columns,
         "column_count": len(columns),
-        "suggested_classification_begin": columns[0] if columns else "",
-        "suggested_classification_over": columns[-1] if columns else "",
         "suggested_param_begin": columns[0] if columns else "",
         "suggested_param_over": columns[-1] if columns else "",
+        "file_candidates": file_candidates,
     }
 
 
@@ -632,9 +651,10 @@ def _run_boxplot_task(
     output_name: Optional[str] = None,
     source_id: Optional[str] = None,
     remote_path: Optional[str] = None,
+    module_name: str = "boxplot",
 ) -> None:
     try:
-        _record_stage(task_id, 5, "Inspect assets", f"Reading datapoint from {datapoint_path}", {"module": "boxplot"})
+        _record_stage(task_id, 5, "Inspect assets", f"Reading datapoint from {datapoint_path}", {"module": module_name})
         dp_path = str(datapoint_path)
         # Prefer local file; fall back to remote SSH if the file doesn't exist locally
         if Path(dp_path).exists():
@@ -656,6 +676,8 @@ def _run_boxplot_task(
         else:
             raise FileNotFoundError(f"Datapoint file not found: {dp_path}")
 
+        classification_begin = classification_begin.strip() if classification_begin else columns[0]
+        classification_over = classification_over.strip() if classification_over else classification_begin
         if classification_begin not in columns:
             raise ValidationError(message=f"classification_begin column not found: {classification_begin}", details={"available_columns": columns})
         if classification_over not in columns:
@@ -665,7 +687,7 @@ def _run_boxplot_task(
         if param_over not in columns:
             raise ValidationError(message=f"param_over column not found: {param_over}", details={"available_columns": columns})
 
-        _record_stage(task_id, 10, "BoxPlot analysis", f"Starting with {len(columns)} columns", {"module": "boxplot"})
+        _record_stage(task_id, 10, f"{module_name.title()} analysis", f"Starting with {len(columns)} columns", {"module": module_name})
 
         service = BoxPlotService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
@@ -681,7 +703,7 @@ def _run_boxplot_task(
                 float(progress or 0.0),
                 stage,
                 detail,
-                {"module": "boxplot", **(meta or {})},
+                {"module": module_name, **(meta or {})},
             ),
         )
 
@@ -696,7 +718,7 @@ def _run_boxplot_task(
             pvalue_urls.append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
 
         result = {
-            "module": "boxplot",
+            "module": module_name,
             "job_id": report.job_id,
             "output_base": str(report.output_base),
             "png_urls": png_urls,
@@ -710,8 +732,8 @@ def _run_boxplot_task(
             status="completed",
             progress=100.0,
             stage="Completed",
-            detail=f"BoxPlot generated {len(report.png_paths)} plots",
-            meta={"phase": "completed", "module": "boxplot"},
+            detail=f"{module_name.title()} generated {len(report.png_paths)} plots",
+            meta={"phase": "completed", "module": module_name},
             result=result,
             history=history[-80:],
         )
@@ -725,7 +747,7 @@ def _run_boxplot_task(
             stage="Failed",
             detail=str(exc),
             error=str(exc),
-            meta={"phase": "failed", "module": "boxplot"},
+            meta={"phase": "failed", "module": module_name},
             history=history[-80:],
         )
 
@@ -859,6 +881,45 @@ def inspect_boxplot():
         return jsonify({"success": False, "error": "SCRIPT_HUB_INSPECT_ERROR", "message": str(exc)}), 500
 
 
+@script_hub_bp.route("/boxplot/columns", methods=["POST"])
+def get_boxplot_columns():
+    try:
+        data = request.get_json() or {}
+        file_path = str(data.get("file_path") or "").strip()
+        if not file_path:
+            raise ValidationError(message="file_path is required", details={"field": "file_path"})
+
+        source_id = str(data.get("source_id") or "").strip() or None
+        is_remote = bool(source_id and file_path.startswith("/"))
+
+        if is_remote:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(file_path)
+            df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+        else:
+            dp = Path(file_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(message="File not found", details={"file_path": file_path})
+            df = pd.read_csv(dp, nrows=0)
+
+        columns = df.columns.tolist()
+        return jsonify({
+            "success": True,
+            "file_path": file_path,
+            "columns": columns,
+            "column_count": len(columns),
+            "suggested_param_begin": columns[0] if columns else "",
+            "suggested_param_over": columns[-1] if columns else "",
+        })
+    except ValidationError as exc:
+        logger.warning("Validation error in get_boxplot_columns: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error reading BoxPlot columns: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_COLUMNS_ERROR", "message": str(exc)}), 500
+
+
 @script_hub_bp.route("/boxplot/run", methods=["POST"])
 def run_boxplot():
     try:
@@ -879,8 +940,6 @@ def run_boxplot():
         param_begin = str(data.get("param_begin") or "").strip()
         param_over = str(data.get("param_over") or "").strip()
 
-        if not classification_begin or not classification_over:
-            raise ValidationError(message="classification_begin and classification_over are required")
         if not param_begin or not param_over:
             raise ValidationError(message="param_begin and param_over are required")
 
@@ -912,6 +971,7 @@ def run_boxplot():
             output_name=output_name,
             source_id=source_id,
             remote_path=remote_path,
+            module_name="boxplot",
         )
 
         return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}"})
@@ -920,6 +980,154 @@ def run_boxplot():
         return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
     except Exception as exc:
         logger.error("Error queuing BoxPlot task: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
+
+
+def _suggest_profile_ranges(columns: List[str]) -> Dict[str, str]:
+    """Suggest Grouping Range (categorical columns) and Parameter Range (metric columns)."""
+    grouping_cols: List[str] = []
+    param_cols: List[str] = []
+    found_first_metric = False
+    for col in columns:
+        is_metric = (
+            "_" in col
+            and not col.lower() in {"sample", "sample_id", "sample_name", "project", "species", "chain", "barcode"}
+        )
+        if is_metric:
+            found_first_metric = True
+        if found_first_metric:
+            param_cols.append(col)
+        else:
+            grouping_cols.append(col)
+    if not param_cols:
+        param_cols = list(columns)
+    if not grouping_cols:
+        grouping_cols = [columns[0]] if columns else []
+    return {
+        "suggested_grouping_begin": grouping_cols[0] if grouping_cols else "",
+        "suggested_grouping_over": grouping_cols[-1] if grouping_cols else "",
+        "suggested_param_begin": param_cols[0] if param_cols else "",
+        "suggested_param_over": param_cols[-1] if param_cols else "",
+    }
+
+
+@script_hub_bp.route("/profile/inspect", methods=["POST"])
+def inspect_profile():
+    try:
+        data = request.get_json() or {}
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
+        datapoint_path = str(data.get("datapoint_path") or "").strip() or None
+        base_path = str(data.get("base_path") or "").strip()
+
+        discovery = _discover_boxplot_inputs(base_path, datapoint_path, source_id, remote_path)
+        suggestions = _suggest_profile_ranges(discovery["columns"])
+        discovery.update(suggestions)
+        return jsonify({"success": True, **discovery})
+    except ValidationError as exc:
+        logger.warning("Validation error in inspect_profile: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error inspecting Profile inputs: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_INSPECT_ERROR", "message": str(exc)}), 500
+
+
+@script_hub_bp.route("/profile/columns", methods=["POST"])
+def get_profile_columns():
+    try:
+        data = request.get_json() or {}
+        file_path = str(data.get("file_path") or "").strip()
+        if not file_path:
+            raise ValidationError(message="file_path is required", details={"field": "file_path"})
+
+        source_id = str(data.get("source_id") or "").strip() or None
+        is_remote = bool(source_id and file_path.startswith("/"))
+
+        if is_remote:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(file_path)
+            df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+        else:
+            dp = Path(file_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(message="File not found", details={"file_path": file_path})
+            df = pd.read_csv(dp, nrows=0)
+
+        columns = df.columns.tolist()
+        suggestions = _suggest_profile_ranges(columns)
+        return jsonify({
+            "success": True,
+            "file_path": file_path,
+            "columns": columns,
+            "column_count": len(columns),
+            **suggestions,
+        })
+    except ValidationError as exc:
+        logger.warning("Validation error in get_profile_columns: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error reading Profile columns: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_COLUMNS_ERROR", "message": str(exc)}), 500
+
+
+@script_hub_bp.route("/profile/run", methods=["POST"])
+def run_profile():
+    try:
+        data = request.get_json() or {}
+        module_name = "profile"
+        datapoint_path = str(data.get("datapoint_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
+
+        if not datapoint_path:
+            raise ValidationError(message="datapoint_path is required", details={"field": "datapoint_path"})
+
+        grouping_begin = str(data.get("grouping_begin") or "").strip()
+        grouping_over = str(data.get("grouping_over") or "").strip()
+        param_begin = str(data.get("param_begin") or "").strip()
+        param_over = str(data.get("param_over") or "").strip()
+
+        if not param_begin or not param_over:
+            raise ValidationError(message="param_begin and param_over are required")
+
+        pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
+        output_name = str(data.get("output_name") or "").strip() or None
+
+        task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+        queued_meta = {"phase": "queued", "module": module_name, "datapoint_path": datapoint_path, "remote_path": remote_path}
+        _set_task_state(
+            task_id,
+            status="queued",
+            progress=0.0,
+            stage="Queued",
+            detail="Task created and waiting to start",
+            meta=queued_meta,
+            history=[_history_entry(0.0, "Queued", "Task created and waiting to start", queued_meta)],
+        )
+
+        _script_executor.submit(
+            _run_boxplot_task,
+            task_id,
+            results_root=_resolve_results_root(),
+            datapoint_path=datapoint_path,
+            classification_begin=grouping_begin,
+            classification_over=grouping_over,
+            param_begin=param_begin,
+            param_over=param_over,
+            pvalue_threshold=pvalue_threshold,
+            output_name=output_name,
+            source_id=source_id,
+            remote_path=remote_path,
+            module_name="profile",
+        )
+
+        return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}"})
+    except ValidationError as exc:
+        logger.warning("Validation error in run_profile: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error queuing Profile task: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
 
 
