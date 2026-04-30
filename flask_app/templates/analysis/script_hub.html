@@ -305,6 +305,81 @@
         font-size: .84rem;
     }
 
+    .sh-chip-selectable {
+        cursor: pointer;
+        user-select: none;
+        transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+
+    .sh-chip-selectable:hover {
+        border-color: #8fb8d4;
+        background: #eaf4fa;
+    }
+
+    .sh-chip-selectable.sh-chip-selected {
+        border-color: #11597c;
+        background: #d8ecfa;
+        box-shadow: 0 0 0 1px #11597c;
+        font-weight: 600;
+    }
+
+    .sh-field-order-group {
+        margin-bottom: .6rem;
+        padding: .5rem .7rem;
+        border-radius: 12px;
+        border: 1px solid #dde7ee;
+        background: #fafbfc;
+    }
+
+    .sh-field-order-group .sh-field-order-label {
+        font-size: .78rem;
+        font-weight: 700;
+        color: #11597c;
+        margin-bottom: .25rem;
+    }
+
+    .sh-sortable-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+        min-height: 2rem;
+        align-items: center;
+        padding: .35rem 0;
+    }
+
+    .sh-sortable-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .4rem .72rem;
+        border-radius: 999px;
+        border: 1px solid #b0c8db;
+        background: #e9f2fa;
+        font-size: .82rem;
+        cursor: grab;
+        user-select: none;
+        transition: box-shadow .15s, transform .15s;
+    }
+
+    .sh-sortable-chip:active {
+        cursor: grabbing;
+    }
+
+    .sh-sortable-chip.dragging {
+        opacity: .45;
+        box-shadow: 0 0 0 2px #6ea8d8;
+    }
+
+    .sh-sortable-chip.drag-over {
+        box-shadow: 0 0 0 2px #2e7ab6;
+        transform: scale(1.06);
+    }
+
+    .sh-sortable-chip .sh-drag-handle {
+        opacity: .45;
+        font-size: .8rem;
+    }
+
     .sh-config-grid {
         display: grid;
         grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -439,6 +514,66 @@
         transform: scale(1.03);
     }
 
+    .sh-project-bar {
+        padding: 1rem 1.2rem;
+        border: 1px solid var(--sh-line);
+        border-radius: 18px;
+        background: var(--sh-panel);
+        box-shadow: 0 8px 20px rgba(22, 50, 71, 0.03);
+    }
+
+    .sh-project-assets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .65rem;
+        align-items: center;
+    }
+
+    .sh-project-asset-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .34rem .72rem;
+        border-radius: 999px;
+        background: #f7fafc;
+        border: 1px solid #dde7ee;
+        font-size: .82rem;
+        white-space: nowrap;
+    }
+
+    .sh-project-asset-pill .sh-asset-count {
+        font-weight: 700;
+        color: var(--sh-accent);
+    }
+
+    .sh-cached-source-card {
+        padding: .75rem 1rem;
+        border-radius: 14px;
+        border: 1px solid #dde7ee;
+        background: #fbfdfe;
+        cursor: pointer;
+        transition: border-color .15s, box-shadow .15s;
+    }
+
+    .sh-cached-source-card:hover {
+        border-color: #8fb8d4;
+        box-shadow: 0 0 0 2px rgba(17, 89, 124, 0.08);
+    }
+
+    .sh-cached-source-card.is-selected {
+        border-color: var(--sh-accent);
+        box-shadow: 0 0 0 2px rgba(17, 89, 124, 0.2);
+        background: var(--sh-accent-soft);
+    }
+
+    .sh-data-source-section {
+        padding: .85rem 1rem;
+        border-radius: 16px;
+        border: 1px solid #dde7ee;
+        background: #fbfdfe;
+        margin-bottom: .75rem;
+    }
+
     @media (max-width: 992px) {
         .sh-source-intro,
         .sh-path-grid {
@@ -462,37 +597,54 @@
 {% block content %}
 <div class="container-fluid py-4 script-hub-page">
     <div class="sh-flow">
+        <!-- Project selection bar -->
+        <div class="sh-project-bar" id="scriptHubProjectBar">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-4">
+                    <label for="scriptHubProjectSelect" class="form-label fw-semibold">Project</label>
+                    <select class="form-select" id="scriptHubProjectSelect">
+                        <option value="">-- Select a project (optional) --</option>
+                    </select>
+                </div>
+                <div class="col-lg-1 d-flex align-items-end">
+                    <button type="button" class="btn btn-outline-primary btn-sm w-100"
+                            id="scriptHubNewProjectBtn" title="快速新建项目">+ 新建</button>
+                </div>
+                <div class="col-lg-7">
+                    <div class="sh-project-assets" id="scriptHubProjectAssets">
+                        <span class="text-muted small">Select a project to view available assets and cached data.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <section class="sh-stage" id="scriptHubSourceStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">01</div>
                     <div>
-                        <div class="sh-stage-title">Select Module & Source Workspace</div>
-                        <div class="sh-stage-meta">Choose the analysis module, then provide a local or remote data source. Only after inspection the remaining stages unlock.</div>
+                        <div class="sh-stage-title">选择分析模块与数据源</div>
+                        <div class="sh-stage-meta">选择分析模块，提供本地或远程数据源，检测数据后解锁后续步骤。</div>
                     </div>
                 </div>
-                <div class="sh-stage-status is-active" id="scriptHubSourceState">Awaiting input</div>
+                <div class="sh-stage-status is-active" id="scriptHubSourceState">等待输入</div>
             </div>
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
-                    <div class="sh-source-intro">
-                        <div>
-                            <h3>Point Script Hub at your data.</h3>
-                            <p>Select module and workspace. Remote data will be synced to a local cache automatically.</p>
-                        </div>
-                        <span class="sh-step-pill"><i class="bi bi-stars"></i> Detect first, then configure</span>
-                    </div>
-
                     <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">等待输入目录。</div>
 
                     <div class="sh-source-grid">
                         <div class="row g-3">
                             <div class="col-lg-4">
-                                <label for="scriptHubModule" class="form-label">Analysis Module</label>
+                                <label for="scriptHubModule" class="form-label">分析模块</label>
                                 <select class="form-select" id="scriptHubModule">
-                                    <option value="db-alignment">DB Alignment</option>
-                                    <option value="boxplot">BoxPlot Analysis</option>
-                                    <option value="profile">Profile Analysis</option>
+                                    <option value="db-alignment">数据库比对</option>
+                                    <option value="boxplot">箱线图分析</option>
+                                                                        <option value="pep-analysis">CDR3 共享分析</option>
+                                    <option value="topclone">TopClone 分析</option>
+                                    <option value="umap">UMAP 降维分析</option>
+                                    <option value="volcano">火山图分析</option>
+                                    <option value="umapin">UMAPin 降维</option>
                                 </select>
                             </div>
                             <div class="col-lg-4">
@@ -512,7 +664,7 @@
                                 </div>
                                 <div class="col-lg-3 d-grid">
                                     <button class="btn btn-primary btn-lg" type="button" id="scriptHubInspectBtn">
-                                        <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">Detect Assets</span>
+                                        <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">检测数据</span>
                                     </button>
                                 </div>
                             </div>
@@ -563,11 +715,11 @@
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">02</div>
                     <div>
-                        <div class="sh-stage-title">Detected Assets</div>
-                        <div class="sh-stage-meta">这里展示目录检测结果。当前模式不会要求逐个样本勾选，而是直接使用兼容的全部数据进入下一步。</div>
+                        <div class="sh-stage-title">检测到的数据</div>
+                        <div class="sh-stage-meta">展示目录检测结果，自动使用兼容的全部数据进入下一步。</div>
                     </div>
                 </div>
-                <div class="sh-stage-status" id="scriptHubAssetsState">Hidden</div>
+                <div class="sh-stage-status" id="scriptHubAssetsState">未激活</div>
             </div>
             <div class="sh-stage-body">
                 <div class="alert alert-info mb-3" id="scriptHubInspectSummary">等待检测目录。</div>
@@ -619,7 +771,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-12" data-module="boxplot profile">
+                    <div class="col-12" data-module="boxplot">
                         <div class="sh-subpanel">
                             <h3 class="sh-subpanel-title">Datapoint Columns</h3>
                             <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select parameter range in the next step.</p>
@@ -633,11 +785,6 @@
                                 <div class="fw-semibold mb-2">Suggested Ranges</div>
                                 <p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p>
                             </div>
-                            <div id="scriptHubProfileSuggestions" class="sh-hidden">
-                                <div class="fw-semibold mb-2">Suggested Ranges</div>
-                                <p class="sh-muted small">Grouping: <span id="scriptHubProfileGroupSuggestion">-</span></p>
-                                <p class="sh-muted small">Parameters: <span id="scriptHubProfileParamSuggestion">-</span></p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -649,19 +796,19 @@
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">03</div>
                     <div>
-                        <div class="sh-stage-title">Run Configuration</div>
-                        <div class="sh-stage-meta">检测成功后自动带入推荐字段和默认参数。你可以直接使用，也可以在运行前手动修正。</div>
+                        <div class="sh-stage-title">运行配置</div>
+                        <div class="sh-stage-meta">检测成功后自动带入推荐字段和默认参数，可直接使用或在运行前手动修改。</div>
                     </div>
                 </div>
-                <div class="sh-stage-status" id="scriptHubConfigState">Locked</div>
+                <div class="sh-stage-status" id="scriptHubConfigState">已锁定</div>
             </div>
             <div class="sh-stage-body">
                 <div class="sh-config-banner">
                     <div>
-                        <strong>Auto-filled, but still editable.</strong>
-                        <p id="scriptHubConfigHint">字段与 Profile 设置会基于检测结果自动填充；之后你可以逐项修改。</p>
+                        <strong>自动填充，仍可编辑</strong>
+                        <p id="scriptHubConfigHint">字段与 Profile 设置会基于检测结果自动填充，之后可逐项修改。</p>
                     </div>
-                    <span class="sh-auto-pill"><i class="bi bi-stars"></i> Smart recognition enabled</span>
+                    <span class="sh-auto-pill"><i class="bi bi-stars"></i> 智能识别已启用</span>
                 </div>
 
                 <div class="sh-config-grid">
@@ -702,28 +849,60 @@
                         <textarea class="form-control" id="scriptHubPathologyValues" rows="3" placeholder="每行一个值，或逗号分隔"></textarea>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot profile">
+                    <div class="sh-col-12" data-module="boxplot">
                         <label class="form-label">Datapoint 文件</label>
                         <select class="form-select" id="scriptHubDatapointPath">
                             <option value="">-- Select a datapoint file --</option>
                         </select>
                     </div>
 
-                    <div class="sh-col-12" data-module="profile">
-                        <label class="form-label fw-semibold">Grouping Range</label>
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <label for="scriptHubProfileGroupBegin" class="form-label small">Begin</label>
-                                <select class="form-select" id="scriptHubProfileGroupBegin"></select>
-                            </div>
-                            <div class="col-6">
-                                <label for="scriptHubProfileGroupOver" class="form-label small">Over</label>
-                                <select class="form-select" id="scriptHubProfileGroupOver"></select>
-                            </div>
+                    <div class="sh-col-12" data-module="boxplot">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="scriptHubBoxplotGroupToggle" checked>
+                            <label class="form-check-label" for="scriptHubBoxplotGroupToggle">Group by fields</label>
+                        </div>
+                        <div id="scriptHubBoxplotGroupContainer">
+                            <label class="form-label small">Group Fields <span class="text-muted">(click to select)</span></label>
+                            <div class="sh-chip-list" id="scriptHubBoxplotGroupChips"></div>
+                            <div id="scriptHubBoxplotFieldOrderGroups" class="mt-2"></div>
                         </div>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot profile">
+                    <div class="sh-col-12" data-module="pep-analysis">
+                        <label class="form-label fw-semibold">Pep Data Directory</label>
+                        <input type="text" class="form-control" id="scriptHubPepDataDir" placeholder="Auto-detected from base path" readonly>
+                    </div>
+
+                    <div class="sh-col-12" data-module="pep-analysis">
+                        <label class="form-label fw-semibold">Chains <span class="text-muted small">(select one or more)</span></label>
+                        <div class="sh-chip-list" id="scriptHubPepChains">
+                            <span class="sh-chip">Auto-detected after inspect</span>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-12" data-module="pep-analysis">
+                        <label for="scriptHubPepProfilePath" class="form-label">Profile File</label>
+                        <select class="form-select" id="scriptHubPepProfilePath">
+                            <option value="">-- Select a Profile CSV --</option>
+                        </select>
+                    </div>
+
+                    <div class="sh-col-12" data-module="pep-analysis">
+                        <label for="scriptHubPepGroupFields" class="form-label small">Group Fields <span class="text-muted">(Ctrl/Cmd+Click to select multiple, each analyzed independently)</span></label>
+                        <select class="form-select" id="scriptHubPepGroupFields" multiple size="3"></select>
+                    </div>
+
+                    <div class="sh-col-6" data-module="pep-analysis">
+                        <label for="scriptHubPepPvalueThreshold" class="form-label">P-value Threshold</label>
+                        <input type="number" class="form-control" id="scriptHubPepPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
+                    </div>
+
+                    <div class="sh-col-6" data-module="pep-analysis">
+                        <label for="scriptHubPepMinSample" class="form-label">Min Sample Threshold</label>
+                        <input type="number" class="form-control" id="scriptHubPepMinSample" value="3" step="1" min="1" max="100">
+                    </div>
+
+                    <div class="sh-col-12" data-module="boxplot">
                         <label class="form-label fw-semibold">Parameter Range</label>
                         <div class="row g-2">
                             <div class="col-6">
@@ -737,9 +916,83 @@
                         </div>
                     </div>
 
-                    <div class="sh-col-6" data-module="boxplot profile">
+                    <div class="sh-col-6" data-module="boxplot">
                         <label for="scriptHubPvalueThreshold" class="form-label">P-value Threshold</label>
                         <input type="number" class="form-control" id="scriptHubPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
+                    </div>
+
+                    <!-- TopClone config -->
+                    <div class="sh-col-6" data-module="topclone">
+                        <label for="scriptHubTcPepDataPath" class="form-label">Pep Data Path</label>
+                        <input type="text" class="form-control" id="scriptHubTcPepDataPath" placeholder="e.g. /data/pep_data">
+                    </div>
+                    <div class="sh-col-6" data-module="topclone">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="scriptHubTcSameDirToggle" checked>
+                            <label class="form-check-label" for="scriptHubTcSameDirToggle">Profile file in same directory</label>
+                        </div>
+                    </div>
+                    <div class="sh-col-6" data-module="topclone" id="scriptHubTcDatapointContainer" style="display:none;">
+                        <label for="scriptHubTcDatapointPath" class="form-label">Datapoint Path (Profile_All.csv)</label>
+                        <input type="text" class="form-control" id="scriptHubTcDatapointPath" placeholder="e.g. /data/Profile_All.csv">
+                    </div>
+                    <div class="sh-col-6" data-module="topclone">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="scriptHubTcModeToggle">
+                            <label class="form-check-label" for="scriptHubTcModeToggle">Per-sample mode <span class="text-muted small">(default: trace)</span></label>
+                        </div>
+                    </div>
+                    <div class="sh-col-3" data-module="topclone" id="scriptHubTcTopNContainer">
+                        <label for="scriptHubTcTopN" class="form-label">Top N</label>
+                        <input type="number" class="form-control" id="scriptHubTcTopN" value="10" min="1" max="1000">
+                    </div>
+                    <div class="sh-col-6" data-module="topclone" id="scriptHubTcGroupFieldContainer">
+                        <label for="scriptHubTcGroupField" class="form-label">Group Field (for BoxPlot)</label>
+                        <select class="form-select" id="scriptHubTcGroupField"></select>
+                    </div>
+
+                    <!-- UMAP config -->
+                    <div class="sh-col-6" data-module="umap">
+                        <label for="scriptHubUmapNNeighbors" class="form-label">n_neighbors</label>
+                        <input type="number" class="form-control" id="scriptHubUmapNNeighbors" value="6" min="2" max="100">
+                    </div>
+                    <div class="sh-col-6" data-module="umap">
+                        <label for="scriptHubUmapMinDist" class="form-label">min_dist</label>
+                        <input type="number" class="form-control" id="scriptHubUmapMinDist" value="0.01" step="0.01" min="0" max="1">
+                    </div>
+
+                    <!-- Volcano config -->
+                    <div class="sh-col-12" data-module="volcano">
+                        <label for="scriptHubVolcanoDataDir" class="form-label fw-semibold">VJ Usage 数据目录</label>
+                        <input type="text" class="form-control" id="scriptHubVolcanoDataDir" placeholder="自动检测 1VJusage 子目录" readonly>
+                    </div>
+                    <div class="sh-col-6" data-module="volcano">
+                        <label for="scriptHubVolcanoPvalueThreshold" class="form-label">P-value 阈值</label>
+                        <input type="number" class="form-control" id="scriptHubVolcanoPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
+                    </div>
+
+                    <!-- UMAPin config -->
+                    <div class="sh-col-12" data-module="umapin">
+                        <label for="scriptHubUmapinDataPath" class="form-label fw-semibold">数据文件路径</label>
+                        <input type="text" class="form-control" id="scriptHubUmapinDataPath" placeholder="例如: /data/df_VJ_all.csv" readonly>
+                    </div>
+                    <div class="sh-col-6" data-module="umapin">
+                        <label for="scriptHubUmapinCategoryCol" class="form-label">分类列</label>
+                        <input type="text" class="form-control" id="scriptHubUmapinCategoryCol" value="Category">
+                    </div>
+                    <div class="sh-col-6" data-module="umapin">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="scriptHubUmapinFdrToggle">
+                            <label class="form-check-label" for="scriptHubUmapinFdrToggle">启用 FDR 校正</label>
+                        </div>
+                    </div>
+                    <div class="sh-col-4" data-module="umapin">
+                        <label for="scriptHubUmapinNNeighbors" class="form-label">n_neighbors</label>
+                        <input type="number" class="form-control" id="scriptHubUmapinNNeighbors" value="6" min="2" max="100">
+                    </div>
+                    <div class="sh-col-4" data-module="umapin">
+                        <label for="scriptHubUmapinMinDist" class="form-label">min_dist</label>
+                        <input type="number" class="form-control" id="scriptHubUmapinMinDist" value="0.01" step="0.01" min="0" max="1">
                     </div>
                 </div>
 
@@ -767,11 +1020,11 @@
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">04</div>
                     <div>
-                        <div class="sh-stage-title">Result</div>
-                        <div class="sh-stage-meta" id="scriptHubResultMeta">任务完成后在这里查看输出、下载结果或打开 viewer。</div>
+                        <div class="sh-stage-title">分析结果</div>
+                        <div class="sh-stage-meta" id="scriptHubResultMeta">任务完成后在这里查看输出、下载结果。</div>
                     </div>
                 </div>
-                <div class="sh-stage-status" id="scriptHubResultState">Waiting</div>
+                <div class="sh-stage-status" id="scriptHubResultState">等待中</div>
             </div>
             <div class="sh-stage-body">
                 <div class="alert alert-success mb-3" id="scriptHubResultSummary">DB alignment completed.</div>
@@ -779,17 +1032,93 @@
                     <button class="btn btn-primary" type="button" id="scriptHubOpenViewerBtn">打开 Viewer</button>
                     <button class="btn btn-outline-primary" type="button" id="scriptHubOpenZipBtn">下载 ZIP</button>
                     <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenMetadataBtn">Metadata</button>
+                    <button class="btn btn-outline-success" type="button" id="scriptHubSaveDbResultBtn" style="display:none;">
+                        <i class="bi bi-folder-symlink me-1"></i>Save to Project
+                    </button>
                 </div>
-                <div class="sh-result-actions mb-3" data-module="boxplot profile">
+                <div class="sh-result-actions mb-3" data-module="pep-analysis">
+                    <button class="btn btn-outline-primary" type="button" id="scriptHubOpenPepZipBtn">下载 ZIP</button>
+                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenPepMetadataBtn">Metadata</button>
+                    <button class="btn btn-outline-success" type="button" id="scriptHubSaveToProjectBtn" style="display:none;">
+                        <i class="bi bi-folder-symlink me-1"></i>Save to Project
+                    </button>
+                </div>
+                <div data-module="pep-analysis" id="scriptHubPepGallery" class="mb-3">
+                    <div class="fw-semibold mb-2">Results</div>
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-auto">
+                            <label for="scriptHubPepGroupSelect" class="form-label small">Group Field</label>
+                            <select class="form-select" id="scriptHubPepGroupSelect">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <label for="scriptHubPepChainSelect" class="form-label small">Chain</label>
+                            <select class="form-select" id="scriptHubPepChainSelect">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <label for="scriptHubPepResultType" class="form-label small">Result Type</label>
+                            <select class="form-select" id="scriptHubPepResultType">
+                                <option value="">-- Select --</option>
+                                <option value="shared">Shared CDR3 Matrix</option>
+                                <option value="usage">V/J/VJ Usage</option>
+                                <option value="heatmap">Usage Heatmaps</option>
+                                <option value="classification">CDR3 Classification</option>
+                                <option value="arrange">Arrange Heatmap</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2" id="scriptHubPepResultLinks"></div>
+                    <div id="scriptHubPepResultImage" class="mt-2">
+                        <p class="text-muted small">Select result type and chain above to view.</p>
+                    </div>
+                </div>
+                <div class="sh-result-actions mb-3" data-module="boxplot">
                     <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenBpMetadataBtn">Metadata</button>
                 </div>
-                <div data-module="boxplot profile" id="scriptHubBoxPlotGallery" class="mb-3">
+                <div data-module="boxplot" id="scriptHubBoxPlotGallery" class="mb-3">
                     <div class="fw-semibold mb-2">BoxPlots</div>
-                    <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotImages"></div>
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-auto">
+                            <label for="scriptHubBoxPlotGroupSelect" class="form-label small">Group Type</label>
+                            <select class="form-select" id="scriptHubBoxPlotGroupSelect"></select>
+                        </div>
+                        <div class="col-auto">
+                            <label for="scriptHubBoxPlotParamSelect" class="form-label small">Parameter</label>
+                            <select class="form-select" id="scriptHubBoxPlotParamSelect"></select>
+                        </div>
+                    </div>
+                    <div id="scriptHubBoxPlotSingleImage">
+                        <p class="text-muted small">Select a parameter above to view its boxplot.</p>
+                    </div>
                 </div>
-                <div data-module="boxplot profile" id="scriptHubBoxPlotPvalues" class="mb-3">
-                    <div class="fw-semibold mb-2">P-value CSVs</div>
-                    <div class="d-flex flex-wrap gap-2" id="scriptHubBoxPlotPvalueLinks"></div>
+                <div data-module="boxplot" class="mb-3">
+                    <a class="btn btn-primary" type="button" id="scriptHubOpenBpZipBtn" style="display:none;">
+                        <i class="bi bi-file-earmark-zip me-1"></i>Download ZIP (all results)
+                    </a>
+                </div>
+                <div data-module="topclone" class="mb-3">
+                    <div class="fw-semibold mb-2">TopClone Output</div>
+                    <div id="scriptHubTcTopcloneCsv"></div>
+                    <div class="small text-muted mt-1" id="scriptHubTcPerSampleCount"></div>
+                </div>
+                <div data-module="umap" class="mb-3">
+                    <a class="btn btn-primary" type="button" id="scriptHubOpenUmapZipBtn" style="display:none;">
+                        <i class="bi bi-file-earmark-zip me-1"></i>Download ZIP (all UMAP results)
+                    </a>
+                    <div class="mt-3" id="scriptHubUmapImages"></div>
+                </div>
+                <div data-module="volcano" class="mb-3">
+                    <div class="fw-semibold mb-2">火山图结果</div>
+                    <div id="scriptHubVolcanoGallery" class="row g-2"></div>
+                    <div id="scriptHubVolcanoCsvLinks" class="d-flex flex-wrap gap-2 mt-2"></div>
+                </div>
+                <div data-module="umapin" class="mb-3">
+                    <div class="fw-semibold mb-2">UMAPin 结果</div>
+                    <div id="scriptHubUmapinImages" class="row g-2"></div>
+                    <div id="scriptHubUmapinCsvLinks" class="d-flex flex-wrap gap-2 mt-2"></div>
                 </div>
                 <div class="sh-log" id="scriptHubResultLog">等待结果。</div>
             </div>
@@ -811,6 +1140,31 @@
         </div>
         <div class="sh-log" id="scriptHubLoadingLog">等待任务开始。</div>
     </div>
+</div>
+
+<!-- Quick project creation modal -->
+<div class="modal fade" id="scriptHubCreateProjectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">快速新建项目</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+      </div>
+      <div class="modal-body">
+        <div id="scriptHubCreateProjectError" class="alert alert-danger d-none mb-3"></div>
+        <div class="mb-3">
+          <label for="scriptHubNewProjectName" class="form-label">项目名称 <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="scriptHubNewProjectName"
+                 placeholder="输入项目名称" required>
+          <div class="form-text">后续可在项目管理页面中补充机构、合作等级等详细信息。</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="scriptHubSubmitCreateProjectBtn">创建项目</button>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 

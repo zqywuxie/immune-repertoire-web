@@ -1,0 +1,856 @@
+{% extends 'base.html' %}
+
+{% block title %}项目详情{% endblock %}
+
+{% block extra_css %}
+<style>
+  .project-detail-shell {
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+
+  .detail-hero {
+    border: 1px solid #dbe5ee;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #fbfdff 0%, #f3f8fc 52%, #fffaf4 100%);
+    padding: 1.4rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .detail-card {
+    border: 1px solid #e4edf4;
+    border-radius: 1rem;
+    box-shadow: 0 10px 22px rgba(34, 52, 68, 0.05);
+  }
+
+  .detail-card .card-header {
+    background: #fbfdff;
+    border-bottom: 1px solid #e8eef3;
+    font-weight: 600;
+  }
+
+  .status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .status-active {
+    background-color: #d4edda;
+    color: #155724;
+  }
+
+  .status-inactive {
+    background-color: #f8d7da;
+    color: #721c24;
+  }
+
+  .tab-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: #6c757d;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .tab-btn:hover {
+    color: #495057;
+  }
+
+  .tab-btn.active {
+    color: #0d6efd;
+    border-bottom-color: #0d6efd;
+  }
+
+  .collapsible-section {
+    margin-bottom: 1rem;
+  }
+
+  .collapsible-header {
+    background: #f8f9fa;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #e9ecef;
+    transition: all 0.2s;
+  }
+
+  .collapsible-header:hover {
+    background: #e9ecef;
+  }
+
+  .collapsible-body {
+    display: none;
+    padding: 1rem;
+    border: 1px solid #e9ecef;
+    border-top: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+    margin-top: -1px;
+  }
+
+  .collapsible-body.show {
+    display: block;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .summary-item {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+  }
+
+  .summary-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #0d6efd;
+  }
+
+  .summary-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+  }
+
+  .analysis-module {
+    padding: 1rem;
+    border: 1px solid #e9ecef;
+    border-radius: 0.5rem;
+    margin-bottom: 0.75rem;
+    transition: all 0.2s;
+  }
+
+  .analysis-module:hover {
+    border-color: #0d6efd;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.1);
+  }
+
+  .quick-action-btn {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .file-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #f1f3f4;
+  }
+
+  .file-item:last-child {
+    border-bottom: none;
+  }
+
+  .file-type-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: #e9ecef;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    margin-right: 0.5rem;
+  }
+
+  .sample-preview {
+    font-size: 0.875rem;
+  }
+
+  .sample-preview .table {
+    font-size: inherit;
+  }
+
+  .sample-preview .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .action-dropdown {
+    position: relative;
+  }
+
+  .action-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 1000;
+    min-width: 150px;
+    display: none;
+  }
+
+  .action-menu.show {
+    display: block;
+  }
+
+  .action-menu a {
+    display: block;
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+    color: #495057;
+    border-bottom: 1px solid #f1f3f4;
+  }
+
+  .action-menu a:last-child {
+    border-bottom: none;
+  }
+
+  .action-menu a:hover {
+    background: #f8f9fa;
+  }
+
+  .group-spec-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    align-items: center;
+  }
+
+  .group-spec-row input {
+    flex: 1;
+  }
+
+  .group-spec-row button {
+    padding: 0.25rem 0.5rem;
+  }
+
+  .saved-group-spec {
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .saved-group-spec .samples {
+    flex: 1;
+    margin-right: 1rem;
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .tab-nav {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    .summary-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .analysis-module {
+      margin-bottom: 1rem;
+    }
+  }
+
+  /* Loading animation */
+  .loading {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Asset row styling */
+  .asset-row-meta {
+    font-size: 0.875rem;
+    color: #6c757d;
+  }
+
+  /* File input styling */
+  input[type="file"] {
+    display: none;
+  }
+
+  /* Fade in animation */
+  .fade-in {
+    animation: fadeIn 0.3s ease-in;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
+  .status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .status-active {
+    background-color: #d4edda;
+    color: #155724;
+  }
+
+  .status-inactive {
+    background-color: #f8d7da;
+    color: #721c24;
+  }
+
+  .tab-content {
+    display: none;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+  .tab-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e4edf4;
+  }
+
+  .tab-content {
+    display: none;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+
+
+  .collapsible-section {
+    margin-bottom: 1rem;
+  }
+
+  .collapsible-header {
+    background: #f8f9fa;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #e9ecef;
+  }
+
+  .collapsible-header:hover {
+    background: #e9ecef;
+  }
+
+  .collapsible-body {
+    display: none;
+    padding: 1rem;
+    border: 1px solid #e9ecef;
+    border-top: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+    margin-top: -1px;
+  }
+
+  .collapsible-body.show {
+    display: block;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .summary-item {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+  }
+
+  .summary-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #0d6efd;
+  }
+
+  .summary-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+  }
+
+  .analysis-module {
+    padding: 1rem;
+    border: 1px solid #e9ecef;
+    border-radius: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .analysis-module:hover {
+    border-color: #0d6efd;
+  }
+
+  .quick-action-btn {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .file-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #f1f3f4;
+  }
+
+  .file-item:last-child {
+    border-bottom: none;
+  }
+
+  .file-type-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: #e9ecef;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    margin-right: 0.5rem;
+  }
+
+  .sample-preview {
+    font-size: 0.875rem;
+  }
+
+  .sample-preview .table {
+    font-size: inherit;
+  }
+
+  .sample-preview .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .action-dropdown {
+    position: relative;
+  }
+
+  .action-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 1000;
+    min-width: 150px;
+    display: none;
+  }
+
+  .action-menu.show {
+    display: block;
+  }
+
+  .action-menu a {
+    display: block;
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+    color: #495057;
+    border-bottom: 1px solid #f1f3f4;
+  }
+
+  .action-menu a:last-child {
+    border-bottom: none;
+  }
+
+  .action-menu a:hover {
+    background: #f8f9fa;
+  }
+
+  .group-spec-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    align-items: center;
+  }
+
+  .group-spec-row input {
+    flex: 1;
+  }
+
+  .group-spec-row button {
+    padding: 0.25rem 0.5rem;
+  }
+
+  .saved-group-spec {
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .saved-group-spec .samples {
+    flex: 1;
+    margin-right: 1rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 project-detail-shell">
+  <section class="detail-hero">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-8">
+        <h1 class="h3 mb-2" id="projectTitle">项目详情</h1>
+        <p class="text-muted mb-0" id="projectSubtitle">项目尚未填写描述。</p>
+      </div>
+      <div class="col-lg-4 text-lg-end">
+        <button class="btn btn-primary" id="refreshProjectDetailBtn">
+          <i class="bi bi-arrow-clockwise me-1"></i>刷新
+        </button>
+        <a href="{{ url_for('pages.projects_page') }}" class="btn btn-outline-secondary ms-2">
+          <i class="bi bi-arrow-left me-1"></i>返回项目列表
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <div class="alert alert-danger d-none" id="projectDetailError"></div>
+
+  <!-- Tab Navigation -->
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="overview">项目概览</button>
+    <button class="tab-btn" data-tab="assets">项目资产</button>
+    <button class="tab-btn" data-tab="analysis">数据分析</button>
+    <button class="tab-btn" data-tab="samples">样本信息</button>
+    <button class="tab-btn" data-tab="settings">项目设置</button>
+  </div>
+
+  <!-- Tab Content -->
+  <div class="tab-content active" id="overview-tab">
+    <div class="row g-4">
+      <div class="col-lg-8">
+        <div class="card detail-card">
+          <div class="card-header">项目基本信息</div>
+          <div class="card-body">
+            <div class="summary-grid" id="projectOverviewTiles">
+              <div class="summary-item">
+                <div class="summary-value" id="overviewSampleCount">0</div>
+                <div class="summary-label">样本记录</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="overviewResultCount">0</div>
+                <div class="summary-label">分析结果</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="overviewPepCount">0</div>
+                <div class="summary-label">Pep 资产</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="overviewDatapointCount">0</div>
+                <div class="summary-label">Datapoint</div>
+              </div>
+            </div>
+            <dl class="row">
+              <dt class="col-sm-3">机构</dt>
+              <dd class="col-sm-9" id="projectInstitutionValue">-</dd>
+              <dt class="col-sm-3">合作等级</dt>
+              <dd class="col-sm-9" id="projectCooperationValue">-</dd>
+              <dt class="col-sm-3">状态</dt>
+              <dd class="col-sm-9">
+                <span class="status-badge" id="projectStatusValue">-</span>
+              </dd>
+              <dt class="col-sm-3">更新时间</dt>
+              <dd class="col-sm-9" id="projectUpdatedAtValue">-</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card detail-card">
+          <div class="card-header">快速操作</div>
+          <div class="card-body">
+            <div class="d-grid gap-2">
+              <button class="btn btn-primary" onclick="location.href='{{ url_for('pages.upload_page') }}?project_id={{ project_id }}'">
+                <i class="bi bi-cloud-upload me-1"></i>上传文件
+              </button>
+              <button class="btn btn-outline-primary" onclick="location.href='{{ url_for('pages.samples_page') }}?project_id={{ project_id }}'">
+                <i class="bi bi-collection me-1"></i>管理样本
+              </button>
+              <button class="btn btn-outline-primary" onclick="location.href='{{ url_for('pages.analysis_page') }}?project_id={{ project_id }}'">
+                <i class="bi bi-graph-up me-1"></i>开始分析
+              </button>
+              <button class="btn btn-outline-secondary" onclick="location.href='{{ url_for('pages.projects_page') }}'">
+                <i class="bi bi-folder me-1"></i>项目列表
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="assets-tab">
+    <div class="row">
+      <div class="col">
+        <div class="card detail-card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>项目资产</span>
+            <div>
+              <button class="btn btn-sm btn-outline-primary" id="uploadAssetBtn">
+                <i class="bi bi-plus-lg me-1"></i>上传资产
+              </button>
+              <button class="btn btn-sm btn-outline-secondary ms-1" id="refreshAssetsBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>刷新
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="assetStatistics" class="summary-grid mb-3">
+              <!-- Asset statistics will be populated here -->
+            </div>
+            <div class="collapsible-section">
+              <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                <span>资产列表 (点击展开)</span>
+                <i class="bi bi-chevron-down"></i>
+              </div>
+              <div class="collapsible-body">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>类型 / 文件</th>
+                        <th>大小</th>
+                        <th>上传时间</th>
+                        <th class="text-end">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="projectAssetsTableBody">
+                      <tr><td colspan="4" class="text-center text-muted py-4">正在加载资产...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="analysis-tab">
+    <div class="row g-3">
+      <div class="col-md-6 col-lg-4">
+        <div class="analysis-module">
+          <h6 class="text-primary">自动热图分析</h6>
+          <p class="text-muted small mb-3">生成相似度热图和统计图表</p>
+          <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="combined-report">
+            <i class="bi bi-heatmap me-1"></i>开始分析
+          </button>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="analysis-module">
+          <h6 class="text-primary">Pipeline 比较</h6>
+          <p class="text-muted small mb-3">对比不同Pipeline的分析结果</p>
+          <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="pipeline-comparison">
+            <i class="bi bi-diagram-3 me-1"></i>开始分析
+          </button>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="analysis-module">
+          <h6 class="text-primary">Script Hub</h6>
+          <p class="text-muted small mb-3">基于pep数据生成V/J图谱</p>
+          <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="script-hub">
+            <i class="bi bi-terminal me-1"></i>开始分析
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="samples-tab">
+    <div class="row">
+      <div class="col">
+        <div class="card detail-card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>样本信息</span>
+            <div>
+              <button class="btn btn-sm btn-outline-primary" onclick="location.href='{{ url_for('pages.samples_page') }}?project_id={{ project_id }}'">
+                <i class="bi bi-grid-3x3-gap me-1"></i>查看全部
+              </button>
+              <button class="btn btn-sm btn-outline-secondary ms-1" id="refreshSamplesBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>刷新
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="sampleStatistics" class="summary-grid mb-3">
+              <!-- Sample statistics will be populated here -->
+            </div>
+            <div class="sample-preview">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Sample ID</th>
+                      <th>Sample Name</th>
+                      <th>Chain</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="samplesPreviewBody">
+                    <tr><td colspan="4" class="text-center text-muted py-4">正在加载样本...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="settings-tab">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card detail-card">
+          <div class="card-header">Group 规格</div>
+          <div class="card-body">
+            <div class="mb-3">
+              <p class="text-muted small mb-2">用逗号分隔样本名，保存为项目内默认 group 规格。</p>
+              <button class="btn btn-sm btn-outline-secondary" id="addGroupRowBtn">新增一行</button>
+            </div>
+            <div id="groupSpecEditor" class="mb-3"></div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary btn-sm" id="saveGroupSpecBtn">保存</button>
+              <button class="btn btn-sm btn-outline-secondary" id="clearGroupSpecBtn">清空</button>
+            </div>
+            <hr>
+            <div id="existingGroupSpecs"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card detail-card">
+          <div class="card-header">项目设置</div>
+          <div class="card-body">
+            <form id="projectSettingsForm">
+              <div class="mb-3">
+                <label class="form-label">项目名称</label>
+                <input type="text" class="form-control" id="projectNameInput">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">项目描述</label>
+                <textarea class="form-control" id="projectDescInput" rows="3"></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">机构</label>
+                <input type="text" class="form-control" id="projectInstitutionInput">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">合作等级</label>
+                <select class="form-select" id="projectCooperationInput">
+                  <option value="">请选择</option>
+                  <option value="basic">基础合作</option>
+                  <option value="standard">标准合作</option>
+                  <option value="premium">高级合作</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">状态</label>
+                <select class="form-select" id="projectStatusInput">
+                  <option value="active">活跃</option>
+                  <option value="inactive">未激活</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">保存设置</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Asset Upload Modal -->
+<div class="modal fade" id="assetUploadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">上传项目资产</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">资产类型</label>
+          <select class="form-select" id="assetTypeSelect">
+            <option value="pep">pep 数据</option>
+            <option value="datapoint">datapoint</option>
+            <option value="sample_summary">sample summary</option>
+            <option value="raw_archive">raw archive / pipeline root</option>
+          </select>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <button class="btn btn-outline-primary btn-sm" id="selectAssetFilesBtn" type="button">
+            <i class="bi bi-files me-1"></i>选择文件
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="selectAssetFolderBtn" type="button">
+            <i class="bi bi-folder2-open me-1"></i>选择文件夹
+          </button>
+        </div>
+        <div class="selected-upload-list mb-3" id="selectedUploadList">
+          <div class="text-muted small">尚未选择待上传文件。</div>
+        </div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="replaceExistingAssetsSwitch">
+          <label class="form-check-label" for="replaceExistingAssetsSwitch">替换同类现有资产</label>
+        </div>
+        <input type="file" id="assetFilesInput" class="d-none" multiple>
+        <input type="file" id="assetFolderInput" class="d-none" webkitdirectory directory multiple>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="uploadAssetsBtn">上传资产</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Tab switching functionality - moved to project_detail.js
+  
+  // Collapsible sections
+  function toggleCollapsible(header) {
+    const body = header.nextElementSibling;
+    const icon = header.querySelector('i');
+    
+    body.classList.toggle('show');
+    icon.classList.toggle('bi-chevron-down');
+    icon.classList.toggle('bi-chevron-up');
+  }
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.PROJECT_DETAIL_CONTEXT = {{ project_context|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/project_detail.js') }}"></script>
+{% endblock %}
