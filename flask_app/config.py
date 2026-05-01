@@ -8,6 +8,18 @@ import os
 from pathlib import Path
 
 
+def _resolve_database_uri(base_dir: Path) -> str:
+    """Return MySQL URI if available, otherwise fall back to SQLite."""
+    env_url = os.environ.get('DATABASE_URL', '').strip()
+    if env_url:
+        return env_url
+    try:
+        from flask_app.database_config import SQLALCHEMY_DATABASE_URI as uri
+        return uri
+    except Exception:
+        return f'sqlite:///{base_dir / "data" / "immune_repertoire.db"}'
+
+
 class Config:
     """Base configuration class."""
     
@@ -21,13 +33,10 @@ class Config:
     PORT = int(os.environ.get('PORT', 5000))
     DEBUG = False
     
-    # Database settings - SQLite for single-command startup
+    # Database settings
     BASE_DIR = Path(__file__).parent
     DATABASE_PATH = BASE_DIR / 'data' / 'immune_repertoire.db'
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        'DATABASE_URL', 
-        f'sqlite:///{DATABASE_PATH}'
-    )
+    SQLALCHEMY_DATABASE_URI = _resolve_database_uri(BASE_DIR)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # File storage settings

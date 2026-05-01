@@ -597,194 +597,215 @@
 {% block content %}
 <div class="container-fluid py-4 script-hub-page">
     <div class="sh-flow">
-        <!-- Project selection bar -->
-        <div class="sh-project-bar" id="scriptHubProjectBar">
-            <div class="row g-3 align-items-end">
-                <div class="col-lg-4">
-                    <label for="scriptHubProjectSelect" class="form-label fw-semibold">Project</label>
-                    <select class="form-select" id="scriptHubProjectSelect">
-                        <option value="">-- Select a project (optional) --</option>
-                    </select>
-                </div>
-                <div class="col-lg-1 d-flex align-items-end">
-                    <button type="button" class="btn btn-outline-primary btn-sm w-100"
-                            id="scriptHubNewProjectBtn" title="快速新建项目">+ 新建</button>
-                </div>
-                <div class="col-lg-7">
-                    <div class="sh-project-assets" id="scriptHubProjectAssets">
-                        <span class="text-muted small">Select a project to view available assets and cached data.</span>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <section class="sh-stage" id="scriptHubSourceStage">
+        <!-- Stage 01: Select Project -->
+        <section class="sh-stage" id="scriptHubProjectStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">01</div>
                     <div>
-                        <div class="sh-stage-title">选择分析模块与数据源</div>
-                        <div class="sh-stage-meta">选择分析模块，提供本地或远程数据源，检测数据后解锁后续步骤。</div>
+                        <div class="sh-stage-title">选择项目</div>
+                        <div class="sh-stage-meta">选择一个已有项目。项目资产将作为后续步骤的数据来源。</div>
                     </div>
                 </div>
-                <div class="sh-stage-status is-active" id="scriptHubSourceState">等待输入</div>
+                <div class="sh-stage-status is-active" id="scriptHubProjectState">选择项目</div>
             </div>
             <div class="sh-stage-body">
-                <div class="sh-source-shell">
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">等待输入目录。</div>
-
-                    <div class="sh-source-grid">
-                        <div class="row g-3">
-                            <div class="col-lg-4">
-                                <label for="scriptHubModule" class="form-label">分析模块</label>
-                                <select class="form-select" id="scriptHubModule">
-                                    <option value="db-alignment">数据库比对</option>
-                                    <option value="boxplot">箱线图分析</option>
-                                                                        <option value="pep-analysis">CDR3 共享分析</option>
-                                    <option value="topclone">TopClone 分析</option>
-                                    <option value="umap">UMAP 降维分析</option>
-                                    <option value="volcano">火山图分析</option>
-                                    <option value="umapin">UMAPin 降维</option>
-                                </select>
-                            </div>
-                            <div class="col-lg-4">
-                                <label for="scriptHubDataSourceMode" class="form-label">数据来源</label>
-                                <select class="form-select" id="scriptHubDataSourceMode">
-                                    <option value="local">本地目录</option>
-                                    <option value="remote">SSH Linux 服务器</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div id="scriptHubLocalPanel">
-                            <div class="row g-3 align-items-end">
-                                <div class="col-lg-9">
-                                    <label for="scriptHubBasePath" class="form-label">基础目录</label>
-                                    <input type="text" class="form-control" id="scriptHubBasePath" placeholder="例如: E:\Data\pep_root">
-                                </div>
-                                <div class="col-lg-3 d-grid">
-                                    <button class="btn btn-primary btn-lg" type="button" id="scriptHubInspectBtn">
-                                        <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">检测数据</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="scriptHubRemotePanel" class="sh-hidden sh-remote-shell">
-                            <div class="row g-3 align-items-end mb-3">
-                                <div class="col-lg-6">
-                                    <label for="scriptHubRemoteSourceSelect" class="form-label">SSH 数据源</label>
-                                    <select class="form-select" id="scriptHubRemoteSourceSelect"></select>
-                                </div>
-                                <div class="col-lg-3 d-grid">
-                                    <button class="btn btn-outline-secondary" type="button" id="scriptHubBrowseRemoteRootBtn">读取根目录</button>
-                                </div>
-                                <div class="col-lg-3 d-grid">
-                                    <button class="btn btn-outline-primary" type="button" id="scriptHubTestRemoteBtn">测试连接</button>
-                                </div>
-                            </div>
-
-                            <div class="alert alert-secondary mb-3" id="scriptHubRemoteHint">选择远程目录后会先同步到本地缓存，再对缓存目录执行检测与分析。</div>
-
-                            <div class="sh-path-grid">
-                                <div class="sh-path-card">
-                                    <span class="sh-path-label">Current path</span>
-                                    <p class="sh-path-block" id="scriptHubRemoteCurrentPath">-</p>
-                                </div>
-                                <div class="sh-path-card">
-                                    <span class="sh-path-label">Selected for sync</span>
-                                    <p class="sh-path-block" id="scriptHubRemoteSelectedPath">-</p>
-                                </div>
-                            </div>
-
-                            <div class="sh-remote-actions mb-3">
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubBrowseRemoteParentBtn">上一级</button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubSelectRemoteCurrentBtn">选择当前目录</button>
-                                <button class="btn btn-primary btn-sm" type="button" id="scriptHubSyncRemoteBtn">同步并检测</button>
-                            </div>
-
-                            <div class="remote-tree-panel" id="scriptHubRemoteBrowserList"></div>
+                <div class="row g-3 align-items-end">
+                    <div class="col-lg-5">
+                        <label for="scriptHubProjectSelect" class="form-label fw-semibold">项目</label>
+                        <select class="form-select" id="scriptHubProjectSelect">
+                            <option value="">-- 请选择一个项目 --</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-7">
+                        <div class="sh-project-assets" id="scriptHubProjectAssets">
+                            <span class="text-muted small">请选择项目以查看可用资产和数据。</span>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <section class="sh-stage sh-hidden" id="scriptHubAssetsStage">
+        <!-- Stage 02: Select Data -->
+        <section class="sh-stage sh-hidden" id="scriptHubDataStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">02</div>
                     <div>
-                        <div class="sh-stage-title">检测到的数据</div>
-                        <div class="sh-stage-meta">展示目录检测结果，自动使用兼容的全部数据进入下一步。</div>
+                        <div class="sh-stage-title">选择数据</div>
+                        <div class="sh-stage-meta">选择 PEP 文件路径和 Datapoint 文件。项目资产自动填充，也可手动输入路径。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="sh-source-shell">
+                    <!-- Data source mode -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-lg-4">
+                            <label for="scriptHubDataSourceMode" class="form-label">数据来源</label>
+                            <select class="form-select" id="scriptHubDataSourceMode">
+                                <option value="local">本地目录</option>
+                                <option value="remote">SSH Linux 服务器</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="scriptHubLocalPanel">
+                        <!-- PEP Path Selection -->
+                        <div class="sh-subpanel mb-3">
+                            <h3 class="sh-subpanel-title">PEP 文件路径 <span class="text-muted small">(多选)</span></h3>
+                            <p class="sh-subpanel-copy">从项目资产中选择或手动输入 PEP 文件所在目录路径。</p>
+                            <div class="sh-pep-checkbox-list mb-2" id="scriptHubPepCheckboxList">
+                                <span class="text-muted small">选择项目后自动显示可用的 PEP 路径。</span>
+                            </div>
+                            <label for="scriptHubPepCustomPaths" class="form-label small mt-2">手动输入路径 <span class="text-muted">(每行一个，或用逗号分隔)</span></label>
+                            <textarea class="form-control" id="scriptHubPepCustomPaths" rows="2"
+                                      placeholder="E:\Data\pep_root&#10;/remote/path/to/pep_data"></textarea>
+                        </div>
+
+                        <!-- Datapoint Selection -->
+                        <div class="sh-subpanel mb-3">
+                            <h3 class="sh-subpanel-title">Datapoint 文件</h3>
+                            <p class="sh-subpanel-copy">选择用于分析的 Datapoint / Profile CSV 文件。</p>
+                            <select class="form-select" id="scriptHubDatapointPath">
+                                <option value="">-- 选择项目后自动填充 --</option>
+                            </select>
+                        </div>
+
+                        <!-- Cached Usage Sources -->
+                        <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
+                            <h3 class="sh-subpanel-title">缓存数据源</h3>
+                            <p class="sh-subpanel-copy">项目已有的 Pep Analysis 缓存 Usage 数据，可直接作为分析输入。</p>
+                            <div id="scriptHubCachedSourceCards" class="d-flex flex-wrap gap-2"></div>
+                        </div>
+
+                        <!-- Base path (hidden, for internal compatibility) -->
+                        <input type="hidden" id="scriptHubBasePath" value="">
+
+                        <!-- Confirm button -->
+                        <div class="d-grid mt-3">
+                            <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn">
+                                <i class="bi bi-check-circle me-1"></i>确认数据选择
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Remote panel -->
+                    <div id="scriptHubRemotePanel" class="sh-hidden sh-remote-shell">
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-lg-6">
+                                <label for="scriptHubRemoteSourceSelect" class="form-label">SSH 数据源</label>
+                                <select class="form-select" id="scriptHubRemoteSourceSelect"></select>
+                            </div>
+                            <div class="col-lg-3 d-grid">
+                                <button class="btn btn-outline-secondary" type="button" id="scriptHubBrowseRemoteRootBtn">读取根目录</button>
+                            </div>
+                            <div class="col-lg-3 d-grid">
+                                <button class="btn btn-outline-primary" type="button" id="scriptHubTestRemoteBtn">测试连接</button>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-secondary mb-3" id="scriptHubRemoteHint">选择远程目录后会先同步到本地缓存，再对缓存目录执行检测与分析。</div>
+
+                        <div class="sh-path-grid">
+                            <div class="sh-path-card">
+                                <span class="sh-path-label">Current path</span>
+                                <p class="sh-path-block" id="scriptHubRemoteCurrentPath">-</p>
+                            </div>
+                            <div class="sh-path-card">
+                                <span class="sh-path-label">Selected for sync</span>
+                                <p class="sh-path-block" id="scriptHubRemoteSelectedPath">-</p>
+                            </div>
+                        </div>
+
+                        <div class="sh-remote-actions mb-3">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubBrowseRemoteParentBtn">上一级</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubSelectRemoteCurrentBtn">选择当前目录</button>
+                            <button class="btn btn-primary btn-sm" type="button" id="scriptHubSyncRemoteBtn">同步并检测</button>
+                        </div>
+
+                        <div class="remote-tree-panel" id="scriptHubRemoteBrowserList"></div>
+                    </div>
+
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">等待输入目录。</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stage 03: Select Analysis Module -->
+        <section class="sh-stage sh-hidden" id="scriptHubModuleStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">03</div>
+                    <div>
+                        <div class="sh-stage-title">选择分析模块</div>
+                        <div class="sh-stage-meta">选择要运行的分析模块。根据所选数据，可用模块已预先筛选。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubModuleState">等待数据</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="alert alert-info mb-3" id="scriptHubModuleFeedback">确认数据选择后解锁模块选择。</div>
+
+                <div class="sh-subpanel mb-3">
+                    <h3 class="sh-subpanel-title">可用分析模块</h3>
+                    <p class="sh-subpanel-copy">点击选择要运行的分析模块。灰色模块表示当前数据不支持。</p>
+                    <div class="sh-chip-list" id="scriptHubModuleChips">
+                        <span class="text-muted small">数据确认后加载可用模块...</span>
+                    </div>
+                </div>
+
+                <div class="sh-subpanel mb-3" id="scriptHubDataSummaryPanel" style="display:none;">
+                    <h3 class="sh-subpanel-title">已选数据摘要</h3>
+                    <div id="scriptHubDataSummary"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Helper: preserve old detected data panel for inspect results -->
+        <section class="sh-stage sh-hidden" id="scriptHubAssetsStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index"><i class="bi bi-info-circle"></i></div>
+                    <div>
+                        <div class="sh-stage-title">检测结果</div>
+                        <div class="sh-stage-meta">数据目录检测详情，选择模块后自动检测并填充配置。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubAssetsState">未激活</div>
             </div>
             <div class="sh-stage-body">
                 <div class="alert alert-info mb-3" id="scriptHubInspectSummary">等待检测目录。</div>
-
                 <div class="sh-metrics mb-3" id="scriptHubSummaryGrid">
-                    <div class="sh-metric">
-                        <span class="sh-metric-label">Samples</span>
-                        <div class="sh-metric-value">-</div>
-                    </div>
-                    <div class="sh-metric">
-                        <span class="sh-metric-label">Chains</span>
-                        <div class="sh-metric-value">-</div>
-                    </div>
-                    <div class="sh-metric">
-                        <span class="sh-metric-label">Pep Files</span>
-                        <div class="sh-metric-value">-</div>
-                    </div>
-                    <div class="sh-metric">
-                        <span class="sh-metric-label">Profile</span>
-                        <div class="sh-metric-value">-</div>
-                    </div>
+                    <div class="sh-metric"><span class="sh-metric-label">Samples</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Chains</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Pep Files</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Profile</span><div class="sh-metric-value">-</div></div>
                 </div>
-
                 <div class="row g-3">
                     <div class="col-xl-6" data-module="db-alignment">
                         <div class="sh-subpanel h-100">
                             <h3 class="sh-subpanel-title">Sample Preview</h3>
                             <p class="sh-subpanel-copy">展示即将纳入本次 DB alignment 的样本与检测到的链类型。</p>
-                            <div class="sh-chip-list" id="scriptHubSamplePreview">
-                                <span class="sh-chip">No sample detected</span>
-                            </div>
+                            <div class="sh-chip-list" id="scriptHubSamplePreview"><span class="sh-chip">No sample detected</span></div>
                         </div>
                     </div>
                     <div class="col-xl-6" data-module="db-alignment">
                         <div class="sh-subpanel h-100">
                             <h3 class="sh-subpanel-title">Detected Context</h3>
                             <p class="sh-subpanel-copy">识别到的 Profile 分类字段与 Datapoint 线索会用于自动填充后续运行配置。</p>
-                            <div class="mb-3">
-                                <div class="fw-semibold mb-2">Profile Categories</div>
-                                <div class="sh-chip-list" id="scriptHubCategoryChips">
-                                    <span class="sh-chip">No profile columns</span>
-                                </div>
-                            </div>
-                            <div>
-                                <div class="fw-semibold mb-2">Datapoint Hints</div>
-                                <div class="sh-chip-list" id="scriptHubDatapointChips">
-                                    <span class="sh-chip">No datapoint file detected</span>
-                                </div>
-                            </div>
+                            <div class="mb-3"><div class="fw-semibold mb-2">Profile Categories</div><div class="sh-chip-list" id="scriptHubCategoryChips"><span class="sh-chip">No profile columns</span></div></div>
+                            <div><div class="fw-semibold mb-2">Datapoint Hints</div><div class="sh-chip-list" id="scriptHubDatapointChips"><span class="sh-chip">No datapoint file detected</span></div></div>
                         </div>
                     </div>
                     <div class="col-12" data-module="boxplot">
                         <div class="sh-subpanel">
                             <h3 class="sh-subpanel-title">Datapoint Columns</h3>
                             <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select parameter range in the next step.</p>
-                            <div class="mb-3">
-                                <div class="fw-semibold mb-2">Available Columns (<span id="scriptHubColumnCount">0</span>)</div>
-                                <div class="sh-chip-list" id="scriptHubColumnChips">
-                                    <span class="sh-chip">No columns detected</span>
-                                </div>
-                            </div>
-                            <div id="scriptHubBpSuggestions" class="sh-hidden">
-                                <div class="fw-semibold mb-2">Suggested Ranges</div>
-                                <p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p>
-                            </div>
+                            <div class="mb-3"><div class="fw-semibold mb-2">Available Columns (<span id="scriptHubColumnCount">0</span>)</div><div class="sh-chip-list" id="scriptHubColumnChips"><span class="sh-chip">No columns detected</span></div></div>
+                            <div id="scriptHubBpSuggestions" class="sh-hidden"><div class="fw-semibold mb-2">Suggested Ranges</div><p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p></div>
                         </div>
                     </div>
                 </div>
@@ -794,7 +815,7 @@
         <section class="sh-stage sh-hidden" id="scriptHubConfigStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
-                    <div class="sh-stage-index">03</div>
+                    <div class="sh-stage-index">04</div>
                     <div>
                         <div class="sh-stage-title">运行配置</div>
                         <div class="sh-stage-meta">检测成功后自动带入推荐字段和默认参数，可直接使用或在运行前手动修改。</div>
@@ -1018,7 +1039,7 @@
         <section class="sh-stage sh-hidden" id="scriptHubResultStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
-                    <div class="sh-stage-index">04</div>
+                    <div class="sh-stage-index">05</div>
                     <div>
                         <div class="sh-stage-title">分析结果</div>
                         <div class="sh-stage-meta" id="scriptHubResultMeta">任务完成后在这里查看输出、下载结果。</div>
@@ -1142,30 +1163,6 @@
     </div>
 </div>
 
-<!-- Quick project creation modal -->
-<div class="modal fade" id="scriptHubCreateProjectModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-md">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">快速新建项目</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
-      </div>
-      <div class="modal-body">
-        <div id="scriptHubCreateProjectError" class="alert alert-danger d-none mb-3"></div>
-        <div class="mb-3">
-          <label for="scriptHubNewProjectName" class="form-label">项目名称 <span class="text-danger">*</span></label>
-          <input type="text" class="form-control" id="scriptHubNewProjectName"
-                 placeholder="输入项目名称" required>
-          <div class="form-text">后续可在项目管理页面中补充机构、合作等级等详细信息。</div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-primary" id="scriptHubSubmitCreateProjectBtn">创建项目</button>
-      </div>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}

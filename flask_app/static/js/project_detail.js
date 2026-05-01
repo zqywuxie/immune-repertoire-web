@@ -116,13 +116,8 @@ const ProjectDetailPage = {
             if (errorAlert) {
                 errorAlert.textContent = error.message || '加载项目详情失败';
                 errorAlert.classList.remove('d-none');
-    }
-}
-
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    ProjectDetailPage.init();
-});
+            }
+        }
     },
 
     renderProject() {
@@ -353,7 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML += `
                 <tr>
                     <td colspan="4" class="text-center text-muted">
-                        还有 ${samples.length - 5} 个样本，<a href="{{ url_for('pages.samples_page') }}?project_id={{ project_id }}">点击查看全部</a>
+                        还有 ${samples.length - 5} 个样本，<a href="${window.PROJECT_DETAIL_CONTEXT?.samplesPageUrl || '/samples'}?project_id=${encodeURIComponent(window.PROJECT_DETAIL_CONTEXT?.projectId || '')}">点击查看全部</a>
                     </td>
                 </tr>
             `;
@@ -503,7 +498,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ specs }),
+                body: JSON.stringify({
+                    spec_json: Object.fromEntries(specs.map((v, i) => [String(i), v])),
+                    name: 'default'
+                }),
             });
             
             if (!response.ok) throw new Error('保存失败');
@@ -546,7 +544,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Helper functions for onclick handlers
 function viewSampleDetail(sampleId) {
-    window.open(`/api/samples/${sampleId}`, '_blank');
+    if (!sampleId) return;
+    const samplesPageUrl = window.PROJECT_DETAIL_CONTEXT?.samplesPageUrl || '/samples';
+    window.open(`${samplesPageUrl}?sample_id=${encodeURIComponent(sampleId)}`, '_blank');
 }
 
 function editGroupSpec(index) {

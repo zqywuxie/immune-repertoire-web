@@ -2,27 +2,83 @@
 Page routes for rendering HTML templates.
 Requirements: 9.1
 """
+from urllib.parse import urlencode
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 
 pages_bp = Blueprint('pages', __name__)
 
+MANAGEMENT_WORKSPACE = 'management'
+ANALYSIS_WORKSPACE = 'analysis'
+VALID_WORKSPACES = {MANAGEMENT_WORKSPACE, ANALYSIS_WORKSPACE}
+
+
+def render_page(template_name, workspace=ANALYSIS_WORKSPACE, **context):
+    """Render a page with an explicit workspace marker for shared layout logic."""
+    context.setdefault('embedded', request.args.get('embedded') in {'1', 'true', 'yes'})
+    return render_template(template_name, workspace=workspace, **context)
+
+
+def resolve_workspace(default=ANALYSIS_WORKSPACE):
+    """Resolve workspace from query args for shared pages such as settings."""
+    workspace = request.args.get('workspace', default)
+    if workspace not in VALID_WORKSPACES:
+        return default
+    return workspace
+
+
+def redirect_to_combined_module(active_module: str):
+    query_params = request.args.to_dict(flat=True)
+    query_params['active_module'] = active_module
+    base_url = url_for('pages.combined_report_page')
+    return redirect(f"{base_url}?{urlencode(query_params)}" if query_params else base_url)
+
 
 @pages_bp.route('/')
 def index():
-    """Home page / Dashboard."""
-    return render_template('index.html')
+    """Redirect the root entry to the analysis workspace."""
+    return redirect(url_for('pages.analysis_page'))
+
+
+@pages_bp.route('/management')
+def management_page():
+    """Data management workspace landing page."""
+    return render_page('management.html', workspace=MANAGEMENT_WORKSPACE)
 
 
 @pages_bp.route('/upload')
 def upload_page():
-    """File upload page."""
-    return render_template('upload.html')
+    """Redirect to project management — upload is now integrated into project detail."""
+    return redirect(url_for('pages.projects_page'))
 
 
 @pages_bp.route('/files')
 def files_page():
-    """File management page - displays all uploaded files."""
-    return render_template('files.html')
+    """Redirect to project management — legacy file management removed."""
+    return redirect(url_for('pages.projects_page'))
+
+
+@pages_bp.route('/projects')
+def projects_page():
+    """Project management page."""
+    return render_page('projects.html', workspace=MANAGEMENT_WORKSPACE)
+
+
+@pages_bp.route('/projects/<project_id>')
+def project_detail_page(project_id):
+    """Project detail page."""
+    return render_page(
+        'project_detail.html',
+        workspace=MANAGEMENT_WORKSPACE,
+        project_id=project_id,
+        project_context={'projectId': project_id},
+    )
+
+
+@pages_bp.route('/samples')
+def samples_page():
+    """Sample registry page."""
+    return render_page('samples.html', workspace=MANAGEMENT_WORKSPACE)
 
 
 @pages_bp.route('/analysis')
@@ -30,7 +86,7 @@ def analysis_page():
     """Analysis page - single page with scheme switching.
     Optimized UI without step-by-step flow.
     """
-    return render_template('simple_analysis.html')
+    return render_page('simple_analysis.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/simple-analysis')
@@ -56,7 +112,11 @@ def analysis_config_page():
 @pages_bp.route('/analysis/<analysis_id>/results')
 def analysis_results_page(analysis_id):
     """Analysis results page - displays charts and data tables."""
-    return render_template('analysis/results.html', analysis_id=analysis_id)
+    return render_page(
+        'analysis/results.html',
+        workspace=ANALYSIS_WORKSPACE,
+        analysis_id=analysis_id,
+    )
 
 
 @pages_bp.route('/analysis/field')
@@ -137,19 +197,19 @@ def pdf_extractor_page():
     """PDF data and image extractor page.
     Requirements: 9.1-9.6, 12.1-12.6, 6.1, 6.2, 6.3
     """
-    return render_template('analysis/pdf_extractor.html')
+    return render_page('analysis/pdf_extractor.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/ppt-report')
 def ppt_report_page():
     """PPT report generation page."""
-    return render_template('analysis/sequencing_depth.html')
+    return render_page('analysis/sequencing_depth.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/settings')
 def settings_page():
     """Settings page."""
-    return render_template('settings.html')
+    return render_page('settings.html', workspace=resolve_workspace())
 
 
 @pages_bp.route('/analysis/ppt-heatmap')
@@ -157,7 +217,7 @@ def ppt_heatmap_page():
     """PPT heatmap replacement page.
     Upload PPT template and replace heatmaps with generated images.
     """
-    return render_template('analysis/ppt_heatmap.html')
+    return render_page('analysis/ppt_heatmap.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/statistical')
@@ -165,28 +225,41 @@ def statistical_comparison_page():
     """Statistical comparison analysis page.
     Performs group comparison with P-value calculation and boxplot visualization.
     """
-    return render_template('analysis/statistical_comparison.html')
+    return render_page('analysis/statistical_comparison.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/similarity-heatmap')
 def similarity_heatmap_page():
-    """Similarity heatmap analysis page with folder-based sample detection.
-    Supports file selection, field mapping, sample renaming/grouping, and group averaging.
-    Requirements: 1.1-1.6, 2.1-2.5, 3.1-3.6, 4.1-4.8, 5.1-5.6, 6.1-6.6
-    """
-    return render_template('analysis/similarity_heatmap.html')
+    """Legacy heatmap entry. Redirect to the unified chart workspace."""
+    return redirect_to_combined_module('heatmap')
 
 
 @pages_bp.route('/analysis/treemap')
 def treemap_page():
-    """Treemap analysis page with chain-based sample detection and HTML report viewing."""
-    return render_template('analysis/treemap.html')
+    """Legacy treemap entry. Redirect to the unified chart workspace."""
+    return redirect_to_combined_module('treemap')
 
 
 @pages_bp.route('/analysis/chord-diagram')
 def chord_diagram_page():
-    """Chord diagram analysis page with batch V/J frequency plotting."""
-    return render_template('analysis/chord_diagram.html')
+    """Legacy chord entry. Redirect to the unified chart workspace."""
+    return redirect_to_combined_module('chord')
+
+
+@pages_bp.route('/analysis/advanced-analysis')
+def advanced_analysis_page():
+    """Legacy advanced-analysis route kept as a compatibility redirect."""
+    active_module = str(request.args.get('active_module') or '').strip().lower()
+    target_endpoint = 'pages.script_hub_page' if active_module == 'db-alignment' else 'pages.pipeline_comparison_page'
+    query_params = request.args.to_dict(flat=True)
+    target_url = url_for(target_endpoint)
+    return redirect(f"{target_url}?{urlencode(query_params)}" if query_params else target_url)
+
+
+@pages_bp.route('/analysis/combined-report')
+def combined_report_page():
+    """Unified chart analysis page for heatmap, treemap, and chord outputs."""
+    return render_page('analysis/combined_analysis.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/pipeline-comparison')
@@ -194,4 +267,10 @@ def pipeline_comparison_page():
     """Pipeline comparison page entry.
     Dedicated workflow for comparing multiple pipelines under one root directory.
     """
-    return render_template('analysis/pipeline_comparison.html')
+    return render_page('analysis/pipeline_comparison.html', workspace=ANALYSIS_WORKSPACE)
+
+
+@pages_bp.route('/analysis/script-hub')
+def script_hub_page():
+    """Unified script-style analysis entry. Currently exposes DB alignment."""
+    return render_page('analysis/script_hub.html', workspace=ANALYSIS_WORKSPACE)

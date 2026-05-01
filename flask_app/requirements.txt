@@ -6,6 +6,9 @@ flask-executor==1.0.0
 
 # Database
 sqlalchemy==2.0.25
+pymysql==1.1.0
+pymongo==4.6.3
+cryptography==42.0.0
 
 # Data processing
 pandas==2.1.4

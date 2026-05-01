@@ -1,111 +1,111 @@
-<!-- Sidebar Navigation Component -->
+{% set is_management = current_workspace == 'management' %}
+
 <nav class="sidebar" id="sidebar" aria-label="Main navigation">
-    <button class="btn btn-sm btn-outline-secondary mb-3 w-100" id="sidebarCollapseBtn" title="收起/展开侧边栏">
+    <button class="btn btn-sm btn-outline-secondary mb-3 w-100" id="sidebarCollapseBtn" title="收起或展开侧边栏">
         <i class="bi bi-chevron-left" id="collapseIcon"></i>
         <span class="nav-text ms-2">收起</span>
     </button>
 
-    <ul class="nav flex-column">
+    {% if is_management %}
+    <div class="sidebar-section-label nav-text">数据管理</div>
+    <ul class="nav flex-column" data-nav-scope="management">
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.index' %}active{% endif %}"
-                href="{{ url_for('pages.index') }}" title="首页">
-                <i class="bi bi-house-door"></i>
-                <span class="nav-text ms-2">首页</span>
+            <a class="nav-link {% if request.endpoint == 'pages.management_page' %}active{% endif %}"
+                href="{{ url_for('pages.management_page') }}" data-nav-key="management-home">
+                <i class="bi bi-grid"></i>
+                <span class="nav-text ms-2">工作台</span>
             </a>
         </li>
-
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.upload_page' %}active{% endif %}"
-                href="{{ url_for('pages.upload_page') }}" title="上传文件">
-                <i class="bi bi-cloud-upload"></i>
-                <span class="nav-text ms-2">上传文件</span>
+            <a class="nav-link {% if request.endpoint in ['pages.projects_page', 'pages.project_detail_page'] %}active{% endif %}"
+                href="{{ url_for('pages.projects_page') }}" data-nav-key="projects">
+                <i class="bi bi-kanban"></i>
+                <span class="nav-text ms-2">项目</span>
             </a>
         </li>
-
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.files_page' %}active{% endif %}"
-                href="{{ url_for('pages.files_page') }}" title="文件管理">
-                <i class="bi bi-folder"></i>
-                <span class="nav-text ms-2">文件管理</span>
+            <a class="nav-link {% if request.endpoint == 'pages.samples_page' %}active{% endif %}"
+                href="{{ url_for('pages.samples_page') }}" data-nav-key="samples">
+                <i class="bi bi-collection"></i>
+                <span class="nav-text ms-2">样本</span>
             </a>
         </li>
-
+        <hr class="my-3">
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.similarity_heatmap_page' %}active{% endif %}"
-                href="{{ url_for('pages.similarity_heatmap_page') }}" title="相似度热图分析">
-                <i class="bi bi-grid-3x3-gap"></i>
-                <span class="nav-text ms-2">相似度热图分析</span>
+            <a class="nav-link {% if request.endpoint == 'pages.settings_page' %}active{% endif %}"
+                href="{{ url_for('pages.settings_page', workspace='management') }}" data-nav-key="settings">
+                <i class="bi bi-gear"></i>
+                <span class="nav-text ms-2">设置</span>
             </a>
         </li>
-
-        <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.chord_diagram_page' %}active{% endif %}"
-                href="{{ url_for('pages.chord_diagram_page') }}" title="Chord Diagram">
-                <i class="bi bi-bezier2"></i>
-                <span class="nav-text ms-2">Chord Diagram</span>
-            </a>
-        </li>
-
-        <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.treemap_page' %}active{% endif %}"
-                href="{{ url_for('pages.treemap_page') }}" title="Treemap分析">
-                <i class="bi bi-bounding-box"></i>
-                <span class="nav-text ms-2">Treemap分析</span>
-            </a>
-        </li>
-
-        <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.pipeline_comparison_page' %}active{% endif %}"
-                href="{{ url_for('pages.pipeline_comparison_page') }}" title="Pipeline对比">
-                <i class="bi bi-diagram-3"></i>
-                <span class="nav-text ms-2">Pipeline对比</span>
-            </a>
-        </li>
-
+    </ul>
+    {% else %}
+    <div class="sidebar-section-label nav-text">分析工作区</div>
+    <ul class="nav flex-column" data-nav-scope="analysis">
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.analysis_page' %}active{% endif %}"
-                href="{{ url_for('pages.analysis_page') }}" title="数据分析">
-                <i class="bi bi-bar-chart-line"></i>
-                <span class="nav-text ms-2">数据分析</span>
+                href="{{ url_for('pages.analysis_page') }}" data-nav-key="analysis-home">
+                <i class="bi bi-activity"></i>
+                <span class="nav-text ms-2">总览</span>
             </a>
         </li>
-
+        <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.combined_report_page' %}active{% endif %}"
+                href="{{ url_for('pages.combined_report_page') }}" data-nav-key="combined-report">
+                <i class="bi bi-grid-3x3-gap"></i>
+                <span class="nav-text ms-2">Unified Charts</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.pipeline_comparison_page' %}active{% endif %}"
+                href="{{ url_for('pages.pipeline_comparison_page') }}" data-nav-key="pipeline-comparison">
+                <i class="bi bi-diagram-3"></i>
+                <span class="nav-text ms-2">Pipeline Comparison</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.script_hub_page' %}active{% endif %}"
+                href="{{ url_for('pages.script_hub_page') }}" data-nav-key="script-hub">
+                <i class="bi bi-terminal"></i>
+                <span class="nav-text ms-2">Script Hub</span>
+            </a>
+        </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.statistical_comparison_page' %}active{% endif %}"
-                href="{{ url_for('pages.statistical_comparison_page') }}" title="统计比较">
+                href="{{ url_for('pages.statistical_comparison_page') }}" data-nav-key="statistical">
                 <i class="bi bi-graph-up"></i>
                 <span class="nav-text ms-2">统计比较</span>
             </a>
         </li>
 
         <hr class="my-3">
+        <div class="sidebar-section-label nav-text">工具</div>
 
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.pdf_extractor_page' %}active{% endif %}"
-                href="{{ url_for('pages.pdf_extractor_page') }}" title="PDF提取器">
+                href="{{ url_for('pages.pdf_extractor_page') }}" data-nav-key="pdf-extractor">
                 <i class="bi bi-file-earmark-pdf"></i>
-                <span class="nav-text ms-2">PDF提取器</span>
+                <span class="nav-text ms-2">PDF 提取器</span>
             </a>
         </li>
-
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.ppt_heatmap_page' %}active{% endif %}"
-                href="{{ url_for('pages.ppt_heatmap_page') }}" title="PPT图片替换">
+                href="{{ url_for('pages.ppt_heatmap_page') }}" data-nav-key="ppt-heatmap">
                 <i class="bi bi-file-earmark-ppt"></i>
-                <span class="nav-text ms-2">PPT图片替换</span>
+                <span class="nav-text ms-2">PPT 热图替换</span>
             </a>
         </li>
 
         <hr class="my-3">
-
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.settings_page' %}active{% endif %}"
-                href="{{ url_for('pages.settings_page') }}" title="设置">
+                href="{{ url_for('pages.settings_page', workspace='analysis') }}" data-nav-key="settings">
                 <i class="bi bi-gear"></i>
                 <span class="nav-text ms-2">设置</span>
             </a>
         </li>
     </ul>
+    {% endif %}
 </nav>
 
 <div class="sidebar-overlay" id="sidebarOverlay"></div>

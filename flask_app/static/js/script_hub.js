@@ -17,6 +17,12 @@ const ScriptHubPage = {
     touchedFields: new Set(),
     lastInspectedBasePath: '',
     isApplyingAutoValues: false,
+    stageUnlocked: { project: true, data: false, module: false, config: false },
+    selectedPepPaths: [],
+    customPepPaths: [],
+    selectedDatapointPath: '',
+    selectedCachedAssetId: '',
+    moduleAvailability: {},
 
     CONFIG_FIELD_IDS: [
         'scriptHubOutputName',
@@ -39,10 +45,7 @@ const ScriptHubPage = {
         this.bindEvents();
         this.projectContext = this.getProjectContext();
         this.dataSourceMode = document.getElementById('scriptHubDataSourceMode')?.value || 'local';
-        this.activeModule = document.getElementById('scriptHubModule')?.value || 'db-alignment';
         this.toggleDataSourceMode(this.dataSourceMode);
-        this.syncModuleUI();
-        this.loadRemoteSources();
         this.loadProjects();
         this.initializeProjectContext();
         this.syncStageUI();
@@ -55,10 +58,7 @@ const ScriptHubPage = {
         document.getElementById('scriptHubDataSourceMode')?.addEventListener('change', (event) => {
             this.toggleDataSourceMode(event.target.value || 'local');
         });
-        document.getElementById('scriptHubModule')?.addEventListener('change', (event) => {
-            this.switchModule(event.target.value || 'db-alignment');
-        });
-        document.getElementById('scriptHubInspectBtn')?.addEventListener('click', () => this.inspectBasePath());
+        document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
         document.getElementById('scriptHubRemoteSourceSelect')?.addEventListener('change', () => this.handleRemoteSourceChange());
         document.getElementById('scriptHubBrowseRemoteRootBtn')?.addEventListener('click', () => this.browseRemoteRoot());
@@ -108,12 +108,6 @@ const ScriptHubPage = {
             if (container) container.style.display = event.target.checked ? 'none' : '';
         });
         document.getElementById('scriptHubOpenPepMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
-        document.getElementById('scriptHubBasePath')?.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                this.inspectBasePath();
-            }
-        });
 
         this.CONFIG_FIELD_IDS.forEach((fieldId) => {
             const element = document.getElementById(fieldId);
@@ -121,10 +115,6 @@ const ScriptHubPage = {
             const eventName = element.tagName === 'SELECT' || element.type === 'checkbox' ? 'change' : 'input';
             element.addEventListener(eventName, () => this.markFieldTouched(fieldId));
         });
-
-        // Quick project creation
-        document.getElementById('scriptHubNewProjectBtn')?.addEventListener('click', () => this.showCreateProjectModal());
-        document.getElementById('scriptHubSubmitCreateProjectBtn')?.addEventListener('click', () => this.createProject());
     },
 
     getProjectContext() {
@@ -141,30 +131,18 @@ const ScriptHubPage = {
     initializeProjectContext() {
         const context = this.projectContext || this.getProjectContext();
         if (context.basePath) {
+            const customPaths = document.getElementById('scriptHubPepCustomPaths');
+            if (customPaths && !customPaths.value) {
+                customPaths.value = context.basePath;
+            }
             const basePathInput = document.getElementById('scriptHubBasePath');
             if (basePathInput && !basePathInput.value) {
                 basePathInput.value = context.basePath;
             }
         }
 
-        // Auto-select module based on analysis_type param
-        if (context.analysisType && context.analysisType !== 'script-hub') {
-            const moduleMap = {
-                'pep-analysis': 'pep-analysis',
-                'db-alignment': 'db-alignment',
-                'boxplot': 'boxplot',
-                'topclone': 'topclone',
-                'umap': 'umap',
-            };
-            const mapped = moduleMap[context.analysisType];
-            if (mapped) {
-                const moduleSelect = document.getElementById('scriptHubModule');
-                if (moduleSelect) {
-                    moduleSelect.value = mapped;
-                    this.switchModule(mapped);
-                }
-            }
-        }
+        // Auto-select module based on analysis_type param (deferred until data confirmed)
+        this._pendingAnalysisType = (context.analysisType && context.analysisType !== 'script-hub') ? context.analysisType : null;
 
         if (context.projectId) {
             const container = document.querySelector('.container-fluid.py-4');
@@ -219,8 +197,13 @@ const ScriptHubPage = {
     async onProjectChange(projectId) {
         const assetsDiv = document.getElementById('scriptHubProjectAssets');
         if (!projectId) {
-            if (assetsDiv) assetsDiv.innerHTML = '<span class="text-muted small">Select a project to view available assets and cached data.</span>';
+            if (assetsDiv) assetsDiv.innerHTML = '<span class="text-muted small">请选择项目以查看可用资产和数据。</span>';
             this.activeProject = null;
+            this.projectAssets = null;
+            this.stageUnlocked.data = false;
+            this.stageUnlocked.module = false;
+            this.stageUnlocked.config = false;
+            this.syncStageUI();
             return;
         }
 
@@ -228,28 +211,38 @@ const ScriptHubPage = {
             const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
             const project = await response.json();
             this.activeProject = project;
+            this.projectAssets = project.assets || [];
             this.renderProjectAssetSummary(project);
+
+            // Populate Stage 02 data selectors
+            this.renderPepCheckboxList(this.projectAssets);
+            this.renderDatapointSelect(this.projectAssets);
 
             const cachedResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/cached-assets?asset_type=cached_usage`);
             const cachedData = await cachedResponse.json();
             const cachedAssets = cachedData.success ? (cachedData.assets || []) : [];
-            this.renderCachedDataSources(cachedAssets);
+            this.renderCachedUsageInStage02(cachedAssets);
             this._cachedUsageAssets = cachedAssets;
 
-            const context = this.projectContext || this.getProjectContext();
-            if (!context.basePath) {
-                const pepAssets = (project.assets || []).filter(a => a.asset_type === 'pep');
-                if (pepAssets.length > 0) {
-                    const pepDir = pepAssets[0].storage_path;
-                    const basePathInput = document.getElementById('scriptHubBasePath');
-                    if (basePathInput && !basePathInput.value) {
-                        basePathInput.value = pepDir;
-                    }
+            // Auto-fill base path from first PEP asset
+            const pepAssets = this.projectAssets.filter(a => a.asset_type === 'pep');
+            if (pepAssets.length > 0) {
+                const pepDir = pepAssets[0].storage_path;
+                const basePathInput = document.getElementById('scriptHubBasePath');
+                if (basePathInput && !basePathInput.value) {
+                    basePathInput.value = pepDir;
+                }
+                const customPaths = document.getElementById('scriptHubPepCustomPaths');
+                if (customPaths && !customPaths.value) {
+                    customPaths.value = pepDir;
                 }
             }
+
+            this.stageUnlocked.data = true;
+            this.syncStageUI();
         } catch (error) {
             console.warn('Failed to load project details:', error);
-            if (assetsDiv) assetsDiv.innerHTML = '<span class="text-danger small">Failed to load project assets.</span>';
+            if (assetsDiv) assetsDiv.innerHTML = '<span class="text-danger small">加载项目资产失败。</span>';
         }
     },
 
@@ -269,6 +262,161 @@ const ScriptHubPage = {
             <span class="sh-project-asset-pill">Cached Data <span class="sh-asset-count ms-1">${cachedCount}</span></span>
             <span class="sh-project-asset-pill">Results <span class="sh-asset-count ms-1">${resultCount}</span></span>
         `;
+    },
+
+    renderPepCheckboxList(assets) {
+        const container = document.getElementById('scriptHubPepCheckboxList');
+        if (!container) return;
+        const pepAssets = (assets || []).filter(a => a.asset_type === 'pep');
+        if (!pepAssets.length) {
+            container.innerHTML = '<span class="text-muted small">项目中无 PEP 文件资产。请在下方手动输入路径。</span>';
+            return;
+        }
+        container.innerHTML = pepAssets.map((asset, idx) => {
+            const storagePath = asset.storage_path || '';
+            const displayName = asset.original_name || storagePath || '';
+            return `<div class="form-check">
+                <input class="form-check-input" type="checkbox" value="${this.escapeHtml(storagePath)}" id="pep_path_${idx}" checked>
+                <label class="form-check-label" for="pep_path_${idx}">
+                    <code>${this.escapeHtml(displayName)}</code>
+                </label>
+            </div>`;
+        }).join('');
+    },
+
+    renderDatapointSelect(assets) {
+        const select = document.getElementById('scriptHubDatapointPath');
+        if (!select) return;
+        const dpAssets = (assets || []).filter(a => a.asset_type === 'datapoint');
+        select.innerHTML = '<option value="">-- 选择 Datapoint 文件 --</option>';
+        dpAssets.forEach(dp => {
+            const opt = document.createElement('option');
+            opt.value = dp.storage_path || '';
+            opt.textContent = dp.original_name || dp.storage_path || '';
+            select.appendChild(opt);
+        });
+    },
+
+    renderCachedUsageInStage02(cachedAssets) {
+        const panel = document.getElementById('scriptHubCachedUsagePanel');
+        const cardsDiv = document.getElementById('scriptHubCachedSourceCards');
+        if (!panel || !cardsDiv) return;
+        if (!cachedAssets || !cachedAssets.length) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = '';
+        cardsDiv.innerHTML = cachedAssets.map((asset, idx) => {
+            const meta = asset.metadata_json || {};
+            const chains = (meta.chains || []).join(', ');
+            const groups = (meta.group_fields || []).join(', ');
+            return `<div class="sh-cached-source-card" data-cached-id="${this.escapeHtml(asset.id)}" data-index="${idx}">
+                <div class="fw-semibold">${this.escapeHtml(asset.original_name || asset.id)}</div>
+                <div class="small text-muted">Chains: ${this.escapeHtml(chains || '-')} | Groups: ${this.escapeHtml(groups || '-')}</div>
+            </div>`;
+        }).join('');
+        cardsDiv.querySelectorAll('.sh-cached-source-card').forEach((card) => {
+            card.addEventListener('click', () => {
+                cardsDiv.querySelectorAll('.sh-cached-source-card').forEach(c => c.classList.remove('is-selected'));
+                card.classList.add('is-selected');
+                this.selectedCachedAssetId = card.dataset.cachedId;
+            });
+        });
+    },
+
+    async confirmDataSelection() {
+        const checkboxes = document.querySelectorAll('#scriptHubPepCheckboxList input[type="checkbox"]:checked');
+        this.selectedPepPaths = Array.from(checkboxes).map(cb => cb.value);
+        const customRaw = document.getElementById('scriptHubPepCustomPaths')?.value?.trim() || '';
+        this.customPepPaths = customRaw ? customRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : [];
+        const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
+        this.selectedDatapointPath = document.getElementById('scriptHubDatapointPath')?.value || '';
+
+        if (allPepPaths.length === 0 && !this.selectedDatapointPath && !this.selectedCachedAssetId) {
+            alert('请选择至少一条 PEP 路径或 Datapoint 文件。');
+            return;
+        }
+
+        if (allPepPaths.length > 0) {
+            document.getElementById('scriptHubBasePath').value = allPepPaths[0];
+        }
+
+        this.evaluateAvailableModules(allPepPaths, this.selectedDatapointPath);
+        this.stageUnlocked.module = true;
+        this.syncStageUI();
+        this.renderModuleChips();
+        this.renderDataSummary(allPepPaths);
+        window.setTimeout(() => { document.getElementById('scriptHubModuleStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+    },
+
+    evaluateAvailableModules(pepPaths, datapointPath) {
+        const hasPep = pepPaths.length > 0 || !!this.selectedCachedAssetId;
+        const hasDatapoint = !!datapointPath;
+        this.moduleAvailability = {
+            'db-alignment': hasPep,
+            'boxplot': hasDatapoint,
+            'pep-analysis': hasPep || !!this.selectedCachedAssetId,
+            'topclone': hasPep,
+            'umap': hasDatapoint,
+            'volcano': hasDatapoint,
+            'umapin': hasDatapoint,
+        };
+    },
+
+    async renderModuleChips() {
+        const container = document.getElementById('scriptHubModuleChips');
+        if (!container) return;
+        try {
+            const response = await fetch('/api/script-hub/modules');
+            const data = await response.json();
+            const modules = Array.isArray(data.modules) ? data.modules : [];
+            container.innerHTML = modules.map(m => {
+                const available = this.moduleAvailability[m.key] !== false;
+                return `<span class="sh-chip sh-chip-selectable${available ? '' : ' opacity-50'}"
+                    data-module-key="${this.escapeHtml(m.key)}"
+                    style="${available ? '' : 'opacity:0.4;cursor:not-allowed;'}"
+                    title="${available ? this.escapeHtml(m.description || m.label) : '当前数据不支持此模块'}">
+                    ${this.escapeHtml(m.label)}</span>`;
+            }).join('');
+            container.querySelectorAll('.sh-chip-selectable').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const moduleKey = chip.dataset.moduleKey;
+                    if (!this.moduleAvailability[moduleKey]) return;
+                    this.selectModule(moduleKey, chip);
+                });
+            });
+            const available = container.querySelectorAll('.sh-chip-selectable:not([style*="opacity:0.4"])');
+            if (available.length === 1) {
+                const autoKey = available[0].dataset.moduleKey;
+                this.selectModule(autoKey, available[0]);
+            }
+        } catch (error) {
+            container.innerHTML = '<span class="text-danger small">加载模块列表失败。</span>';
+        }
+    },
+
+    selectModule(moduleKey, chipEl) {
+        this.activeModule = moduleKey;
+        document.querySelectorAll('#scriptHubModuleChips .sh-chip-selectable').forEach(c => c.classList.remove('sh-chip-selected'));
+        if (chipEl) chipEl.classList.add('sh-chip-selected');
+        this.resetDownstreamState();
+        this.syncModuleUI();
+        this.stageUnlocked.config = true;
+        this.syncStageUI();
+        this.inspectBasePath();
+        window.setTimeout(() => { document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+    },
+
+    renderDataSummary(pepPaths) {
+        const panel = document.getElementById('scriptHubDataSummaryPanel');
+        const summary = document.getElementById('scriptHubDataSummary');
+        if (!panel || !summary) return;
+        panel.style.display = '';
+        const parts = [];
+        if (pepPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>PEP 路径 (${pepPaths.length})：</strong> ${pepPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
+        if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
+        if (this.selectedCachedAssetId) parts.push(`<div class="sh-data-summary-item"><strong>缓存数据源：</strong> ${this.escapeHtml(this.selectedCachedAssetId)}</div>`);
+        summary.innerHTML = parts.length ? parts.join('') : '<span class="text-muted">未选择数据。</span>';
     },
 
     renderCachedDataSources(cachedAssets) {
@@ -449,53 +597,37 @@ const ScriptHubPage = {
     },
 
     syncStageUI() {
-        const assetsVisible = ['inspected', 'running', 'completed'].includes(this.uiState);
-        const configVisible = ['inspected', 'running', 'completed'].includes(this.uiState);
-        const resultVisible = this.uiState === 'completed';
+        const unlocked = this.stageUnlocked;
 
-        this.toggleStage('scriptHubAssetsStage', assetsVisible);
-        this.toggleStage('scriptHubConfigStage', configVisible);
-        this.toggleStage('scriptHubResultStage', resultVisible);
+        this.toggleStage('scriptHubProjectStage', true);
+        this.toggleStage('scriptHubDataStage', unlocked.data);
+        this.toggleStage('scriptHubModuleStage', unlocked.module);
+        this.toggleStage('scriptHubAssetsStage', unlocked.config);
+        this.toggleStage('scriptHubConfigStage', unlocked.config);
+        this.toggleStage('scriptHubResultStage', this.uiState === 'completed');
 
-        this.setStageStatus(
-            'scriptHubSourceState',
-            this.uiState === 'running'
-                ? { text: '已锁定', tone: 'warning' }
-                : this.uiState === 'completed'
-                    ? { text: '就绪', tone: 'success' }
-                    : this.uiState === 'inspected'
-                        ? { text: '已检测', tone: 'success' }
-                        : this.uiState === 'inspecting'
-                            ? { text: '检测中', tone: 'active' }
-                            : { text: '等待输入', tone: 'active' }
-        );
+        this.setStageStatus('scriptHubProjectState',
+            unlocked.data ? { text: '已选择', tone: 'success' } : { text: '选择项目', tone: 'active' });
 
-        this.setStageStatus(
-            'scriptHubAssetsState',
-            resultVisible || configVisible
-                ? { text: '已检测', tone: 'success' }
-                : { text: '未激活', tone: 'default' }
-        );
+        this.setStageStatus('scriptHubDataState',
+            unlocked.module ? { text: '已确认', tone: 'success' }
+            : unlocked.data ? { text: '选择中', tone: 'active' } : { text: '未激活', tone: 'default' });
 
-        this.setStageStatus(
-            'scriptHubConfigState',
-            this.uiState === 'running'
-                ? { text: '运行中', tone: 'warning' }
-                : this.uiState === 'completed'
-                    ? { text: '已完成', tone: 'success' }
-                    : configVisible
-                        ? { text: '可编辑', tone: 'active' }
-                        : { text: '已锁定', tone: 'default' }
-        );
+        this.setStageStatus('scriptHubModuleState',
+            unlocked.config ? { text: '已选择', tone: 'success' }
+            : unlocked.module ? { text: '选择中', tone: 'active' } : { text: '等待数据', tone: 'default' });
 
-        this.setStageStatus(
-            'scriptHubResultState',
-            this.uiState === 'completed'
-                ? { text: '就绪', tone: 'success' }
-                : this.uiState === 'running'
-                    ? { text: '等待中', tone: 'warning' }
-                    : { text: '等待中', tone: 'default' }
-        );
+        this.setStageStatus('scriptHubAssetsState',
+            unlocked.config ? { text: '已检测', tone: 'success' } : { text: '未激活', tone: 'default' });
+
+        this.setStageStatus('scriptHubConfigState',
+            this.uiState === 'running' ? { text: '运行中', tone: 'warning' }
+            : this.uiState === 'completed' ? { text: '已完成', tone: 'success' }
+            : unlocked.config ? { text: '可编辑', tone: 'active' } : { text: '已锁定', tone: 'default' });
+
+        this.setStageStatus('scriptHubResultState',
+            this.uiState === 'completed' ? { text: '就绪', tone: 'success' }
+            : this.uiState === 'running' ? { text: '等待中', tone: 'warning' } : { text: '等待中', tone: 'default' });
     },
 
     toggleStage(stageId, visible) {

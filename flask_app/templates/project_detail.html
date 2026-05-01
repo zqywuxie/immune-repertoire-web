@@ -293,24 +293,6 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
-</style>
-
-  .status-badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: 1rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .status-active {
-    background-color: #d4edda;
-    color: #155724;
-  }
-
-  .status-inactive {
-    background-color: #f8d7da;
-    color: #721c24;
-  }
 
   .tab-content {
     display: none;
@@ -325,188 +307,8 @@
     gap: 0.5rem;
     margin-bottom: 1rem;
     border-bottom: 1px solid #e4edf4;
-  }
-
-  .tab-content {
-    display: none;
-  }
-
-  .tab-content.active {
-    display: block;
-  }
-
-
-
-  .collapsible-section {
-    margin-bottom: 1rem;
-  }
-
-  .collapsible-header {
-    background: #f8f9fa;
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border: 1px solid #e9ecef;
-  }
-
-  .collapsible-header:hover {
-    background: #e9ecef;
-  }
-
-  .collapsible-body {
-    display: none;
-    padding: 1rem;
-    border: 1px solid #e9ecef;
-    border-top: none;
-    border-radius: 0 0 0.5rem 0.5rem;
-    margin-top: -1px;
-  }
-
-  .collapsible-body.show {
-    display: block;
-  }
-
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .summary-item {
-    background: #f8f9fa;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    text-align: center;
-  }
-
-  .summary-value {
-    font-size: 2rem;
-    font-weight: bold;
-    color: #0d6efd;
-  }
-
-  .summary-label {
-    font-size: 0.875rem;
-    color: #6c757d;
-    margin-top: 0.25rem;
-  }
-
-  .analysis-module {
-    padding: 1rem;
-    border: 1px solid #e9ecef;
-    border-radius: 0.5rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .analysis-module:hover {
-    border-color: #0d6efd;
-  }
-
-  .quick-action-btn {
-    width: 100%;
-    margin-top: 0.5rem;
-  }
-
-  .file-item {
-    padding: 0.5rem;
-    border-bottom: 1px solid #f1f3f4;
-  }
-
-  .file-item:last-child {
-    border-bottom: none;
-  }
-
-  .file-type-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    background: #e9ecef;
-    border-radius: 0.25rem;
-    font-size: 0.75rem;
-    margin-right: 0.5rem;
-  }
-
-  .sample-preview {
-    font-size: 0.875rem;
-  }
-
-  .sample-preview .table {
-    font-size: inherit;
-  }
-
-  .sample-preview .btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-  }
-
-  .action-dropdown {
-    position: relative;
-  }
-
-  .action-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    background: white;
-    border: 1px solid #e9ecef;
-    border-radius: 0.25rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    z-index: 1000;
-    min-width: 150px;
-    display: none;
-  }
-
-  .action-menu.show {
-    display: block;
-  }
-
-  .action-menu a {
-    display: block;
-    padding: 0.5rem 1rem;
-    text-decoration: none;
-    color: #495057;
-    border-bottom: 1px solid #f1f3f4;
-  }
-
-  .action-menu a:last-child {
-    border-bottom: none;
-  }
-
-  .action-menu a:hover {
-    background: #f8f9fa;
-  }
-
-  .group-spec-row {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    align-items: center;
-  }
-
-  .group-spec-row input {
-    flex: 1;
-  }
-
-  .group-spec-row button {
-    padding: 0.25rem 0.5rem;
-  }
-
-  .saved-group-spec {
-    padding: 0.5rem;
-    background: #f8f9fa;
-    border-radius: 0.25rem;
-    margin-bottom: 0.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .saved-group-spec .samples {
-    flex: 1;
-    margin-right: 1rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 </style>
 {% endblock %}
@@ -850,7 +652,10 @@
 
 {% block extra_js %}
 <script>
-    window.PROJECT_DETAIL_CONTEXT = {{ project_context|tojson }};
+    window.PROJECT_DETAIL_CONTEXT = Object.assign(
+        {{ project_context|tojson }},
+        { samplesPageUrl: {{ url_for('pages.samples_page')|tojson }} }
+    );
 </script>
 <script src="{{ url_for('static', filename='js/project_detail.js') }}"></script>
 {% endblock %}
