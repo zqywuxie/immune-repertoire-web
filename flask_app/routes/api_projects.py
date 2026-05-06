@@ -145,6 +145,7 @@ def register_project_asset_path(project_id: str):
     asset_type = str(payload.get('asset_type') or '').strip()
     storage_path = str(payload.get('storage_path') or '').strip()
     original_name = str(payload.get('original_name') or '').strip() or None
+    metadata_json = payload.get('metadata_json') or None
 
     if not asset_type:
         raise ValidationError(message="asset_type is required", details={'field': 'asset_type'})
@@ -156,6 +157,7 @@ def register_project_asset_path(project_id: str):
         asset_type=asset_type,
         storage_path=storage_path,
         original_name=original_name,
+        metadata=metadata_json,
     )
     return jsonify(asset.to_dict()), 201
 

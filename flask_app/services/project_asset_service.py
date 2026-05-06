@@ -229,11 +229,27 @@ class ProjectAssetService:
         if not str(storage_path or "").strip():
             raise ValidationError(message="storage_path is required")
 
+        normalized_path = str(storage_path)
+        existing = ProjectAsset.query.filter(
+            ProjectAsset.project_id == project.id,
+            ProjectAsset.asset_type == asset_type,
+            ProjectAsset.storage_path == normalized_path,
+        ).first()
+
+        if existing:
+            if metadata:
+                existing.metadata_json = {**(existing.metadata_json or {}), **metadata}
+            if original_name:
+                existing.original_name = original_name
+            existing.uploaded_at = datetime.utcnow()
+            db.session.commit()
+            return existing
+
         asset = ProjectAsset(
             project_id=project.id,
             asset_type=asset_type,
             original_name=original_name or f"{asset_type}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
-            storage_path=str(storage_path),
+            storage_path=normalized_path,
             size=0,
             metadata_json=metadata or {},
         )

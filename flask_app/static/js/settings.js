@@ -171,7 +171,7 @@ const SettingsManager = {
                 enabled: !!card.querySelector('[data-field="enabled"]')?.checked,
                 description: card.querySelector('[data-field="description"]')?.value
             });
-        });
+        }).filter(source => source.id && source.host);
     },
 
     renderRemoteSources(sources) {
@@ -226,7 +226,12 @@ const SettingsManager = {
                         </div>
                         <div class="col-md-6 auth-field auth-password"${source.auth_type !== 'password' ? ' style="display:none;"' : ''}>
                             <label class="form-label">密码</label>
-                            <input type="password" class="form-control" data-field="password" value="${this.escapeHtml(source.password)}" placeholder="server-side password">
+                            <div class="input-group">
+                                <input type="password" class="form-control" data-field="password" value="${this.escapeHtml(source.password)}" placeholder="server-side password">
+                                <button type="button" class="btn btn-outline-secondary" data-action="toggle-password" title="显示/隐藏密码">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="col-md-6 auth-field auth-key"${source.auth_type !== 'private_key' ? ' style="display:none;"' : ''}>
                             <label class="form-label">私钥路径</label>
@@ -250,6 +255,17 @@ const SettingsManager = {
                 card.remove();
                 this.updateRemoteSourcesEmptyState();
                 this.updateSummary();
+            });
+
+            card.querySelector('[data-action="toggle-password"]')?.addEventListener('click', (event) => {
+                const btn = event.currentTarget;
+                const input = card.querySelector('[data-field="password"]');
+                const icon = btn.querySelector('i');
+                if (input && icon) {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    icon.className = isPassword ? 'bi bi-eye-slash' : 'bi bi-eye';
+                }
             });
 
             card.querySelector('[data-field="auth_type"]')?.addEventListener('change', event => {
@@ -318,6 +334,14 @@ const SettingsManager = {
 
     async saveSettings() {
         const settings = this.collectSettingsFromForm();
+
+        // Client-side validation for SSH remote sources
+        const sshErrors = this.validateRemoteSources(settings.sshRemoteSources);
+        if (sshErrors) {
+            this.showToast(sshErrors, 'danger');
+            return;
+        }
+
         localStorage.setItem('appSettings', JSON.stringify(settings));
 
         try {
@@ -327,6 +351,30 @@ const SettingsManager = {
         } catch (error) {
             this.showToast(error.message || '保存设置失败', 'danger');
         }
+    },
+
+    validateRemoteSources(sources) {
+        if (!Array.isArray(sources) || sources.length === 0) return null;
+        const parts = [];
+        sources.forEach((source, index) => {
+            const label = source.name || source.id || `数据源 ${index + 1}`;
+            if (source.auth_type === 'password' && !source.password) {
+                parts.push(`${label}: 密码不能为空`);
+            }
+            if (source.auth_type === 'private_key' && !source.key_path) {
+                parts.push(`${label}: 私钥路径不能为空`);
+            }
+            if (!source.root_path || !source.root_path.startsWith('/')) {
+                parts.push(`${label}: 根目录必须以 / 开头`);
+            }
+            if (!source.name) {
+                parts.push(`${label}: 名称不能为空`);
+            }
+            if (!source.username) {
+                parts.push(`${label}: 用户名不能为空`);
+            }
+        });
+        return parts.length ? 'SSH 数据源配置错误:\n' + parts.join('\n') : null;
     },
 
     async saveSettingsToServer(settings) {
@@ -341,7 +389,22 @@ const SettingsManager = {
 
         const payload = await response.json();
         if (!response.ok) {
-            throw new Error(payload.message || '保存设置失败');
+            let message = payload.message || '保存设置失败';
+            const validationErrors = payload.details?.validation_errors;
+            if (validationErrors) {
+                const parts = [];
+                for (const [field, fieldErrors] of Object.entries(validationErrors)) {
+                    if (field === 'ssh_remote_sources' && Array.isArray(fieldErrors)) {
+                        parts.push('SSH 数据源: ' + fieldErrors.join('; '));
+                    } else if (Array.isArray(fieldErrors)) {
+                        parts.push(field + ': ' + fieldErrors.join(', '));
+                    } else {
+                        parts.push(field + ': ' + fieldErrors);
+                    }
+                }
+                if (parts.length) message = parts.join('\n');
+            }
+            throw new Error(message);
         }
         return payload;
     },

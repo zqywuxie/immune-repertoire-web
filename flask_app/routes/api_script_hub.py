@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import posixpath
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -209,6 +210,7 @@ def _discover_db_alignment_inputs_remote(
     remote_path: str,
     profile_path: Optional[str],
     requested_mapping: Optional[Dict[str, Any]] = None,
+    pep_paths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     if not str(source_id or "").strip():
         raise ValidationError(message="source_id is required", details={"field": "source_id"})
@@ -217,17 +219,37 @@ def _discover_db_alignment_inputs_remote(
 
     source = get_remote_data_source_service().get_source(source_id)
     provider = build_ssh_file_provider(source)
-    dir_listing = provider.list_dir(remote_path)
+
+    sample_files: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    discovered_chains: set[str] = set()
+    preview_file_path = ""
+
+    if pep_paths and isinstance(pep_paths, list) and len(pep_paths) > 0:
+        entries = []
+        for pp in pep_paths:
+            pp_str = str(pp or "").strip()
+            if not pp_str:
+                continue
+            name = posixpath.basename(pp_str) or pp_str
+            entries.append({
+                "name": name,
+                "path": pp_str,
+                "is_dir": False,
+                "size": 0,
+                "modified_time": 0,
+            })
+    else:
+        dir_listing = provider.list_dir(remote_path)
+        entries = dir_listing.get("entries") or []
 
     filtered_samples: List[Dict[str, Any]] = []
-    discovered_chains: set[str] = set()
     preview_columns: List[str] = []
     preview_rows: List[List[Any]] = []
-    preview_file_path = ""
-    sample_files: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
-    for entry in dir_listing.get("entries") or []:
+    for entry in entries:
         name = entry["name"]
+        if entry.get("is_dir"):
+            continue
         chain = _infer_chain_from_filename(name)
         normalized_chain = _normalize_chain(chain)
         if normalized_chain not in _SUPPORTED_CHAINS:
@@ -464,12 +486,13 @@ def _run_db_alignment_task(
     pathology_values: List[str],
     source_id: Optional[str] = None,
     remote_path: Optional[str] = None,
+    pep_paths: Optional[List[str]] = None,
 ) -> None:
     try:
         _record_stage(task_id, 5, "Inspect assets", "Scanning pep/Profile inputs for DB alignment", {"module": "db-alignment"})
 
         if source_id and remote_path:
-            discovery = _discover_db_alignment_inputs_remote(source_id, remote_path, profile_path, field_mapping)
+            discovery = _discover_db_alignment_inputs_remote(source_id, remote_path, profile_path, field_mapping, pep_paths=pep_paths)
             source = get_remote_data_source_service().get_source(source_id)
             ssh_provider = build_ssh_file_provider(source)
         else:
@@ -846,11 +869,12 @@ def inspect_db_alignment():
         data = request.get_json() or {}
         source_id = str(data.get("source_id") or "").strip() or None
         remote_path = str(data.get("remote_path") or "").strip() or None
+        pep_paths = data.get("pep_paths") if isinstance(data.get("pep_paths"), list) else None
 
         if source_id and remote_path:
             profile_path = str(data.get("profile_path") or "").strip() or None
             field_mapping = data.get("field_mapping") if isinstance(data.get("field_mapping"), dict) else None
-            discovery = _discover_db_alignment_inputs_remote(source_id, remote_path, profile_path, field_mapping)
+            discovery = _discover_db_alignment_inputs_remote(source_id, remote_path, profile_path, field_mapping, pep_paths=pep_paths)
             return jsonify({"success": True, **discovery})
 
         base_path = str(data.get("base_path") or "").strip()
@@ -877,6 +901,7 @@ def run_db_alignment():
         base_path = str(data.get("base_path") or "").strip()
         source_id = str(data.get("source_id") or "").strip() or None
         remote_path = str(data.get("remote_path") or "").strip() or None
+        pep_paths = data.get("pep_paths") if isinstance(data.get("pep_paths"), list) else None
 
         if not base_path and not (source_id and remote_path):
             raise ValidationError(message="base_path or source_id+remote_path is required", details={"field": "base_path"})
@@ -916,6 +941,7 @@ def run_db_alignment():
             pathology_values=pathology_values,
             source_id=source_id,
             remote_path=remote_path,
+            pep_paths=pep_paths,
         )
 
         return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}"})

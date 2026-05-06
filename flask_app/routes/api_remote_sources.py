@@ -160,7 +160,18 @@ def browse_remote_source():
         source = get_remote_data_source_service().get_source(source_id)
         provider = build_ssh_file_provider(source)
         browse_result = provider.list_dir(data.get("path"))
-        return jsonify({"success": True, **browse_result, "source": source.to_public_dict()})
+
+        entries = browse_result.get("entries", [])
+        dirs = [e for e in entries if e.get("is_dir")]
+        files = [e for e in entries if not e.get("is_dir")]
+
+        return jsonify({
+            "success": True,
+            **browse_result,
+            "dirs": dirs,
+            "files": files,
+            "source": source.to_public_dict(),
+        })
     except ValidationError as exc:
         return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
     except Exception as exc:

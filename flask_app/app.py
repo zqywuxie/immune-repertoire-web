@@ -4,6 +4,7 @@ Single-command startup: python app.py
 Requirements: 13.1, 13.2, 13.3, 13.4
 """
 import json
+import math
 import os
 import sys
 
@@ -20,24 +21,49 @@ from flask_app.config import config
 from flask_app.models.database import db
 
 
+def _sanitize_json_value(value):
+    """Recursively replace NaN/Infinity with None so JSON output is spec-compliant."""
+    if isinstance(value, dict):
+        return {k: _sanitize_json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_json_value(v) for v in value]
+    if isinstance(value, (np.floating, float)):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return float(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.ndarray):
+        return _sanitize_json_value(value.tolist())
+    return value
+
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that sanitizes NaN/Inf values before serialization."""
+
+    def default(self, obj):
+        if isinstance(obj, (np.floating, float)):
+            val = float(obj)
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.ndarray):
+            return _sanitize_json_value(obj.tolist())
+        return super().default(obj)
+
+    def encode(self, obj):
+        return super().encode(_sanitize_json_value(obj))
+
+    def iterencode(self, obj, _one_shot=False):
+        return super().iterencode(_sanitize_json_value(obj), _one_shot=_one_shot)
+
+
 OPTIONAL_DEPENDENCY_HINTS = {
     'pptx': 'Missing dependency "python-pptx". Install it with: pip install python-pptx or pip install -r requirements.txt',
 }
 
-
-class NumpyJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles numpy types and NaN values."""
-    
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            if np.isnan(obj):
-                return None
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
 
 
 def create_app(config_name=None):
@@ -57,7 +83,7 @@ def create_app(config_name=None):
     app = Flask(__name__)
     
     # Set custom JSON encoder to handle numpy types and NaN values
-    app.json_encoder = NumpyJSONEncoder
+    app.json_encoder = SafeJSONEncoder
     
     # Load configuration
     app.config.from_object(config[config_name])
