@@ -380,6 +380,7 @@ def replace_heatmaps():
             'errors': result.errors,
             'applied_layout_summary': service.layout_summary,
             'output_filename': output_filename,
+            'output_path': str(output_path),
             'download_url': f'/api/ppt/download/{session_id}/{output_filename}'
         })
     

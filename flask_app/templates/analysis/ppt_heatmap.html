@@ -1,0 +1,492 @@
+{% extends "base.html" %}
+
+{% block title %}PPT图表替换{% endblock %}
+
+{% block extra_css %}
+<style>
+    .ppt-tool {
+        --ppt-border: #d9e2ec;
+        --ppt-muted: #64748b;
+        --ppt-panel: #ffffff;
+        --ppt-accent: #0f766e;
+        --ppt-accent-soft: #e6fffb;
+    }
+
+    .ppt-tool .page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .ppt-tool .page-title {
+        font-size: 1.65rem;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    .ppt-tool .page-subtitle {
+        color: var(--ppt-muted);
+        margin: .35rem 0 0;
+    }
+
+    .ppt-tool .page-head .btn {
+        white-space: nowrap;
+    }
+
+    .workflow-steps {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: .5rem;
+        margin-bottom: 1rem;
+    }
+
+    .workflow-step {
+        border: 1px solid var(--ppt-border);
+        border-radius: 8px;
+        padding: .65rem .75rem;
+        background: #fff;
+        color: var(--ppt-muted);
+        font-size: .9rem;
+    }
+
+    .workflow-step.active {
+        border-color: var(--ppt-accent);
+        background: var(--ppt-accent-soft);
+        color: #0f3f3b;
+    }
+
+    .workflow-step.completed {
+        border-color: #86efac;
+        color: #166534;
+        background: #f0fdf4;
+    }
+
+    .ppt-upload-zone {
+        border: 2px dashed var(--ppt-border);
+        border-radius: 8px;
+        padding: 1.6rem;
+        text-align: center;
+        cursor: pointer;
+        background: #fbfdff;
+        transition: border-color .18s ease, background .18s ease;
+    }
+
+    .ppt-upload-zone:hover,
+    .ppt-upload-zone.drag-over {
+        border-color: var(--ppt-accent);
+        background: var(--ppt-accent-soft);
+    }
+
+    .ppt-upload-zone.has-file {
+        border-color: #22c55e;
+        background: #f0fdf4;
+    }
+
+    .module-tabs .nav-link {
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+        min-height: 42px;
+    }
+
+    .source-mode {
+        display: flex;
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .source-mode .form-check {
+        border: 1px solid var(--ppt-border);
+        border-radius: 8px;
+        padding: .5rem .75rem .5rem 2.1rem;
+        background: #fff;
+    }
+
+    .slide-list,
+    .mapping-list,
+    .history-list {
+        max-height: 430px;
+        overflow: auto;
+    }
+
+    .slide-card,
+    .mapping-item,
+    .mapping-item-visual,
+    .comparison-source-item {
+        border: 1px solid var(--ppt-border);
+        border-radius: 8px;
+        padding: .75rem;
+        margin-bottom: .65rem;
+        background: #fff;
+    }
+
+    .image-preview-row,
+    .sample-order-list,
+    .comparison-preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: .65rem;
+    }
+
+    .image-preview-item,
+    .sample-order-item,
+    .comparison-preview-item {
+        border: 1px solid var(--ppt-border);
+        border-radius: 8px;
+        padding: .5rem;
+        background: #f8fafc;
+        min-width: 0;
+    }
+
+    .preview-image {
+        width: 120px;
+        height: 74px;
+        border: 1pt solid #000;
+        background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+        border-radius: 4px;
+    }
+
+    .preview-thumbnail {
+        width: 72px;
+        flex: 0 0 72px;
+        padding: .25rem;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        text-align: center;
+        cursor: pointer;
+    }
+
+    .preview-thumbnail.active {
+        border-color: var(--ppt-accent);
+        background: var(--ppt-accent-soft);
+    }
+
+    .thumbnail-container {
+        height: 52px;
+        border: 1px solid var(--ppt-border);
+        border-radius: 4px;
+        background: #f8fafc;
+        overflow: hidden;
+    }
+
+    .thumbnail-container img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .thumbnail-placeholder {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ppt-muted);
+    }
+
+    .ppt-grid-cell {
+        min-height: 88px;
+        border: 1px dashed var(--ppt-border);
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: .45rem;
+    }
+
+    .cell-content {
+        min-height: 68px;
+    }
+
+    @media (max-width: 768px) {
+        .ppt-tool .page-head {
+            display: block;
+        }
+
+        .workflow-steps {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 ppt-tool">
+    <div class="page-head">
+        <div>
+            <h1 class="page-title"><i class="bi bi-file-earmark-slides me-2"></i>PPT图表替换</h1>
+            <p class="page-subtitle">上传PPT模板，选择分析结果图片，按模块替换热图、网络图、UpSet图和Tree Map。</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('pages.script_hub_page') }}">
+            <i class="bi bi-arrow-left"></i> 返回综合分析
+        </a>
+    </div>
+
+    <div class="workflow-steps">
+        <div class="workflow-step active" id="step1">
+            <i class="bi bi-1-circle me-1"></i> 上传并识别PPT
+        </div>
+        <div class="workflow-step" id="step2">
+            <i class="bi bi-2-circle me-1"></i> 选择图片来源
+        </div>
+        <div class="workflow-step" id="step3">
+            <i class="bi bi-3-circle me-1"></i> 替换和下载
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-5">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-upload me-2"></i>PPT模板</span>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="PPTReplace.clearSession(false)" title="清空">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">关联项目</label>
+                        <div class="input-group">
+                            <select class="form-select" id="pptProjectSelect">
+                                <option value="">加载项目中...</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" id="newPptProjectBtn" title="新建项目">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="ppt-upload-zone" id="pptUploadZone">
+                        <i class="bi bi-file-earmark-ppt fs-1 text-danger"></i>
+                        <p class="mt-2 mb-1">点击或拖放PPT文件到此处</p>
+                        <small class="text-muted">支持 .pptx 和 .ppt</small>
+                    </div>
+                    <input type="file" id="pptFileInput" class="d-none" accept=".ppt,.pptx">
+
+                    <div id="pptFileInfo" class="alert alert-success mt-3 mb-0" style="display:none;">
+                        <i class="bi bi-check-circle me-1"></i>
+                        <strong>已识别模板：</strong><span id="pptFileName"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="imageSourceCard" style="display:none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-images me-2"></i>图片来源</span>
+                    <span class="badge bg-secondary" id="currentTabBadge">Sharing Analysis</span>
+                </div>
+                <div class="card-body">
+                    <ul class="nav nav-pills module-tabs mb-3" id="imageTypeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sharing-analysis" type="button">
+                                <i class="bi bi-grid-3x3"></i> Sharing
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#network-plots" type="button">
+                                <i class="bi bi-diagram-3"></i> Network
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#isotype-upset" type="button">
+                                <i class="bi bi-bar-chart-steps"></i> UpSet
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tree-maps" type="button">
+                                <i class="bi bi-diagram-2"></i> Tree Map
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content d-none">
+                        <div class="tab-pane fade show active" id="sharing-analysis"></div>
+                        <div class="tab-pane fade" id="network-plots"></div>
+                        <div class="tab-pane fade" id="isotype-upset"></div>
+                        <div class="tab-pane fade" id="tree-maps"></div>
+                    </div>
+
+                    <div class="source-mode mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="pptMode" id="modeReplace" checked>
+                            <label class="form-check-label" for="modeReplace">单图替换</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="pptMode" id="modeComparison">
+                            <label class="form-check-label" for="modeComparison">多项目对比</label>
+                        </div>
+                        <span class="badge bg-warning text-dark align-self-center" id="comparisonModeBadge" style="display:none;">对比模式</span>
+                    </div>
+                    <p class="text-muted small" id="modeDescription">单图替换：将PPT中的图片替换为新图片</p>
+
+                    <div id="singleSourceInput">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">分析任务</label>
+                            <select class="form-select" id="analysisSelect">
+                                <option value="">手动输入图片目录</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">图片目录</label>
+                            <div class="input-group">
+                                <input class="form-control" id="imageDirInput" placeholder="例如：E:\analysis_results 或 /home/user/results">
+                                <button class="btn btn-outline-secondary" type="button" id="browseImageBtn" title="选择/提示目录">
+                                    <i class="bi bi-folder2-open"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                <span id="folderHintModule">当前模块</span>：
+                                <span id="folderHintPath">选择包含图表图片的结果目录</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="multiSourceInput" style="display:none;">
+                        <div id="comparisonSourcesList" class="mb-2"></div>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" id="addComparisonSourceBtn">
+                            <i class="bi bi-plus-lg"></i> 添加对比项目
+                        </button>
+                    </div>
+
+                    <button class="btn btn-primary w-100 mt-3" type="button" id="scanImagesBtn" disabled>
+                        <i class="bi bi-search"></i> 扫描图片文件
+                    </button>
+                </div>
+            </div>
+
+            <div class="card" id="borderConfigCard" style="display:none;">
+                <div class="card-header"><i class="bi bi-border-style me-2"></i>边框设置</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="enableBorderToggle" checked>
+                        <label class="form-check-label" for="enableBorderToggle">为替换图片添加边框</label>
+                    </div>
+                    <div id="borderOptions">
+                        <label class="form-label">边框宽度：<span id="borderWidthDisplay">1 pt</span></label>
+                        <input type="range" class="form-range" id="borderWidthInput" min="0.25" max="3" step="0.25" value="1">
+                        <div class="preview-image mt-2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="replaceCard" style="display:none;">
+                <div class="card-header"><i class="bi bi-arrow-repeat me-2"></i>执行替换</div>
+                <div class="card-body">
+                    <button class="btn btn-success btn-lg w-100" type="button" id="replaceBtn" disabled>
+                        <i class="bi bi-magic"></i> 替换PPT图表
+                    </button>
+                    <div class="progress mt-3" id="replaceProgress" style="display:none;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-7">
+            <div class="card" id="slideAnalysisCard" style="display:none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-layout-text-window-reverse me-2"></i>PPT结构识别</span>
+                    <span class="badge bg-secondary" id="slideCount">0</span>
+                </div>
+                <div class="card-body">
+                    <div id="slideList" class="slide-list"></div>
+                </div>
+            </div>
+
+            <div class="card" id="mappingCard" style="display:none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-diagram-3 me-2"></i>替换映射</span>
+                    <span class="badge bg-secondary" id="mappingCount">0</span>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3 sample-order-section" style="display:none;">
+                        <span class="small text-muted">预计页数：<span id="estimatedPages">0</span></span>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="PPTReplace.openLayoutEditor && PPTReplace.openLayoutEditor()">
+                            <i class="bi bi-grid"></i> 布局编辑
+                        </button>
+                    </div>
+                    <div id="sampleOrderList" class="sample-order-list mb-3"></div>
+                    <div id="pptLayoutPreview" class="mb-3"></div>
+                    <div id="sortableLayout" class="mb-3"></div>
+                    <div id="mappingList" class="mapping-list"></div>
+                </div>
+            </div>
+
+            <div class="card" id="pptPreviewPanel" style="display:none;"></div>
+
+            <div class="card" id="resultCard" style="display:none;">
+                <div class="card-header"><i class="bi bi-check-circle me-2"></i>替换结果</div>
+                <div class="card-body">
+                    <p id="resultMessage" class="mb-3"></p>
+                    <input type="hidden" id="downloadUrl">
+                    <button class="btn btn-primary" type="button" id="downloadBtn" onclick="PPTReplace.showDownloadSummary()">
+                        <i class="bi bi-download"></i> 下载PPT
+                    </button>
+                </div>
+            </div>
+
+            <div class="card" id="replacementHistoryPanel" style="display:none;">
+                <div class="card-header"><i class="bi bi-clock-history me-2"></i>替换历史</div>
+                <div class="card-body history-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="mappingPreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">映射预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6 text-center">
+                        <div id="mappingSourceInfo" class="small text-muted mb-2"></div>
+                        <img id="mappingSourceImage" class="img-fluid border rounded" alt="源图片">
+                    </div>
+                    <div class="col-md-6 text-center">
+                        <div id="mappingTargetInfo" class="small text-muted mb-2"></div>
+                        <img id="mappingTargetImage" class="img-fluid border rounded" alt="PPT图片">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="downloadSummaryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">下载设置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div id="downloadSummaryContent"></div>
+                <div class="form-check form-switch mt-3">
+                    <input class="form-check-input" type="checkbox" id="includeTimestampCheck" checked>
+                    <label class="form-check-label" for="includeTimestampCheck">文件名包含时间</label>
+                </div>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" id="addSummarySlideCheck">
+                    <label class="form-check-label" for="addSummarySlideCheck">添加摘要页</label>
+                </div>
+                <div class="alert alert-light border mt-3 mb-0">
+                    <span class="text-muted small">文件名：</span>
+                    <code id="filenamePreview">presentation_replaced_none.pptx</code>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirmDownloadBtn">
+                    <i class="bi bi-download"></i> 下载
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/ppt_replace.js') }}"></script>
+{% endblock %}

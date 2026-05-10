@@ -31,6 +31,8 @@ class ProjectAssetService:
         'processed_result',
         'raw_archive',
         'cached_usage',
+        'pdf_source',
+        'ppt_template',
     }
 
     SINGLETON_TYPES = {'sample_summary', 'group_spec'}

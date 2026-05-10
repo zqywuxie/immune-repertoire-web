@@ -17,6 +17,7 @@ const PDFExtractorModule = {
     currentTableProject: '',
     currentImageProject: '',
     projects: [],
+    legacyProjects: [],
 
     // Default image indices
     defaultImageIndices: [15, -1],
@@ -248,11 +249,43 @@ const PDFExtractorModule = {
      */
     loadProjects: async function () {
         try {
-            const response = await fetch('/api/files/projects');
-            if (!response.ok) return;
+            const [projectResponse, legacyResponse] = await Promise.all([
+                fetch('/api/projects').catch(() => null),
+                fetch('/api/files/projects').catch(() => null)
+            ]);
 
-            const data = await response.json();
-            this.projects = data.projects || [];
+            const projectItems = [];
+            if (projectResponse?.ok) {
+                const data = await projectResponse.json();
+                (data.projects || []).forEach(project => {
+                    if (project && project.id && project.name) {
+                        projectItems.push({
+                            id: project.id,
+                            name: project.name,
+                            label: project.institution ? `${project.name} · ${project.institution}` : project.name,
+                            legacy: false
+                        });
+                    }
+                });
+            }
+
+            const seenNames = new Set(projectItems.map(project => project.name));
+            this.legacyProjects = [];
+            if (legacyResponse?.ok) {
+                const data = await legacyResponse.json();
+                this.legacyProjects = data.projects || [];
+                this.legacyProjects.forEach(name => {
+                    if (!name || seenNames.has(name)) return;
+                    projectItems.push({
+                        id: `legacy:${name}`,
+                        name,
+                        label: name === 'default' ? '默认项目' : `${name}（旧文件）`,
+                        legacy: true
+                    });
+                });
+            }
+
+            this.projects = projectItems;
 
             // Populate project selectors
             this.populateProjectSelect('tableProjectSelect', this.currentTableProject);
@@ -274,9 +307,11 @@ const PDFExtractorModule = {
 
         this.projects.forEach(project => {
             const option = document.createElement('option');
-            option.value = project;
-            option.textContent = project === 'default' ? '默认项目' : project;
-            if (project === currentSelection) {
+            option.value = project.id;
+            option.textContent = project.label || project.name;
+            option.dataset.projectName = project.name;
+            option.dataset.legacyProject = project.legacy ? 'true' : 'false';
+            if (project.id === currentSelection) {
                 option.selected = true;
             }
             select.appendChild(option);
@@ -284,32 +319,69 @@ const PDFExtractorModule = {
     },
 
     /**
+     * Resolve the selected project object for a panel.
+     */
+    getSelectedProject: function (type) {
+        const projectId = type === 'table' ? this.currentTableProject : this.currentImageProject;
+        if (!projectId) return null;
+        return this.projects.find(project => project.id === projectId) || null;
+    },
+
+    /**
+     * Resolve the legacy project name used by old PDF file APIs.
+     */
+    getSelectedProjectName: function (type) {
+        const project = this.getSelectedProject(type);
+        return project ? project.name : '';
+    },
+
+    /**
      * Create new project
      */
-    createNewProject: function (type) {
+    createNewProject: async function (type) {
         const projectName = prompt('请输入新项目名称:');
         if (!projectName || !projectName.trim()) return;
 
         const trimmedName = projectName.trim();
 
-        // Add to projects list if not exists
-        if (!this.projects.includes(trimmedName)) {
-            this.projects.push(trimmedName);
+        try {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: trimmedName })
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || data.error || '创建项目失败');
+            }
+
+            const project = await response.json();
+            const projectItem = {
+                id: project.id,
+                name: project.name,
+                label: project.institution ? `${project.name} · ${project.institution}` : project.name,
+                legacy: false
+            };
+
+            this.projects = [
+                projectItem,
+                ...this.projects.filter(item => item.id !== projectItem.id && item.name !== projectItem.name)
+            ];
+
+            if (type === 'table') {
+                this.currentTableProject = projectItem.id;
+            } else {
+                this.currentImageProject = projectItem.id;
+            }
+
+            this.populateProjectSelect('tableProjectSelect', this.currentTableProject);
+            this.populateProjectSelect('imageProjectSelect', this.currentImageProject);
+            this.loadPdfFiles();
+        } catch (error) {
+            console.error('Error creating project:', error);
+            this.showError(error.message || '创建项目失败');
         }
-
-        // Update selectors and select the new project
-        this.populateProjectSelect('tableProjectSelect', type === 'table' ? trimmedName : this.currentTableProject);
-        this.populateProjectSelect('imageProjectSelect', type === 'image' ? trimmedName : this.currentImageProject);
-
-        if (type === 'table') {
-            this.currentTableProject = trimmedName;
-            document.getElementById('tableProjectSelect').value = trimmedName;
-        } else {
-            this.currentImageProject = trimmedName;
-            document.getElementById('imageProjectSelect').value = trimmedName;
-        }
-
-        this.loadPdfFiles();
     },
 
     /**
@@ -321,11 +393,14 @@ const PDFExtractorModule = {
             let tableUrl = '/api/files';
             let imageUrl = '/api/files';
 
-            if (this.currentTableProject) {
-                tableUrl += `?project=${encodeURIComponent(this.currentTableProject)}`;
+            const tableProjectName = this.getSelectedProjectName('table');
+            const imageProjectName = this.getSelectedProjectName('image');
+
+            if (tableProjectName) {
+                tableUrl += `?project=${encodeURIComponent(tableProjectName)}`;
             }
-            if (this.currentImageProject) {
-                imageUrl += `?project=${encodeURIComponent(this.currentImageProject)}`;
+            if (imageProjectName) {
+                imageUrl += `?project=${encodeURIComponent(imageProjectName)}`;
             }
 
             // Load files for table panel
@@ -615,9 +690,11 @@ const PDFExtractorModule = {
             // Add project to form data (use current project from active tab)
             const activeTab = document.querySelector('#extractorTabs .nav-link.active');
             const isTableTab = activeTab?.id === 'tables-tab';
-            const project = isTableTab ? this.currentTableProject : this.currentImageProject;
-            if (project) {
-                formData.append('project', project);
+            const projectType = isTableTab ? 'table' : 'image';
+            const projectName = this.getSelectedProjectName(projectType);
+            const project = this.getSelectedProject(projectType);
+            if (projectName) {
+                formData.append('project', projectName);
             }
 
             const response = await fetch('/api/pdf/upload', {
@@ -631,6 +708,10 @@ const PDFExtractorModule = {
             }
 
             const result = await response.json();
+
+            if (project && !project.legacy) {
+                await this.uploadFileToProjectAsset(project.id, file, 'pdf_source');
+            }
 
             // Update progress to 100%
             if (progressBar) {
@@ -671,6 +752,30 @@ const PDFExtractorModule = {
             if (progressDiv) progressDiv.classList.add('d-none');
         } finally {
             if (uploadBtn) uploadBtn.disabled = false;
+        }
+    },
+
+    /**
+     * Store the uploaded PDF under the selected project assets as well.
+     */
+    uploadFileToProjectAsset: async function (projectId, file, assetType) {
+        try {
+            const assetForm = new FormData();
+            assetForm.append('asset_type', assetType);
+            assetForm.append('files', file);
+            assetForm.append('relative_paths', JSON.stringify([file.name]));
+
+            const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets`, {
+                method: 'POST',
+                body: assetForm
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || data.error || '项目资产登记失败');
+            }
+        } catch (error) {
+            console.warn('PDF uploaded, but project asset registration failed:', error);
         }
     },
 

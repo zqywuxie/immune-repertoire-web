@@ -19,6 +19,8 @@ const PPTReplace = {
     tabStates: {},  // Store state for each tab
     operationHistory: [],  // Store operation history for deduplication
     maxHistoryItems: 20,  // Maximum history items to keep
+    projects: [],
+    currentProjectId: '',
 
     // Multi-module session management (Requirement 1, 2)
     session: {
@@ -156,6 +158,7 @@ const PPTReplace = {
         this.bindBorderConfigEvents();  // New: Bind border config events
         this.bindComparisonModeEvents();  // New: Bind comparison mode events
         this.loadAnalysisList();
+        this.loadProjects();
         this.restoreTabState();
         this.restoreSession();  // New: Restore session from storage
         this.updateTabBadges();
@@ -1262,6 +1265,8 @@ const PPTReplace = {
         const scanBtn = document.getElementById('scanImagesBtn');
         const replaceBtn = document.getElementById('replaceBtn');
         const browseBtn = document.getElementById('browseImageBtn');
+        const projectSelect = document.getElementById('pptProjectSelect');
+        const newProjectBtn = document.getElementById('newPptProjectBtn');
 
         // Upload zone click
         if (uploadZone) {
@@ -1325,6 +1330,16 @@ const PPTReplace = {
         // Replace button
         if (replaceBtn) {
             replaceBtn.addEventListener('click', () => this.replaceImages());
+        }
+
+        if (projectSelect) {
+            projectSelect.addEventListener('change', () => {
+                this.currentProjectId = projectSelect.value;
+            });
+        }
+
+        if (newProjectBtn) {
+            newProjectBtn.addEventListener('click', () => this.createProject());
         }
     },
 
@@ -1437,31 +1452,121 @@ const PPTReplace = {
 
     async loadAnalysisList() {
         try {
-            // Load from analysis list endpoint
-            const response = await fetch('/api/analysis/list?limit=20&status=completed');
-
-            if (!response.ok) return;
-
-            const data = await response.json();
             const select = document.getElementById('analysisSelect');
             if (!select) return;
 
-            // Handle both response formats
-            const analyses = data.analyses || data.items || [];
-
-            analyses.forEach(analysis => {
-                if (analysis.status === 'completed' || !analysis.status) {
-                    const option = document.createElement('option');
-                    option.value = analysis.id;
-                    option.textContent = `${analysis.name || analysis.file_name || analysis.id} (${this.formatDate(analysis.created_at)})`;
-                    if (analysis.results_path) {
-                        option.dataset.resultsPath = analysis.results_path;
-                    }
-                    select.appendChild(option);
-                }
-            });
+            select.innerHTML = '<option value="">手动输入图片目录</option>';
         } catch (error) {
             console.error('Error loading analysis list:', error);
+        }
+    },
+
+    async loadProjects() {
+        try {
+            const response = await fetch('/api/projects');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            this.projects = data.projects || [];
+            this.populateProjectSelect();
+        } catch (error) {
+            console.error('Error loading projects:', error);
+        }
+    },
+
+    populateProjectSelect() {
+        const select = document.getElementById('pptProjectSelect');
+        if (!select) return;
+
+        const currentValue = this.currentProjectId || select.value;
+        select.innerHTML = '<option value="">不关联项目</option>';
+        this.projects.forEach(project => {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = project.institution ? `${project.name} · ${project.institution}` : project.name;
+            if (project.id === currentValue) option.selected = true;
+            select.appendChild(option);
+        });
+        this.currentProjectId = select.value;
+    },
+
+    async createProject() {
+        const projectName = prompt('请输入新项目名称:');
+        if (!projectName || !projectName.trim()) return;
+
+        try {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: projectName.trim() })
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || data.error || '创建项目失败');
+            }
+
+            const project = await response.json();
+            this.projects = [project, ...this.projects.filter(item => item.id !== project.id)];
+            this.currentProjectId = project.id;
+            this.populateProjectSelect();
+            this.showSuccess('项目已创建');
+        } catch (error) {
+            console.error('Error creating project:', error);
+            this.showError(error.message || '创建项目失败');
+        }
+    },
+
+    async uploadTemplateToProject(file) {
+        if (!this.currentProjectId || !file) return;
+
+        try {
+            const formData = new FormData();
+            formData.append('asset_type', 'ppt_template');
+            formData.append('files', file);
+            formData.append('relative_paths', JSON.stringify([file.name]));
+
+            const response = await fetch(`/api/projects/${encodeURIComponent(this.currentProjectId)}/assets`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || data.error || '项目模板登记失败');
+            }
+        } catch (error) {
+            console.warn('PPT analyzed, but project template registration failed:', error);
+        }
+    },
+
+    async registerResultToProject(data) {
+        if (!this.currentProjectId || !data?.download_url) return;
+
+        try {
+            const response = await fetch(`/api/projects/${encodeURIComponent(this.currentProjectId)}/analysis/ppt-replace/register-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: this.sessionId || '',
+                    report_path: data.output_path || '',
+                    report_url: data.download_url,
+                    output_base: data.output_path || data.download_url,
+                    metadata: {
+                        module: this.currentTab,
+                        replaced_count: data.replaced_count || 0,
+                        output_filename: data.output_filename || '',
+                        warnings: data.warnings || []
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.message || payload.error || '项目结果登记失败');
+            }
+        } catch (error) {
+            console.warn('PPT result generated, but project result registration failed:', error);
         }
     },
 
@@ -1517,6 +1622,7 @@ const PPTReplace = {
 
             this.sessionId = data.session_id;
             this.slideData = data.image_slides || data.heatmap_slides || [];
+            await this.uploadTemplateToProject(file);
 
             // Initialize session for multi-module support
             this.session.uploadTime = new Date().toISOString();
@@ -3620,6 +3726,7 @@ const PPTReplace = {
 
         // Save to operation history with deduplication check
         this.saveToHistory(data);
+        this.registerResultToProject(data);
 
         // Update mapping list with actual results
         if (data.mappings && data.mappings.length > 0) {
