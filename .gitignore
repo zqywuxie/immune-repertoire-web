@@ -43,3 +43,15 @@ treemap/examples/result/
 flask_app/data/remote_cache/
 .pytest_cache/
 flask_app/.tmp_pytest_auto/
+
+# Sensitive config
+.env
+.mcp.json
+.claude/
+.playwright-mcp/
+
+# Temp pytest dirs (root)
+.tmp_pytest_treemap/
+.tmp_pytest_treemap_run/
+.tmp_pytest_treemap_topclone/
+pytest-cache-files-*/

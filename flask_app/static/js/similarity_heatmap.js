@@ -36,6 +36,7 @@ const AutoHeatmap = {
     remoteTreeFilter: '',
     remoteBrowserMessage: '',
     isBrowsingRemote: false,
+    projectContext: null,
 
     // Metric display names
     METRIC_NAMES: {
@@ -67,6 +68,7 @@ const AutoHeatmap = {
             remoteTreeSearch.addEventListener('input', event => this.handleRemoteTreeSearch(event.target.value));
         }
         this.loadRemoteSources();
+        this.initializeFromProjectContext();
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'a') {
                 const activeElement = document.activeElement;
@@ -76,6 +78,68 @@ const AutoHeatmap = {
                 }
             }
         });
+    },
+
+    getProjectContext() {
+        if (this.projectContext) return this.projectContext;
+        const params = new URLSearchParams(window.location.search);
+        this.projectContext = {
+            projectId: params.get('project_id') || '',
+            projectName: params.get('project_name') || '',
+            basePath: params.get('base_path') || '',
+            autoScan: params.get('auto_scan') === '1'
+        };
+        return this.projectContext;
+    },
+
+    initializeFromProjectContext() {
+        const context = this.getProjectContext();
+        if (!context.projectId) return;
+
+        const container = document.querySelector('.container-fluid.py-4');
+        if (container) {
+            const banner = document.createElement('div');
+            banner.className = 'alert alert-primary d-flex justify-content-between align-items-center gap-3';
+            banner.innerHTML = `
+                <div>
+                    <div class="fw-semibold">项目桥接已启用</div>
+                    <div class="small">当前项目：${this.escapeHtml(context.projectName || context.projectId)}。页面会直接使用项目数据目录。</div>
+                </div>
+                <a class="btn btn-sm btn-outline-primary" href="/projects/${encodeURIComponent(context.projectId)}">返回项目详情</a>
+            `;
+            container.insertBefore(banner, container.firstChild);
+        }
+
+        const basePathInput = document.getElementById('basePath');
+        if (basePathInput && context.basePath) {
+            basePathInput.value = context.basePath;
+        }
+        if (context.autoScan && context.basePath) {
+            this.scanFolder();
+        }
+    },
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    },
+
+    async registerProjectResult(payload) {
+        const context = this.getProjectContext();
+        if (!context.projectId) return;
+        try {
+            await fetch(`/api/projects/${encodeURIComponent(context.projectId)}/analysis/similarity-heatmap/register-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (error) {
+            console.warn('Failed to register similarity heatmap result for project:', error);
+        }
     },
 
     loadHeatmapReportConfig() {
@@ -1846,6 +1910,15 @@ const AutoHeatmap = {
             if (!response.ok || !data.success) {
                 throw new Error(data.message || '生成Pipeline报告失败');
             }
+
+            await this.registerProjectResult({
+                job_id: data.job_id,
+                output_base: data.output_base,
+                report_path: data.report_path,
+                report_url: data.report_url,
+                metadata_url: data.metadata_url,
+                metadata: data.metadata
+            });
 
             if (data.report_url) {
                 window.open(data.report_url, '_blank');

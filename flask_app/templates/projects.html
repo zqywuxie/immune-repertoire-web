@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block title %}项目管理{% endblock %}
+
+{% block extra_css %}
+<style>
+  .project-shell {
+    max-width: 1480px;
+    margin: 0 auto;
+  }
+
+  .project-hero {
+    border: 1px solid #dbe6ef;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #f6fbff 0%, #ffffff 45%, #fbf8f2 100%);
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .project-stat {
+    border: 1px solid #e8eef3;
+    border-radius: 0.95rem;
+    background: #fff;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 8px 20px rgba(32, 52, 68, 0.05);
+  }
+
+  .project-stat-label {
+    font-size: 0.8rem;
+    color: #607284;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .project-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1f3242;
+  }
+
+  .project-table td, .project-table th {
+    vertical-align: middle;
+  }
+
+  .project-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    background: #eef6ff;
+    color: #24527a;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .asset-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    background: #f5f7f9;
+    color: #496173;
+    font-size: 0.78rem;
+    margin: 0.15rem 0.2rem 0.15rem 0;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 project-shell">
+  <section class="project-hero">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-8">
+        <h1 class="h3 mb-2">项目管理</h1>
+        <p class="text-muted mb-0">管理项目、样本数据和分析结果。</p>
+      </div>
+      <div class="col-lg-4 text-lg-end">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createProjectModal">
+          <i class="bi bi-plus-lg me-1"></i>新建项目
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="row g-3 mb-4" id="projectStatsRow">
+    <div class="col-md-3">
+      <div class="project-stat">
+        <div class="project-stat-label">项目数</div>
+        <div class="project-stat-value" id="statProjectCount">0</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="project-stat">
+        <div class="project-stat-label">含 Pep 项目</div>
+        <div class="project-stat-value" id="statPepCount">0</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="project-stat">
+        <div class="project-stat-label">样本总量</div>
+        <div class="project-stat-value" id="statSampleCount">0</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="project-stat">
+        <div class="project-stat-label">结果资产</div>
+        <div class="project-stat-value" id="statResultCount">0</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="filterProjectName" placeholder="按项目名搜索">
+        </div>
+        <div class="col-md-3">
+          <input type="text" class="form-control" id="filterInstitution" placeholder="按机构搜索">
+        </div>
+        <div class="col-md-3">
+          <input type="text" class="form-control" id="filterCooperationLevel" placeholder="按合作等级搜索">
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-outline-primary" id="searchProjectsBtn">搜索</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="alert alert-danger d-none" id="projectsErrorAlert"></div>
+
+  <section class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 project-table">
+          <thead class="table-light">
+            <tr>
+              <th>项目</th>
+              <th>机构 / 合作等级</th>
+              <th>样本</th>
+              <th>资产状态</th>
+              <th>结果</th>
+              <th>更新时间</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody id="projectsTableBody">
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">正在加载项目...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="modal fade" id="createProjectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">新建项目</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">项目名称</label>
+            <input type="text" class="form-control" id="projectNameInput" placeholder="例如：AML_2026_Cohort_A">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">合作等级</label>
+            <input type="text" class="form-control" id="projectCooperationInput" placeholder="例如：A / B / 内部">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">机构</label>
+            <input type="text" class="form-control" id="projectInstitutionInput" placeholder="例如：Beijing Hospital">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">状态</label>
+            <select class="form-select" id="projectStatusInput">
+              <option value="active">active</option>
+              <option value="paused">paused</option>
+              <option value="archived">archived</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">说明</label>
+            <textarea class="form-control" id="projectDescriptionInput" rows="4" placeholder="记录项目背景、数据来源、交付阶段等。"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="submitCreateProjectBtn">创建项目</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/project_management.js') }}"></script>
+{% endblock %}

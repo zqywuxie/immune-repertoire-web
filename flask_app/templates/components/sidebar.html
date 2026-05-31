@@ -13,21 +13,21 @@
             <a class="nav-link {% if request.endpoint == 'pages.management_page' %}active{% endif %}"
                 href="{{ url_for('pages.management_page') }}" data-nav-key="management-home">
                 <i class="bi bi-grid"></i>
-                <span class="nav-text ms-2">工作台</span>
+                <span class="nav-text ms-2">数据工作台</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint in ['pages.projects_page', 'pages.project_detail_page'] %}active{% endif %}"
                 href="{{ url_for('pages.projects_page') }}" data-nav-key="projects">
                 <i class="bi bi-kanban"></i>
-                <span class="nav-text ms-2">项目</span>
+                <span class="nav-text ms-2">项目库</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.samples_page' %}active{% endif %}"
                 href="{{ url_for('pages.samples_page') }}" data-nav-key="samples">
                 <i class="bi bi-collection"></i>
-                <span class="nav-text ms-2">样本</span>
+                <span class="nav-text ms-2">样本库</span>
             </a>
         </li>
         <hr class="my-3">
@@ -35,7 +35,7 @@
             <a class="nav-link {% if request.endpoint == 'pages.settings_page' %}active{% endif %}"
                 href="{{ url_for('pages.settings_page', workspace='management') }}" data-nav-key="settings">
                 <i class="bi bi-gear"></i>
-                <span class="nav-text ms-2">设置</span>
+                <span class="nav-text ms-2">管理设置</span>
             </a>
         </li>
     </ul>
@@ -46,35 +46,28 @@
             <a class="nav-link {% if request.endpoint == 'pages.analysis_page' %}active{% endif %}"
                 href="{{ url_for('pages.analysis_page') }}" data-nav-key="analysis-home">
                 <i class="bi bi-activity"></i>
-                <span class="nav-text ms-2">总览</span>
-            </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.combined_report_page' %}active{% endif %}"
-                href="{{ url_for('pages.combined_report_page') }}" data-nav-key="combined-report">
-                <i class="bi bi-grid-3x3-gap"></i>
-                <span class="nav-text ms-2">Unified Charts</span>
+                <span class="nav-text ms-2">数据分析</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.pipeline_comparison_page' %}active{% endif %}"
                 href="{{ url_for('pages.pipeline_comparison_page') }}" data-nav-key="pipeline-comparison">
                 <i class="bi bi-diagram-3"></i>
-                <span class="nav-text ms-2">Pipeline Comparison</span>
+                <span class="nav-text ms-2">Pipeline 对比</span>
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == 'pages.script_hub_page' %}active{% endif %}"
+            <a class="nav-link {% if request.endpoint in ['pages.script_hub_page', 'pages.combined_report_page'] %}active{% endif %}"
                 href="{{ url_for('pages.script_hub_page') }}" data-nav-key="script-hub">
                 <i class="bi bi-terminal"></i>
-                <span class="nav-text ms-2">Script Hub</span>
+                <span class="nav-text ms-2">项目综合分析</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.statistical_comparison_page' %}active{% endif %}"
                 href="{{ url_for('pages.statistical_comparison_page') }}" data-nav-key="statistical">
                 <i class="bi bi-graph-up"></i>
-                <span class="nav-text ms-2">统计比较</span>
+                <span class="nav-text ms-2">统计检验</span>
             </a>
         </li>
 
@@ -85,14 +78,14 @@
             <a class="nav-link {% if request.endpoint == 'pages.pdf_extractor_page' %}active{% endif %}"
                 href="{{ url_for('pages.pdf_extractor_page') }}" data-nav-key="pdf-extractor">
                 <i class="bi bi-file-earmark-pdf"></i>
-                <span class="nav-text ms-2">PDF 提取器</span>
+                <span class="nav-text ms-2">PDF 表格提取</span>
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.ppt_heatmap_page' %}active{% endif %}"
                 href="{{ url_for('pages.ppt_heatmap_page') }}" data-nav-key="ppt-heatmap">
                 <i class="bi bi-file-earmark-ppt"></i>
-                <span class="nav-text ms-2">PPT 热图替换</span>
+                <span class="nav-text ms-2">PPT 图表替换</span>
             </a>
         </li>
 
@@ -101,7 +94,7 @@
             <a class="nav-link {% if request.endpoint == 'pages.settings_page' %}active{% endif %}"
                 href="{{ url_for('pages.settings_page', workspace='analysis') }}" data-nav-key="settings">
                 <i class="bi bi-gear"></i>
-                <span class="nav-text ms-2">设置</span>
+                <span class="nav-text ms-2">分析设置</span>
             </a>
         </li>
     </ul>

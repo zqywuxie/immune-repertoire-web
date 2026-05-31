@@ -1,0 +1,8 @@
+category=therapy
+group=before vs. after
+types=['before', 'after']
+params=['TRA_Simpson_evenness', 'TRA_Gini_index', 'TRA_d50', 'TRB_Pielou_evenness', 'TRB_Simpson', 'TRB_Simpson_evenness', 'TRB_Gini_index', 'TRB_d50', 'TRB_Largest_clone_percent', 'TRD_Shannon', 'TRD_Pielou_evenness', 'TRD_Simpson', 'TRD_Simpson_evenness', 'TRD_Gini_index', 'TRD_d50', 'TRD_Largest_clone_percent', 'TRG_Pielou_evenness', 'TRG_Simpson', 'TRG_Gini_index', 'IGHG34_percent_by_reads', 'IGH_SHM0']
+n_neighbors=6
+min_dist=0.01
+random_state=40
+n_epochs=50

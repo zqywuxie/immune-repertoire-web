@@ -1,7 +1,8 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}自动热图分析{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/unified_analysis.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
 <style>
     .step-indicator {
@@ -370,33 +371,22 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="row mb-4">
-        <div class="col">
-            <h4 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>自动热图分析</h4>
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-2"><i class="bi bi-grid-3x3-gap me-2"></i>自动热图分析</h1>
             <p class="text-muted mb-0">自动识别样本文件夹，支持字段映射和样本分组</p>
         </div>
     </div>
 
-    <div class="step-indicator" id="stepIndicator">
-        <div class="step-item active" data-step="1">
-            <div class="step-number">1</div>
-            <div class="step-label">扫描文件夹</div>
-        </div>
-        <div class="step-item" data-step="2">
-            <div class="step-number">2</div>
-            <div class="step-label">选择文件与字段映射</div>
-        </div>
-        <div class="step-item" data-step="3">
-            <div class="step-number">3</div>
-            <div class="step-label">样本选择与重命名</div>
-        </div>
-        <div class="step-item" data-step="4">
-            <div class="step-number">4</div>
-            <div class="step-label">分组设置</div>
-        </div>
-        <div class="step-item" data-step="5">
-            <div class="step-number">5</div>
-            <div class="step-label">生成热图</div>
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="step-indicator">
+                <div class="step-item active"><div class="step-number">1</div><div class="step-label">扫描文件夹</div></div>
+                <div class="step-item"><div class="step-number">2</div><div class="step-label">选择文件与字段映射</div></div>
+                <div class="step-item"><div class="step-number">3</div><div class="step-label">样本选择与重命名</div></div>
+                <div class="step-item"><div class="step-number">4</div><div class="step-label">分组设置</div></div>
+                <div class="step-item"><div class="step-number">5</div><div class="step-label">生成热图</div></div>
+            </div>
         </div>
     </div>
 
@@ -416,21 +406,17 @@
                 </div>
             </div>
 
-            <div id="localSourcePanel" class="source-panel">
-                <div class="row">
-                    <div class="col-md-9">
+<div id="localSourcePanel" class="source-panel">
+                <div class="row g-3 align-items-end">
+                    <div class="col-lg-9">
+                        <label for="basePath" class="form-label">输入数据目录</label>
                         <input type="text" class="form-control" id="basePath"
-                            placeholder="输入包含样本文件夹的根目录路径，例如：D:\AnalysisFiles">
+                            placeholder="例如：D:\AnalysisFiles">
                     </div>
-                    <div class="col-md-3">
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-primary flex-grow-1" onclick="AutoHeatmap.scanFolder()">
-                                <i class="bi bi-search me-1"></i>扫描
-                            </button>
-                            <button class="btn btn-outline-secondary" onclick="AutoHeatmap.browseFolder()" title="选择文件夹">
-                                <i class="bi bi-folder2-open"></i>
-                            </button>
-                        </div>
+                    <div class="col-lg-3 d-grid">
+                        <button class="btn btn-primary" onclick="AutoHeatmap.scanFolder()">
+                            <i class="bi bi-search me-1"></i>扫描目录
+                        </button>
                     </div>
                 </div>
                 <div class="mt-2">
@@ -843,6 +829,14 @@
 <!-- JSZip for downloading all results as ZIP -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="{{ url_for('static', filename='js/similarity_heatmap.js') }}"></script>
+<script src="{{ url_for('static', filename='js/analysis_workspace.js') }}"></script>
+<script>
+window.AnalysisWorkspace?.enhance(window.AutoHeatmap, {
+    analysisType: 'similarity-heatmap',
+    displayName: 'Similarity Heatmap',
+    projectResultType: 'similarity-heatmap'
+});
+</script>
 {% endblock %}
 
 

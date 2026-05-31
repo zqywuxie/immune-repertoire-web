@@ -1,0 +1,4 @@
+cate,prop
+cancer__count,0.0
+healthy__count,0.0
+"('cancer__count', 'healthy__count')",1.0

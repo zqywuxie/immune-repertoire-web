@@ -30,6 +30,22 @@
     .workspace-hero { border: 1px solid #dfe8ef; border-radius: 1.2rem; background: linear-gradient(135deg, #f8fcff 0%, #eef7f1 55%, #fffaf3 100%); padding: 1.4rem; }
     .workspace-note { color: #5f7285; max-width: 780px; }
     .config-note-card { border: 1px solid #d8e7de; border-radius: 1rem; background: linear-gradient(180deg, #f6fffb 0%, #ffffff 100%); }
+    .chart-source-flow { display: grid; gap: 1rem; }
+    .chart-source-panel { border: 1px solid #dbe5ed; border-radius: 1rem; background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%); overflow: hidden; }
+    .chart-source-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1rem 1.1rem; border-bottom: 1px solid #dbe5ed; }
+    .chart-source-left { display: flex; gap: .85rem; align-items: flex-start; min-width: 0; }
+    .chart-source-index { display: inline-flex; align-items: center; justify-content: center; width: 2.35rem; height: 2.35rem; border-radius: .85rem; background: #eef7f3; color: #0f684d; font-weight: 800; flex: 0 0 auto; }
+    .chart-source-title { font-weight: 760; color: #173447; margin-bottom: .18rem; }
+    .chart-source-copy { color: #607386; font-size: .9rem; line-height: 1.55; }
+    .chart-source-body { padding: 1.1rem; }
+    .chart-project-assets { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; min-height: 2.35rem; padding: .55rem .65rem; border: 1px dashed #cfdbe5; border-radius: .85rem; background: #fbfdfe; }
+    .chart-asset-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .28rem .55rem; border-radius: 999px; background: #eef6ff; color: #185987; font-size: .78rem; font-weight: 700; }
+    .chart-source-shell { display: grid; gap: 1rem; }
+    .chart-subpanel { border: 1px solid #e0e8ee; border-radius: .95rem; padding: 1rem; background: #fff; }
+    .chart-source-feedback { margin-bottom: 0; }
+    @media (max-width: 768px) {
+        .chart-source-head { flex-direction: column; }
+    }
 </style>
 {% endblock %}
 
@@ -47,7 +63,7 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="step-indicator">
-                <div class="step-item active"><div class="step-number">1</div><div class="step-label">扫描目录</div></div>
+                <div class="step-item active"><div class="step-number">1</div><div class="step-label">准备数据</div></div>
                 <div class="step-item"><div class="step-number">2</div><div class="step-label">选择链和样本</div></div>
                 <div class="step-item"><div class="step-number">3</div><div class="step-label">字段映射</div></div>
                 <div class="step-item"><div class="step-number">4</div><div class="step-label">生成结果</div></div>
@@ -56,84 +72,132 @@
     </div>
 
     <div class="card mb-4" id="step1Card">
-        <div class="card-header"><h2 class="h5 mb-0">Step 1. 扫描数据目录</h2></div>
+        <div class="card-header"><h2 class="h5 mb-0">Step 1. 准备图表数据</h2></div>
         <div class="card-body">
-            <div class="row g-3 mb-3">
-                <div class="col-lg-4">
-                    <label for="combinedProjectSelect" class="form-label">选择项目</label>
-                    <select class="form-select" id="combinedProjectSelect">
-                        <option value="">-- 请选择项目 --</option>
-                    </select>
-                </div>
-                <div class="col-lg-4">
-                    <label for="dataSourceMode" class="form-label">数据来源</label>
-                    <select class="form-select" id="dataSourceMode">
-                        <option value="local">本地目录</option>
-                        <option value="remote">SSH Linux 服务器</option>
-                    </select>
-                </div>
-            </div>
-            <div class="row g-3 align-items-end">
-                <div class="col-lg-9">
-                    <label for="basePath" class="form-label">输入数据目录</label>
-                    <input type="text" class="form-control" id="basePath" placeholder="例如: E:\Data\Repertoire">
-                </div>
-                <div class="col-lg-3 d-grid">
-                    <button class="btn btn-primary" onclick="CombinedAnalysis.scanFolder()"><i class="bi bi-search me-1"></i>扫描目录</button>
-                </div>
-            </div>
-            <div class="alert alert-info mt-3 mb-0 d-none" id="scanSummary"></div>
-        </div>
-        <div id="remoteSourcePanel" class="source-panel d-none">
-            <div class="row g-3 align-items-end mb-3">
-                <div class="col-lg-6">
-                    <label for="remoteSourceSelect" class="form-label">SSH 数据源</label>
-                    <select class="form-select" id="remoteSourceSelect"></select>
-                </div>
-                <div class="col-lg-3 d-grid">
-                    <button class="btn btn-outline-secondary" onclick="CombinedAnalysis.browseRemoteRoot()">
-                        <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
-                    </button>
-                </div>
-                <div class="col-lg-3 d-grid">
-                    <button class="btn btn-outline-primary" onclick="CombinedAnalysis.testRemoteSource()">
-                        <i class="bi bi-plug me-1"></i>测试连接
-                    </button>
-                </div>
-            </div>
+            <div class="chart-source-flow">
+                <section class="chart-source-panel">
+                    <div class="chart-source-head">
+                        <div class="chart-source-left">
+                            <div class="chart-source-index">01</div>
+                            <div>
+                                <div class="chart-source-title">选择项目</div>
+                                <div class="chart-source-copy">图表模块会读取项目中的 PEP 数据资产；如果项目未登记路径，也可以直接输入本地或远程目录。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-source-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-lg-5">
+                                <label for="combinedProjectSelect" class="form-label fw-semibold">项目</label>
+                                <div class="d-flex gap-2">
+                                    <select class="form-select" id="combinedProjectSelect">
+                                        <option value="">-- 请选择项目 --</option>
+                                    </select>
+                                    <a href="/projects" class="btn btn-outline-primary btn-sm text-nowrap" title="前往项目管理页面创建新项目">
+                                        <i class="bi bi-plus-circle me-1"></i>去创建项目
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="col-lg-7">
+                                <div class="chart-project-assets" id="combinedProjectAssets">
+                                    <span class="text-muted small">请选择项目以查看图表可用数据。</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-            <div class="alert alert-secondary mb-3" id="remoteSourceHint">
-                远端目录会自动同步到本地缓存进行分析。
-            </div>
+                <section class="chart-source-panel">
+                    <div class="chart-source-head">
+                        <div class="chart-source-left">
+                            <div class="chart-source-index">02</div>
+                            <div>
+                                <div class="chart-source-title">选择数据来源</div>
+                                <div class="chart-source-copy">本地目录会直接扫描；远程目录会先同步到缓存，再进入链、样本和字段映射流程。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-source-body">
+                        <div class="chart-source-shell">
+                            <div class="row g-3 mb-1" id="chartDataSourceRow">
+                                <div class="col-lg-4">
+                                    <label for="dataSourceMode" class="form-label">数据来源</label>
+                                    <select class="form-select" id="dataSourceMode">
+                                        <option value="local">本地目录</option>
+                                        <option value="remote">SSH Linux 服务器</option>
+                                    </select>
+                                </div>
+                            </div>
 
-            <div class="row g-3 mb-3">
-                <div class="col-lg-6">
-                    <div class="small text-muted mb-1">当前浏览路径</div>
-                    <div class="remote-browser-path" id="remoteCurrentPath">-</div>
-                </div>
-                <div class="col-lg-6">
-                    <div class="small text-muted mb-1">待同步目录</div>
-                    <div class="remote-browser-path" id="remoteSelectedPath">-</div>
-                </div>
-            </div>
+                            <div class="chart-subpanel" id="chartLocalSourcePanel">
+                                <div class="row g-3 align-items-end" id="chartLocalPathRow">
+                                    <div class="col-lg-9">
+                                        <label for="basePath" class="form-label">输入数据目录</label>
+                                        <input type="text" class="form-control" id="basePath" placeholder="例如: E:\Data\Repertoire">
+                                    </div>
+                                    <div class="col-lg-3 d-grid">
+                                        <button class="btn btn-primary" id="chartScanButton" onclick="CombinedAnalysis.scanFolder()"><i class="bi bi-search me-1"></i>扫描目录</button>
+                                    </div>
+                                </div>
+                            </div>
 
-            <div class="d-flex flex-wrap gap-2 mb-3">
-                <button class="btn btn-outline-secondary btn-sm" onclick="CombinedAnalysis.browseRemoteParent()">上一级</button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="CombinedAnalysis.selectCurrentRemotePath()">选择当前目录</button>
-                <button class="btn btn-primary btn-sm" onclick="CombinedAnalysis.syncRemoteAndScan()">同步并扫描</button>
-            </div>
+                            <div id="remoteSourcePanel" class="source-panel d-none">
+                                <div class="row g-3 align-items-end mb-3">
+                                    <div class="col-lg-6">
+                                        <label for="remoteSourceSelect" class="form-label">SSH 数据源</label>
+                                        <select class="form-select" id="remoteSourceSelect"></select>
+                                    </div>
+                                    <div class="col-lg-3 d-grid">
+                                        <button class="btn btn-outline-secondary" onclick="CombinedAnalysis.browseRemoteRoot()">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
+                                        </button>
+                                    </div>
+                                    <div class="col-lg-3 d-grid">
+                                        <button class="btn btn-outline-primary" onclick="CombinedAnalysis.testRemoteSource()">
+                                            <i class="bi bi-plug me-1"></i>测试连接
+                                        </button>
+                                    </div>
+                                </div>
 
-            <div class="remote-tree-toolbar">
-                <div>
-                    <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">Tree Filter</label>
-                    <input type="text" class="form-control form-control-sm" id="remoteTreeSearch" placeholder="Filter loaded folders by name or path">
-                </div>
-                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="CombinedAnalysis.refreshRemoteNode()">
-                    <i class="bi bi-arrow-repeat me-1"></i>Refresh Node
-                </button>
-            </div>
+                                <div class="alert alert-secondary mb-3" id="remoteSourceHint">
+                                    远端目录会自动同步到本地缓存进行分析。
+                                </div>
 
-            <div class="remote-tree-panel" id="remoteBrowserList"></div>
+                                <div class="row g-3 mb-3">
+                                    <div class="col-lg-6">
+                                        <div class="small text-muted mb-1">当前浏览路径</div>
+                                        <div class="remote-browser-path" id="remoteCurrentPath">-</div>
+                                    </div>
+                                    <div class="col-lg-6">
+                                        <div class="small text-muted mb-1">待同步目录</div>
+                                        <div class="remote-browser-path" id="remoteSelectedPath">-</div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex flex-wrap gap-2 mb-3">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="CombinedAnalysis.browseRemoteParent()">上一级</button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="CombinedAnalysis.selectCurrentRemotePath()">选择当前目录</button>
+                                    <button class="btn btn-primary btn-sm" onclick="CombinedAnalysis.syncRemoteAndScan()">同步并扫描</button>
+                                </div>
+
+                                <div class="remote-tree-toolbar">
+                                    <div>
+                                        <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">Tree Filter</label>
+                                        <input type="text" class="form-control form-control-sm" id="remoteTreeSearch" placeholder="Filter loaded folders by name or path">
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="CombinedAnalysis.refreshRemoteNode()">
+                                        <i class="bi bi-arrow-repeat me-1"></i>Refresh Node
+                                    </button>
+                                </div>
+
+                                <div class="remote-tree-panel" id="remoteBrowserList"></div>
+                            </div>
+
+                            <div class="alert alert-info chart-source-feedback d-none" id="scanSummary"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
 
@@ -224,6 +288,7 @@
                 <div><label for="treemapMinCopyDefault" class="form-label">Treemap 默认最小 copy</label><input type="number" class="form-control" id="treemapMinCopyDefault" value="30" min="0"></div>
                 <div><label for="treemapTopN" class="form-label">Treemap Top N</label><input type="number" class="form-control" id="treemapTopN" value="100" min="1"></div>
                 <div><label for="treemapLayoutMode" class="form-label">Treemap 布局</label><select class="form-select" id="treemapLayoutMode"><option value="tetris">Tetris</option><option value="qr">QR</option></select></div>
+                <div><label for="treemapCanvasShape" class="form-label">CANVAS_SHAPE</label><select class="form-select" id="treemapCanvasShape"><option value="square">square</option><option value="portrait">portrait</option></select></div>
                 <div class="d-flex align-items-end"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="treemapTopcloneOnly"><label class="form-check-label" for="treemapTopcloneOnly">Treemap 仅导出 TopClone CSV</label></div></div>
                 <div class="d-flex align-items-end"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="heatmapAnnotation" checked><label class="form-check-label" for="heatmapAnnotation">Heatmap 显示数值</label></div></div>
             </div>

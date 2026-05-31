@@ -1,4 +1,4 @@
-# Immune Repertoire Analysis Web（Flask）工作汇报
+# 免疫组库数据分析平台
 
 ## 1. 项目背景与目标
 本项目为“免疫受体库（Immune Repertoire）分析”Web 应用，目标是将常见的免疫组库数据处理与可视化流程产品化，提供：
@@ -80,7 +80,7 @@
 
 ### 5.4 自动热图（基于文件夹扫描）
 - 入口：`POST /api/auto-heatmap/scan-folder`、`POST /api/auto-heatmap/generate-heatmap`
-- 业务能力：
+- 功能：
   - 扫描“样本子文件夹”并识别数据文件类型
   - 字段映射（如 CDR3 列、copy 列等）
   - 支持样本重命名/分组，生成热图与矩阵数据
@@ -88,13 +88,13 @@
 
 ### 5.5 统计分析（分组比较）
 - 入口：`POST /api/statistical/analyze`、`POST /api/statistical/boxplot`、`POST /api/statistical/analyze-multiple`
-- 输出：
+- 结果：
   - 统计检验结果（含 P-value 等）
   - base64 编码的箱线图图像
 
 ### 5.6 PPT 自动化输出
 - PPT 热图替换：`/api/ppt/analyze`、`/api/ppt/replace`、`/api/ppt/download/*`
-  - 上传模板 PPT，解析 slide 结构与 heatmap 位置，替换为生成的图片
+  - 替换PPT中的热图位置为生成的图片
 - PPT 热图对比：`/api/ppt-comparison/scan-heatmaps`、`/api/ppt-comparison/generate`
   - 扫描热图文件夹，按“方法”组织，多方法并排布局生成对比 PPT
 

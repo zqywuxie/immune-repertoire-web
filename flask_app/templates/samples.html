@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+
+{% block title %}样本库{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sample-shell {
+    max-width: 1520px;
+    margin: 0 auto;
+  }
+
+  .sample-hero {
+    border: 1px solid #dce7ef;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 48%, #fbfaf5 100%);
+    padding: 1.45rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .sample-table th, .sample-table td {
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 sample-shell">
+  <section class="sample-hero">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+      <div>
+        <h1 class="h3 mb-2">样本库</h1>
+        <p class="text-muted mb-0">对项目导入的 sample summary 进行统一检索、筛选、编辑与导出。</p>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('pages.projects_page') }}" class="btn btn-outline-secondary">返回项目管理</a>
+        <button class="btn btn-outline-primary" id="exportSamplesBtn" type="button">
+          <i class="bi bi-download me-1"></i>导出当前结果
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="alert alert-danger d-none" id="samplesErrorAlert"></div>
+
+  <section class="card mb-4">
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterProjectId" placeholder="项目 ID">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterProjectName" placeholder="项目名">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterSampleId" placeholder="Sample ID">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterSampleName" placeholder="Sample Name">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterInstitution" placeholder="Institution">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterSequenceId" placeholder="Sequence ID">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterContainMethod" placeholder="Contain Method">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterIsoTag" placeholder="Iso Tag">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterSpices" placeholder="Spices，多值逗号分隔">
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterChainFlag" placeholder="Chain Flag，多值逗号分隔">
+        </div>
+        <div class="col-md-1">
+          <select class="form-select" id="sampleFilterIsHealthy">
+            <option value="">Healthy</option>
+            <option value="True">True</option>
+            <option value="False">False</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <input type="text" class="form-control" id="sampleFilterIllness" placeholder="Illness，多值逗号分隔">
+        </div>
+        <div class="col-md-1">
+          <select class="form-select" id="sampleFilterIsPe">
+            <option value="">PE</option>
+            <option value="True">True</option>
+            <option value="False">False</option>
+          </select>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-primary" id="searchSamplesBtn" type="button">搜索样本</button>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-outline-secondary" id="resetSamplesBtn" type="button">清空筛选</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 sample-table">
+          <thead class="table-light">
+            <tr>
+              <th>项目</th>
+              <th>Sample ID</th>
+              <th>Sample Name</th>
+              <th>Sequence ID</th>
+              <th>Spices</th>
+              <th>Chain</th>
+              <th>Healthy</th>
+              <th>Illness</th>
+              <th>PE</th>
+              <th>Contain Method</th>
+              <th>Iso Tag</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody id="samplesTableBody">
+            <tr><td colspan="12" class="text-center text-muted py-4">正在加载样本...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="modal fade" id="sampleEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">编辑样本记录</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editSampleRecordId">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Sample ID</label><input class="form-control" id="editSampleId"></div>
+          <div class="col-md-6"><label class="form-label">Sample Name</label><input class="form-control" id="editSampleName"></div>
+          <div class="col-md-6"><label class="form-label">Sequence ID</label><input class="form-control" id="editSequenceId"></div>
+          <div class="col-md-6"><label class="form-label">Spices</label><input class="form-control" id="editSpices"></div>
+          <div class="col-md-6"><label class="form-label">Institution</label><input class="form-control" id="editInstitution"></div>
+          <div class="col-md-6"><label class="form-label">Chain Flag</label><input class="form-control" id="editChainFlag"></div>
+          <div class="col-md-6"><label class="form-label">Healthy</label><input class="form-control" id="editIsHealthy"></div>
+          <div class="col-md-6"><label class="form-label">Illness</label><input class="form-control" id="editIllness"></div>
+          <div class="col-md-6"><label class="form-label">PE</label><input class="form-control" id="editIsPe"></div>
+          <div class="col-md-6"><label class="form-label">Contain Method</label><input class="form-control" id="editContainMethod"></div>
+          <div class="col-md-6"><label class="form-label">Iso Tag</label><input class="form-control" id="editIsoTag"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="saveSampleChangesBtn">保存修改</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sample_registry.js') }}"></script>
+{% endblock %}

@@ -35,10 +35,12 @@ HEADER_ALIASES = {
         "umi",
     ],
     "v": ["v", "vgene", "v_gene", "bestvgene", "v_call"],
+    "d": ["d", "dgene", "d_gene", "bestdgene", "d_call"],
     "j": ["j", "jgene", "j_gene", "bestjgene", "j_call"],
     "c": ["c", "cgene", "c_gene", "constant", "constant_gene", "isotype"],
     "chain": ["chain", "chain_type", "receptor_chain", "locus"],
     "cell_type": ["cell_type", "celltype", "lymphocyte_type", "receptor_type"],
+    "joined_seq": ["joinedseq", "joined_seq", "joinedsequence", "joined_sequence"],
 }
 
 CHAIN_CELL_MAP = {
@@ -145,10 +147,14 @@ def make_title(path: Path, title: str | None) -> str:
     return title or f"{path.stem} clonotype tetris map"
 
 
-def read_repertoire(
+def _normalize_copy_value(copy_value: float) -> int | float:
+    return int(copy_value) if math.isclose(copy_value, round(copy_value)) else round(copy_value, 4)
+
+
+def read_repertoire_rows(
     path: Path, columns: dict[str, str | None]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    aggregated: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
     stats = {
         "input_rows": 0,
         "used_rows": 0,
@@ -183,11 +189,15 @@ def read_repertoire(
                 clean_text(row.get(columns["v"] or "", "") if columns["v"] else "")
                 or "V?"
             )
+            d = clean_text(row.get(columns["d"] or "", "") if columns.get("d") else "")
             j = (
                 clean_text(row.get(columns["j"] or "", "") if columns["j"] else "")
                 or "J?"
             )
             c = clean_text(row.get(columns["c"] or "", "") if columns["c"] else "")
+            joined_seq = clean_text(
+                row.get(columns["joined_seq"] or "", "") if columns.get("joined_seq") else ""
+            )
             raw_chain = clean_text(
                 row.get(columns["chain"] or "", "") if columns["chain"] else ""
             )
@@ -197,49 +207,74 @@ def read_repertoire(
 
             chain = infer_chain(raw_chain, c, v, j)
             cell_type = infer_cell_type(raw_cell_type, chain)
-            key = (cell_type, chain, v, j, cdr3)
-
-            if key not in aggregated:
-                aggregated[key] = {
+            rows.append(
+                {
                     "cdr3": cdr3,
-                    "copy": 0.0,
+                    "copy": copy_value,
                     "v": v,
+                    "d": d,
                     "j": j,
                     "c": c,
+                    "joined_seq": joined_seq,
                     "chain": chain,
                     "cell_type": cell_type,
-                    "row_count": 0,
+                    "row_count": 1,
+                    "source_order": stats["input_rows"],
                 }
-
-            aggregated[key]["copy"] += copy_value
-            aggregated[key]["row_count"] += 1
-            if c and not aggregated[key]["c"]:
-                aggregated[key]["c"] = c
+            )
             stats["used_rows"] += 1
 
-    clones = list(aggregated.values())
-    clones.sort(
+    aggregated: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            str(row.get("v") or "V?"),
+            str(row.get("j") or "J?"),
+            str(row.get("cdr3") or ""),
+        )
+        if key not in aggregated:
+            aggregated[key] = {
+                **row,
+                "copy": 0.0,
+                "row_count": 0,
+                "source_order": row.get("source_order", 0),
+            }
+        target = aggregated[key]
+        target["copy"] += float(row.get("copy", 0) or 0)
+        target["row_count"] += int(row.get("row_count", 0) or 0)
+        target["source_order"] = min(
+            int(target.get("source_order", 0) or 0),
+            int(row.get("source_order", 0) or 0),
+        )
+        for optional_key in ("d", "c", "joined_seq", "chain", "cell_type"):
+            if row.get(optional_key) and not target.get(optional_key):
+                target[optional_key] = row[optional_key]
+
+    rows = list(aggregated.values())
+    rows.sort(
         key=lambda item: (
             -item["copy"],
-            item["chain"],
             item["v"],
             item["j"],
             item["cdr3"],
+            item.get("source_order", 0),
         )
     )
-    total_copy = sum(float(item["copy"]) for item in clones)
-    for item in clones:
+    total_copy = sum(float(item["copy"]) for item in rows)
+    for item in rows:
         copy_value = float(item["copy"])
-        item["copy"] = (
-            int(copy_value)
-            if math.isclose(copy_value, round(copy_value))
-            else round(copy_value, 4)
-        )
+        item["copy"] = _normalize_copy_value(copy_value)
         item["frequency"] = (copy_value / total_copy) if total_copy else 0.0
         item["vj_pair"] = vj_pair_name(item["v"], item["j"])
+        item["clone_id"] = f"{item['v']}|{item['j']}|{item['cdr3']}"
 
-    summary = {"total_clones": len(clones), "total_copy": total_copy, **stats}
-    return clones, summary
+    summary = {"total_clones": len(rows), "total_copy": total_copy, **stats}
+    return rows, summary
+
+
+def read_repertoire(
+    path: Path, columns: dict[str, str | None]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    return read_repertoire_rows(path, columns)
 
 
 def escape_html_text(text: str) -> str:
@@ -504,6 +539,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </select>
         </div>
         <div class="control-row">
+          <label>CANVAS_SHAPE</label>
+          <select id="canvasShapeSelect">
+            <option value="square">square</option>
+            <option value="portrait">portrait</option>
+          </select>
+        </div>
+        <div class="control-row">
           <label id="legendLabel">图例</label>
           <div class="legend" id="legend"></div>
         </div>
@@ -524,7 +566,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>CDR3</th><th>copy</th><th>freq</th><th>V</th><th>J</th></tr></thead>
+            <thead><tr><th>#</th><th>CDR3</th><th>copy</th><th>freq</th><th>C</th><th>shape</th><th>V</th><th>J</th></tr></thead>
             <tbody id="topTableBody"></tbody>
           </table>
         </div>
@@ -533,18 +575,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
   <div class="tooltip" id="tooltip"></div>
   <script>
-    const mode = new URLSearchParams(window.location.search).get("mode");
+    const searchParams = new URLSearchParams(window.location.search);
+    const mode = searchParams.get("mode");
     const panelMode = mode === "panel" || mode === "panel-fill";
     const panelFillMode = mode === "panel-fill";
     if (panelMode) document.body.classList.add("panel-mode");
     const CLONES = __DATA_JSON__;
     const SETTINGS = __SETTINGS_JSON__;
     const VISUAL_LIMIT = 1800;
-    const MATRIX_W = 960;
-    const MATRIX_H = 960;
+    const CANVAS_PRESETS = {
+      square: {w: 960, h: 960, label: "Square"},
+      portrait: {w: 700, h: 1500, label: "Portrait"}
+    };
     const TREEMAP_REFERENCE_PALETTE = ["#89b8c8","#9fd183","#d8d856","#73b6df","#4e7fc9","#a36fd6","#6d4aa8","#ef8a78","#eca9c4","#cb4fa0","#b99673","#7b5438","#a6b84d","#67b8b5","#d5dde2","#c8cdd5","#f0dc88","#f0aa4b","#9fded0","#76caef","#b291e5","#96ab72","#dfa9d0","#eac0a3","#3f97cb","#58c45a","#de679b","#d7ea79"];
+    const MOSAIC_REFERENCE_PALETTE = ["#981840","#104008","#a020b0","#e8c040","#f8e838","#8098d0","#e89080","#e860d0","#901098","#70a0e8","#a8f888","#286028","#58d000","#d0b040","#2818f0","#c0f018","#684820","#685820","#b088e0","#988060","#e06040","#50d018","#2058a0","#b84858","#10c8a8","#a02080","#c878c8","#b858b8","#d8e008","#b80068","#f86018","#5848c8","#582060","#90d018","#280018","#10f0f8","#40d830","#006b4a","#3ec4d1","#ef0db8","#80d9ab","#0da12f","#225bb7"];
     const VIVID_PALETTE = TREEMAP_REFERENCE_PALETTE;
-    const QR_REFERENCE_PALETTE = TREEMAP_REFERENCE_PALETTE;
+    const QR_REFERENCE_PALETTE = MOSAIC_REFERENCE_PALETTE;
     const QR_HOTSPOT_COLORS = ["#4f84b5","#69b052","#6d5094","#d986bc","#875a3e","#b2b04c","#6ea2e0","#9767cc","#ddd25f","#58aaa4","#cad6dc","#e2adc8"];
     const QR_MICRO_PALETTE = ["#8ec7d0","#b8d98b","#e0db76","#95c7e4","#6f93cf","#b592db","#efb5a5","#f0bfd2","#86c2b1","#dad7b3","#f1dea1","#e3b36d","#9fd6df","#c7b5e2","#d88db4","#d2e38b"];
     const QR_NEUTRAL_PALETTE = ["#d7dbe1","#cfdada","#e2e4e8","#d3d3d6","#b4baa9","#c8c09d","#e0cec2","#dde2bc"];
@@ -559,10 +605,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     };
     const SHAPE_ORDER = ["I","O","T","S","Z","J","L"];
     const SHAPE_ROTATIONS = Object.fromEntries(SHAPE_ORDER.map((name) => [name, buildRotations(SHAPES[name])]));
+    const BCR_CHAINS = new Set(["IGH", "IGK", "IGL"]);
+    const requestedThreshold = Number(searchParams.get("threshold"));
+    const requestedLayoutMode = searchParams.get("layout");
+    const requestedCanvasShape = searchParams.get("canvas_shape") || searchParams.get("canvasShape");
+    const initialLayoutMode = requestedLayoutMode === "qr" || requestedLayoutMode === "tetris"
+      ? requestedLayoutMode
+      : (SETTINGS.layoutMode || "tetris");
+    const initialCanvasShape = CANVAS_PRESETS[requestedCanvasShape]
+      ? requestedCanvasShape
+      : (CANVAS_PRESETS[SETTINGS.canvasShape] ? SETTINGS.canvasShape : "square");
+    const IS_BCR_DATASET = CLONES.some((record) => BCR_CHAINS.has(String(record.chain || "").toUpperCase()));
+    const BCR_C_SHAPE_RULE = buildBcrCShapeRule(CLONES);
     const state = {
-      threshold: SETTINGS.defaultMinCopy,
-      layoutMode: SETTINGS.layoutMode || "tetris"
+      threshold: Number.isFinite(requestedThreshold) ? requestedThreshold : SETTINGS.defaultMinCopy,
+      layoutMode: initialLayoutMode,
+      canvasShape: initialCanvasShape
     };
+    let MATRIX_W = CANVAS_PRESETS[state.canvasShape].w;
+    let MATRIX_H = CANVAS_PRESETS[state.canvasShape].h;
     const svg = d3.select("#treemap");
     if (panelFillMode) {
       svg.attr("preserveAspectRatio", "none");
@@ -571,6 +632,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const thresholdSlider = document.getElementById("thresholdSlider");
     const thresholdInput = document.getElementById("thresholdInput");
     const topTableBody = document.getElementById("topTableBody");
+    updateCanvasGeometry();
     document.getElementById("pageTitle").textContent = SETTINGS.title;
     document.getElementById("pageSubtitle").textContent = `Input: ${SETTINGS.sourceName} | Columns: CDR3=${SETTINGS.columns.cdr3 || "NA"}, copy=${SETTINGS.columns.copy || "NA"}, V=${SETTINGS.columns.v || "NA"}, J=${SETTINGS.columns.j || "NA"}, C=${SETTINGS.columns.c || "NA"}`;
     document.getElementById("allCloneCount").textContent = fmtInt(SETTINGS.summary.total_clones);
@@ -586,8 +648,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       layoutSelect.value = state.layoutMode;
       layoutSelect.addEventListener("change", () => {
         state.layoutMode = layoutSelect.value;
+        syncUrlState();
         renderLegend();
         updateChartDescription();
+        safeRender();
+      });
+    }
+    const canvasShapeSelect = document.getElementById("canvasShapeSelect");
+    if (canvasShapeSelect) {
+      canvasShapeSelect.value = state.canvasShape;
+      canvasShapeSelect.addEventListener("change", () => {
+        state.canvasShape = CANVAS_PRESETS[canvasShapeSelect.value] ? canvasShapeSelect.value : "square";
+        updateCanvasGeometry();
+        syncUrlState();
+        renderMeta();
         safeRender();
       });
     }
@@ -600,7 +674,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       state.threshold = Math.max(0, Math.min(SETTINGS.maxCopy, Math.round(Number.isFinite(v) ? v : 0)));
       thresholdSlider.value = String(state.threshold);
       thresholdInput.value = String(state.threshold);
+      syncUrlState();
       safeRender();
+    }
+
+    function syncUrlState() {
+      try {
+        const nextParams = new URLSearchParams(window.location.search);
+        nextParams.set("threshold", String(state.threshold));
+        nextParams.set("layout", state.layoutMode);
+        nextParams.set("canvas_shape", state.canvasShape);
+        const nextQuery = nextParams.toString();
+        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
+        window.history.replaceState(null, "", nextUrl);
+      } catch (error) {
+        console.warn("Failed to sync treemap URL state:", error);
+      }
+    }
+
+    function updateCanvasGeometry() {
+      const preset = CANVAS_PRESETS[state.canvasShape] || CANVAS_PRESETS.square;
+      MATRIX_W = preset.w;
+      MATRIX_H = preset.h;
+      svg.attr("viewBox", `0 0 ${MATRIX_W} ${MATRIX_H}`);
+      if (!panelFillMode) {
+        svg.style("aspect-ratio", `${MATRIX_W} / ${MATRIX_H}`);
+      }
     }
 
     function renderMeta() {
@@ -613,10 +712,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         `输入行 ${fmtInt(SETTINGS.summary.input_rows)}`,
         `有效行 ${fmtInt(SETTINGS.summary.used_rows)}`,
         `聚合 clone ${fmtInt(SETTINGS.summary.total_clones)}`,
+        `画布 ${CANVAS_PRESETS[state.canvasShape]?.label || state.canvasShape}`,
         `V gene ${fmtInt(vGeneCount)}`,
         `J gene ${fmtInt(jGeneCount)}`,
         `VJ pair ${fmtInt(vjPairCount)}`
       ];
+      if (IS_BCR_DATASET && BCR_C_SHAPE_RULE.entries.length) {
+        items.push(`BCR按 C 区定形`);
+        items.push(`C 区 ${fmtInt(BCR_C_SHAPE_RULE.entries.length)}`);
+      }
       meta.innerHTML = items.map((text) => `<span class="pill">${esc(text)}</span>`).join("");
     }
 
@@ -632,6 +736,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         ].join("");
         return;
       }
+      if (IS_BCR_DATASET && BCR_C_SHAPE_RULE.entries.length) {
+        if (legendLabel) legendLabel.textContent = "BCR 俄罗斯方块图例";
+        const legendItems = BCR_C_SHAPE_RULE.entries.map((entry) =>
+          `<div class="legend-item">${miniShapeSvg(entry.shape)}<span>${esc(entry.label)} → ${entry.shape}${entry.reused ? " · 复用" : ""}</span></div>`
+        );
+        if (BCR_C_SHAPE_RULE.hasOverflow) {
+          legendItems.push(`<div class="legend-item"><span>超过 ${SHAPE_ORDER.length} 种 C 区时会循环复用方块，但同一 C 始终保持同一种形状</span></div>`);
+        }
+        legend.innerHTML = legendItems.join("");
+        return;
+      }
       if (legendLabel) legendLabel.textContent = "俄罗斯方块图例";
       legend.innerHTML = SHAPE_ORDER.map((shape) =>
         `<div class="legend-item">${miniShapeSvg(shape)}<span>${shape}</span></div>`
@@ -643,7 +758,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       if (!chartDescription) return;
       chartDescription.textContent = state.layoutMode === "qr"
         ? "按 V/J gene 分层后压缩成二维码风格像素矩阵，每个 clone 占据一块离散网格区域"
-        : "按 V/J gene 分层后连续拼接成矩阵，每个 clone 用一个 tetromino 表示";
+        : (IS_BCR_DATASET
+          ? "BCR 模式下按 V/J gene 分层连续拼接成矩阵，并按 C 区分配固定 tetromino；同一 C 区始终使用同一种方块"
+          : "按 V/J gene 分层后连续拼接成矩阵，每个 clone 用一个 tetromino 表示");
     }
 
     function render() {
@@ -687,13 +804,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       svg.selectAll("*").remove();
       svg.append("text")
         .attr("class", "empty")
-        .attr("x", 600)
-        .attr("y", 360)
+        .attr("x", MATRIX_W / 2)
+        .attr("y", MATRIX_H * 0.42)
         .attr("text-anchor", "middle")
         .text("页面渲染失败");
       svg.append("text")
-        .attr("x", 600)
-        .attr("y", 390)
+        .attr("x", MATRIX_W / 2)
+        .attr("y", MATRIX_H * 0.42 + 30)
         .attr("text-anchor", "middle")
         .attr("font-size", 12)
         .attr("fill", "#8b3a2d")
@@ -708,21 +825,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <td class="cdr3">${esc(d.cdr3)}</td>
           <td>${fmtInt(d.copy)}</td>
           <td>${fmtPct(totalCopy ? d.copy / totalCopy : d.frequency)}</td>
+          <td>${esc(displayCLabel(d))}</td>
+          <td><span class="shape-badge">${esc(displayShapeLabel(d))}</span></td>
           <td>${esc(d.v || "V?")}</td>
           <td>${esc(d.j || "J?")}</td>
         </tr>
-      `).join("") : `<tr><td colspan="6" style="padding:16px;color:#6a6258">当前阈值下无 clone。</td></tr>`;
+      `).join("") : `<tr><td colspan="8" style="padding:16px;color:#6a6258">当前阈值下无 clone。</td></tr>`;
     }
 
     function renderPuzzle(layout, hiddenCount) {
       svg.selectAll("*").remove();
       if (!layout.placed.length) {
-        svg.append("text").attr("class", "empty").attr("x", 600).attr("y", 380).attr("text-anchor", "middle").text("当前阈值下没有可显示的 clone");
+        svg.append("text").attr("class", "empty").attr("x", MATRIX_W / 2).attr("y", MATRIX_H / 2).attr("text-anchor", "middle").text("当前阈值下没有可显示的 clone");
         return;
       }
 
       const root = svg.append("g");
-      layout.placed.forEach((piece) => drawPiece(root, piece, layout.cellSize));
+      layout.placed.forEach((piece) => drawPiece(root, piece, piece.cellSize || layout.cellSize));
 
       if (false) {
         svg.append("text")
@@ -800,8 +919,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function drawPiece(parent, piece, cellSize) {
       const fill = piece.displayColor || pieceColor(piece);
+      const originX = piece.absolute ? piece.x : piece.x * cellSize;
+      const originY = piece.absolute ? piece.y : piece.y * cellSize;
       const pieceGroup = parent.append("g")
-        .attr("transform", `translate(${piece.x * cellSize},${piece.y * cellSize})`);
+        .attr("transform", `translate(${originX},${originY})`);
       const body = pieceGroup.append("g");
       const hoverTransform = piece.filler ? "" : pieceHoverTransform(piece, cellSize);
 
@@ -834,14 +955,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         piece.rects.forEach((rect) => {
           const rectWidth = rect.w * cellSize + 0.3;
           const rectHeight = rect.h * cellSize + 0.3;
+          const inset = state.layoutMode === "qr" && !piece.filler
+            ? Math.min(qrBlockGap(rectWidth, rectHeight) / 2, rectWidth * 0.22, rectHeight * 0.22)
+            : 0;
           const rounded = state.layoutMode === "qr" && !piece.filler
-            ? Math.min(Math.max(1.4, cellSize * 0.24), Math.min(rectWidth, rectHeight) * 0.22)
+            ? Math.min(36, Math.max(0.08, Math.min(rectWidth - inset * 2, rectHeight - inset * 2) * 0.28))
             : 0;
           body.append("rect")
-            .attr("x", rect.x * cellSize - 0.15)
-            .attr("y", rect.y * cellSize - 0.15)
-            .attr("width", rectWidth)
-            .attr("height", rectHeight)
+            .attr("x", rect.x * cellSize + inset)
+            .attr("y", rect.y * cellSize + inset)
+            .attr("width", Math.max(0.01, rectWidth - inset * 2))
+            .attr("height", Math.max(0.01, rectHeight - inset * 2))
             .attr("fill", fill)
             .attr("rx", rounded)
             .attr("ry", rounded)
@@ -864,86 +988,277 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function computeGroupLayout(records) {
       if (!records.length) return {cellSize: 0, placed: []};
 
-      const pairTotals = new Map();
-      records.forEach((record) => {
-        const key = `${record.v || "V?"}|${record.j || "J?"}`;
-        pairTotals.set(key, (pairTotals.get(key) || 0) + record.copy);
-      });
+      const pieces = makeReferenceHierarchyTetrisPieces(records);
+      pieces.forEach((piece, index) => { piece._pid = index + 1; });
+      return {
+        cellSize: 1,
+        placed: pieces,
+        omitted: Math.max(0, records.length - pieces.length),
+        cols: MATRIX_W,
+        rows: MATRIX_H
+      };
+    }
 
-      const ordered = records.slice().sort((a, b) => {
-        const pairA = `${a.v || "V?"}|${a.j || "J?"}`;
-        const pairB = `${b.v || "V?"}|${b.j || "J?"}`;
-        return (pairTotals.get(pairB) || 0) - (pairTotals.get(pairA) || 0)
-          || geneSort(a.v, b.v)
-          || geneSort(a.j, b.j)
-          || b.copy - a.copy
-          || a.cdr3.localeCompare(b.cdr3);
-      });
-
-      return packMatrix(ordered, MATRIX_W, MATRIX_H);
+    function qrBlockGap(width, height) {
+      const side = Math.min(width, height);
+      if (side < 2) return 0.02;
+      if (side < 3.5) return 0.04;
+      if (side < 6) return 0.07;
+      if (side < 10) return 0.12;
+      if (side < 18) return 0.20;
+      if (side < 36) return 0.32;
+      return 0.62;
     }
 
     function computeQrLayout(records) {
       if (!records.length) return {cellSize: 0, placed: []};
 
-      const pairTotals = new Map();
-      records.forEach((record) => {
-        const key = `${record.v || "V?"}|${record.j || "J?"}`;
-        pairTotals.set(key, (pairTotals.get(key) || 0) + record.copy);
-      });
-
-      const ordered = records.slice().sort((a, b) => {
-        const pairA = `${a.v || "V?"}|${a.j || "J?"}`;
-        const pairB = `${b.v || "V?"}|${b.j || "J?"}`;
-        return (pairTotals.get(pairB) || 0) - (pairTotals.get(pairA) || 0)
-          || b.copy - a.copy
-          || geneSort(a.v, b.v)
-          || geneSort(a.j, b.j)
-          || a.cdr3.localeCompare(b.cdr3);
-      });
-
-      const side = chooseQrGridSide(ordered.length);
-      const cols = side;
-      const rows = side;
-      const weightedItems = ordered.map((record, index) => ({
-        ...record,
-        qrWeight: computeQrWeight(record, index),
-      }));
-      const totalCells = Math.max(weightedItems.length, Math.floor(cols * rows * 0.968));
-      const cellAllocations = allocateDiscreteByWeights(
-        totalCells,
-        weightedItems.map((item) => item.qrWeight || 1),
-        1
-      );
-      const fragments = expandQrFragments(weightedItems, cellAllocations);
-      const hotspotItems = fragments.filter((item) => item.fragmentKind === "hotspot");
-      const remainingItems = fragments.filter((item) => item.fragmentKind !== "hotspot");
-      const occupancy = Array.from({length: rows}, () => new Uint8Array(cols));
-      const placed = [];
-      const hotspotRemainder = placeQrHotspots(hotspotItems, occupancy, cols, rows, placed);
-      const unplacedItems = remainingItems.concat(hotspotRemainder);
-      const freeZones = extractQrFreeZones(occupancy, cols, rows);
-      const zoneAssignments = assignQrItemsToZones(unplacedItems, freeZones);
-      freeZones.forEach((zone, index) => {
-        const zoneItems = zoneAssignments[index] || [];
-        if (!zoneItems.length) return;
-        layoutQrPartition(zoneItems, zone.x, zone.y, zone.w, zone.h, 1, placed);
-      });
-
-      const pieceGrid = Array.from({length: rows}, () => new Uint32Array(cols));
-      placed.forEach((piece, index) => {
-        piece._pid = index + 1;
-        stampPieceId(pieceGrid, piece, piece._pid);
-      });
-      assignDisplayColors(placed, pieceGrid, cols, rows);
+      const placed = makeReferenceHierarchyRects(records)
+        .map((rect, index) => ({
+          ...rect,
+          _pid: index + 1,
+          shape: "QR",
+          qr: true,
+          x: rect.x,
+          y: rect.y,
+          scale: 1,
+          displayColor: referenceCloneColor(rect, index),
+          rects: [{x: 0, y: 0, w: rect.dx, h: rect.dy}]
+        }));
 
       return {
-        cellSize: Math.min(MATRIX_W / cols, MATRIX_H / rows),
+        cellSize: 1,
         placed,
         omitted: Math.max(0, records.length - placed.length),
-        cols,
-        rows
+        cols: MATRIX_W,
+        rows: MATRIX_H
       };
+    }
+
+    function makeReferenceHierarchyTetrisPieces(records) {
+      const vGroups = groupByWithTotals(records, (record) => record.v || "V?");
+      const vRects = squarifyItems(vGroups, 0, 0, MATRIX_W, MATRIX_H, "totalCopy");
+      const pieces = [];
+
+      vRects.forEach((vRect) => {
+        const jGroups = groupByWithTotals(vRect.items, (record) => record.j || "J?");
+        const jRects = squarifyItems(jGroups, vRect.x, vRect.y, vRect.dx, vRect.dy, "totalCopy");
+        jRects.forEach((jRect) => {
+          const clones = jRect.items.slice().sort(referenceCloneSort);
+          pieces.push(...packTetrominoesInRect(clones, jRect));
+        });
+      });
+
+      return transformAbsolutePieces(pieces, true, true);
+    }
+
+    function packTetrominoesInRect(items, rect) {
+      if (!items.length || rect.dx <= 2 || rect.dy <= 2) return [];
+      const startCell = Math.max(2, Math.min(16, chooseCellSize(rect.dx, rect.dy, items.length)));
+      let best = {cellSize: 2, placed: [], omitted: Infinity, cols: 0, rows: 0};
+
+      for (let cellSize = startCell; cellSize >= 2; cellSize -= 1) {
+        const cols = Math.max(1, Math.floor(rect.dx / cellSize));
+        const rows = Math.max(1, Math.floor(rect.dy / cellSize));
+        if (cols < 2 || rows < 2) continue;
+        const occupancy = Array.from({length: rows}, () => new Uint8Array(cols));
+        const scales = computeScales(items, cols, rows, 0.92);
+        const placed = [];
+        let omitted = 0;
+
+        items.forEach((item, index) => {
+          const placement = placePiece(occupancy, cols, rows, item, scales[index]);
+          if (placement) {
+            placed.push({
+              ...item,
+              ...placement,
+              absolute: true,
+              cellSize,
+              x: rect.x + placement.x * cellSize,
+              y: rect.y + placement.y * cellSize,
+            });
+          } else {
+            omitted += 1;
+          }
+        });
+
+        if (omitted < best.omitted || (omitted === best.omitted && cellSize > best.cellSize)) {
+          best = {cellSize, placed, omitted, cols, rows};
+        }
+        if (omitted === 0) break;
+      }
+
+      return best.placed;
+    }
+
+    function transformAbsolutePieces(pieces, flipX, flipY) {
+      return pieces.map((piece) => {
+        const bounds = piecePixelBounds(piece);
+        const next = {...piece};
+        if (flipX) next.x = MATRIX_W - piece.x - bounds.w;
+        if (flipY) next.y = MATRIX_H - piece.y - bounds.h;
+        return next;
+      });
+    }
+
+    function piecePixelBounds(piece) {
+      if (piece.rects && piece.rects.length) {
+        return {
+          w: d3.max(piece.rects, (rect) => (rect.x + rect.w) * (piece.cellSize || 1)) || 1,
+          h: d3.max(piece.rects, (rect) => (rect.y + rect.h) * (piece.cellSize || 1)) || 1
+        };
+      }
+      const dims = shapeDimensions(piece.cells || SHAPES.O);
+      const cellSize = piece.cellSize || 1;
+      const scale = piece.scale || 1;
+      return {w: dims.w * scale * cellSize, h: dims.h * scale * cellSize};
+    }
+
+    function makeReferenceHierarchyRects(records) {
+      const vGroups = groupByWithTotals(records, (record) => record.v || "V?");
+      const vRects = squarifyItems(vGroups, 0, 0, MATRIX_W, MATRIX_H, "totalCopy");
+      const leafRects = [];
+
+      vRects.forEach((vRect) => {
+        const jGroups = groupByWithTotals(vRect.items, (record) => record.j || "J?");
+        const jRects = squarifyItems(jGroups, vRect.x, vRect.y, vRect.dx, vRect.dy, "totalCopy");
+        jRects.forEach((jRect) => {
+          const clones = jRect.items.slice().sort(referenceCloneSort);
+          const cloneRects = squarifyItems(clones, jRect.x, jRect.y, jRect.dx, jRect.dy, "copy");
+          leafRects.push(...cloneRects);
+        });
+      });
+
+      return transformReferenceRects(leafRects, true, true, false);
+    }
+
+    function groupByWithTotals(records, keyFn) {
+      const groups = new Map();
+      records.forEach((record) => {
+        const key = keyFn(record);
+        if (!groups.has(key)) {
+          groups.set(key, {
+            name: key,
+            totalCopy: 0,
+            sourceOrder: Number(record.source_order || record.sourceOrder || 0),
+            items: []
+          });
+        }
+        const group = groups.get(key);
+        group.totalCopy += Number(record.copy || 0);
+        group.sourceOrder = Math.min(group.sourceOrder, Number(record.source_order || record.sourceOrder || 0));
+        group.items.push(record);
+      });
+      return Array.from(groups.values()).sort((a, b) =>
+        b.totalCopy - a.totalCopy
+        || a.sourceOrder - b.sourceOrder
+        || geneSort(a.name, b.name)
+      );
+    }
+
+    function referenceCloneSort(a, b) {
+      return Number(b.copy || 0) - Number(a.copy || 0)
+        || Number(a.source_order || a.sourceOrder || 0) - Number(b.source_order || b.sourceOrder || 0)
+        || geneSort(a.v, b.v)
+        || geneSort(a.j, b.j)
+        || String(a.cdr3 || "").localeCompare(String(b.cdr3 || ""));
+    }
+
+    function squarifyItems(items, x, y, dx, dy, valueKey) {
+      const values = items.map((item) => Number(item[valueKey] || 0));
+      const areas = normalizeReferenceAreas(values, dx, dy);
+      const pending = items.map((item, index) => ({...item, _area: areas[index] || 0})).filter((item) => item._area > 0);
+      const rects = [];
+      let row = [];
+
+      while (pending.length) {
+        const item = pending[0];
+        const side = Math.min(dx, dy);
+        const nextRow = row.concat(item);
+        if (!row.length || worstReferenceRatio(nextRow.map((entry) => entry._area), side) <= worstReferenceRatio(row.map((entry) => entry._area), side)) {
+          row.push(pending.shift());
+          continue;
+        }
+        const layout = layoutReferenceRow(row, x, y, dx, dy);
+        rects.push(...layout.rects);
+        x = layout.x;
+        y = layout.y;
+        dx = layout.dx;
+        dy = layout.dy;
+        row = [];
+      }
+
+      if (row.length) {
+        const layout = layoutReferenceRow(row, x, y, dx, dy);
+        rects.push(...layout.rects);
+      }
+
+      return rects;
+    }
+
+    function normalizeReferenceAreas(values, dx, dy) {
+      const total = d3.sum(values);
+      if (!total || dx <= 0 || dy <= 0) return [];
+      const scale = (dx * dy) / total;
+      return values.map((value) => Number(value || 0) * scale);
+    }
+
+    function worstReferenceRatio(row, side) {
+      if (!row.length || side <= 0) return Infinity;
+      const rowSum = d3.sum(row);
+      const rowMin = d3.min(row);
+      const rowMax = d3.max(row);
+      if (!rowSum || !rowMin || rowMin <= 0) return Infinity;
+      const sideSq = side * side;
+      return Math.max(sideSq * rowMax / (rowSum * rowSum), (rowSum * rowSum) / (sideSq * rowMin));
+    }
+
+    function layoutReferenceRow(rowItems, x, y, dx, dy) {
+      const rowSum = d3.sum(rowItems, (item) => item._area);
+      const rects = [];
+      if (!rowSum || dx <= 0 || dy <= 0) return {rects, x, y, dx, dy};
+      const useVertical = dx >= dy;
+
+      if (useVertical) {
+        const width = rowSum / dy;
+        let cursorY = y;
+        rowItems.forEach((item, index) => {
+          const height = index === rowItems.length - 1 ? (y + dy) - cursorY : item._area / width;
+          rects.push({...item, x, y: cursorY, dx: width, dy: height});
+          cursorY += height;
+        });
+        return {rects, x: x + width, y, dx: dx - width, dy};
+      }
+
+      const height = rowSum / dx;
+      let cursorX = x;
+      rowItems.forEach((item, index) => {
+        const width = index === rowItems.length - 1 ? (x + dx) - cursorX : item._area / height;
+        rects.push({...item, x: cursorX, y, dx: width, dy: height});
+        cursorX += width;
+      });
+      return {rects, x, y: y + height, dx, dy: dy - height};
+    }
+
+    function transformReferenceRects(rects, flipX, flipY, swapXY) {
+      const transformW = swapXY ? MATRIX_H : MATRIX_W;
+      const transformH = swapXY ? MATRIX_W : MATRIX_H;
+      const scaleX = MATRIX_W / transformW;
+      const scaleY = MATRIX_H / transformH;
+      return rects.map((rect) => {
+        let x = rect.x;
+        let y = rect.y;
+        let dx = rect.dx;
+        let dy = rect.dy;
+        if (swapXY) [x, y, dx, dy] = [y, x, dy, dx];
+        if (flipX) x = transformW - x - dx;
+        if (flipY) y = transformH - y - dy;
+        return {...rect, x: x * scaleX, y: y * scaleY, dx: dx * scaleX, dy: dy * scaleY};
+      });
+    }
+
+    function referenceCloneColor(record, index) {
+      return paletteColor(record.clone_id || `${record.v}|${record.j}|${record.cdr3}|${index + 123}`, QR_REFERENCE_PALETTE);
     }
 
     function packMatrix(items, width, height) {
@@ -1758,6 +2073,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function shapeKeyForRecord(record) {
+      if (state.layoutMode === "tetris" && BCR_CHAINS.has(String(record.chain || "").toUpperCase())) {
+        const cKey = normalizeCRegion(record.c);
+        if (cKey && BCR_C_SHAPE_RULE.shapeByC[cKey]) {
+          return BCR_C_SHAPE_RULE.shapeByC[cKey];
+        }
+      }
       return SHAPE_ORDER[Math.abs(hashCode(`${record.cdr3}|${record.v}|${record.j}|${record.chain}`)) % SHAPE_ORDER.length];
     }
 
@@ -1844,10 +2165,51 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function paletteColor(key, palette) {
       return palette[Math.abs(hashCode(String(key || ""))) % palette.length];
     }
+    function normalizeCRegion(value) {
+      const text = String(value || "").trim().toUpperCase().replace(/\\s+/g, "");
+      return text ? text.replace(/\\*.*$/, "") : "";
+    }
+    function displayCLabel(record) {
+      const raw = String(record.c || "").trim();
+      if (raw) return raw;
+      const normalized = normalizeCRegion(record.c);
+      return normalized || "NA";
+    }
+    function buildBcrCShapeRule(records) {
+      const totals = new Map();
+      const labels = new Map();
+      records.forEach((record) => {
+        const chain = String(record.chain || "").toUpperCase();
+        if (!BCR_CHAINS.has(chain)) return;
+        const cKey = normalizeCRegion(record.c) || "C?";
+        const cLabel = String(record.c || "").trim() || cKey;
+        totals.set(cKey, (totals.get(cKey) || 0) + Number(record.copy || 0));
+        if (!labels.has(cKey)) labels.set(cKey, cLabel);
+      });
+      const entries = Array.from(totals.entries())
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], undefined, {numeric: true, sensitivity: "base"}))
+        .map(([cKey], index) => ({
+          cKey,
+          label: labels.get(cKey) || cKey,
+          shape: SHAPE_ORDER[index % SHAPE_ORDER.length],
+          reused: index >= SHAPE_ORDER.length
+        }));
+      const shapeByC = Object.fromEntries(entries.map((entry) => [entry.cKey, entry.shape]));
+      return {
+        entries,
+        shapeByC,
+        hasOverflow: entries.length > SHAPE_ORDER.length
+      };
+    }
+    function displayShapeLabel(record) {
+      return state.layoutMode === "qr" ? "QR" : shapeKeyForRecord(record);
+    }
     function showTip(event, d) {
       tooltip.innerHTML = `<h3>${esc(d.cdr3)}</h3><dl class="tip-grid">
         <dt>序号</dt><dd>${fmtInt(d.displayRank || 0)}</dd>
         <dt>copy</dt><dd>${fmtInt(d.copy)}</dd>
+        <dt>C</dt><dd>${esc(displayCLabel(d))}</dd>
+        <dt>shape</dt><dd>${esc(displayShapeLabel(d))}</dd>
         <dt>V</dt><dd>${esc(d.v)}</dd>
         <dt>J</dt><dd>${esc(d.j)}</dd>
       </dl>`;
@@ -1942,6 +2304,7 @@ def build_html(
     top_n: int,
     style: str = "classic",
     layout_mode: str = "tetris",
+    canvas_shape: str = "square",
 ) -> str:
     max_copy = int(max((float(item["copy"]) for item in clones), default=0))
     settings = {
@@ -1959,6 +2322,7 @@ def build_html(
         "maxCopy": max_copy,
         "style": style,
         "layoutMode": layout_mode,
+        "canvasShape": canvas_shape,
     }
     html = HTML_TEMPLATE.replace("__PAGE_TITLE__", escape_html_text(title))
     html = html.replace("__D3_SCRIPT__", load_d3_script_tag())
@@ -1989,6 +2353,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--c-column", help="显式指定 C 列名")
     parser.add_argument("--chain-column", help="显式指定 chain 列名")
     parser.add_argument("--cell-column", help="显式指定细胞类型列名")
+    parser.add_argument(
+        "--canvas-shape",
+        choices=["square", "portrait"],
+        default="square",
+        help="输出画布形状",
+    )
     return parser.parse_args()
 
 
@@ -2052,6 +2422,7 @@ def main() -> int:
         columns=columns,
         default_min_copy=max(0, args.min_copy_default),
         top_n=max(1, args.top_n),
+        canvas_shape=args.canvas_shape,
     )
     output_path.write_text(html, encoding="utf-8")
 

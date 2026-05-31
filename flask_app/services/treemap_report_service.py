@@ -44,6 +44,7 @@ from flask_app.services.treemap_renderer import (
     make_title,
     open_text_file,
     read_repertoire,
+    read_repertoire_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -356,6 +357,7 @@ class TreemapReportService:
             "sample_root": sample_root,
             "individual_html": sample_root / "individual_treemaps" / "HTML",
             "individual_png": sample_root / "individual_treemaps" / "PNG",
+            "topclone_csv": sample_root / "topclone" / "CSV",
             "overview_html": sample_root / "7chain_treemaps" / "HTML",
             "overview_png": sample_root / "7chain_treemaps" / "PNG",
         }
@@ -363,6 +365,29 @@ class TreemapReportService:
             if path is not sample_root:
                 path.mkdir(parents=True, exist_ok=True)
         return paths
+
+    @staticmethod
+    def _write_topclone_csv(
+        topclone_rows: List[Dict[str, Any]],
+        output_path: Path,
+        top_n: int,
+    ) -> None:
+        fieldnames = ["CDR3(pep)", "joinedSeq", "V", "D", "J", "C", "copy"]
+        with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for clone in topclone_rows[: max(1, int(top_n))]:
+                writer.writerow(
+                    {
+                        "CDR3(pep)": clone.get("cdr3", ""),
+                        "joinedSeq": clone.get("joined_seq", ""),
+                        "V": clone.get("v", ""),
+                        "D": clone.get("d", ""),
+                        "J": clone.get("j", ""),
+                        "C": clone.get("c", ""),
+                        "copy": clone.get("copy", ""),
+                    }
+                )
 
     def _get_browser_path(self) -> Path:
         if self._browser_path and self._browser_path.exists():
@@ -396,6 +421,7 @@ class TreemapReportService:
         top_n: int,
         style: str = "classic",
         layout_mode: str = "tetris",
+        canvas_shape: str = "square",
     ) -> str:
         max_copy = int(max((float(item["copy"]) for item in clones), default=0))
         settings = {
@@ -411,6 +437,7 @@ class TreemapReportService:
             "maxCopy": max_copy,
             "style": style,
             "layoutMode": layout_mode,
+            "canvasShape": canvas_shape,
         }
         html_text = HTML_TEMPLATE.replace("__PAGE_TITLE__", escape_html_text(title))
         html_text = html_text.replace("__D3_SCRIPT__", self._get_d3_script_tag())
@@ -528,6 +555,7 @@ class TreemapReportService:
         viewer_payload = {
             "samples": metadata.get("samples", []),
             "zip_url": zip_url,
+            "topclone_only": bool(metadata.get("topclone_only")),
         }
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -551,6 +579,11 @@ class TreemapReportService:
     .content{{padding:0;background:#ffffff}}
     iframe{{width:100%;height:100vh;border:0;display:block;background:#fff}}
     .meta{{margin-top:14px;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;font-size:13px;color:#4b5563}}
+    .empty-state{{display:flex;align-items:center;justify-content:center;height:100vh;padding:32px;text-align:center;color:#4b5563;background:#f8fafc}}
+    .empty-card{{max-width:460px;padding:24px;border-radius:16px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.06)}}
+    .empty-card h2{{margin:0 0 12px;font-size:22px;color:#111827}}
+    .empty-card p{{margin:0 0 12px;line-height:1.6}}
+    .empty-card a{{color:#111827;font-weight:600}}
     @media (max-width: 1080px){{.app{{grid-template-columns:1fr}} iframe{{height:78vh}}}}
   </style>
 </head>
@@ -572,12 +605,16 @@ class TreemapReportService:
       <div class="actions">
         <button id="openHtmlBtn" type="button">新窗口打开当前 HTML</button>
         <button id="openPngBtn" class="secondary" type="button">新窗口打开当前 PNG</button>
+        <button id="openTopcloneBtn" class="secondary" type="button">打开当前 TopClone CSV</button>
         <button id="downloadZipBtn" class="secondary" type="button">下载 ZIP</button>
       </div>
       <div class="meta" id="summary"></div>
     </aside>
     <main class="content">
       <iframe id="viewerFrame" title="treemap viewer"></iframe>
+      <div class="empty-state" id="viewerEmptyState" hidden>
+        <div class="empty-card" id="viewerEmptyStateCard"></div>
+      </div>
     </main>
   </div>
   <script>
@@ -586,9 +623,28 @@ class TreemapReportService:
     const chainSelect = document.getElementById('chainSelect');
     const frame = document.getElementById('viewerFrame');
     const summary = document.getElementById('summary');
+    const emptyState = document.getElementById('viewerEmptyState');
+    const emptyStateCard = document.getElementById('viewerEmptyStateCard');
+    const openHtmlBtn = document.getElementById('openHtmlBtn');
+    const openPngBtn = document.getElementById('openPngBtn');
+    const openTopcloneBtn = document.getElementById('openTopcloneBtn');
+    const TOPCLONE_ONLY = Boolean(DATA.topclone_only);
 
     function currentSample() {{
       return (DATA.samples || []).find(sample => sample.sample_name === sampleSelect.value) || null;
+    }}
+
+    function currentChainEntry() {{
+      const sample = currentSample();
+      const chain = chainSelect.value;
+      return sample && sample.individual_treemaps ? sample.individual_treemaps[chain] || null : null;
+    }}
+
+    function updateActionButtons() {{
+      const entry = currentChainEntry();
+      openHtmlBtn.style.display = entry && entry.html ? '' : 'none';
+      openPngBtn.style.display = entry && entry.png ? '' : 'none';
+      openTopcloneBtn.style.display = entry && entry.topclone_csv ? '' : 'none';
     }}
 
     function updateSummary() {{
@@ -597,19 +653,104 @@ class TreemapReportService:
         summary.textContent = '没有可用结果。';
         return;
       }}
-      summary.textContent = `当前样本: ${{sample.display_name || sample.sample_name}} | 可选链: ${{(sample.chains || []).join(', ')}}`;
+      const modeText = TOPCLONE_ONLY ? ' | 当前模式: 仅 TopClone CSV' : '';
+      summary.textContent = `当前样本: ${{sample.display_name || sample.sample_name}} | 可选链: ${{(sample.chains || []).join(', ')}}${{modeText}}`;
     }}
 
     function updateFrame() {{
       const sample = currentSample();
       const chain = chainSelect.value;
-      if (!sample || !sample.individual_treemaps || !sample.individual_treemaps[chain]) {{
+      const entry = currentChainEntry();
+      if (!sample || !entry) {{
         frame.src = 'about:blank';
+        frame.style.display = 'block';
+        emptyState.hidden = true;
+        updateActionButtons();
         updateSummary();
         return;
       }}
-      frame.src = sample.individual_treemaps[chain].html;
+
+      if (TOPCLONE_ONLY || !entry.html) {{
+        frame.src = 'about:blank';
+        frame.style.display = 'none';
+        emptyState.hidden = false;
+        const sampleLabel = sample.display_name || sample.sample_name || '';
+        const downloadLink = entry.topclone_csv
+          ? `<p><a href="${{entry.topclone_csv}}" target="_blank" rel="noopener">下载 ${{sampleLabel}} / ${{chain}} TopClone CSV</a></p>`
+          : '<p>当前链没有可用的 TopClone CSV。</p>';
+        emptyStateCard.innerHTML = `<h2>TopClone-only</h2><p>这次 treemap 任务未生成图，只导出 TopClone 表格。</p>${{downloadLink}}`;
+      }} else {{
+        emptyState.hidden = true;
+        frame.style.display = 'block';
+        frame.src = entry.html;
+      }}
+
+      updateActionButtons();
       updateSummary();
+    }}
+
+    function currentFrameHtmlUrl() {{
+      try {{
+        if (frame.contentWindow && frame.contentWindow.location && frame.contentWindow.location.href && frame.contentWindow.location.href !== 'about:blank') {{
+          return frame.contentWindow.location.href;
+        }}
+      }} catch (error) {{
+        console.warn('Failed to read iframe URL, falling back to stored HTML URL.', error);
+      }}
+
+      const entry = currentChainEntry();
+      return entry && entry.html ? entry.html : '';
+    }}
+
+    async function exportCurrentFramePngUrl() {{
+      const frameDocument = frame.contentDocument;
+      if (!frameDocument) {{
+        throw new Error('Treemap iframe is not ready yet');
+      }}
+
+      const svg = frameDocument.getElementById('treemap');
+      if (!svg) {{
+        throw new Error('Treemap SVG was not found');
+      }}
+
+      const svgClone = svg.cloneNode(true);
+      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+      const viewBox = (svgClone.getAttribute('viewBox') || '0 0 960 960').split(/\\s+/).map(Number);
+      const exportWidth = Number.isFinite(viewBox[2]) && viewBox[2] > 0 ? Math.round(viewBox[2]) : 960;
+      const exportHeight = Number.isFinite(viewBox[3]) && viewBox[3] > 0 ? Math.round(viewBox[3]) : 960;
+      const serialized = new XMLSerializer().serializeToString(svgClone);
+      const blob = new Blob([serialized], {{ type: 'image/svg+xml;charset=utf-8' }});
+      const svgUrl = URL.createObjectURL(blob);
+
+      try {{
+        const image = await new Promise((resolve, reject) => {{
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('Failed to render treemap SVG'));
+          img.src = svgUrl;
+        }});
+
+        const canvas = document.createElement('canvas');
+        canvas.width = exportWidth * 2;
+        canvas.height = exportHeight * 2;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        const pngBlob = await new Promise((resolve, reject) => {{
+          canvas.toBlob((value) => {{
+            if (value) resolve(value);
+            else reject(new Error('Failed to encode treemap PNG'));
+          }}, 'image/png');
+        }});
+
+        return URL.createObjectURL(pngBlob);
+      }} finally {{
+        URL.revokeObjectURL(svgUrl);
+      }}
     }}
 
     function onSampleChange() {{
@@ -633,17 +774,32 @@ class TreemapReportService:
 
     sampleSelect.addEventListener('change', onSampleChange);
     chainSelect.addEventListener('change', updateFrame);
-    document.getElementById('openHtmlBtn').addEventListener('click', () => {{
-      const sample = currentSample();
-      const chain = chainSelect.value;
-      const url = sample && sample.individual_treemaps && sample.individual_treemaps[chain] ? sample.individual_treemaps[chain].html : '';
+    openHtmlBtn.addEventListener('click', () => {{
+      const url = currentFrameHtmlUrl();
       if (url) window.open(url, '_blank', 'noopener');
     }});
-    document.getElementById('openPngBtn').addEventListener('click', () => {{
-      const sample = currentSample();
-      const chain = chainSelect.value;
-      const url = sample && sample.individual_treemaps && sample.individual_treemaps[chain] ? sample.individual_treemaps[chain].png : '';
-      if (url) window.open(url, '_blank', 'noopener');
+    openPngBtn.addEventListener('click', async () => {{
+      const popup = window.open('', '_blank', 'noopener');
+      try {{
+        const url = await exportCurrentFramePngUrl();
+        if (popup) popup.location.href = url;
+        else window.open(url, '_blank', 'noopener');
+      }} catch (error) {{
+        console.warn('Failed to export current treemap PNG, falling back to static PNG.', error);
+        if (popup) popup.close();
+        const sample = currentSample();
+        const chain = chainSelect.value;
+        const fallbackUrl = sample && sample.individual_treemaps && sample.individual_treemaps[chain]
+          ? sample.individual_treemaps[chain].png
+          : '';
+        if (fallbackUrl) window.open(fallbackUrl, '_blank', 'noopener');
+      }}
+    }});
+    openTopcloneBtn.addEventListener('click', () => {{
+      const entry = currentChainEntry();
+      if (entry && entry.topclone_csv) {{
+        window.open(entry.topclone_csv, '_blank', 'noopener');
+      }}
     }});
     document.getElementById('downloadZipBtn').addEventListener('click', () => {{
       if (DATA.zip_url) window.open(DATA.zip_url, '_blank', 'noopener');
@@ -660,6 +816,7 @@ class TreemapReportService:
       onSampleChange();
     }} else {{
       updateSummary();
+      updateActionButtons();
     }}
   </script>
 </body>
@@ -673,8 +830,10 @@ class TreemapReportService:
         output_name: Optional[str] = None,
         min_copy_default: int = 30,
         top_n: int = 100,
+        topclone_only: bool = False,
         style: str = "classic",
         layout_mode: str = "tetris",
+        canvas_shape: str = "square",
         progress_callback: Optional[Callable[[float, str, str, Optional[Dict[str, Any]]], None]] = None,
     ) -> TreemapReportResult:
         def emit(
@@ -699,15 +858,21 @@ class TreemapReportService:
         layout_mode = str(layout_mode or "tetris").strip().lower()
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
+        canvas_shape = str(canvas_shape or "square").strip().lower()
+        if canvas_shape not in {"square", "portrait"}:
+            canvas_shape = "square"
+        topclone_only = bool(topclone_only)
 
         overrides = {
             "cdr3": field_mapping.get("cdr3_column"),
             "copy": field_mapping.get("copy_column"),
             "v": field_mapping.get("v_column"),
+            "d": None,
             "j": field_mapping.get("j_column"),
             "c": None,
             "chain": None,
             "cell_type": None,
+            "joined_seq": None,
         }
 
         job_id = self._allocate_job_id(output_name)
@@ -739,9 +904,11 @@ class TreemapReportService:
         total_units = 2  # metadata/viewer + finalize
         for item in sample_work_items:
             chain_count = len(item["chain_files"])
-            total_units += chain_count  # html
-            total_units += chain_count  # png
-            total_units += 2  # overview html + png
+            total_units += chain_count  # topclone csv
+            if not topclone_only:
+                total_units += chain_count  # html
+                total_units += chain_count  # png
+                total_units += 2  # overview html + png
 
         completed_units = 0
         total_samples = len(sample_work_items)
@@ -815,6 +982,7 @@ class TreemapReportService:
             sample_safe_name = item["sample_safe_name"]
             sample_dirs = self._sample_dirs(output_base, sample_safe_name)
             chain_files = item["chain_files"]
+            ordered_sample_chains = [chain for chain in CHAIN_ORDER_ALL if chain in chain_files]
             emit(
                 4.0 + ((completed_units / max(1, total_units)) * 94.0),
                 f"处理样本 {sample_index}/{len(sample_work_items)}",
@@ -830,11 +998,8 @@ class TreemapReportService:
             chain_outputs: Dict[str, Dict[str, str]] = {}
             overview_source_paths: Dict[str, Path] = {}
 
-            for chain_index, chain in enumerate(CHAIN_ORDER_ALL, start=1):
-                filepath = chain_files.get(chain)
-                if not filepath:
-                    continue
-
+            for chain_index, chain in enumerate(ordered_sample_chains, start=1):
+                filepath = chain_files[chain]
                 input_path = Path(filepath).expanduser().resolve()
                 if not input_path.exists():
                     logger.warning("Treemap input file not found: %s", input_path)
@@ -850,7 +1015,7 @@ class TreemapReportService:
                         sample_index=sample_index,
                         chain_name=chain,
                         chain_index=chain_index,
-                        chain_total=len(chain_files),
+                        chain_total=len(ordered_sample_chains),
                         input_file=input_path.name,
                     ),
                 )
@@ -859,117 +1024,153 @@ class TreemapReportService:
                 if not columns.get("cdr3") or not columns.get("copy") or not columns.get("v") or not columns.get("j"):
                     raise ValidationError(message=f"{input_path.name} 未识别到 CDR3、copy、V 或 J 列。")
 
-                clones, summary = read_repertoire(input_path, columns)
-                if not clones:
+                topclone_rows, _ = read_repertoire_rows(input_path, columns)
+                if not topclone_rows:
                     logger.warning("Treemap input file has no usable rows: %s", input_path)
                     continue
-
-                derived_cell_type = CHAIN_CELL_MAP.get(chain, "Unknown")
-                for clone in clones:
-                    clone["chain"] = chain
-                    clone["cell_type"] = derived_cell_type
-
-                html_filename = f"{sample_safe_name}__{chain}_treemap.html"
-                png_filename = f"{sample_safe_name}__{chain}_treemap.png"
-                html_path = sample_dirs["individual_html"] / html_filename
-                png_path = sample_dirs["individual_png"] / png_filename
-
-                html_content = self._build_html_cached(
-                    clones=clones,
-                    summary=summary,
-                    title=make_title(input_path, f"{display_name} {chain} clonotype tetris map"),
-                    source_name=input_path.name,
-                    columns=columns,
-                    default_min_copy=max(0, int(min_copy_default)),
-                    top_n=max(1, int(top_n)),
-                    style=style,
-                    layout_mode=layout_mode,
-                )
-                html_path.write_text(html_content, encoding="utf-8")
+                topclone_filename = f"{sample_safe_name}__{chain}_topclone.csv"
+                topclone_path = sample_dirs["topclone_csv"] / topclone_filename
+                self._write_topclone_csv(topclone_rows, topclone_path, top_n=max(1, int(top_n)))
                 advance(
-                    "生成单链 HTML",
-                    f"{display_name} | {chain} ({chain_index}/{len(chain_files)})",
-                    phase="individual_html",
+                    "瀵煎嚭 TopClone CSV",
+                    f"{display_name} | {chain}",
+                    phase="topclone_csv",
                     sample_name=display_name,
                     sample_index=sample_index,
                     chain_name=chain,
                     chain_index=chain_index,
-                    chain_total=len(chain_files),
+                    chain_total=len(ordered_sample_chains),
                     input_file=input_path.name,
-                    output_file=html_filename,
+                    output_file=topclone_filename,
                 )
 
                 generated_chains.append(chain)
-                overview_source_paths[chain] = html_path
-                chain_outputs[chain] = {
-                    "html": str(html_path.relative_to(output_base)).replace("\\", "/"),
-                    "png": str(png_path.relative_to(output_base)).replace("\\", "/"),
+                chain_output = {
+                    "topclone_csv": str(topclone_path.relative_to(output_base)).replace("\\", "/"),
                 }
+
+                if not topclone_only:
+                    clones, summary = read_repertoire(input_path, columns)
+                    if not clones:
+                        logger.warning("Treemap input file has no usable clones after aggregation: %s", input_path)
+                        generated_chains.pop()
+                        continue
+
+                    derived_cell_type = CHAIN_CELL_MAP.get(chain, "Unknown")
+                    for clone in clones:
+                        clone["chain"] = chain
+                        clone["cell_type"] = derived_cell_type
+
+                    html_filename = f"{sample_safe_name}__{chain}_treemap.html"
+                    png_filename = f"{sample_safe_name}__{chain}_treemap.png"
+                    html_path = sample_dirs["individual_html"] / html_filename
+                    png_path = sample_dirs["individual_png"] / png_filename
+
+                    html_content = self._build_html_cached(
+                        clones=clones,
+                        summary=summary,
+                        title=make_title(input_path, f"{display_name} {chain} clonotype tetris map"),
+                        source_name=input_path.name,
+                        columns=columns,
+                        default_min_copy=max(0, int(min_copy_default)),
+                        top_n=max(1, int(top_n)),
+                        style=style,
+                        layout_mode=layout_mode,
+                        canvas_shape=canvas_shape,
+                    )
+                    html_path.write_text(html_content, encoding="utf-8")
+                    advance(
+                        "生成单链 HTML",
+                        f"{display_name} | {chain} ({chain_index}/{len(ordered_sample_chains)})",
+                        phase="individual_html",
+                        sample_name=display_name,
+                        sample_index=sample_index,
+                        chain_name=chain,
+                        chain_index=chain_index,
+                        chain_total=len(ordered_sample_chains),
+                        input_file=input_path.name,
+                        output_file=html_filename,
+                    )
+
+                    overview_source_paths[chain] = html_path
+                    chain_output["html"] = str(html_path.relative_to(output_base)).replace("\\", "/")
+                    chain_output["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
+
+                chain_outputs[chain] = chain_output
 
             if not generated_chains:
                 continue
 
-            overview_html_filename = f"{sample_safe_name}__ALL_treemap.html"
-            overview_png_filename = f"{sample_safe_name}__ALL_treemap.png"
-            overview_html_path = sample_dirs["overview_html"] / overview_html_filename
-            overview_png_path = sample_dirs["overview_png"] / overview_png_filename
+            overview_treemaps: Dict[str, str] = {}
+            if not topclone_only:
+                overview_html_filename = f"{sample_safe_name}__ALL_treemap.html"
+                overview_png_filename = f"{sample_safe_name}__ALL_treemap.png"
+                overview_html_path = sample_dirs["overview_html"] / overview_html_filename
+                overview_png_path = sample_dirs["overview_png"] / overview_png_filename
 
-            overview_html_path.write_text(
-                self._build_overview_html(display_name, overview_source_paths, sample_dirs["overview_html"]),
-                encoding="utf-8",
-            )
-            advance(
-                "生成七链 HTML",
-                f"{display_name} | overview",
-                phase="overview_html",
-                sample_name=display_name,
-                sample_index=sample_index,
-                output_file=overview_html_filename,
-            )
+                overview_html_path.write_text(
+                    self._build_overview_html(display_name, overview_source_paths, sample_dirs["overview_html"]),
+                    encoding="utf-8",
+                )
+                advance(
+                    "生成七链 HTML",
+                    f"{display_name} | overview",
+                    phase="overview_html",
+                    sample_name=display_name,
+                    sample_index=sample_index,
+                    output_file=overview_html_filename,
+                )
 
-            png_tasks: List[tuple[Path, Path, int, int, bool]] = []
-            for chain in generated_chains:
-                html_path = sample_dirs["individual_html"] / f"{sample_safe_name}__{chain}_treemap.html"
-                png_path = sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
-                png_tasks.append((html_path, png_path, 1200, 1200, True))
+                png_tasks: List[tuple[Path, Path, int, int, bool]] = []
+                for chain in generated_chains:
+                    html_path = sample_dirs["individual_html"] / f"{sample_safe_name}__{chain}_treemap.html"
+                    png_path = sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
+                    png_width, png_height = (700, 1500) if canvas_shape == "portrait" else (1200, 1200)
+                    png_tasks.append((html_path, png_path, png_width, png_height, True))
 
-            with ThreadPoolExecutor(max_workers=min(6, max(1, len(png_tasks)))) as executor:
-                future_map = {
-                    executor.submit(self._render_html_to_png, html_path, png_path, width, height, panel_mode): (html_path, png_path)
-                    for html_path, png_path, width, height, panel_mode in png_tasks
+                with ThreadPoolExecutor(max_workers=min(6, max(1, len(png_tasks)))) as executor:
+                    future_map = {
+                        executor.submit(self._render_html_to_png, html_path, png_path, width, height, panel_mode): (html_path, png_path)
+                        for html_path, png_path, width, height, panel_mode in png_tasks
+                    }
+                    for future in as_completed(future_map):
+                        future.result()
+                        html_path, png_path = future_map[future]
+                        chain_name = html_path.stem.split("__")[-1].replace("_treemap", "")
+                        advance(
+                            "导出单链 PNG",
+                            f"{display_name} | {chain_name}",
+                            phase="individual_png",
+                            sample_name=display_name,
+                            sample_index=sample_index,
+                            chain_name=chain_name,
+                            chain_total=len(generated_chains),
+                            input_file=html_path.name,
+                            output_file=png_path.name,
+                        )
+
+                trim_size = (1260, 2700) if canvas_shape == "portrait" else (1800, 1800)
+                for _, png_path, _, _, _ in png_tasks:
+                    self._trim_white_border(png_path, output_size=trim_size)
+
+                overview_png_sources = {
+                    chain: sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
+                    for chain in generated_chains
                 }
-                for future in as_completed(future_map):
-                    future.result()
-                    html_path, png_path = future_map[future]
-                    chain_name = html_path.stem.split("__")[-1].replace("_treemap", "")
-                    advance(
-                        "导出单链 PNG",
-                        f"{display_name} | {chain_name}",
-                        phase="individual_png",
-                        sample_name=display_name,
-                        sample_index=sample_index,
-                        chain_name=chain_name,
-                        chain_total=len(generated_chains),
-                        input_file=html_path.name,
-                        output_file=png_path.name,
-                    )
+                self._compose_overview_png_from_individuals(overview_png_sources, overview_png_path)
+                advance(
+                    "导出七链 PNG",
+                    f"{display_name} | overview",
+                    phase="overview_png",
+                    sample_name=display_name,
+                    sample_index=sample_index,
+                    output_file=overview_png_filename,
+                )
 
-            for _, png_path, _, _, _ in png_tasks:
-                self._trim_white_border(png_path, output_size=(1800, 1800))
-
-            overview_png_sources = {
-                chain: sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
-                for chain in generated_chains
-            }
-            self._compose_overview_png_from_individuals(overview_png_sources, overview_png_path)
-            advance(
-                "导出七链 PNG",
-                f"{display_name} | overview",
-                phase="overview_png",
-                sample_name=display_name,
-                sample_index=sample_index,
-                output_file=overview_png_filename,
-            )
+                overview_treemaps = {
+                    "html": str(overview_html_path.relative_to(output_base)).replace("\\", "/"),
+                    "png": str(overview_png_path.relative_to(output_base)).replace("\\", "/"),
+                }
 
             result_samples.append(
                 {
@@ -978,10 +1179,7 @@ class TreemapReportService:
                     "sample_safe_name": sample_safe_name,
                     "chains": generated_chains,
                     "individual_treemaps": chain_outputs,
-                    "overview_treemaps": {
-                        "html": str(overview_html_path.relative_to(output_base)).replace("\\", "/"),
-                        "png": str(overview_png_path.relative_to(output_base)).replace("\\", "/"),
-                    },
+                    "overview_treemaps": overview_treemaps,
                 }
             )
 
@@ -995,8 +1193,10 @@ class TreemapReportService:
             "field_mapping": overrides,
             "min_copy_default": max(0, int(min_copy_default)),
             "top_n": max(1, int(top_n)),
+            "topclone_only": topclone_only,
             "style": style,
             "layout_mode": layout_mode,
+            "canvas_shape": canvas_shape,
             "samples": result_samples,
         }
         metadata_path = output_base / self._METADATA_FILE_NAME
@@ -1015,7 +1215,12 @@ class TreemapReportService:
             phase="metadata",
             output_file=f"{self._METADATA_FILE_NAME}, {self._VIEWER_FILE_NAME}",
         )
-        emit(100.0, "任务完成", f"共生成 {len(result_samples)} 个样本的 treemap 结果。")
+        completion_detail = (
+            f"共生成 {len(result_samples)} 个样本的 topclone 结果。"
+            if topclone_only
+            else f"共生成 {len(result_samples)} 个样本的 treemap 结果。"
+        )
+        emit(100.0, "任务完成", completion_detail)
 
         return TreemapReportResult(
             job_id=job_id,

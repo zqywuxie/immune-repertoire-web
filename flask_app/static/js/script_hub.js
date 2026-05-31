@@ -124,25 +124,65 @@ const ScriptHubPage = {
 
     getProjectContext() {
         const params = new URLSearchParams(window.location.search);
+        const parseJsonList = (name) => {
+            const raw = params.get(name) || '';
+            if (!raw) return [];
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed.map(item => String(item || '')).filter(Boolean) : [];
+            } catch (error) {
+                return raw.split(',').map(item => item.trim()).filter(Boolean);
+            }
+        };
         return {
             projectId: params.get('project_id') || '',
             projectName: params.get('project_name') || '',
             basePath: params.get('base_path') || '',
+            localBasePath: params.get('local_base_path') || '',
+            sourceMode: params.get('source_mode') || (params.get('remote_source_id') ? 'remote' : 'local'),
+            remoteSourceId: params.get('remote_source_id') || '',
+            remotePath: params.get('remote_path') || '',
+            remotePepPaths: parseJsonList('remote_pep_paths'),
+            remoteDatapointPaths: parseJsonList('remote_datapoint_paths'),
             autoScan: params.get('auto_scan') === '1',
             analysisType: params.get('analysis_type') || 'script-hub',
+            activeModule: params.get('active_module') || '',
+            chartModule: params.get('chart_module') || '',
         };
     },
 
     initializeProjectContext() {
         const context = this.projectContext || this.getProjectContext();
-        if (context.basePath) {
+        if (context.activeModule) {
+            this.activeModule = context.activeModule;
+        }
+        this._pendingActiveModule = context.activeModule || '';
+        this._pendingChartModule = context.chartModule || '';
+        const effectiveLocalPath = context.localBasePath || context.basePath;
+        const hasRemoteProjectSource = ['remote', 'mixed'].includes(String(context.sourceMode || '').toLowerCase())
+            && context.remoteSourceId
+            && context.remotePath;
+
+        if (hasRemoteProjectSource) {
+            this.dataSourceMode = 'remote';
+            this.remoteSourceId = context.remoteSourceId;
+            this.remoteBrowsePath = context.remotePath;
+            this.remoteSelectedPaths = context.remotePepPaths.length ? [...context.remotePepPaths] : [context.remotePath];
+            this.selectedPepPaths = [...new Set([...this.selectedPepPaths, ...this.remoteSelectedPaths])];
+            this.selectedDatapointPath = context.remoteDatapointPaths[0] || this.selectedDatapointPath || '';
+            const modeSelect = document.getElementById('scriptHubDataSourceMode');
+            if (modeSelect) modeSelect.value = 'remote';
+        }
+
+        if (effectiveLocalPath || (hasRemoteProjectSource && context.remotePath)) {
+            const displayPath = effectiveLocalPath || context.remotePath;
             const customPaths = document.getElementById('scriptHubPepCustomPaths');
             if (customPaths && !customPaths.value) {
-                customPaths.value = context.basePath;
+                customPaths.value = displayPath;
             }
             const basePathInput = document.getElementById('scriptHubBasePath');
             if (basePathInput && !basePathInput.value) {
-                basePathInput.value = context.basePath;
+                basePathInput.value = displayPath;
             }
         }
 
@@ -166,9 +206,9 @@ const ScriptHubPage = {
             }
         }
 
-        if (context.autoScan && context.basePath && !this._autoInspectTriggered) {
+        if (context.autoScan && this.activeModule !== 'charts' && (effectiveLocalPath || hasRemoteProjectSource) && !this._autoInspectTriggered) {
             this._autoInspectTriggered = true;
-            this.inspectBasePath(context.basePath);
+            this.inspectBasePath(effectiveLocalPath || context.remotePath);
         }
     },
 
@@ -229,34 +269,84 @@ const ScriptHubPage = {
             this.renderCachedUsageInStage02(cachedAssets);
             this._cachedUsageAssets = cachedAssets;
 
-            // Auto-fill base path from first PEP asset
+            // Auto-fill base path from first PEP asset. Remote paths are kept only
+            // while dataSourceMode is remote, so they are not mistaken for local paths.
             const pepAssets = this.projectAssets.filter(a => a.asset_type === 'pep');
-            if (pepAssets.length > 0) {
-                const pepDir = pepAssets[0].storage_path;
-                const basePathInput = document.getElementById('scriptHubBasePath');
-                if (basePathInput && !basePathInput.value) {
-                    basePathInput.value = pepDir;
-                }
-                const customPaths = document.getElementById('scriptHubPepCustomPaths');
-                if (customPaths && !customPaths.value) {
-                    customPaths.value = pepDir;
-                }
+            const basePathInput = document.getElementById('scriptHubBasePath');
+            const customPaths = document.getElementById('scriptHubPepCustomPaths');
+            const datapointAssets = this.projectAssets.filter(a => a.asset_type === 'datapoint');
+            const remotePepAssets = pepAssets.filter(a => !!(a.metadata || {}).remote_source_id);
+            const localPepAssets = pepAssets.filter(a => !(a.metadata || {}).remote_source_id);
+            const hasLocalRegistered = localPepAssets.length > 0
+                || datapointAssets.some(a => !(a.metadata || {}).remote_source_id);
+            const hasRemoteRegistered = remotePepAssets.length > 0
+                || datapointAssets.some(a => !!(a.metadata || {}).remote_source_id);
+
+            if (hasRemoteRegistered && !hasLocalRegistered && remotePepAssets.length > 0) {
+                const pepDir = remotePepAssets[0].storage_path;
+                if (basePathInput) basePathInput.value = pepDir;
+                if (customPaths) customPaths.value = pepDir;
+            } else if (localPepAssets.length > 0) {
+                const pepDir = localPepAssets[0].storage_path;
+                if (basePathInput) basePathInput.value = pepDir;
+                if (customPaths) customPaths.value = pepDir;
+            } else if (!hasRemoteRegistered) {
+                if (basePathInput) basePathInput.value = '';
+                if (customPaths) customPaths.value = '';
             }
 
-            // Auto-detect remote mode from registered assets
-            const hasRegisteredRemote = this.projectAssets.some(a => {
-                const meta = a.metadata || {};
-                return !!meta.remote_source_id;
-            });
-            if (hasRegisteredRemote) {
+            if (hasRemoteRegistered) {
                 this.remoteSourceId = this.projectAssets
                     .map(a => (a.metadata || {}).remote_source_id)
                     .find(id => !!id) || this.remoteSourceId;
-                this.dataSourceMode = 'remote';
+
+                // Initialize remote state from registered asset metadata
+                // so inspect/run can correctly connect without manual browsing.
+                const firstRemoteAsset = this.projectAssets.find(a => !!(a.metadata || {}).remote_source_id);
+                if (firstRemoteAsset) {
+                    const meta = firstRemoteAsset.metadata || {};
+                    this.remoteBrowsePath = meta.remote_path || firstRemoteAsset.storage_path || this.remoteBrowsePath;
+                }
+                // Populate selected remote paths from all remote PEP assets
+                this.remoteSelectedPaths = remotePepAssets.map(a => a.storage_path).filter(Boolean);
             }
 
-            // If project has registered paths, hide the dropdown; show an "新增路径" button instead
-            const hasRegisteredPaths = pepAssets.length > 0 || this.projectAssets.some(a => a.asset_type === 'datapoint');
+            // Always populate selectedPepPaths from registered PEP assets
+            // so confirmDataSelection picks them up without extra steps.
+            this.selectedPepPaths = [...new Set([
+                ...this.selectedPepPaths,
+                ...pepAssets.map(a => a.storage_path).filter(Boolean)
+            ])];
+
+            // Only auto-force mode when ALL registered assets are of one type.
+            // In mixed scenarios, keep the user's current selection.
+            if (hasRemoteRegistered && !hasLocalRegistered) {
+                this.dataSourceMode = 'remote';
+            } else if (hasLocalRegistered && !hasRemoteRegistered) {
+                this.dataSourceMode = 'local';
+            }
+            // else: mixed assets — preserve existing this.dataSourceMode
+
+            // Sync the <select> element value (for internal tracking), but do NOT
+            // toggle panels based on mode. When project has registered data, always
+            // show the local panel so user can directly confirm data selection.
+            const modeSelect = document.getElementById('scriptHubDataSourceMode');
+            if (modeSelect) modeSelect.value = this.dataSourceMode;
+
+            const hasRegisteredPaths = pepAssets.length > 0
+                || this.projectAssets.some(a => a.asset_type === 'datapoint');
+
+            if (hasRegisteredPaths) {
+                // Show local panel with PEP checkboxes and datapoint selectors;
+                // hide remote panel and the data-source dropdown row.
+                document.getElementById('scriptHubLocalPanel')?.classList.remove('sh-hidden');
+                document.getElementById('scriptHubRemotePanel')?.classList.add('sh-hidden');
+                const modeRow = document.getElementById('scriptHubDataSourceRow');
+                if (modeRow) modeRow.style.display = 'none';
+            } else {
+                // No registered paths: use standard toggle behavior
+                this.toggleDataSourceMode(this.dataSourceMode);
+            }
             this._updateDataSourceVisibility(hasRegisteredPaths);
 
             this.stageUnlocked.data = true;
@@ -380,13 +470,11 @@ const ScriptHubPage = {
     },
 
     _updateDataSourceVisibility(hasRegisteredPaths) {
-        const modeRow = document.getElementById('scriptHubDataSourceMode')?.closest('.row');
         const addBtn = document.getElementById('scriptHubAddRemotePathBtn');
         const remotePanel = document.getElementById('scriptHubRemotePanel');
 
-        if (modeRow) {
-            modeRow.style.display = hasRegisteredPaths ? 'none' : '';
-        }
+        // Keep the mode selector always visible so users can switch between
+        // local and remote data sources, even after paths are registered.
         if (addBtn) {
             addBtn.style.display = hasRegisteredPaths ? '' : 'none';
         }
@@ -478,6 +566,7 @@ const ScriptHubPage = {
         const hasPep = pepPaths.length > 0 || !!this.selectedCachedAssetId;
         const hasDatapoint = !!datapointPath;
         this.moduleAvailability = {
+            'charts': hasPep,
             'db-alignment': hasPep,
             'boxplot': hasDatapoint,
             'pep-analysis': hasPep || !!this.selectedCachedAssetId,
@@ -511,7 +600,13 @@ const ScriptHubPage = {
                 });
             });
             const available = container.querySelectorAll('.sh-chip-selectable:not([style*="opacity:0.4"])');
-            if (available.length === 1) {
+            const pendingModule = this._pendingActiveModule || this._pendingAnalysisType || '';
+            const pendingChip = pendingModule
+                ? container.querySelector(`.sh-chip-selectable[data-module-key="${pendingModule}"]`)
+                : null;
+            if (pendingChip && this.moduleAvailability[pendingModule] !== false) {
+                this.selectModule(pendingModule, pendingChip);
+            } else if (available.length === 1) {
                 const autoKey = available[0].dataset.moduleKey;
                 this.selectModule(autoKey, available[0]);
             }
@@ -528,7 +623,11 @@ const ScriptHubPage = {
         this.syncModuleUI();
         this.stageUnlocked.config = true;
         this.syncStageUI();
-        this.inspectBasePath();
+        if (moduleKey === 'charts') {
+            this.showSourceFeedback('已选择综合图表报告。确认下游图表内容后进入图表配置。', 'info');
+        } else {
+            this.inspectBasePath();
+        }
         window.setTimeout(() => { document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
     },
 
@@ -655,7 +754,12 @@ const ScriptHubPage = {
             }
         });
 
-        if (isBoxPlot) {
+        if (module === 'charts') {
+            document.getElementById('scriptHubRunBtnLabel').textContent = '进入图表配置';
+            document.getElementById('scriptHubConfigHint').textContent = '使用上游已确认的数据来源进入 Heatmap / Treemap / Chord 图表报告流程。';
+            document.getElementById('scriptHubResultSummary').textContent = '图表报告已打开。';
+            document.getElementById('scriptHubResultMeta').textContent = '图表配置在下游页面完成。';
+        } else if (isBoxPlot) {
             document.getElementById('scriptHubRunBtnLabel').textContent = '运行箱线图分析';
             document.getElementById('scriptHubConfigHint').textContent = '启用分组可按组绘制箱线图并做 Mann-Whitney U 检验，取消则所有样本作为未分组箱体。';
             document.getElementById('scriptHubResultSummary').textContent = '箱线图分析完成。';
@@ -727,7 +831,7 @@ const ScriptHubPage = {
         this.toggleStage('scriptHubProjectStage', true);
         this.toggleStage('scriptHubDataStage', unlocked.data);
         this.toggleStage('scriptHubModuleStage', unlocked.module);
-        this.toggleStage('scriptHubAssetsStage', unlocked.config);
+        this.toggleStage('scriptHubAssetsStage', unlocked.config && this.activeModule !== 'charts');
         this.toggleStage('scriptHubConfigStage', unlocked.config);
         this.toggleStage('scriptHubResultStage', this.uiState === 'completed');
 
@@ -892,7 +996,17 @@ const ScriptHubPage = {
         document.getElementById('scriptHubPreviewFileMeta').textContent = '等待检测文件。';
         this.renderPreviewTable([], []);
         const dpSelect = document.getElementById('scriptHubDatapointPath');
-        if (dpSelect) dpSelect.innerHTML = '<option value="">-- Select a datapoint file --</option>';
+        if (dpSelect) {
+            const savedDpValue = dpSelect.value;
+            dpSelect.innerHTML = '<option value="">-- Select a datapoint file --</option>';
+            if (savedDpValue) {
+                const opt = document.createElement('option');
+                opt.value = savedDpValue;
+                opt.textContent = (savedDpValue.replace(/\\/g, '/').split('/').pop()) || savedDpValue;
+                opt.selected = true;
+                dpSelect.appendChild(opt);
+            }
+        }
         document.getElementById('scriptHubParamBegin').innerHTML = '<option value="">Select column</option>';
         document.getElementById('scriptHubParamOver').innerHTML = '<option value="">Select column</option>';
 
@@ -959,11 +1073,14 @@ const ScriptHubPage = {
                 remoteSourceSelect.appendChild(option);
             });
 
-            this.remoteSourceId = this.remoteSources[0].id;
+            const currentSourceId = this.remoteSourceId;
+            const hasCurrentSource = currentSourceId
+                && this.remoteSources.some(source => source.id === currentSourceId);
+            this.remoteSourceId = hasCurrentSource ? currentSourceId : this.remoteSources[0].id;
             remoteSourceSelect.value = this.remoteSourceId;
             this.updateRemoteHint('SSH data sources loaded. Choose a folder and sync it before running the script.', 'secondary');
             if (this.dataSourceMode === 'remote') {
-                await this.browseRemoteRoot();
+                await this.browseRemote(this.remoteBrowsePath || undefined);
             }
         } catch (error) {
             this.remoteSources = [];
@@ -1485,6 +1602,7 @@ const ScriptHubPage = {
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
         const module = this.activeModule || 'db-alignment';
+
         if (module === 'boxplot') {
             return this.inspectBoxPlot(explicitBasePath, loadingText);
         }
@@ -1528,8 +1646,11 @@ const ScriptHubPage = {
             if (this.dataSourceMode === 'remote' && sourceId && remotePath) {
                 body.source_id = sourceId;
                 body.remote_path = remotePath;
+                // Only send individual file paths as pep_paths;
+                // directory paths are handled by remote_path -> list_dir on backend.
                 const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
-                if (allPepPaths.length > 0) body.pep_paths = allPepPaths;
+                const filePaths = allPepPaths.filter(p => /\.csv(\.gz)?$/i.test(String(p || '')));
+                if (filePaths.length > 0) body.pep_paths = filePaths;
             } else {
                 body.base_path = basePath;
             }
@@ -1557,6 +1678,7 @@ const ScriptHubPage = {
     },
 
     async inspectBoxPlot(explicitBasePath = '', loadingText = 'Scanning for Datapoint files...') {
+        const basePath = explicitBasePath || '';
         const datapointPath = this.selectedDatapointPath
             || document.getElementById('scriptHubDatapointPath')?.value
             || document.getElementById('scriptHubBpDatapointPath')?.value
@@ -1803,13 +1925,40 @@ const ScriptHubPage = {
 
         // Auto-fill from remote if in remote mode
         if (this.dataSourceMode === 'remote') {
-            const remoteDir = this.remoteSelectedPaths[0] || this.remoteBrowsePath;
-            if (!pepDataPath && remoteDir) {
-                pepDataPath = remoteDir;
-                document.getElementById('scriptHubTcPepDataPath').value = pepDataPath;
+            // Prefer locally registered PEP paths first (backend may not support remote),
+            // only fall back to the remote directory as last resort.
+            if (!pepDataPath) {
+                pepDataPath = (this.selectedPepPaths.length ? this.selectedPepPaths[0] : '')
+                    || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+                if (!pepDataPath) {
+                    const remoteDir = this.remoteSelectedPaths[0] || this.remoteBrowsePath;
+                    if (remoteDir) pepDataPath = remoteDir;
+                }
+                if (pepDataPath) {
+                    document.getElementById('scriptHubTcPepDataPath').value = pepDataPath;
+                }
             }
             if (!datapointPath) {
-                datapointPath = this.selectedDatapointPath || '';
+                datapointPath = this.selectedDatapointPath
+                    || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+                if (datapointPath) {
+                    document.getElementById('scriptHubTcDatapointPath').value = datapointPath;
+                }
+            }
+        } else {
+            // Local mode: fall back to selected PEP paths or base path
+            if (!pepDataPath) {
+                pepDataPath = (this.selectedPepPaths.length ? this.selectedPepPaths[0] : '')
+                    || document.getElementById('scriptHubBasePath')?.value?.trim()
+                    || '';
+                if (pepDataPath) {
+                    document.getElementById('scriptHubTcPepDataPath').value = pepDataPath;
+                }
+            }
+            if (!datapointPath) {
+                datapointPath = this.selectedDatapointPath
+                    || document.getElementById('scriptHubDatapointPath')?.value?.trim()
+                    || '';
                 if (datapointPath) {
                     document.getElementById('scriptHubTcDatapointPath').value = datapointPath;
                 }
@@ -2147,6 +2296,8 @@ const ScriptHubPage = {
                 module: 'volcano',
                 data_dir: dataDir,
                 pvalue_threshold: parseFloat(document.getElementById('scriptHubVolcanoPvalueThreshold')?.value || '0.05'),
+                source_id: this.remoteSourceId || null,
+                remote_path: this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || null) : null,
             };
         }
 
@@ -2162,6 +2313,8 @@ const ScriptHubPage = {
                 n_neighbors: parseInt(document.getElementById('scriptHubUmapinNNeighbors')?.value || '6'),
                 min_dist: parseFloat(document.getElementById('scriptHubUmapinMinDist')?.value || '0.01'),
                 do_fdr: document.getElementById('scriptHubUmapinFdrToggle')?.checked || false,
+                source_id: this.remoteSourceId || null,
+                remote_path: this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || null) : null,
             };
         }
 
@@ -2181,6 +2334,8 @@ const ScriptHubPage = {
                 n_neighbors: parseInt(document.getElementById('scriptHubUmapNNeighbors')?.value || '6', 10),
                 min_dist: parseFloat(document.getElementById('scriptHubUmapMinDist')?.value || '0.01'),
                 output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
+                source_id: this.remoteSourceId || null,
+                remote_path: this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || null) : null,
             };
         }
 
@@ -2232,6 +2387,8 @@ const ScriptHubPage = {
                 min_sample_threshold: parseInt(document.getElementById('scriptHubPepMinSample')?.value || '3'),
                 output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
                 project_id: projectId || null,
+                source_id: this.remoteSourceId || null,
+                remote_path: this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || null) : null,
             };
         }
 
@@ -2273,6 +2430,10 @@ const ScriptHubPage = {
         try {
             const payload = this.collectRunPayload();
             const module = this.activeModule || 'db-alignment';
+            if (module === 'charts') {
+                this.openChartWorkspaceFromSelection();
+                return;
+            }
             const isBoxPlot = module === 'boxplot';
             const isTopClone = module === 'topclone';
             const isPep = module === 'pep-analysis';
@@ -2311,6 +2472,60 @@ const ScriptHubPage = {
             this.showSourceFeedback(error.message || 'Failed to run analysis.', 'danger');
             this.showError(error.message || 'Failed to run analysis');
         }
+    },
+
+    getSelectedChartModules() {
+        return [
+            ['heatmap', 'scriptHubChartHeatmap'],
+            ['treemap', 'scriptHubChartTreemap'],
+            ['chord', 'scriptHubChartChord'],
+        ]
+            .filter(([, id]) => document.getElementById(id)?.checked)
+            .map(([key]) => key);
+    },
+
+    openChartWorkspaceFromSelection() {
+        const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
+        const basePath = allPepPaths[0]
+            || document.getElementById('scriptHubBasePath')?.value?.trim()
+            || '';
+        if (!basePath && !(this.dataSourceMode === 'remote' && this.remoteSourceId && (this.remoteSelectedPaths[0] || this.remoteBrowsePath))) {
+            this.showError('请先确认 PEP 数据路径后再进入图表配置。');
+            return;
+        }
+
+        const chartModules = this.getSelectedChartModules();
+        if (!chartModules.length) {
+            this.showError('请至少选择一个图表报告内容。');
+            return;
+        }
+
+        const context = this.projectContext || this.getProjectContext();
+        const params = new URLSearchParams();
+        params.set('legacy', '1');
+        params.set('auto_scan', '1');
+        params.set('analysis_type', 'combined-report');
+        params.set('active_module', this._pendingChartModule && this._pendingChartModule !== 'combined'
+            ? this._pendingChartModule
+            : chartModules[0]);
+        params.set('chart_modules', chartModules.join(','));
+        if (context.projectId) params.set('project_id', context.projectId);
+        if (context.projectName) params.set('project_name', context.projectName);
+
+        if (this.dataSourceMode === 'remote') {
+            const remotePath = this.remoteSelectedPaths[0] || this.remoteBrowsePath || basePath;
+            params.set('source_mode', 'remote');
+            params.set('remote_source_id', this.remoteSourceId || '');
+            params.set('remote_path', remotePath || '');
+            params.set('remote_pep_paths', JSON.stringify(allPepPaths.length ? allPepPaths : [remotePath].filter(Boolean)));
+            params.set('auto_sync', '1');
+        } else {
+            params.set('source_mode', 'local');
+            params.set('base_path', basePath);
+            params.set('local_base_path', basePath);
+        }
+
+        window.location.href = `/analysis/combined-report?${params.toString()}`;
     },
 
     stopTaskPolling() {
@@ -2546,7 +2761,11 @@ const ScriptHubPage = {
     },
 
     async inspectUmap(loadingText = 'Scanning datapoint...') {
-        const filePath = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const filePath = document.getElementById('scriptHubDatapointPath')?.value?.trim()
+            || this.selectedDatapointPath
+            || '';
+        const sourceId = this.remoteSourceId || '';
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || '') : '';
         if (!filePath) {
             this.showSourceFeedback('Please provide a datapoint path.', 'warning');
             this.showError('Please provide a datapoint path');
@@ -2556,10 +2775,15 @@ const ScriptHubPage = {
         this.showSourceFeedback('Inspecting UMAP datapoint...', 'secondary');
         this.showLoading(loadingText || 'Scanning datapoint...', 'Inspect UMAP');
         try {
+            const body = { datapoint_path: filePath };
+            if (sourceId && remotePath) {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            }
             const response = await fetch('/api/script-hub/umap/inspect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ datapoint_path: filePath }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
             if (!data.success) throw new Error(data.message || 'Failed to inspect UMAP inputs');
@@ -2595,7 +2819,9 @@ const ScriptHubPage = {
 
     async inspectVolcano(explicitBasePath = '', loadingText = '扫描 VJ usage 数据...') {
         const basePath = explicitBasePath || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        if (!basePath) {
+        const sourceId = this.remoteSourceId || '';
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || '') : '';
+        if (!basePath && !(sourceId && remotePath)) {
             this.showSourceFeedback('请先提供基础目录。', 'warning');
             this.showError('请先提供基础目录');
             return;
@@ -2605,10 +2831,15 @@ const ScriptHubPage = {
         this.showSourceFeedback('正在检测 VJ usage 数据...', 'secondary');
         this.showLoading(loadingText || '扫描 VJ usage 数据...', '检测火山图数据');
         try {
+            const body = { base_path: basePath };
+            if (sourceId && remotePath) {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            }
             const response = await fetch('/api/script-hub/volcano/inspect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base_path: basePath }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
             if (!data.success) throw new Error(data.message || '检测失败');
@@ -2678,6 +2909,8 @@ const ScriptHubPage = {
 
     async inspectUmapin(explicitBasePath = '', loadingText = '扫描数据文件...') {
         const basePath = explicitBasePath || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const sourceId = this.remoteSourceId || '';
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || '') : '';
         if (!basePath) {
             this.showSourceFeedback('请先提供基础目录或数据文件路径。', 'warning');
             this.showError('请先提供基础目录或数据文件路径');
@@ -2688,10 +2921,15 @@ const ScriptHubPage = {
         this.showSourceFeedback('正在检测数据文件...', 'secondary');
         this.showLoading(loadingText || '扫描数据文件...', '检测 UMAPin 数据');
         try {
+            const body = { base_path: basePath };
+            if (sourceId && remotePath) {
+                body.source_id = sourceId;
+                body.remote_path = remotePath;
+            }
             const response = await fetch('/api/script-hub/umapin/inspect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base_path: basePath }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
             if (!data.success) throw new Error(data.message || '检测失败');
@@ -2784,9 +3022,9 @@ const ScriptHubPage = {
             || (this.selectedPepPaths.length ? this.selectedPepPaths[0] : '')
             || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const sourceId = this.remoteSourceId || '';
-        const remotePath = this.remoteSelectedPaths[0] || this.remoteBrowsePath || '';
+        const remotePath = this.dataSourceMode === 'remote' ? (this.remoteSelectedPaths[0] || this.remoteBrowsePath || '') : '';
 
-        if (!basePath && !(sourceId && remotePath)) {
+        if (!basePath) {
             this.showSourceFeedback('请先提供 PEP 目录路径。', 'warning');
             this.showError('请先提供 PEP 目录路径');
             return;
@@ -2797,10 +3035,9 @@ const ScriptHubPage = {
         this.showLoading(loadingText || 'Scanning for pep files...', 'Inspect CDR3 Sharing assets');
         try {
             const body = { base_path: basePath };
-            if (sourceId && remotePath && this.dataSourceMode === 'remote') {
+            if (sourceId && remotePath) {
                 body.source_id = sourceId;
                 body.remote_path = remotePath;
-                if (this.selectedPepPaths.length) body.pep_paths = this.selectedPepPaths;
             }
             const response = await fetch('/api/script-hub/pep-analysis/inspect', {
                 method: 'POST',

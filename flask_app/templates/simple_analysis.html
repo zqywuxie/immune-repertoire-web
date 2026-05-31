@@ -9,24 +9,31 @@
         margin: 0 auto;
     }
 
-    .scheme-tabs {
+    .analysis-flow-note {
         background: #f8f9fa;
         border-radius: 0.5rem;
         padding: 1rem;
         margin-bottom: 1.5rem;
     }
 
+    .scheme-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: .75rem;
+    }
+
     .scheme-tab {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.75rem 1.25rem;
-        margin: 0.25rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .65rem;
+        padding: 0.85rem;
         border: 2px solid #dee2e6;
-        border-radius: 0.5rem;
+        border-radius: 0.65rem;
         background: white;
         cursor: pointer;
         transition: all 0.2s;
         font-weight: 500;
+        min-height: 82px;
     }
 
     .scheme-tab:hover {
@@ -36,13 +43,14 @@
 
     .scheme-tab.active {
         border-color: #0d6efd;
-        background: #0d6efd;
-        color: white;
+        background: #e7f1ff;
+        color: #0b4d9b;
     }
 
     .scheme-tab i {
         font-size: 1.25rem;
-        margin-right: 0.5rem;
+        margin-top: .1rem;
+        flex: 0 0 auto;
     }
 
     .analysis-panel {
@@ -119,6 +127,13 @@
         margin-top: 0.5rem;
     }
 
+    .analysis-module-section {
+        border: 1px solid #e2e8f0;
+        border-radius: .75rem;
+        background: #fbfdff;
+        padding: 1rem;
+    }
+
     .field-mapping-table th {
         background: #f8f9fa;
         font-weight: 500;
@@ -143,21 +158,14 @@
     <div class="row mb-4">
         <div class="col">
             <h1 class="mb-2"><i class="bi bi-graph-up me-2"></i>数据分析</h1>
-            <p class="text-muted">选择分析方案，上传数据文件，一键执行分析</p>
+            <p class="text-muted">先选择或上传数据文件，再根据同一份数据选择要执行的分析模块。</p>
         </div>
     </div>
 
-    <div class="scheme-tabs">
-        <div class="d-flex flex-wrap align-items-center">
-            <span class="me-3 text-muted fw-bold">分析方案:</span>
-            <div id="schemeTabs">
-                <div class="spinner-border spinner-border-sm text-primary" role="status"><span
-                        class="visually-hidden">加载中...</span></div>
-            </div>
-        </div>
-        <p id="schemeDescription" class="scheme-description mb-0"></p>
-        <div id="schemeFieldsHint" class="mt-2 small" style="display: none;">
-            <span class="text-muted">所需字段：</span><span id="schemeFieldsList" class="text-primary"></span>
+    <div class="analysis-flow-note">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="badge text-bg-primary">流程</span>
+            <span class="text-muted">数据文件是所有模块的共同入口。选择数据后，系统会在下游显示可用分析模块和字段映射。</span>
         </div>
     </div>
 
@@ -192,6 +200,23 @@
                                     class="bi bi-x"></i></button>
                         </div>
                         <small class="text-muted" id="fileDetails"></small>
+                    </div>
+                </div>
+
+                <div class="mb-4 analysis-module-section" id="schemeSelectionSection" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1"><i class="bi bi-grid-3x3-gap me-2"></i>选择分析模块</h5>
+                            <p class="text-muted small mb-0">同一份数据可切换不同模块，字段映射会随模块更新。</p>
+                        </div>
+                    </div>
+                    <div class="scheme-grid" id="schemeTabs">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status"><span
+                                class="visually-hidden">加载中...</span></div>
+                    </div>
+                    <p id="schemeDescription" class="scheme-description mb-0"></p>
+                    <div id="schemeFieldsHint" class="mt-2 small" style="display: none;">
+                        <span class="text-muted">所需字段：</span><span id="schemeFieldsList" class="text-primary"></span>
                     </div>
                 </div>
 
@@ -273,7 +298,7 @@
                     <div class="tab-pane fade show active" id="chartTab">
                         <div class="result-area" id="chartArea">
                             <div class="text-center text-muted py-5"><i class="bi bi-bar-chart fs-1"></i>
-                                <p class="mt-2">选择方案并上传数据后，点击"执行分析"查看结果</p>
+                                <p class="mt-2">选择数据和分析模块后，点击"执行分析"查看结果</p>
                             </div>
                         </div>
                     </div>
@@ -348,15 +373,14 @@
         renderSchemeTabs() {
             const container = document.getElementById('schemeTabs');
             container.innerHTML = '';
-            this.schemes.forEach((scheme, index) => {
+            this.schemes.forEach((scheme) => {
                 const tab = document.createElement('div');
-                tab.className = 'scheme-tab' + (index === 0 ? ' active' : '');
+                tab.className = 'scheme-tab';
                 tab.dataset.schemeId = scheme.id;
-                tab.innerHTML = `<i class="${scheme.icon || 'bi-graph-up'}"></i>${scheme.name}`;
+                tab.innerHTML = `<i class="${scheme.icon || 'bi-graph-up'}"></i><span>${scheme.name}</span>`;
                 tab.onclick = () => this.selectScheme(scheme);
                 container.appendChild(tab);
             });
-            if (this.schemes.length > 0) this.selectScheme(this.schemes[0]);
         }
 
         async selectScheme(scheme) {
@@ -376,6 +400,10 @@
             this.showSchemeFieldsHint(scheme);
             this.updateChainSelectionVisibility(scheme);
             if (this.uploadedFile) this.updateFieldMapping();
+            if (this.uploadedFile) {
+                document.getElementById('parametersSection').style.display = 'block';
+                this.updateBaselineSampleOptions();
+            }
             this.updateRunButton();
         }
 
@@ -496,9 +524,16 @@
                 document.getElementById('fileName').textContent = data.name || data.filename;
                 document.getElementById('fileDetails').textContent = `${data.row_count || 0} 行, ${this.fileColumns.length} 列`;
                 document.getElementById('fileInfo').classList.remove('d-none');
-                this.updateFieldMapping();
-                document.getElementById('parametersSection').style.display = 'block';
-                this.updateBaselineSampleOptions();
+                document.getElementById('schemeSelectionSection').style.display = 'block';
+                if (this.selectedScheme) {
+                    this.updateFieldMapping();
+                    document.getElementById('parametersSection').style.display = 'block';
+                    this.updateBaselineSampleOptions();
+                } else {
+                    document.getElementById('fieldMappingSection').style.display = 'none';
+                    document.getElementById('parametersSection').style.display = 'none';
+                    this.hideChainFieldMappingTabs();
+                }
                 this.updateRunButton();
             } catch (error) { console.error('Error loading file:', error); this.showToast('加载文件失败', 'error'); }
             finally { this.hideLoading(); }
@@ -662,6 +697,7 @@
         clearFile() {
             this.uploadedFile = null; this.fileColumns = []; this.fieldMapping = {};
             document.getElementById('fileInfo').classList.add('d-none');
+            document.getElementById('schemeSelectionSection').style.display = 'none';
             document.getElementById('fieldMappingSection').style.display = 'none';
             document.getElementById('parametersSection').style.display = 'none';
             document.getElementById('existingFileSelect').value = '';
@@ -670,7 +706,7 @@
         }
 
         clearResults() {
-            document.getElementById('chartArea').innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-bar-chart fs-1"></i><p class="mt-2">选择方案并上传数据后，点击"执行分析"查看结果</p></div>`;
+            document.getElementById('chartArea').innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-bar-chart fs-1"></i><p class="mt-2">选择数据和分析模块后，点击"执行分析"查看结果</p></div>`;
             document.getElementById('dataTableArea').innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-table fs-1"></i><p class="mt-2">分析完成后将在此显示数据表格</p></div>`;
             document.getElementById('exportButtons').style.display = 'none';
             this.lastResult = null;

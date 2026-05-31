@@ -1,0 +1,89 @@
+import shutil
+import time
+import fcntl
+import os
+import atexit
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from django_apscheduler.jobstores import DjangoJobStore, register_job
+from djangoProject.settings import MY_GLOBAL_List, TIME_TASK_INIT_COUNT
+from djangoProject.tools.process_func import boxplot_func, gene_usage, umap_func, db_alignment, topClone_func, \
+    CDR3_length, ECDF_func, Dominant_Clone, Similar_Clone
+from djangoProject.tools.logger.log import GetLogger
+
+logger = GetLogger.get_logger()
+
+
+def all_fun(projectName):
+    boxplot_func.boxplot_func(projectName)
+    gene_usage.gene_usage(projectName)
+    umap_func.umap_func(projectName)
+    db_alignment.db_alignment(projectName)
+    topClone_func.topClone_func(projectName)
+    CDR3_length.get_cdr3_length(projectName)
+    ECDF_func.ECDF_func(projectName)
+    Dominant_Clone.Dominant_Clone_func(projectName)
+    Similar_Clone.Similar_Clone_func(projectName)
+
+
+if TIME_TASK_INIT_COUNT == 1:
+    print(("又初始化了。。。。。。。。。"))
+    print(MY_GLOBAL_List)
+    # 实例化调度器
+    scheduler = BackgroundScheduler()
+    # 调度器使用默认的DjangoJobStore()
+    scheduler.add_jobstore(DjangoJobStore(), 'default')
+
+
+    def initscheduler(scheduler):
+        f = open("scheduler.lock", "wb")
+        try:
+
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            print("initscheduler..........")
+            scheduler.start()
+        except:
+            pass
+
+        def unlock():
+            fcntl.flock(f, fcntl.LOCK_UN)
+            f.close()
+        atexit.register(unlock)
+
+
+    # 5秒循环执行
+    @register_job(scheduler, 'interval', id='test', seconds=20, args=[], replace_existing=True)
+    def test():
+        if not MY_GLOBAL_List:
+            logger.info(f"List is empty {MY_GLOBAL_List}")
+            return None
+        projectName = MY_GLOBAL_List[0]
+
+        logger.info(f"开始处理 {projectName}")
+        all_fun(projectName)
+        logger.info(f"处理 {projectName} 完成")
+        MY_GLOBAL_List.pop(0)
+        # print(MY_GLOBAL_List)
+
+
+    @register_job(scheduler, 'cron', hour=4, minute=0, second=0, id='rm_dir', args=[], replace_existing=True)
+    # @register_job(scheduler, 'interval', id='rm_dir', seconds=5, args=[], replace_existing=True)
+    def rm_dir():
+        from djangoProject.settings import TAR_DIR
+        dirs = os.listdir(TAR_DIR)
+        for _dir in dirs:
+            path = os.path.join(TAR_DIR, _dir)
+            _time = os.path.getmtime(path)
+            now = time.time()
+            if now - _time > 10 * 60 * 60:
+                if os.isdir(path):
+                    shutil.rmtree(path)
+                    print(f"删除文件夹 {path}")
+                else:
+                    os.remove(path)
+                    print(f"删除文件 {path}")
+
+
+    initscheduler(scheduler)  #调用刚才那个文件锁函数，实例化调度器
+    print(("到这了。。。。。。。。。"))
+    TIME_TASK_INIT_COUNT -= 1

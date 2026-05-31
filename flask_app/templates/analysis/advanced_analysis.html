@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Advanced Analysis{% endblock %}
+
+{% block extra_css %}
+<style>
+    .advanced-shell {
+        --aa-line: #d9e4ec;
+        --aa-text: #183247;
+        --aa-muted: #607589;
+        --aa-accent: #1d6ea4;
+        --aa-warm: #b86a1f;
+    }
+
+    .advanced-hero,
+    .advanced-frame-card,
+    .advanced-module-btn {
+        border: 1px solid var(--aa-line);
+        border-radius: 18px;
+    }
+
+    .advanced-hero {
+        background: linear-gradient(135deg, #f7fbff 0%, #eef7f2 56%, #fff9f0 100%);
+        padding: 1.4rem 1.5rem;
+    }
+
+    .advanced-hero h1 {
+        margin-bottom: .55rem;
+        color: var(--aa-text);
+        font-weight: 700;
+    }
+
+    .advanced-hero p,
+    .advanced-module-copy,
+    .advanced-module-meta {
+        color: var(--aa-muted);
+    }
+
+    .advanced-switcher {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+    }
+
+    .advanced-module-btn {
+        background: #fff;
+        padding: 1rem 1.05rem;
+        text-align: left;
+        transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    .advanced-module-btn:hover {
+        transform: translateY(-1px);
+        border-color: #adc8db;
+        box-shadow: 0 14px 28px rgba(24, 50, 71, 0.08);
+    }
+
+    .advanced-module-btn.is-active {
+        border-color: rgba(29, 110, 164, 0.45);
+        background: linear-gradient(180deg, #f8fcff 0%, #edf6ff 100%);
+        box-shadow: 0 14px 28px rgba(24, 50, 71, 0.1);
+    }
+
+    .advanced-module-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+        margin-bottom: .5rem;
+    }
+
+    .advanced-module-title {
+        font-weight: 700;
+        color: var(--aa-text);
+    }
+
+    .advanced-frame-card {
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 18px 36px rgba(23, 43, 59, 0.08);
+    }
+
+    .advanced-frame-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: .75rem;
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid var(--aa-line);
+        background: linear-gradient(180deg, #fcfeff 0%, #f5f9fc 100%);
+    }
+
+    .advanced-frame-toolbar h2 {
+        margin: 0;
+        font-size: 1rem;
+        color: var(--aa-text);
+        font-weight: 700;
+    }
+
+    .advanced-module-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        border-radius: 999px;
+        padding: .25rem .7rem;
+        background: #eef6ff;
+        color: #15507b;
+        font-size: .8rem;
+        font-weight: 700;
+    }
+
+    .advanced-frame {
+        display: block;
+        width: 100%;
+        min-height: calc(100vh - 280px);
+        border: 0;
+        background: #fff;
+    }
+
+    .advanced-inline-note {
+        border-left: 4px solid var(--aa-warm);
+        background: #fff8f1;
+        color: #7a4a18;
+        border-radius: 10px;
+        padding: .9rem 1rem;
+    }
+
+    @media (max-width: 992px) {
+        .advanced-frame {
+            min-height: 78vh;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 advanced-shell">
+    <section class="advanced-hero mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <h1>Advanced Analysis</h1>
+                <p class="mb-0">提供Pipeline Comparison、DB Alignment、Heatmap、Treemap和Chord分析功能。</p>
+            </div>
+            <div class="advanced-inline-note">
+                支持本地和远程数据源，可自动同步和扫描。
+            </div>
+        </div>
+    </section>
+
+    <section class="advanced-switcher mb-4">
+        <button type="button" class="advanced-module-btn" data-module="pipeline-comparison">
+            <div class="advanced-module-head">
+                <div class="advanced-module-title">Pipeline Comparison</div>
+                <span class="badge text-bg-primary">Pipeline</span>
+            </div>
+            <div class="advanced-module-copy">比较多个 pipeline 目录下的 CDR3 / Copy 字段，生成热图、Venn 与 HTML 报告。</div>
+        </button>
+        <button type="button" class="advanced-module-btn" data-module="db-alignment">
+            <div class="advanced-module-head">
+                <div class="advanced-module-title">DB Alignment</div>
+                <span class="badge text-bg-success">Integrated</span>
+            </div>
+            <div class="advanced-module-copy">执行 VDJdb / McPAS-TCR 匹配，支持 Profile 合并与病理过滤。</div>
+        </button>
+    </section>
+
+    <section class="advanced-frame-card">
+        <div class="advanced-frame-toolbar">
+            <div>
+                <div class="advanced-module-badge" id="advancedModuleBadge">Active Module</div>
+                <h2 id="advancedModuleTitle">Pipeline Comparison</h2>
+                <div class="advanced-module-meta" id="advancedModuleDescription">正在加载模块界面...</div>
+            </div>
+            <a class="btn btn-outline-secondary btn-sm" id="advancedOpenModuleBtn" target="_blank" rel="noopener">
+                <i class="bi bi-box-arrow-up-right me-1"></i>单独打开当前模块
+            </a>
+        </div>
+        <iframe class="advanced-frame" id="advancedModuleFrame" title="Advanced analysis module"></iframe>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/advanced_analysis.js') }}"></script>
+{% endblock %}

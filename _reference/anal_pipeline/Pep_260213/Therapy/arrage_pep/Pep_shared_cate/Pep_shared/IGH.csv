@@ -1,0 +1,10 @@
+CDR3(pep),BW_13__IGH.csv,BW_12__IGH.csv,BW_11__IGH.csv,BW_15__IGH.csv,BW_8__IGH.csv,BW_5__IGH.csv,BW_2__IGH.csv,BW_1__IGH.csv,BW_10__IGH.csv,BW_16__IGH.csv,BW_14__IGH.csv,BW_7__IGH.csv,BW_6__IGH.csv,BW_9__IGH.csv,BW_17__IGH.csv,BW_4__IGH.csv,before__sum,before__count,after__sum,after__count,all_num,category
+category,before,before,before,before,before,before,before,before,after,after,after,after,after,after,after,after, , , , , , 
+CANEIRPNDYW,9.0,0,1.0,7.0,0,0,0,1.0,0,0,0,0,0,0,0,0,18,4,0,0,4,before__count
+CARDFDYW,1.0,1.0,2.0,1.0,0,1.0,0,0,0,3.0,0,0,0,0,0,0,6,5,3,1,6,"('before__count', 'after__count')"
+CARDLGDYW,0,0,0,1.0,0,1.0,0,1.0,1.0,0,3.0,0,0,0,0,0,3,3,4,2,5,"('before__count', 'after__count')"
+CARGNWFDPW,0,0,0,1.0,0,0,1.0,0,0,1.0,0,0,0,0,0,13.0,2,2,14,2,4,"('before__count', 'after__count')"
+CARDLDYW,0,0,0,0,0,1.0,0,0,1.0,0,0,0,3.0,0,0,1.0,1,1,5,3,4,"('before__count', 'after__count')"
+CARGRNWFDPW,0,0,0,0,0,1.0,0,0,0,1.0,0,0,1.0,0,0,1.0,1,1,3,3,4,"('before__count', 'after__count')"
+CARGLDYW,1.0,0,0,0,0,0,0,0,2.0,1.0,82.0,0,0,0,0,0,1,1,85,3,4,"('before__count', 'after__count')"
+CARGDYW,0,0,0,0,0,1.0,0,0,1.0,1.0,0,0,5.0,0,0,0,1,1,7,3,4,"('before__count', 'after__count')"

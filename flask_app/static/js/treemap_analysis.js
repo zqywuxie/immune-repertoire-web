@@ -22,6 +22,7 @@ const TreemapAnalysis = {
     remoteTreeFilter: '',
     remoteBrowserMessage: '',
     isBrowsingRemote: false,
+    projectContext: null,
     fieldMapping: {
         cdr3_column: '',
         copy_column: '',
@@ -41,6 +42,7 @@ const TreemapAnalysis = {
         const modeSelect = document.getElementById('dataSourceMode');
         const remoteSourceSelect = document.getElementById('remoteSourceSelect');
         const remoteTreeSearch = document.getElementById('remoteTreeSearch');
+        const topcloneOnly = document.getElementById('topcloneOnly');
 
         if (modeSelect) {
             this.dataSourceMode = modeSelect.value || 'local';
@@ -53,7 +55,92 @@ const TreemapAnalysis = {
         if (remoteTreeSearch) {
             remoteTreeSearch.addEventListener('input', event => this.handleRemoteTreeSearch(event.target.value));
         }
+        if (topcloneOnly) {
+            topcloneOnly.addEventListener('change', () => this.updateTopcloneOnlyState());
+            this.updateTopcloneOnlyState();
+        }
         this.loadRemoteSources();
+        this.initializeFromProjectContext();
+    },
+
+    getProjectContext() {
+        if (this.projectContext) return this.projectContext;
+        const params = new URLSearchParams(window.location.search);
+        this.projectContext = {
+            projectId: params.get('project_id') || '',
+            projectName: params.get('project_name') || '',
+            basePath: params.get('base_path') || '',
+            autoScan: params.get('auto_scan') === '1'
+        };
+        return this.projectContext;
+    },
+
+    initializeFromProjectContext() {
+        const context = this.getProjectContext();
+        if (!context.projectId) return;
+
+        const container = document.querySelector('.container-fluid.py-4');
+        if (container) {
+            const banner = document.createElement('div');
+            banner.className = 'alert alert-primary d-flex justify-content-between align-items-center gap-3';
+            banner.innerHTML = `
+                <div>
+                    <div class="fw-semibold">项目桥接已启用</div>
+                    <div class="small">当前项目：${this.escapeHtml(context.projectName || context.projectId)}。Treemap 会直接从项目目录扫描数据。</div>
+                </div>
+                <a class="btn btn-sm btn-outline-primary" href="/projects/${encodeURIComponent(context.projectId)}">返回项目详情</a>
+            `;
+            container.insertBefore(banner, container.firstChild);
+        }
+
+        const basePathInput = document.getElementById('basePath');
+        if (basePathInput && context.basePath) {
+            basePathInput.value = context.basePath;
+        }
+        if (context.autoScan && context.basePath) {
+            this.scanFolder();
+        }
+    },
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    },
+
+    async registerProjectResult(payload) {
+        const context = this.getProjectContext();
+        if (!context.projectId) return;
+        try {
+            await fetch(`/api/projects/${encodeURIComponent(context.projectId)}/analysis/treemap/register-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (error) {
+            console.warn('Failed to register treemap result for project:', error);
+        }
+    },
+
+    updateTopcloneOnlyState() {
+        const topcloneOnly = document.getElementById('topcloneOnly');
+        const disableVisuals = Boolean(topcloneOnly?.checked);
+        const minCopyDefault = document.getElementById('minCopyDefault');
+        const layoutModeSelect = document.getElementById('layoutModeSelect');
+        const canvasShapeSelect = document.getElementById('canvasShapeSelect');
+
+        if (minCopyDefault) {
+            minCopyDefault.disabled = disableVisuals;
+        }
+        if (layoutModeSelect) {
+            layoutModeSelect.disabled = disableVisuals;
+        }
+        if (canvasShapeSelect) {
+            canvasShapeSelect.disabled = disableVisuals;
+        }
     },
 
     updateStepIndicator(step) {
@@ -257,8 +344,22 @@ const TreemapAnalysis = {
             if (data.status === 'completed') {
                 this.stopTaskPolling();
                 this.result = data.result;
-                document.getElementById('resultSummary').textContent =
-                    `已生成 ${data.result.sample_count} 个样本的 treemap 结果。点击“新窗口打开查看器”进行查看。`;
+                await this.registerProjectResult({
+                    job_id: data.result?.job_id,
+                    output_base: data.result?.job_id ? `treemap:${data.result.job_id}` : '',
+                    report_path: data.result?.viewer_url || '',
+                    report_url: data.result?.viewer_url || '',
+                    zip_url: data.result?.zip_url || '',
+                    viewer_url: data.result?.viewer_url || '',
+                    metadata: {
+                        sample_count: data.result?.sample_count || 0,
+                        topclone_only: Boolean(data.result?.topclone_only)
+                    }
+                });
+                document.getElementById('resultSummary').textContent = data.result?.topclone_only
+                    ? `已生成 ${data.result.sample_count} 个样本的 topclone 表格结果。可打开结果页或下载 ZIP。`
+                    : `已生成 ${data.result.sample_count} 个样本的 treemap 结果。点击“新窗口打开查看器”进行查看。`;
+                this.updateResultActions();
                 document.getElementById('resultsCard').style.display = 'block';
                 document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 this.hideLoading();
@@ -277,6 +378,20 @@ const TreemapAnalysis = {
             this.stopTaskPolling();
             this.hideLoading();
             this.showError(error.message);
+        }
+    },
+
+    updateResultActions() {
+        const openViewerBtn = document.getElementById('openViewerBtn');
+        const downloadZipBtn = document.getElementById('downloadZipBtn');
+        if (openViewerBtn) {
+            openViewerBtn.style.display = this.result?.viewer_url ? '' : 'none';
+            openViewerBtn.innerHTML = this.result?.topclone_only
+                ? '<i class="bi bi-box-arrow-up-right me-1"></i>打开结果页'
+                : '<i class="bi bi-box-arrow-up-right me-1"></i>新窗口打开查看器';
+        }
+        if (downloadZipBtn) {
+            downloadZipBtn.style.display = this.result?.zip_url ? '' : 'none';
         }
     },
 
@@ -378,8 +493,6 @@ const TreemapAnalysis = {
         this.selectedChains = Array.from(document.querySelectorAll('#chainList input[type="checkbox"]'))
             .filter(checkbox => checkbox.checked)
             .map(checkbox => checkbox.value);
-        this.selectedSampleKeys = new Set();
-        this.detectedSampleSelectionInitialized = false;
         this.renderDetectedSamples();
     },
 
@@ -433,18 +546,10 @@ const TreemapAnalysis = {
     },
 
     syncDetectedSampleSelection(detectedSamples) {
-        const detectedKeys = new Set(detectedSamples.map(sample => sample.sample_key));
         if (!this.detectedSampleSelectionInitialized) {
             this.selectedSampleKeys = new Set(detectedSamples.map(sample => sample.sample_key));
             this.detectedSampleSelectionInitialized = true;
-            return;
         }
-
-        const nextSelection = new Set();
-        this.selectedSampleKeys.forEach(key => {
-            if (detectedKeys.has(key)) nextSelection.add(key);
-        });
-        this.selectedSampleKeys = nextSelection;
     },
 
     updateDetectedSampleSummary(detectedCount = null) {
@@ -545,6 +650,20 @@ const TreemapAnalysis = {
         this.selectedSampleKeys = new Set();
         this.detectedSampleSelectionInitialized = true;
         this.renderDetectedSamples();
+    },
+
+    updateDetectedSampleSummary(detectedCount = null) {
+        const summary = document.getElementById('sampleDetectSummary');
+        if (!summary) return;
+
+        if (!this.selectedChains.length) {
+            summary.textContent = '尚未选择链';
+            return;
+        }
+
+        const total = detectedCount === null ? this.getDetectedSamplesForSelectedChains().length : detectedCount;
+        const selectedVisibleCount = this.getSelectedDetectedSamples().length;
+        summary.textContent = `共识别到 ${total} 个样本，已选择 ${selectedVisibleCount} 个`;
     },
 
     getSelectedDetectedSamples() {
@@ -726,7 +845,9 @@ const TreemapAnalysis = {
                 output_name: document.getElementById('outputName').value.trim(),
                 min_copy_default: Number(document.getElementById('minCopyDefault').value || 30),
                 top_n: Number(document.getElementById('topN').value || 100),
-                layout_mode: document.getElementById('layoutModeSelect')?.value || 'tetris'
+                layout_mode: document.getElementById('layoutModeSelect')?.value || 'tetris',
+                canvas_shape: document.getElementById('canvasShapeSelect')?.value || 'square',
+                topclone_only: Boolean(document.getElementById('topcloneOnly')?.checked)
             }
         };
 

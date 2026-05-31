@@ -107,13 +107,33 @@ const CombinedAnalysis = {
 
     getProjectContext() {
         const params = new URLSearchParams(window.location.search);
+        const parseJsonList = (name) => {
+            const raw = params.get(name) || '';
+            if (!raw) return [];
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed.map(item => String(item || '')).filter(Boolean) : [];
+            } catch (error) {
+                return raw.split(',').map(item => item.trim()).filter(Boolean);
+            }
+        };
         return {
             projectId: params.get('project_id') || '',
             projectName: params.get('project_name') || '',
             basePath: params.get('base_path') || '',
+            localBasePath: params.get('local_base_path') || '',
+            sourceMode: params.get('source_mode') || (params.get('remote_source_id') ? 'remote' : 'local'),
+            remoteSourceId: params.get('remote_source_id') || '',
+            remotePath: params.get('remote_path') || '',
+            remotePepPaths: parseJsonList('remote_pep_paths'),
+            autoSync: params.get('auto_sync') === '1',
             autoScan: params.get('auto_scan') === '1',
             analysisType: params.get('analysis_type') || '',
-            activeModule: params.get('active_module') || ''
+            activeModule: params.get('active_module') || '',
+            chartModules: (params.get('chart_modules') || '')
+                .split(',')
+                .map(item => item.trim().toLowerCase())
+                .filter(Boolean)
         };
     },
 
@@ -121,11 +141,24 @@ const CombinedAnalysis = {
         const context = this.projectContext || this.getProjectContext();
         this.activeModule = context.activeModule || '';
 
-        if (context.basePath) {
+        const effectiveLocalPath = context.localBasePath || context.basePath;
+        const hasRemoteProjectSource = ['remote', 'mixed'].includes(String(context.sourceMode || '').toLowerCase())
+            && context.remoteSourceId
+            && context.remotePath;
+
+        if (effectiveLocalPath) {
             const basePathInput = document.getElementById('basePath');
             if (basePathInput && !basePathInput.value) {
-                basePathInput.value = context.basePath;
+                basePathInput.value = effectiveLocalPath;
             }
+        }
+        if (hasRemoteProjectSource) {
+            this.remoteSourceId = context.remoteSourceId;
+            this.remoteBrowsePath = context.remotePath;
+            this.remoteSelectedPath = context.remotePath;
+            this.dataSourceMode = 'remote';
+            const modeSelect = document.getElementById('dataSourceMode');
+            if (modeSelect) modeSelect.value = 'remote';
         }
 
         if (context.projectId) {
@@ -145,20 +178,58 @@ const CombinedAnalysis = {
             }
         }
 
-        if (context.autoScan && context.basePath && !this._autoScanTriggered) {
+        if (context.autoScan && hasRemoteProjectSource && context.autoSync && !this._autoScanTriggered) {
+            this._autoScanTriggered = true;
+            this.syncProjectRemoteAndScan(context);
+            return;
+        }
+
+        if (context.autoScan && effectiveLocalPath && !this._autoScanTriggered) {
             this._autoScanTriggered = true;
             this.scanFolder();
         }
     },
 
+    async syncProjectRemoteAndScan(context) {
+        this.showLoading('正在同步项目远程目录...');
+        this.setScanSummary?.(`正在同步远程目录 ${context.remotePath}，同步完成后会自动扫描本地缓存。`, 'info');
+        try {
+            const response = await fetch('/api/remote-sources/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_id: context.remoteSourceId,
+                    remote_path: context.remotePath
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '远程同步任务创建失败');
+
+            const result = await this.waitForSyncCompletion(data.task_id);
+            const localCachePath = result?.local_cache_path || '';
+            if (!localCachePath) throw new Error('远程同步完成，但没有返回本地缓存路径');
+
+            const basePathInput = document.getElementById('basePath');
+            if (basePathInput) basePathInput.value = localCachePath;
+            await this.scanLocalFolder(localCachePath, '正在扫描项目远程缓存...');
+        } catch (error) {
+            this.showError(error.message || '项目远程数据同步失败');
+            this.setScanSummary?.(error.message || '项目远程数据同步失败', 'danger');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
     applyInitialModuleSelection() {
         const activeModule = (this.projectContext?.activeModule || '').trim().toLowerCase();
-        if (!activeModule) return;
+        const chartModules = Array.isArray(this.projectContext?.chartModules) ? this.projectContext.chartModules : [];
+        if (!activeModule && !chartModules.length) return;
 
         const inputs = Array.from(document.querySelectorAll('.module-option-input'));
         let matched = false;
         inputs.forEach(input => {
-            const isMatch = (input.value || '').toLowerCase() === activeModule;
+            const value = (input.value || '').toLowerCase();
+            const isMatch = chartModules.length ? chartModules.includes(value) : value === activeModule;
             input.checked = isMatch;
             if (isMatch) matched = true;
         });
@@ -219,20 +290,75 @@ const CombinedAnalysis = {
     },
 
     async onProjectChange(projectId) {
-        if (!projectId) return;
+        if (!projectId) {
+            this.renderProjectAssetSummary(null);
+            return;
+        }
         try {
             const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
             const project = await response.json();
+            this.renderProjectAssetSummary(project);
             const pepAssets = (project.assets || []).filter(a => a.asset_type === 'pep');
-            if (pepAssets.length > 0) {
-                const basePathInput = document.getElementById('basePath');
+            const remotePepAssets = pepAssets.filter(a => !!(a.metadata || {}).remote_source_id);
+            const localPepAssets = pepAssets.filter(a => !(a.metadata || {}).remote_source_id);
+            const basePathInput = document.getElementById('basePath');
+            const modeSelect = document.getElementById('dataSourceMode');
+
+            if (remotePepAssets.length > 0) {
+                const firstRemoteAsset = remotePepAssets[0];
+                const meta = firstRemoteAsset.metadata || {};
+                this.remoteSourceId = meta.remote_source_id || this.remoteSourceId;
+                this.remoteBrowsePath = meta.remote_path || firstRemoteAsset.storage_path || this.remoteBrowsePath;
+                this.remoteSelectedPath = firstRemoteAsset.storage_path || this.remoteBrowsePath;
+            }
+
+            if (localPepAssets.length > 0) {
+                const pepDir = localPepAssets[0].storage_path || '';
                 if (basePathInput && !basePathInput.value) {
-                    basePathInput.value = pepAssets[0].storage_path;
+                    basePathInput.value = pepDir;
                 }
+                if (remotePepAssets.length === 0) {
+                    this.dataSourceMode = 'local';
+                    if (modeSelect) modeSelect.value = 'local';
+                    this.toggleDataSourceMode('local');
+                }
+            } else if (remotePepAssets.length > 0) {
+                this.dataSourceMode = 'remote';
+                if (modeSelect) modeSelect.value = 'remote';
+                if (basePathInput) basePathInput.value = '';
+                this.toggleDataSourceMode('remote');
+                this.setScanSummary('当前项目使用远程 PEP 数据，请同步远程目录后再扫描图表数据。', 'info');
             }
         } catch (error) {
             console.warn('Failed to load project assets for charts:', error);
         }
+    },
+
+    renderProjectAssetSummary(project) {
+        const container = document.getElementById('combinedProjectAssets');
+        if (!container) return;
+        if (!project) {
+            container.innerHTML = '<span class="text-muted small">请选择项目以查看图表可用数据。</span>';
+            return;
+        }
+
+        const assets = project.assets || [];
+        const pepAssets = assets.filter(a => a.asset_type === 'pep');
+        const rawAssets = assets.filter(a => a.asset_type === 'raw_archive');
+        const remoteCount = assets.filter(a => !!(a.metadata || {}).remote_source_id).length;
+        const localCount = assets.length - remoteCount;
+
+        if (!assets.length) {
+            container.innerHTML = '<span class="text-muted small">当前项目暂无已登记数据，可在下方手动选择目录。</span>';
+            return;
+        }
+
+        container.innerHTML = [
+            `<span class="chart-asset-pill">PEP <span>${pepAssets.length}</span></span>`,
+            `<span class="chart-asset-pill">Raw <span>${rawAssets.length}</span></span>`,
+            `<span class="chart-asset-pill">本地 <span>${localCount}</span></span>`,
+            `<span class="chart-asset-pill">远程 <span>${remoteCount}</span></span>`
+        ].join('');
     },
 
     escapeHtml(value) {
@@ -255,18 +381,23 @@ const CombinedAnalysis = {
 toggleDataSourceMode(mode = 'local') {
         this.dataSourceMode = mode;
         const remotePanel = document.getElementById('remoteSourcePanel');
+        const localPanel = document.getElementById('chartLocalSourcePanel');
         const basePathInput = document.getElementById('basePath');
-        const scanButton = document.querySelector('button[onclick="CombinedAnalysis.scanFolder()"]');
+        const scanButton = document.getElementById('chartScanButton')
+            || document.querySelector('button[onclick="CombinedAnalysis.scanFolder()"]');
         
         if (remotePanel) {
             remotePanel.classList.toggle('d-none', mode !== 'remote');
         }
+        if (localPanel) {
+            localPanel.classList.toggle('d-none', mode !== 'local');
+        }
         
         // Show/hide local input based on mode
-        if (basePathInput) {
+        if (basePathInput && !localPanel) {
             basePathInput.closest('.row').style.display = mode === 'local' ? '' : 'none';
         }
-        if (scanButton) {
+        if (scanButton && !localPanel) {
             scanButton.closest('.col-lg-3').style.display = mode === 'local' ? '' : 'none';
         }
         
@@ -326,12 +457,19 @@ toggleDataSourceMode(mode = 'local') {
                 remoteSourceSelect.appendChild(option);
             });
 
-            this.remoteSourceId = this.remoteSources[0].id;
+            const currentSourceId = this.remoteSourceId;
+            const hasCurrentSource = currentSourceId
+                && this.remoteSources.some(source => source.id === currentSourceId);
+            this.remoteSourceId = hasCurrentSource ? currentSourceId : this.remoteSources[0].id;
             remoteSourceSelect.value = this.remoteSourceId;
             this.updateRemoteHint('已加载 SSH 数据源，请选择目录后点击"同步并扫描目录"。', 'secondary');
 
             if (this.dataSourceMode === 'remote') {
-                await this.browseRemoteRoot();
+                if (this.remoteBrowsePath) {
+                    await this.browseRemotePath(this.remoteBrowsePath);
+                } else {
+                    await this.browseRemoteRoot();
+                }
             }
         } catch (error) {
             this.remoteSources = [];
@@ -518,7 +656,7 @@ toggleDataSourceMode(mode = 'local') {
                     const data = await response.json();
                     
                     if (data.status === 'completed') {
-                        resolve();
+                        resolve(data.result || {});
                         return;
                     }
                     
@@ -1095,6 +1233,7 @@ toggleDataSourceMode(mode = 'local') {
                         treemap_min_copy_default: Number(document.getElementById('treemapMinCopyDefault')?.value || 30),
                         treemap_top_n: Number(document.getElementById('treemapTopN')?.value || 100),
                         treemap_layout_mode: document.getElementById('treemapLayoutMode')?.value || 'tetris',
+                        treemap_canvas_shape: document.getElementById('treemapCanvasShape')?.value || 'square',
                         treemap_topclone_only: document.getElementById('treemapTopcloneOnly')?.checked ?? false
                     }
                 })

@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+
+{% block title %}分析总览{% endblock %}
+
+{% block extra_css %}
+<style>
+  .analysis-overview {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+
+  .ao-hero {
+    border: 1px solid #dbe6ef;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #f7fbff 0%, #f3faf5 58%, #fff8ef 100%);
+    padding: 1.45rem 1.55rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .ao-hero-copy {
+    color: #607589;
+    max-width: 760px;
+  }
+
+  .ao-workflows {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .ao-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 260px;
+    border: 1px solid #d9e4ec;
+    border-radius: 1rem;
+    background: #fff;
+    padding: 1.1rem;
+    color: #183247;
+    text-decoration: none;
+    box-shadow: 0 14px 30px rgba(24, 50, 71, .06);
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+
+  .ao-card:hover {
+    transform: translateY(-2px);
+    border-color: #9bbbd0;
+    box-shadow: 0 18px 36px rgba(24, 50, 71, .1);
+    color: #183247;
+  }
+
+  .ao-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    border-radius: .9rem;
+    background: #eef7f3;
+    color: #0f684d;
+    font-size: 1.25rem;
+    margin-bottom: .9rem;
+  }
+
+  .ao-card-title {
+    font-size: 1.05rem;
+    font-weight: 760;
+    margin-bottom: .35rem;
+  }
+
+  .ao-card-copy {
+    color: #607589;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+  }
+
+  .ao-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    margin-top: auto;
+  }
+
+  .ao-chip {
+    border: 1px solid #dde7ee;
+    border-radius: 999px;
+    padding: .28rem .62rem;
+    background: #f8fbfd;
+    color: #426176;
+    font-size: .8rem;
+    font-weight: 650;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 analysis-overview">
+  <section class="ao-hero">
+    <h1 class="h3 mb-2">分析总览</h1>
+    <p class="ao-hero-copy mb-0">先选择数据处理工作流，具体的分析模块在下游步骤中选择。图表报告与脚本分析已经合并到同一个项目数据入口。</p>
+  </section>
+
+  <section class="ao-workflows">
+    <a class="ao-card" href="{{ url_for('pages.script_hub_page') }}">
+      <span class="ao-card-icon"><i class="bi bi-terminal"></i></span>
+      <div class="ao-card-title">综合分析</div>
+      <p class="ao-card-copy">统一选择项目、本地/远程数据路径，然后在下游选择图表报告或脚本分析模块。</p>
+      <div class="ao-chip-list">
+        <span class="ao-chip">Heatmap</span>
+        <span class="ao-chip">Treemap</span>
+        <span class="ao-chip">Chord</span>
+        <span class="ao-chip">DB Alignment</span>
+        <span class="ao-chip">BoxPlot</span>
+      </div>
+    </a>
+
+    <a class="ao-card" href="{{ url_for('pages.pipeline_comparison_page') }}">
+      <span class="ao-card-icon"><i class="bi bi-diagram-3"></i></span>
+      <div class="ao-card-title">Pipeline Comparison</div>
+      <p class="ao-card-copy">针对 pipeline 根目录的专用比较流程，适合比较多个 pipeline 输出之间的 CDR3 与 copy 差异。</p>
+      <div class="ao-chip-list">
+        <span class="ao-chip">Pipeline Root</span>
+        <span class="ao-chip">Heatmap</span>
+        <span class="ao-chip">Venn</span>
+        <span class="ao-chip">Report</span>
+      </div>
+    </a>
+  </section>
+</div>
+{% endblock %}

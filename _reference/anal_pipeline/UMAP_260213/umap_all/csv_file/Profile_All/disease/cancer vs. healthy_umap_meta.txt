@@ -1,0 +1,8 @@
+category=disease
+group=cancer vs. healthy
+types=['cancer', 'healthy']
+params=['TRG_percent_reads_all', 'IGH_percent_reads_all', 'IGL_percent_reads_all', 'Aligned_IGH', 'Aligned_IGL', 'IGH_reads', 'IGL_reads', 'TRG_percent_reads', 'IGH_percent_reads', 'IGL_percent_reads', 'TRD_percent_ucdr3', 'TRG_percent_ucdr3', 'IGH_percent_ucdr3', 'TRA_Shannon', 'TRA_Pielou_evenness', 'TRA_Simpson', 'TRA_Simpson_evenness', 'TRA_Gini_index', 'TRA_d50', 'TRA_Largest_clone_percent', 'TRB_Shannon', 'TRB_Pielou_evenness', 'TRB_Simpson', 'TRB_Simpson_evenness', 'TRB_Gini_index', 'TRB_d50', 'TRB_Largest_clone_percent', 'TRD_Shannon', 'TRD_Pielou_evenness', 'TRD_Gini_index', 'TRG_Shannon', 'IGH_Pielou_evenness', 'IGH_Gini_index', 'IGH_d50', 'IGK_Shannon', 'IGK_Gini_index', 'IGL_Shannon', 'IGL_Pielou_evenness', 'IGL_Gini_index', 'IGL_d50', 'IGHA_percent_by_reads', 'IGHD_percent_by_reads', 'IGHG12_percent_by_reads', 'IGHM_percent_by_reads', 'IGHG12_percent_by_clone', 'class_switched_percent_by_reads', 'naive_mutated_percent_by_reads', 'naive_unmutated_percent_by_reads', 'class_switched_percent_by_clone', 'naive_mutated_percent_by_clone', 'IGHA-IGHG12_CSR0', 'IGHA-IGHG12_CSR1', 'IGHG34-IGHM_IGHD_CSR1', 'IGHG34_observed_as_other_isotype', 'IGH_SHM0', 'IGH_SHM1']
+n_neighbors=6
+min_dist=0.01
+random_state=40
+n_epochs=50

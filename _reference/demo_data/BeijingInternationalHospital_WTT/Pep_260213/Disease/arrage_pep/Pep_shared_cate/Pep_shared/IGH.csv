@@ -1,0 +1,4 @@
+CDR3(pep),BW_13__IGH.csv,BW_12__IGH.csv,BW_11__IGH.csv,BW_15__IGH.csv,BW_8__IGH.csv,BW_5__IGH.csv,BW_2__IGH.csv,BW_1__IGH.csv,LFJ__IGH.csv,WJW__IGH.csv,WDM__IGH.csv,BF__IGH.csv,GH03_W_ZXM1225__IGH.csv,GH03_W_LXZ1225__IGH.csv,HL_W_LS0121__IGH.csv,HL_W_XQF1225__IGH.csv,iRNormal_XH__IGH.csv,cancer__sum,cancer__count,healthy__sum,healthy__count,all_num,category
+category,cancer,cancer,cancer,cancer,cancer,cancer,cancer,cancer,healthy,healthy,healthy,healthy,healthy,healthy,healthy,healthy,healthy, , , , , , 
+CARDFDYW,1.0,1.0,2.0,1.0,0,1.0,0,0,0,0,0,0,1.0,1.0,0,0,0,6,5,2,2,7,"('cancer__count', 'healthy__count')"
+CARGNWFDPW,0,0,0,1.0,0,0,1.0,0,0,0,1.0,0,1.0,1.0,0,1.0,0,2,2,4,4,6,"('cancer__count', 'healthy__count')"

@@ -1,0 +1,11 @@
+{
+  "groups": [
+    {
+      "name": "case",
+      "sample_names": [
+        "Sample1",
+        "Sample2"
+      ]
+    }
+  ]
+}

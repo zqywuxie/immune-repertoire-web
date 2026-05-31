@@ -98,6 +98,10 @@ class SSHFileProvider:
 
         raw = str(path).strip().replace("\\", "/")
         candidate = _normalize_remote_path(raw if raw.startswith("/") else posixpath.join(root, raw))
+
+        if candidate == "/" and root != "/":
+            return root
+
         if not _is_within_root(root, candidate):
             raise ValidationError(
                 message="Remote path is outside the configured root directory",
@@ -273,6 +277,36 @@ class SSHFileProvider:
         walk(remote_root)
         collected.sort(key=lambda item: item["relative_path"].lower())
         return collected
+
+    def read_file_bytes(self, remote_path: str) -> bytes:
+        resolved = self.resolve_remote_path(remote_path)
+        with self.open_sftp() as sftp_client:
+            with sftp_client.open(resolved, 'rb') as remote_file:
+                return remote_file.read()
+
+    def search_files(self, remote_path: str, pattern: str) -> List[str]:
+        resolved = self.resolve_remote_path(remote_path)
+        results: List[str] = []
+        with self.open_sftp() as sftp_client:
+            self._search_files_recursive(sftp_client, resolved, pattern, results)
+        results.sort()
+        return results
+
+    def _search_files_recursive(self, sftp_client: Any, current_path: str, pattern: str, results: List[str]) -> None:
+        import fnmatch
+        try:
+            for item in sftp_client.listdir_attr(current_path):
+                name = item.filename
+                child_path = _normalize_remote_path(posixpath.join(current_path, name))
+                if stat.S_ISDIR(item.st_mode):
+                    if name.startswith('.') or name in {'__pycache__', 'node_modules'}:
+                        continue
+                    self._search_files_recursive(sftp_client, child_path, pattern, results)
+                else:
+                    if fnmatch.fnmatch(name, pattern):
+                        results.append(child_path)
+        except Exception:
+            pass
 
     @staticmethod
     def _matches_allowed_extension(filename: str, allowed_exts: set[str]) -> bool:

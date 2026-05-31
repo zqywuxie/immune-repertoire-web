@@ -185,6 +185,16 @@ body {
     margin: var(--spacing-4) 0;
 }
 
+.sidebar-section-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-2);
+    padding: 0 var(--spacing-2);
+}
+
 /* ============================================
    NAVBAR - CLEAN AND PROFESSIONAL
    ============================================ */
@@ -236,6 +246,22 @@ body {
     background-color: var(--bg-secondary);
     border-color: var(--primary-color);
     color: var(--primary-color);
+}
+
+.navbar-actions {
+    flex-wrap: wrap;
+}
+
+.btn-workspace-switch {
+    background-color: var(--text-primary);
+    border-color: var(--text-primary);
+    color: white;
+}
+
+.btn-workspace-switch:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+    color: white;
 }
 
 /* ============================================
@@ -1573,6 +1599,82 @@ html.sidebar-precollapsed .main-content {
     padding: 2px 6px;
 }
 
+/* BoxPlot multi-select group fields */
+.sh-group-multiselect {
+    min-height: 120px;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    padding: 0.375rem;
+}
+
+.sh-group-multiselect option {
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.sh-group-multiselect option:checked {
+    background: var(--bs-primary, #0d6efd) linear-gradient(0deg, var(--bs-primary, #0d6efd) 0%, var(--bs-primary, #0d6efd) 100%);
+    color: #fff;
+}
+
+/* BoxPlot image card */
+.sh-boxplot-img-card {
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    background: #fff;
+    text-align: center;
+}
+
+.sh-boxplot-thumb {
+    max-width: 100%;
+    max-height: 500px;
+    object-fit: contain;
+    border-radius: 0.25rem;
+}
+
+/* Significance report area */
+.sh-significance-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Sortable group chips */
+.sh-sortable-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    padding: 0.5rem;
+    border: 1px dashed var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    min-height: 2.5rem;
+    align-items: center;
+}
+
+.sh-sortable-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    background: var(--bs-light, #f8f9fa);
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 1rem;
+    font-size: 0.8125rem;
+    cursor: grab;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.sh-sortable-chip:hover {
+    background: var(--bs-primary-bg-subtle, #cfe2ff);
+    border-color: var(--bs-primary, #0d6efd);
+}
+
+.sh-sortable-chip:active {
+    cursor: grabbing;
+}
+
 /* Responsive adjustments */
 @media (max-width: 575.98px) {
 
@@ -1580,4 +1682,18 @@ html.sidebar-precollapsed .main-content {
     .group-sample-grid {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .sh-boxplot-thumb {
+        max-height: 300px;
+    }
+}
+
+/* Pep analysis chain selector chip */
+.sh-chip-chain {
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.sh-chip-chain:hover {
+    opacity: 0.85;
 }

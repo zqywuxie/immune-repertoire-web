@@ -145,7 +145,7 @@
         <div class="row align-items-center g-3">
             <div class="col-lg-8">
                 <h1 class="hero-title">免疫组库数据分析平台</h1>
-                <p class="hero-desc">支持相似度热图、多样性指标、链特异分析、统计比较等常用分析流程。</p>
+                <p class="hero-desc">提供相似度热图、多样性指标、链特异分析、统计比较等功能。</p>
             </div>
             <div class="col-lg-4 text-lg-end">
                 <a href="{{ url_for('pages.analysis_page') }}" class="btn btn-primary">
@@ -186,6 +186,17 @@
                     </div>
                     <h6 class="mb-1">数据分析</h6>
                     <small class="text-muted">执行分析任务</small>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-4">
+            <a href="{{ url_for('pages.projects_page') }}" class="card action-card h-100 text-decoration-none">
+                <div class="card-body">
+                    <div class="action-icon" style="background: rgba(13, 110, 253, 0.08);">
+                        <i class="bi bi-kanban text-primary fs-4"></i>
+                    </div>
+                    <h6 class="mb-1">项目管理</h6>
+                    <small class="text-muted">管理项目、样本摘要、pep 资产与分析结果</small>
                 </div>
             </a>
         </div>
@@ -260,7 +271,7 @@
                             </div>
                             <div class="analysis-content">
                                 <a href="{{ url_for('pages.similarity_heatmap_page') }}" class="analysis-title">自动热图分析</a>
-                                <p class="analysis-desc">支持字段映射、样本分组与批量处理，适合标准化流程。</p>
+                                <p class="analysis-desc">支持字段映射、样本分组和批量处理。</p>
                             </div>
                         </div>
                     </div>

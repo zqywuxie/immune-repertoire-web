@@ -108,8 +108,8 @@ def _merge_progress_meta(
 def _build_sample_payload(job_id: str, sample_info: Dict[str, Any]) -> Dict[str, Any]:
     individual_urls = {
         chain: {
-            "html": url_for("treemap.get_treemap_result_file", job_id=job_id, relative_path=paths["html"]),
-            "png": url_for("treemap.get_treemap_result_file", job_id=job_id, relative_path=paths["png"]),
+            kind: url_for("treemap.get_treemap_result_file", job_id=job_id, relative_path=relative_path)
+            for kind, relative_path in paths.items()
         }
         for chain, paths in sample_info.get("individual_treemaps", {}).items()
     }
@@ -139,8 +139,10 @@ def _run_treemap_task(
     output_name: str | None,
     min_copy_default: Any,
     top_n: Any,
+    topclone_only: Any,
     style: Any,
     layout_mode: Any,
+    canvas_shape: Any,
 ) -> None:
     try:
         service = get_treemap_report_service(results_root=results_root)
@@ -179,36 +181,46 @@ def _run_treemap_task(
             output_name=output_name,
             min_copy_default=min_copy_default,
             top_n=top_n,
+            topclone_only=bool(topclone_only),
             style=style,
             layout_mode=layout_mode,
+            canvas_shape=canvas_shape,
             progress_callback=on_progress,
         )
 
         result_samples = result.metadata.get("samples", [])
+        topclone_only = bool(result.metadata.get("topclone_only"))
+        completion_detail = (
+            f"共生成 {len(result_samples)} 个样本的 topclone 结果。"
+            if topclone_only
+            else f"共生成 {len(result_samples)} 个样本的 treemap 结果。"
+        )
         _set_task_state(
             task_id,
             status="completed",
             progress=100.0,
             stage="任务完成",
-            detail=f"共生成 {len(result_samples)} 个样本的 treemap 结果。",
+            detail=completion_detail,
             result={
                 "job_id": result.job_id,
                 "sample_count": len(result_samples),
                 "viewer_url": f"/api/treemap/results/{result.job_id}/viewer.html",
                 "zip_url": f"/api/treemap/export-zip/{result.job_id}",
+                "topclone_only": topclone_only,
             },
         )
         task_history = (_get_task_state(task_id) or {}).get("history", [])
         completion_entry = _history_entry(
             100.0,
             "任务完成",
-            f"共生成 {len(result_samples)} 个样本的 treemap 结果。",
+            completion_detail,
             {
                 "phase": "completed",
                 "generated_samples": len(result_samples),
                 "total_samples": len(samples),
                 "selected_chain_count": len(selected_chains),
                 "selected_chains": list(selected_chains),
+                "topclone_only": topclone_only,
             },
         )
         if not task_history or (
@@ -220,13 +232,14 @@ def _run_treemap_task(
         _set_task_state(
             task_id,
             stage="任务完成",
-            detail=f"共生成 {len(result_samples)} 个样本的 treemap 结果。",
+            detail=completion_detail,
             meta={
                 "phase": "completed",
                 "generated_samples": len(result_samples),
                 "total_samples": len(samples),
                 "selected_chain_count": len(selected_chains),
                 "selected_chains": list(selected_chains),
+                "topclone_only": topclone_only,
             },
             history=task_history[-60:],
         )
@@ -283,12 +296,16 @@ def generate_treemap():
         output_name = str(config.get("output_name") or "").strip() or None
         min_copy_default = config.get("min_copy_default", 30)
         top_n = config.get("top_n", 100)
+        topclone_only = bool(config.get("topclone_only"))
         style = str(config.get("style") or "classic").strip().lower()
         if style not in {"classic", "minimal"}:
             style = "classic"
         layout_mode = str(config.get("layout_mode") or "tetris").strip().lower()
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
+        canvas_shape = str(config.get("canvas_shape") or "square").strip().lower()
+        if canvas_shape not in {"square", "portrait"}:
+            canvas_shape = "square"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
@@ -338,8 +355,10 @@ def generate_treemap():
             output_name=output_name,
             min_copy_default=min_copy_default,
             top_n=top_n,
+            topclone_only=topclone_only,
             style=style,
             layout_mode=layout_mode,
+            canvas_shape=canvas_shape,
         )
 
         return jsonify(
@@ -405,6 +424,7 @@ def get_treemap_job(job_id: str):
                 "samples": samples,
                 "default_sample": default_sample.get("sample_name"),
                 "default_chain": default_chain,
+                "topclone_only": bool(metadata.get("topclone_only")),
                 "zip_url": url_for("treemap.export_treemap_zip", job_id=job_id),
             }
         )

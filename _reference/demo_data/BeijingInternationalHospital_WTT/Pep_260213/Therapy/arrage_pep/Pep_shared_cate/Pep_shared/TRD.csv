@@ -1,0 +1,4 @@
+CDR3(pep),BW_15__TRD.csv,BW_13__TRD.csv,BW_12__TRD.csv,BW_11__TRD.csv,BW_5__TRD.csv,BW_8__TRD.csv,BW_2__TRD.csv,BW_1__TRD.csv,BW_10__TRD.csv,BW_14__TRD.csv,BW_16__TRD.csv,BW_7__TRD.csv,BW_6__TRD.csv,BW_9__TRD.csv,BW_4__TRD.csv,BW_17__TRD.csv,before__sum,before__count,after__sum,after__count,all_num,category
+category,before,before,before,before,before,before,before,before,after,after,after,after,after,after,after,after, , , , , , 
+CACDTLGDTDKLIF,0,0,0,1.0,0,0,0,4.0,1.0,0,7.0,0,0,0,0,4.0,5,2,12,3,5,"('before__count', 'after__count')"
+CACDTVGGYTDKLIF,0,0,3.0,1.0,0,0,0,0,0,0,14.0,0,0,0,0,42.0,4,2,56,2,4,"('before__count', 'after__count')"

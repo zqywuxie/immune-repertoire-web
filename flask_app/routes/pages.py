@@ -29,8 +29,9 @@ def resolve_workspace(default=ANALYSIS_WORKSPACE):
 
 def redirect_to_combined_module(active_module: str):
     query_params = request.args.to_dict(flat=True)
-    query_params['active_module'] = active_module
-    base_url = url_for('pages.combined_report_page')
+    query_params['active_module'] = 'charts'
+    query_params['chart_module'] = active_module
+    base_url = url_for('pages.script_hub_page')
     return redirect(f"{base_url}?{urlencode(query_params)}" if query_params else base_url)
 
 
@@ -91,9 +92,14 @@ def analysis_page():
 
 @pages_bp.route('/simple-analysis')
 def simple_analysis_page():
-    """Simple analysis page - redirect to /analysis.
-    """
+    """Simple analysis page - redirect to /analysis."""
     return redirect(url_for('pages.analysis_page'))
+
+
+@pages_bp.route('/analysis/workflows')
+def analysis_workflows_page():
+    """Workflow-level entry page for integrated analysis modules."""
+    return render_page('analysis_overview.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/config')
@@ -258,7 +264,16 @@ def advanced_analysis_page():
 
 @pages_bp.route('/analysis/combined-report')
 def combined_report_page():
-    """Unified chart analysis page for heatmap, treemap, and chord outputs."""
+    """Legacy chart analysis page.
+
+    The normal entry is now Script Hub's shared project/data workflow. The
+    legacy page remains available for embedded/downstream chart configuration.
+    """
+    if request.args.get('legacy') not in {'1', 'true', 'yes'} and request.args.get('embedded') not in {'1', 'true', 'yes'}:
+        query_params = request.args.to_dict(flat=True)
+        query_params['active_module'] = 'charts'
+        target_url = url_for('pages.script_hub_page')
+        return redirect(f"{target_url}?{urlencode(query_params)}" if query_params else target_url)
     return render_page('analysis/combined_analysis.html', workspace=ANALYSIS_WORKSPACE)
 
 
@@ -272,5 +287,5 @@ def pipeline_comparison_page():
 
 @pages_bp.route('/analysis/script-hub')
 def script_hub_page():
-    """Unified script-style analysis entry. Currently exposes DB alignment."""
+    """Unified project/data analysis entry for scripts and chart reports."""
     return render_page('analysis/script_hub.html', workspace=ANALYSIS_WORKSPACE)

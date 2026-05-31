@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 import os
 import posixpath
 import threading
@@ -93,6 +94,17 @@ def _resolve_results_root() -> Path:
     if not results_root.is_absolute():
         results_root = Path(current_app.root_path) / results_root
     return results_root.resolve()
+
+
+def _sanitize_nan(obj: Any) -> Any:
+    """Recursively replace float('nan')/inf with None for JSON compliance."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_nan(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -817,6 +829,12 @@ def list_modules():
             "success": True,
             "modules": [
                 {
+                    "key": "charts",
+                    "label": "综合图表报告",
+                    "status": "available",
+                    "description": "复用项目数据选择流程，进入 Heatmap / Treemap / Chord 的图表报告配置。",
+                },
+                {
                     "key": "db-alignment",
                     "label": "数据库比对",
                     "status": "available",
@@ -1180,6 +1198,8 @@ def _run_topclone_task(
     results_root: Path,
     pep_data_path: str,
     datapoint_path: str,
+    source_id: Optional[str] = None,
+    remote_path: Optional[str] = None,
     mode: str = "trace",
     top_n: int = 10,
     group_field: Optional[str] = None,
@@ -1191,10 +1211,39 @@ def _run_topclone_task(
     try:
         _record_stage(task_id, 5, "TopClone inspect", f"Scanning {pep_data_path}", {"module": module_name})
 
+        local_pep = pep_data_path
+        local_dp = datapoint_path
+        if source_id and remote_path and not Path(pep_data_path).exists():
+            import tempfile
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            # Download all PEP files to temp directory
+            tmpdir = tempfile.mkdtemp()
+            found = provider.search_files(pep_data_path, "*.csv") or []
+            for remote_file in found:
+                try:
+                    name = posixpath.basename(remote_file) or remote_file
+                    content = provider.read_file_bytes(remote_file)
+                    dest = Path(tmpdir) / name
+                    dest.write_bytes(content)
+                except Exception:
+                    continue
+            local_pep = tmpdir
+            # Download datapoint file to temp file
+            if datapoint_path:
+                try:
+                    dp_bytes = provider.read_file_bytes(datapoint_path)
+                    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+                    tmp.write(dp_bytes)
+                    tmp.close()
+                    local_dp = tmp.name
+                except Exception:
+                    pass
+
         service = TopCloneService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
-            pep_data_path=pep_data_path,
-            datapoint_path=datapoint_path,
+            pep_data_path=local_pep,
+            datapoint_path=local_dp,
             mode=mode,
             top_n=top_n,
             group_field=group_field,
@@ -1268,35 +1317,73 @@ def inspect_topclone():
     try:
         data = request.get_json() or {}
         pep_data_path = str(data.get("pep_data_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         if not pep_data_path:
             raise ValidationError(message="pep_data_path is required", details={"field": "pep_data_path"})
-
-        pep_data = Path(pep_data_path)
-        if not pep_data.exists():
-            raise ValidationError(message="pep_data path does not exist", details={"pep_data_path": pep_data_path})
-
-        service = TopCloneService(output_parent=_resolve_results_root() / _RESULT_DIR)
-        chain_files = service._discover_files(pep_data)
-
-        chains = sorted(chain_files.keys())
-        samples: List[str] = []
-        for ch, files in chain_files.items():
-            for f in files:
-                s = service._parse_sample_name(f, ch)
-                if s not in samples:
-                    samples.append(s)
-
         datapoint_path = str(data.get("datapoint_path") or "").strip()
-        category_cols: List[str] = []
-        if datapoint_path:
-            dp = Path(datapoint_path)
-            if dp.exists() and dp.is_file():
-                dp_df = pd.read_csv(dp, nrows=0)
-                category_cols = [c for c in dp_df.columns if c != "sample"]
+
+        if source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            found = provider.search_files(pep_data_path, "*.csv") or []
+            chain_files: Dict[str, List[str]] = {}
+            samples: List[str] = []
+            for fpath in found:
+                name = posixpath.basename(fpath) or ""
+                if "__" not in name and "_" not in name:
+                    continue
+                # Simple chain detection from filename
+                for suffix in [".csv", ".csv.gz"]:
+                    if name.endswith(suffix):
+                        stem = name[:-len(suffix)]
+                        if "__" in stem:
+                            chain = stem.rsplit("__", 1)[-1].upper()
+                        elif "_" in stem:
+                            chain = stem.rsplit("_", 1)[-1].upper()
+                        else:
+                            continue
+                        chain = _normalize_chain(chain)
+                        chain_files.setdefault(chain, []).append(fpath)
+                        s = stem.rsplit("__", 1)[0] if "__" in stem else stem.rsplit("_", 1)[0]
+                        if s not in samples:
+                            samples.append(s)
+                        break
+            chains = sorted(chain_files.keys())
+
+            category_cols: List[str] = []
+            if datapoint_path:
+                try:
+                    dp_bytes = provider.read_file_bytes(datapoint_path)
+                    dp_df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+                    category_cols = [c for c in dp_df.columns if c != "sample"]
+                except Exception:
+                    pass
+        else:
+            pep_data = Path(pep_data_path)
+            if not pep_data.exists():
+                raise ValidationError(message="pep_data path does not exist", details={"pep_data_path": pep_data_path})
+
+            service = TopCloneService(output_parent=_resolve_results_root() / _RESULT_DIR)
+            chain_files_raw = service._discover_files(pep_data)
+            chains = sorted(chain_files_raw.keys())
+            samples = []
+            for ch, files in chain_files_raw.items():
+                for f in files:
+                    s = service._parse_sample_name(f, ch)
+                    if s not in samples:
+                        samples.append(s)
+
+            category_cols: List[str] = []
+            if datapoint_path:
+                dp = Path(datapoint_path)
+                if dp.exists() and dp.is_file():
+                    dp_df = pd.read_csv(dp, nrows=0)
+                    category_cols = [c for c in dp_df.columns if c != "sample"]
 
         return jsonify({
             "success": True,
-            "pep_data_path": str(pep_data),
+            "pep_data_path": pep_data_path,
             "chains": chains,
             "chain_count": len(chains),
             "sample_count": len(samples),
@@ -1319,6 +1406,8 @@ def run_topclone():
 
         pep_data_path = str(data.get("pep_data_path") or "").strip()
         datapoint_path = str(data.get("datapoint_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         mode = str(data.get("mode") or "trace").strip()
         top_n = int(data.get("top_n") or 10)
         group_field = str(data.get("group_field") or "").strip() or None
@@ -1349,6 +1438,8 @@ def run_topclone():
             results_root=_resolve_results_root(),
             pep_data_path=pep_data_path,
             datapoint_path=datapoint_path,
+            source_id=source_id,
+            remote_path=remote_path,
             mode=mode,
             top_n=top_n,
             group_field=group_field,
@@ -1523,20 +1614,23 @@ def inspect_pep_analysis():
     try:
         data = request.get_json() or {}
         base_path = str(data.get("base_path") or "").strip()
-        if not base_path:
-            raise ValidationError(message="base_path is required", details={"field": "base_path"})
-
-        base = Path(base_path)
-        if not base.exists():
-            raise ValidationError(message="Base path does not exist", details={"base_path": base_path})
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
 
         # Discover pep files: {Sample}__{Chain}.csv
         discovered_chains: set[str] = set()
         sample_names: set[str] = set()
         pep_file_count = 0
-        for root, dirs, filenames in os.walk(str(base)):
-            for filename in filenames:
-                if filename.endswith(".csv") and "__" in filename:
+
+        if source_id and remote_path:
+            if not base_path:
+                raise ValidationError(message="base_path is required", details={"field": "base_path"})
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            found = provider.search_files(base_path, "*.csv") or []
+            for fpath in found:
+                filename = posixpath.basename(fpath) or ""
+                if "__" in filename and filename.endswith(".csv"):
                     parts = filename.replace(".csv", "").rsplit("__", 1)
                     if len(parts) == 2:
                         chain = parts[1].upper()
@@ -1545,28 +1639,61 @@ def inspect_pep_analysis():
                             sample_names.add(parts[0])
                             pep_file_count += 1
 
+            # Search for Profile CSV
+            profile_candidates: List[str] = []
+            profile_columns: List[str] = []
+            for sp in [base_path, str(Path(base_path).parent) if base_path != "/" else None]:
+                if sp is None:
+                    continue
+                try:
+                    pf = provider.search_files(sp, "Profile*.csv") or []
+                    profile_candidates.extend(pf[:10])
+                except Exception:
+                    continue
+            if profile_candidates:
+                try:
+                    dp_bytes = provider.read_file_bytes(profile_candidates[0])
+                    profile_columns = pd.read_csv(io.BytesIO(dp_bytes), nrows=0).columns.tolist()
+                except Exception:
+                    pass
+        else:
+            if not base_path:
+                raise ValidationError(message="base_path is required", details={"field": "base_path"})
+            base = Path(base_path)
+            if not base.exists():
+                raise ValidationError(message="Base path does not exist", details={"base_path": base_path})
+
+            for root, dirs, filenames in os.walk(str(base)):
+                for filename in filenames:
+                    if filename.endswith(".csv") and "__" in filename:
+                        parts = filename.replace(".csv", "").rsplit("__", 1)
+                        if len(parts) == 2:
+                            chain = parts[1].upper()
+                            if chain in _SUPPORTED_CHAINS_WIDE:
+                                discovered_chains.add(chain)
+                                sample_names.add(parts[0])
+                                pep_file_count += 1
+
+            profile_candidates: List[str] = []
+            profile_columns: List[str] = []
+            for root in [base, base.parent] if base.parent != base else [base]:
+                for candidate in sorted(root.glob("Profile*.csv"))[:10]:
+                    profile_candidates.append(str(candidate.resolve()))
+                for candidate in sorted(root.glob("*Profile*.csv"))[:10]:
+                    p = str(candidate.resolve())
+                    if p not in profile_candidates:
+                        profile_candidates.append(p)
+            if profile_candidates:
+                try:
+                    profile_columns = pd.read_csv(profile_candidates[0], nrows=0).columns.tolist()
+                except Exception:
+                    pass
+
         if not discovered_chains:
             raise ValidationError(
                 message="No pep files detected. Expected format: {Sample}__{Chain}.csv",
                 details={"base_path": base_path},
             )
-
-        # Search for Profile CSV
-        profile_candidates: List[str] = []
-        profile_columns: List[str] = []
-        for root in [base, base.parent] if base.parent != base else [base]:
-            for candidate in sorted(root.glob("Profile*.csv"))[:10]:
-                profile_candidates.append(str(candidate.resolve()))
-            for candidate in sorted(root.glob("*Profile*.csv"))[:10]:
-                p = str(candidate.resolve())
-                if p not in profile_candidates:
-                    profile_candidates.append(p)
-
-        if profile_candidates:
-            try:
-                profile_columns = pd.read_csv(profile_candidates[0], nrows=0).columns.tolist()
-            except Exception:
-                pass
 
         chain_list = sorted(discovered_chains)
         return jsonify({
@@ -1596,6 +1723,8 @@ def run_pep_analysis():
 
         pep_data_dir = str(data.get("pep_data_dir") or "").strip()
         profile_path = str(data.get("profile_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         selected_chains = data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else []
         group_fields = data.get("group_fields") if isinstance(data.get("group_fields"), list) else []
 
@@ -1631,6 +1760,8 @@ def run_pep_analysis():
             results_root=_resolve_results_root(),
             pep_data_dir=pep_data_dir,
             profile_path=profile_path,
+            source_id=source_id,
+            remote_path=remote_path,
             group_fields=group_fields,
             selected_chains=selected_chains,
             pvalue_threshold=pvalue_threshold,
@@ -1715,6 +1846,8 @@ def _run_pep_analysis_task(
     results_root: Path,
     pep_data_dir: str,
     profile_path: str,
+    source_id: Optional[str] = None,
+    remote_path: Optional[str] = None,
     group_fields: List[str],
     selected_chains: List[str],
     pvalue_threshold: float = 0.05,
@@ -1724,12 +1857,42 @@ def _run_pep_analysis_task(
 ) -> None:
     try:
         _record_stage(task_id, 5, "Pep Analysis", f"Scanning pep data from {pep_data_dir}", {"module": "pep-analysis"})
+
+        local_pep_dir = pep_data_dir
+        local_profile = profile_path
+        if source_id and remote_path and not Path(pep_data_dir).exists():
+            import tempfile
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            # Download all PEP files to temp directory
+            tmpdir = tempfile.mkdtemp()
+            found = provider.search_files(pep_data_dir, "*__*.csv") or []
+            for remote_file in found:
+                try:
+                    name = posixpath.basename(remote_file) or remote_file
+                    content = provider.read_file_bytes(remote_file)
+                    dest = Path(tmpdir) / name
+                    dest.write_bytes(content)
+                except Exception:
+                    continue
+            local_pep_dir = tmpdir
+            # Download profile file to temp file
+            if profile_path:
+                try:
+                    pf_bytes = provider.read_file_bytes(profile_path)
+                    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+                    tmp.write(pf_bytes)
+                    tmp.close()
+                    local_profile = tmp.name
+                except Exception:
+                    pass
+
         _record_stage(task_id, 8, "Pep Analysis", f"Profile: {profile_path}, Groups: {group_fields}, Chains: {selected_chains}", {"module": "pep-analysis"})
 
         service = PepAnalysisService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
-            pep_data_dir=pep_data_dir,
-            profile_path=profile_path,
+            pep_data_dir=local_pep_dir,
+            profile_path=local_profile,
             group_fields=group_fields,
             selected_chains=selected_chains,
             pvalue_threshold=pvalue_threshold,
@@ -1811,7 +1974,7 @@ def get_script_hub_task_status(task_id: str):
     task = _get_task_state(task_id)
     if task is None:
         return jsonify({"success": False, "error": "TASK_NOT_FOUND", "message": "Task not found"}), 404
-    return jsonify({"success": True, **task})
+    return jsonify({"success": True, **_sanitize_nan(task)})
 
 
 # ---------------------------------------------------------------------------
@@ -1823,6 +1986,8 @@ def _run_umap_task(
     *,
     results_root: Path,
     datapoint_path: str,
+    source_id: Optional[str] = None,
+    remote_path: Optional[str] = None,
     classification_begin: str,
     classification_over: str,
     param_begin: str,
@@ -1838,6 +2003,17 @@ def _run_umap_task(
         dp_path = str(datapoint_path)
         if Path(dp_path).exists():
             columns = pd.read_csv(dp_path, nrows=0).columns.tolist()
+        elif source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(dp_path)
+            df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+            columns = df.columns.tolist()
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+            tmp.write(dp_bytes)
+            tmp.close()
+            dp_path = tmp.name
         else:
             raise FileNotFoundError(f"Datapoint file not found: {dp_path}")
 
@@ -1915,14 +2091,25 @@ def inspect_umap():
         datapoint_path = str(data.get("datapoint_path") or "").strip()
         if not datapoint_path:
             raise ValidationError(message="datapoint_path is required")
-        dp = Path(datapoint_path)
-        if not dp.exists() or not dp.is_file():
-            raise ValidationError(message="File not found", details={"datapoint_path": datapoint_path})
-        df = pd.read_csv(dp, nrows=0)
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
+
+        if source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(datapoint_path)
+            df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+            resolved_path = datapoint_path
+        else:
+            dp = Path(datapoint_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(message="File not found", details={"datapoint_path": datapoint_path})
+            df = pd.read_csv(dp, nrows=0)
+            resolved_path = str(dp.resolve())
         columns = df.columns.tolist()
         return jsonify({
             "success": True,
-            "datapoint_path": str(dp.resolve()),
+            "datapoint_path": resolved_path,
             "columns": columns,
             "column_count": len(columns),
             "suggested_param_begin": columns[0] if columns else "",
@@ -1940,6 +2127,8 @@ def run_umap():
         data = request.get_json() or {}
         module_name = "umap"
         datapoint_path = str(data.get("datapoint_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         classification_begin = str(data.get("classification_begin") or "").strip()
         classification_over = str(data.get("classification_over") or "").strip()
         param_begin = str(data.get("param_begin") or "").strip()
@@ -1964,6 +2153,8 @@ def run_umap():
             _run_umap_task, task_id,
             results_root=_resolve_results_root(),
             datapoint_path=datapoint_path,
+            source_id=source_id,
+            remote_path=remote_path,
             classification_begin=classification_begin,
             classification_over=classification_over,
             param_begin=param_begin,
@@ -1988,29 +2179,46 @@ def inspect_volcano():
     try:
         data = request.get_json() or {}
         data_dir = str(data.get("data_dir") or "").strip()
-        if not data_dir:
-            base_path = str(data.get("base_path") or "").strip()
-            if base_path:
-                data_path = Path(base_path)
-                # Try 1VJusage subdirectory first
-                vj_dir = data_path / "1VJusage"
-                if vj_dir.exists():
-                    data_dir = str(vj_dir)
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
+
+        if source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            search_dir = data_dir or remote_path
+            found = provider.search_files(search_dir, "*.csv") or []
+            # Try "1VJusage" sub-path if no files found directly
+            if not found and not data_dir:
+                found = provider.search_files(remote_path.rstrip("/") + "/1VJusage", "*.csv") or []
+            csv_files = sorted(found)
+            file_list = [{"name": posixpath.basename(f) or f, "path": f} for f in csv_files]
+            data_dir = search_dir
+        else:
+            if not data_dir and remote_path:
+                data_dir = remote_path
+            if not data_dir:
+                base_path = str(data.get("base_path") or "").strip()
+                if base_path:
+                    data_path = Path(base_path)
+                    vj_dir = data_path / "1VJusage"
+                    if vj_dir.exists():
+                        data_dir = str(vj_dir)
+                    else:
+                        data_dir = base_path
                 else:
-                    data_dir = base_path
-            else:
-                raise ValidationError(message="data_dir or base_path is required", details={"field": "data_dir"})
+                    raise ValidationError(message="data_dir or base_path is required", details={"field": "data_dir"})
 
-        data_path = Path(data_dir)
-        if not data_path.exists():
-            raise ValidationError(message="Data directory does not exist", details={"data_dir": data_dir})
+            data_path = Path(data_dir)
+            if not data_path.exists():
+                raise ValidationError(message="Data directory does not exist", details={"data_dir": data_dir})
 
-        csv_files = sorted(data_path.glob("df*.csv")) or sorted(data_path.glob("*.csv"))
-        file_list = [{"name": f.name, "path": str(f)} for f in csv_files]
+            csv_files = sorted(data_path.glob("df*.csv")) or sorted(data_path.glob("*.csv"))
+            file_list = [{"name": f.name, "path": str(f)} for f in csv_files]
+            data_dir = str(data_path)
 
         return jsonify({
             "success": True,
-            "data_dir": str(data_path),
+            "data_dir": data_dir,
             "file_count": len(file_list),
             "files": file_list[:20],
         })
@@ -2026,15 +2234,35 @@ def _run_volcano_task(
     *,
     results_root: Path,
     data_dir: str,
+    source_id: Optional[str] = None,
+    remote_path: Optional[str] = None,
     pvalue_threshold: float = 0.05,
     module_name: str = "volcano",
 ) -> None:
     try:
         _record_stage(task_id, 5, "火山图分析", f"扫描 {data_dir}", {"module": module_name})
 
+        local_data_dir = data_dir
+        if not Path(data_dir).exists() and source_id and remote_path:
+            import tempfile
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            tmpdir = tempfile.mkdtemp()
+            search_dir = data_dir or remote_path
+            found = provider.search_files(search_dir, "*.csv") or []
+            for remote_file in found:
+                try:
+                    name = posixpath.basename(remote_file) or remote_file
+                    content = provider.read_file_bytes(remote_file)
+                    dest = Path(tmpdir) / name
+                    dest.write_bytes(content)
+                except Exception:
+                    continue
+            local_data_dir = tmpdir
+
         service = VolcanoService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
-            data_dir=data_dir,
+            data_dir=local_data_dir,
             pvalue_threshold=pvalue_threshold,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id, float(progress or 0.0), stage, detail,
@@ -2079,6 +2307,8 @@ def run_volcano():
         data = request.get_json() or {}
         module_name = "volcano"
         data_dir = str(data.get("data_dir") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         if not data_dir:
             raise ValidationError(message="data_dir is required", details={"field": "data_dir"})
 
@@ -2093,6 +2323,8 @@ def run_volcano():
             _run_volcano_task, task_id,
             results_root=_resolve_results_root(),
             data_dir=data_dir,
+            source_id=source_id,
+            remote_path=remote_path,
             pvalue_threshold=pvalue_threshold,
             module_name=module_name,
         )
@@ -2117,18 +2349,29 @@ def inspect_umapin():
             else:
                 raise ValidationError(message="data_path or base_path is required", details={"field": "data_path"})
 
-        dp = Path(data_path)
-        if not dp.exists() or not dp.is_file():
-            raise ValidationError(message="Data file does not exist", details={"data_path": data_path})
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
 
-        df = pd.read_csv(dp, nrows=0)
+        if source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(data_path)
+            df = pd.read_csv(io.BytesIO(dp_bytes), nrows=0)
+            resolved_path = data_path
+        else:
+            dp = Path(data_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(message="Data file does not exist", details={"data_path": data_path})
+            df = pd.read_csv(dp, nrows=0)
+            resolved_path = str(dp.resolve())
+
         columns = df.columns.tolist()
         cat_candidates = [c for c in columns if c.lower() in ("category", "group", "therapy", "disease")]
         category_col = cat_candidates[0] if cat_candidates else ""
 
         return jsonify({
             "success": True,
-            "data_path": str(dp.resolve()),
+            "data_path": resolved_path,
             "columns": columns,
             "column_count": len(columns),
             "category_col": category_col,
@@ -2147,6 +2390,8 @@ def _run_umapin_task(
     *,
     results_root: Path,
     data_path: str,
+    source_id: Optional[str] = None,
+    remote_path: Optional[str] = None,
     param_begin: str,
     param_over: str,
     category_col: str = "Category",
@@ -2158,9 +2403,20 @@ def _run_umapin_task(
     try:
         _record_stage(task_id, 5, "UMAPin", f"读取 {data_path}", {"module": module_name})
 
+        dp = data_path
+        if not Path(dp).exists() and source_id and remote_path:
+            source = get_remote_data_source_service().get_source(source_id)
+            provider = build_ssh_file_provider(source)
+            dp_bytes = provider.read_file_bytes(dp)
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+            tmp.write(dp_bytes)
+            tmp.close()
+            dp = tmp.name
+
         service = UmapinService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
-            data_path=data_path,
+            data_path=dp,
             param_begin=param_begin,
             param_over=param_over,
             category_col=category_col,
@@ -2209,6 +2465,8 @@ def run_umapin():
         data = request.get_json() or {}
         module_name = "umapin"
         data_path = str(data.get("data_path") or "").strip()
+        source_id = str(data.get("source_id") or "").strip() or None
+        remote_path = str(data.get("remote_path") or "").strip() or None
         if not data_path:
             raise ValidationError(message="data_path is required", details={"field": "data_path"})
 
@@ -2231,6 +2489,8 @@ def run_umapin():
             _run_umapin_task, task_id,
             results_root=_resolve_results_root(),
             data_path=data_path,
+            source_id=source_id,
+            remote_path=remote_path,
             param_begin=param_begin,
             param_over=param_over,
             category_col=category_col,

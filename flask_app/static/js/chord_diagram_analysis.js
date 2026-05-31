@@ -54,6 +54,7 @@ const ChordDiagramAnalysis = {
         }
 
         this.loadRemoteSources();
+        this.initializeFromProjectContext?.();
     },
 
     updateStepIndicator(step) {
@@ -536,6 +537,18 @@ const ChordDiagramAnalysis = {
             if (data.status === 'completed') {
                 this.stopTaskPolling();
                 this.result = data.result;
+                await this.registerProjectResult?.({
+                    job_id: data.result?.job_id,
+                    output_base: data.result?.job_id ? `chord:${data.result.job_id}` : '',
+                    report_path: data.result?.viewer_url || '',
+                    report_url: data.result?.viewer_url || '',
+                    zip_url: data.result?.zip_url || '',
+                    viewer_url: data.result?.viewer_url || '',
+                    metadata: {
+                        sample_count: data.result?.sample_count || 0,
+                        output_count: data.result?.output_count || 0
+                    }
+                });
                 document.getElementById('resultSummary').textContent =
                     `已生成 ${data.result.output_count} 个 chord 图结果，覆盖 ${data.result.sample_count} 个样本。`;
                 document.getElementById('resultsCard').style.display = 'block';
