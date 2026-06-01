@@ -2,7 +2,7 @@
 {% block title %}Pipeline Comparison{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
+<link href="{{ url_for('static', filename='css/directory_browser.css') }}" rel="stylesheet">
 <style>
     .pipeline-page {
         --pc-bg: linear-gradient(140deg, #eef6ff 0%, #f7fbf8 55%, #fff8ef 100%);
@@ -233,7 +233,7 @@
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
             <div>
                 <h2><i class="bi bi-diagram-3 me-2"></i>Pipeline Comparison</h2>
-                <p class="mb-0">扫描一个 pipeline 根目录，逐个选择代表性 pep 文件与字段映射，比较多套 pipeline 输出。支持直接扫描本地目录，也支持从远程服务器同步后再分析。</p>
+                <p class="mb-0">扫描一个 pipeline 根目录，逐个选择代表性 pep 文件与字段映射，比较多套 pipeline 输出。直接扫描本地目录进行分析。</p>
             </div>
             {% if not embedded %}
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('pages.advanced_analysis_page', active_module='pipeline-comparison') }}">
@@ -250,82 +250,25 @@
                     <i class="bi bi-sliders me-1"></i>运行参数
                 </div>
                 <div class="card-body">
-                    <div class="row g-3 mb-3">
-                        <div class="col-lg-4">
-                            <label for="dataSourceMode" class="form-label pc-label">
-                                <span class="pc-step">1</span>数据来源
-                            </label>
-                            <select class="form-select" id="dataSourceMode">
-                                <option value="local">本地目录</option>
-                                <option value="remote">远程服务器</option>
-                            </select>
-                        </div>
-                    </div>
-
                     <div id="localSourcePanel">
-                        <div class="mb-3">
-                            <label class="form-label pc-label">Pipeline 根目录</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="pcBasePath" placeholder="E:\Desktop\...\260125">
-                                <button class="btn btn-outline-primary" id="pcScanBtn" type="button">
-                                    <i class="bi bi-search me-1"></i>扫描 Pipeline
-                                </button>
-                            </div>
-                            <div class="pc-note mt-1">要求根目录下包含多个 pipeline 子目录，例如 `YXJ`、`DW`、`YPL`。</div>
-                            <div class="pc-status" id="pcScanSummary">尚未扫描。</div>
-                        </div>
-                    </div>
-
-                    <div id="remoteSourcePanel" class="pc-source-panel pc-hidden">
-                        <div class="row g-3 align-items-end mb-3">
-                            <div class="col-lg-6">
-                                <label for="remoteSourceSelect" class="form-label pc-label">SSH 数据源</label>
-                                <select class="form-select" id="remoteSourceSelect"></select>
-                            </div>
-                            <div class="col-lg-3 d-grid">
-                                <button class="btn btn-outline-secondary" type="button" id="pcBrowseRemoteRootBtn">
-                                    <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
-                                </button>
-                            </div>
-                            <div class="col-lg-3 d-grid">
-                                <button class="btn btn-outline-primary" type="button" id="pcTestRemoteBtn">
-                                    <i class="bi bi-plug me-1"></i>测试连接
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="alert alert-secondary mb-3" id="pcRemoteHint">
-                            远程模式会先同步所选目录到本地缓存，再复用当前 Pipeline 扫描和报告生成流程。
-                        </div>
-
-                        <div class="row g-3 mb-3">
-                            <div class="col-lg-6">
-                                <div class="small text-muted mb-1">当前浏览路径</div>
-                                <div class="remote-browser-path" id="remoteCurrentPath">-</div>
-                            </div>
-                            <div class="col-lg-6">
-                                <div class="small text-muted mb-1">待同步目录</div>
-                                <div class="remote-browser-path" id="remoteSelectedPath">-</div>
-                            </div>
-                        </div>
-
-                        <div class="d-flex flex-wrap gap-2 mb-3">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" id="pcBrowseRemoteParentBtn">上一层</button>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" id="pcSelectRemoteCurrentBtn">选择当前目录</button>
-                            <button class="btn btn-primary btn-sm" type="button" id="pcSyncRemoteBtn">同步并扫描</button>
-                        </div>
-
-                        <div class="remote-tree-toolbar">
-                            <div>
-                                <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">Tree Filter</label>
-                                <input type="text" class="form-control form-control-sm" id="remoteTreeSearch" placeholder="Filter loaded folders by name or path">
-                            </div>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" id="pcRefreshRemoteNodeBtn">
-                                <i class="bi bi-arrow-repeat me-1"></i>Refresh Node
+                        {% set pc_browser_config = {
+                            'browser_id': 'pcDirBrowser',
+                            'js_var': 'window._pcBrowser',
+                            'file_filter': 'csv,tsv,csv.gz',
+                            'allow_file_select': False,
+                            'default_path': '/data',
+                            'on_select': 'PipelineComparisonPage.onBrowserSelect',
+                            'label': 'Pipeline 根目录',
+                        } %}
+                        {% include 'components/directory_browser.html' %}
+                        <input type="hidden" id="pcBasePath" value="">
+                        <div class="d-grid mt-2">
+                            <button class="btn btn-primary" onclick="PipelineComparisonPage.scanRootFolder()">
+                                <i class="bi bi-search me-1"></i>扫描 Pipeline
                             </button>
                         </div>
-
-                        <div class="remote-tree-panel" id="remoteBrowserList"></div>
+                        <div class="pc-note mt-1">要求根目录下包含多个 pipeline 子目录，例如 `YXJ`、`DW`、`YPL`。</div>
+                        <div class="pc-status" id="pcScanSummary">尚未扫描。</div>
                     </div>
 
                     <div class="mb-3 pc-hidden" id="pcPipelineConfigSection">
@@ -473,6 +416,7 @@
         <div class="pc-loading-log" id="pcLoadingProgressLog"></div>
     </div>
 </div>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
 {% endblock %}
 
 {% block extra_js %}

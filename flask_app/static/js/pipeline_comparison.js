@@ -2,45 +2,19 @@ const PipelineComparisonPage = {
     storageKey: 'pipeline_comparison_page_config_v2',
     isRunning: false,
     isScanning: false,
-    isBrowsingRemote: false,
     scanData: null,
     pendingOverrides: [],
     projectContext: null,
-    dataSourceMode: 'local',
-    remoteSources: [],
-    remoteSourceId: '',
-    remoteBrowsePath: '',
-    remoteSelectedPath: '',
-    remoteParentPath: null,
-    remoteTreeNodes: {},
-    remoteTreeRootPath: '',
-    remoteTreeFilter: '',
-    remoteBrowserMessage: '',
-    syncPollTimer: null,
 
     init() {
         this.bindEvents();
         this.loadConfig();
-
-        const modeSelect = document.getElementById('dataSourceMode');
-        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
-        const remoteTreeSearch = document.getElementById('remoteTreeSearch');
-
-        if (modeSelect) {
-            this.dataSourceMode = modeSelect.value || 'local';
-            modeSelect.addEventListener('change', () => this.toggleDataSourceMode(modeSelect.value));
-            this.toggleDataSourceMode(this.dataSourceMode);
-        }
-        if (remoteSourceSelect) {
-            remoteSourceSelect.addEventListener('change', () => this.handleRemoteSourceChange());
-        }
-        if (remoteTreeSearch) {
-            remoteTreeSearch.addEventListener('input', (event) => this.handleRemoteTreeSearch(event.target.value));
-        }
-
-        this.loadRemoteSources();
         this.initializeFromProjectContext();
         this.log('Pipeline Comparison 页面已就绪。');
+    },
+
+    onBrowserSelect(path, type) {
+        document.getElementById('pcBasePath').value = path;
     },
 
     bindEvents() {
@@ -48,12 +22,6 @@ const PipelineComparisonPage = {
         document.getElementById('pcSaveConfigBtn')?.addEventListener('click', () => this.saveConfig(true));
         document.getElementById('pcClearLogBtn')?.addEventListener('click', () => this.clearLog());
         document.getElementById('pcScanBtn')?.addEventListener('click', () => this.scanRootFolder());
-        document.getElementById('pcBrowseRemoteRootBtn')?.addEventListener('click', () => this.browseRemoteRoot());
-        document.getElementById('pcTestRemoteBtn')?.addEventListener('click', () => this.testRemoteSource());
-        document.getElementById('pcBrowseRemoteParentBtn')?.addEventListener('click', () => this.browseRemoteParent());
-        document.getElementById('pcSelectRemoteCurrentBtn')?.addEventListener('click', () => this.selectCurrentRemotePath());
-        document.getElementById('pcSyncRemoteBtn')?.addEventListener('click', () => this.syncRemoteAndScan());
-        document.getElementById('pcRefreshRemoteNodeBtn')?.addEventListener('click', () => this.refreshRemoteNode());
         document.getElementById('pcBasePath')?.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -200,13 +168,6 @@ const PipelineComparisonPage = {
         }
     },
 
-    stopSyncPolling() {
-        if (this.syncPollTimer) {
-            clearTimeout(this.syncPollTimer);
-            this.syncPollTimer = null;
-        }
-    },
-
     setRunning(running) {
         this.isRunning = running;
         const btn = document.getElementById('pcGenerateBtn');
@@ -236,25 +197,6 @@ const PipelineComparisonPage = {
         el.style.borderColor = isError ? '#e4b4b4' : '#bfd7e8';
         el.style.background = isError ? '#fff7f7' : '#f8fcff';
         el.style.color = isError ? '#7a2525' : '#2b516e';
-    },
-
-    updateRemoteHint(message, variant = 'secondary') {
-        const hint = document.getElementById('pcRemoteHint');
-        if (!hint) return;
-        hint.className = `alert alert-${variant} mb-3`;
-        hint.textContent = message || '';
-    },
-
-    toggleDataSourceMode(mode = 'local') {
-        this.dataSourceMode = mode;
-        const localPanel = document.getElementById('localSourcePanel');
-        const remotePanel = document.getElementById('remoteSourcePanel');
-        if (localPanel) localPanel.classList.toggle('pc-hidden', mode !== 'local');
-        if (remotePanel) remotePanel.classList.toggle('pc-hidden', mode !== 'remote');
-        if (mode === 'remote' && this.remoteSourceId && !this.remoteBrowsePath) {
-            this.browseRemoteRoot();
-        }
-        this.saveConfig(false);
     },
 
     getCardPipelineName(card) {
@@ -690,8 +632,6 @@ const PipelineComparisonPage = {
 
     buildConfigSnapshot() {
         return {
-            data_source_mode: this.dataSourceMode,
-            remote_source_id: this.remoteSourceId,
             base_path: this.normalizePath(document.getElementById('pcBasePath')?.value || ''),
             pipelines_input: document.getElementById('pcPipelines')?.value || '',
             samples_input: document.getElementById('pcSamples')?.value || '',
@@ -723,8 +663,6 @@ const PipelineComparisonPage = {
             if (cfg.samples_input !== undefined) document.getElementById('pcSamples').value = cfg.samples_input;
             if (cfg.chains_input !== undefined) document.getElementById('pcChains').value = cfg.chains_input;
             if (cfg.output_name) document.getElementById('pcOutputName').value = cfg.output_name;
-            if (cfg.data_source_mode) document.getElementById('dataSourceMode').value = cfg.data_source_mode;
-            if (cfg.remote_source_id) this.remoteSourceId = cfg.remote_source_id;
             if (typeof cfg.enable_heatmap === 'boolean') document.getElementById('pcEnableHeatmap').checked = cfg.enable_heatmap;
             if (typeof cfg.enable_venn === 'boolean') document.getElementById('pcEnableVenn').checked = cfg.enable_venn;
             if (typeof cfg.enable_html_report === 'boolean') document.getElementById('pcEnableHtmlReport').checked = cfg.enable_html_report;
@@ -790,11 +728,6 @@ const PipelineComparisonPage = {
 
     async scanRootFolder() {
         if (this.isScanning || this.isRunning) return;
-
-        if (this.dataSourceMode === 'remote') {
-            await this.syncRemoteAndScan();
-            return;
-        }
 
         const basePath = this.normalizePath(document.getElementById('pcBasePath')?.value || '');
         if (!basePath) {
@@ -891,505 +824,6 @@ const PipelineComparisonPage = {
         } finally {
             this.hideLoading();
             this.setRunning(false);
-        }
-    },
-
-    resetRemoteTreeState() {
-        this.remoteBrowsePath = '';
-        this.remoteSelectedPath = '';
-        this.remoteParentPath = null;
-        this.remoteTreeNodes = {};
-        this.remoteTreeRootPath = '';
-        this.remoteTreeFilter = '';
-        this.remoteBrowserMessage = '';
-        this.stopSyncPolling();
-    },
-
-    handleRemoteTreeSearch(value = '') {
-        this.remoteTreeFilter = String(value || '').trim().toLowerCase();
-        this.renderRemoteBrowser();
-    },
-
-    remoteTreeNodeMatchesFilter(nodePath) {
-        const node = this.remoteTreeNodes[nodePath];
-        if (!node) return false;
-        if (!this.remoteTreeFilter) return true;
-
-        const haystacks = [node.name, node.path, node.sourceName]
-            .filter(Boolean)
-            .map((item) => String(item).toLowerCase());
-        if (haystacks.some((item) => item.includes(this.remoteTreeFilter))) return true;
-
-        return (node.childrenPaths || []).some((childPath) => this.remoteTreeNodeMatchesFilter(childPath));
-    },
-
-    getRemoteRootLabel(rootPath, source) {
-        return source?.name ? `${source.name} · ${rootPath || '/'}` : (rootPath || '/');
-    },
-
-    getRemoteNodeLabel(path, fallback = '') {
-        const safePath = String(path || '');
-        if (!safePath) return fallback || '/';
-        const parts = safePath.split('/').filter(Boolean);
-        return parts.length ? parts[parts.length - 1] : (fallback || safePath || '/');
-    },
-
-    upsertRemoteTreeNode(nextNode) {
-        const current = this.remoteTreeNodes[nextNode.path] || {};
-        const merged = { ...current, ...nextNode };
-        if (Array.isArray(nextNode.childrenPaths)) {
-            merged.childrenPaths = [...nextNode.childrenPaths];
-        }
-        this.remoteTreeNodes[nextNode.path] = merged;
-        return merged;
-    },
-
-    async loadRemoteSources() {
-        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
-        if (!remoteSourceSelect) return;
-
-        this.resetRemoteTreeState();
-
-        try {
-            const response = await fetch('/api/remote-sources');
-            const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.message || 'Failed to load SSH data sources');
-            }
-
-            this.remoteSources = Array.isArray(data.sources) ? data.sources : [];
-            remoteSourceSelect.innerHTML = '';
-
-            if (!this.remoteSources.length) {
-                remoteSourceSelect.disabled = true;
-                remoteSourceSelect.innerHTML = '<option value="">No SSH source configured</option>';
-                this.remoteSourceId = '';
-                this.remoteBrowserMessage = 'No SSH data source is configured yet.';
-                this.renderRemoteBrowser();
-                this.updateRemotePathDisplay();
-                this.updateRemoteHint(this.remoteBrowserMessage, 'danger');
-                return;
-            }
-
-            remoteSourceSelect.disabled = false;
-            this.remoteSources.forEach((source) => {
-                const option = document.createElement('option');
-                option.value = source.id;
-                option.textContent = `${source.name} (${source.username}@${source.host}:${source.port})`;
-                remoteSourceSelect.appendChild(option);
-            });
-
-            const preferredSource = this.remoteSources.some((source) => source.id === this.remoteSourceId)
-                ? this.remoteSourceId
-                : this.remoteSources[0].id;
-            this.remoteSourceId = preferredSource;
-            remoteSourceSelect.value = preferredSource;
-            this.remoteBrowserMessage = 'Test the connection or expand the tree to choose a folder.';
-            this.renderRemoteBrowser();
-            this.updateRemoteHint('SSH data sources loaded. Use the tree to expand folders in place.', 'secondary');
-
-            if (this.dataSourceMode === 'remote') {
-                await this.browseRemoteRoot();
-            }
-        } catch (error) {
-            this.remoteSources = [];
-            this.remoteSourceId = '';
-            this.remoteBrowserMessage = error.message;
-            this.renderRemoteBrowser();
-            this.updateRemoteHint(error.message, 'danger');
-        }
-    },
-
-    async handleRemoteSourceChange() {
-        const select = document.getElementById('remoteSourceSelect');
-        this.remoteSourceId = select ? select.value : '';
-        this.resetRemoteTreeState();
-        this.updateRemotePathDisplay();
-        this.saveConfig(false);
-
-        if (this.remoteSourceId) {
-            await this.browseRemoteRoot();
-        }
-    },
-
-    updateRemotePathDisplay() {
-        const currentPathEl = document.getElementById('remoteCurrentPath');
-        const selectedPathEl = document.getElementById('remoteSelectedPath');
-        if (currentPathEl) currentPathEl.textContent = this.remoteBrowsePath || '-';
-        if (selectedPathEl) selectedPathEl.textContent = this.remoteSelectedPath || '-';
-    },
-
-    renderRemoteBrowser() {
-        const container = document.getElementById('remoteBrowserList');
-        if (!container) return;
-
-        container.innerHTML = '';
-
-        if (!this.remoteTreeRootPath) {
-            const empty = document.createElement('div');
-            empty.className = 'remote-tree-empty';
-            empty.textContent = this.remoteBrowserMessage || 'Test the SSH connection to load the root folder tree.';
-            container.appendChild(empty);
-            return;
-        }
-
-        const rootNode = this.remoteTreeNodes[this.remoteTreeRootPath];
-        if (!rootNode) {
-            const empty = document.createElement('div');
-            empty.className = 'remote-tree-empty';
-            empty.textContent = this.remoteBrowserMessage || 'Remote root is not available yet.';
-            container.appendChild(empty);
-            return;
-        }
-
-        const rootElement = this.renderRemoteTreeNode(rootNode, 0);
-        if (!rootElement) {
-            const empty = document.createElement('div');
-            empty.className = 'remote-tree-empty';
-            empty.textContent = 'No loaded folder matches the current filter.';
-            container.appendChild(empty);
-            return;
-        }
-
-        const shell = document.createElement('div');
-        shell.className = 'remote-tree-shell';
-        shell.appendChild(rootElement);
-        container.appendChild(shell);
-    },
-
-    renderRemoteTreeNode(node, depth) {
-        if (!node || !this.remoteTreeNodeMatchesFilter(node.path)) return null;
-
-        const branch = document.createElement('div');
-        branch.className = 'remote-tree-branch';
-
-        const row = document.createElement('div');
-        row.className = 'remote-tree-node';
-        row.style.setProperty('--tree-depth', String(depth));
-        if (this.remoteBrowsePath === node.path) row.classList.add('active');
-        if (this.remoteSelectedPath === node.path) row.classList.add('selected');
-
-        const toggleBtn = document.createElement('button');
-        toggleBtn.type = 'button';
-        toggleBtn.className = 'remote-tree-toggle';
-        const hasKnownChildren = !node.childrenLoaded || (node.childrenPaths || []).length > 0;
-        if (!hasKnownChildren && depth > 0) {
-            toggleBtn.disabled = true;
-            toggleBtn.innerHTML = '<i class="bi bi-dot"></i>';
-        } else {
-            toggleBtn.innerHTML = `<i class="bi ${node.expanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>`;
-            toggleBtn.addEventListener('click', async (event) => {
-                event.stopPropagation();
-                await this.toggleRemoteNode(node.path);
-            });
-        }
-        row.appendChild(toggleBtn);
-
-        const entryBtn = document.createElement('button');
-        entryBtn.type = 'button';
-        entryBtn.className = 'remote-tree-entry';
-        entryBtn.addEventListener('click', () => this.selectRemotePath(node.path));
-
-        const icon = document.createElement('i');
-        icon.className = `bi ${node.expanded ? 'bi-folder2-open' : 'bi-folder'} remote-tree-icon`;
-        entryBtn.appendChild(icon);
-
-        const textWrap = document.createElement('div');
-        textWrap.className = 'remote-tree-text';
-
-        const title = document.createElement('div');
-        title.className = 'remote-tree-name';
-        title.textContent = node.name || this.getRemoteNodeLabel(node.path, '/');
-        textWrap.appendChild(title);
-
-        const meta = document.createElement('div');
-        meta.className = 'remote-tree-meta';
-        const metaParts = [node.path];
-        if (node.fileCount > 0) metaParts.push(`${node.fileCount} file(s)`);
-        if (this.remoteSelectedPath === node.path) metaParts.push('selected');
-        else if (this.remoteBrowsePath === node.path) metaParts.push('current');
-        meta.textContent = metaParts.join('  |  ');
-        textWrap.appendChild(meta);
-
-        entryBtn.appendChild(textWrap);
-        row.appendChild(entryBtn);
-        branch.appendChild(row);
-
-        if (node.expanded) {
-            if (node.isLoading) {
-                const loading = document.createElement('div');
-                loading.className = 'remote-tree-empty';
-                loading.style.setProperty('--tree-depth', String(depth + 1));
-                loading.textContent = 'Loading subfolders...';
-                branch.appendChild(loading);
-            } else if (node.childrenLoaded && !(node.childrenPaths || []).length) {
-                const empty = document.createElement('div');
-                empty.className = 'remote-tree-empty';
-                empty.style.setProperty('--tree-depth', String(depth + 1));
-                empty.textContent = 'No subfolders under this node. You can select it directly.';
-                branch.appendChild(empty);
-            } else if ((node.childrenPaths || []).length) {
-                const children = document.createElement('div');
-                children.className = 'remote-tree-children';
-                node.childrenPaths.forEach((childPath) => {
-                    const childElement = this.renderRemoteTreeNode(this.remoteTreeNodes[childPath], depth + 1);
-                    if (childElement) children.appendChild(childElement);
-                });
-                if (children.childElementCount > 0) branch.appendChild(children);
-            }
-        }
-
-        return branch;
-    },
-
-    selectRemotePath(path) {
-        this.remoteSelectedPath = path || '';
-        this.remoteBrowsePath = path || '';
-        const node = this.remoteTreeNodes[this.remoteSelectedPath];
-        this.remoteParentPath = node?.parentPath || null;
-        this.updateRemotePathDisplay();
-        this.renderRemoteBrowser();
-    },
-
-    async browseRemoteRoot() {
-        await this.browseRemote(this.remoteTreeRootPath || null);
-    },
-
-    async browseRemoteParent() {
-        if (!this.remoteParentPath) return;
-
-        const parentNode = this.remoteTreeNodes[this.remoteParentPath];
-        if (parentNode) {
-            parentNode.expanded = true;
-            this.remoteTreeNodes[parentNode.path] = parentNode;
-            this.remoteBrowsePath = parentNode.path;
-            this.remoteParentPath = parentNode.parentPath || null;
-            this.updateRemotePathDisplay();
-            this.renderRemoteBrowser();
-            return;
-        }
-
-        await this.browseRemote(this.remoteParentPath);
-    },
-
-    selectCurrentRemotePath() {
-        if (!this.remoteBrowsePath) {
-            this.showError('There is no remote folder selected yet');
-            return;
-        }
-        this.selectRemotePath(this.remoteBrowsePath);
-    },
-
-    async refreshRemoteNode() {
-        if (!this.remoteSourceId) {
-            this.showError('Please select an SSH data source first');
-            return;
-        }
-        await this.browseRemote(this.remoteBrowsePath || this.remoteTreeRootPath || null);
-    },
-
-    async toggleRemoteNode(path) {
-        const node = this.remoteTreeNodes[path];
-        if (!node) return;
-
-        this.remoteBrowsePath = path;
-        this.remoteParentPath = node.parentPath || null;
-        this.updateRemotePathDisplay();
-
-        if (node.childrenLoaded) {
-            node.expanded = !node.expanded;
-            this.remoteTreeNodes[path] = node;
-            this.renderRemoteBrowser();
-            return;
-        }
-
-        node.isLoading = true;
-        node.expanded = true;
-        this.remoteTreeNodes[path] = node;
-        this.renderRemoteBrowser();
-        await this.browseRemote(path, true);
-    },
-
-    async browseRemote(path = null, skipLoading = false) {
-        if (!this.remoteSourceId) {
-            this.showError('Please select an SSH data source first');
-            return;
-        }
-        if (this.isBrowsingRemote) return;
-        this.isBrowsingRemote = true;
-
-        if (!skipLoading) this.showLoading('Loading remote folders...', '远程浏览');
-
-        try {
-            const response = await fetch('/api/remote-sources/browse', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source_id: this.remoteSourceId, path })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || 'Failed to load remote directory');
-
-            const rootPath = data.root_path || data.current_path || '/';
-            const currentPath = data.current_path || rootPath;
-            const currentEntries = Array.isArray(data.entries) ? data.entries : [];
-            const childDirs = currentEntries.filter((entry) => entry && entry.is_dir);
-            const fileCount = currentEntries.length - childDirs.length;
-
-            if (!this.remoteTreeRootPath || currentPath === rootPath) {
-                this.remoteTreeRootPath = rootPath;
-            }
-
-            this.upsertRemoteTreeNode({
-                path: this.remoteTreeRootPath,
-                name: this.getRemoteRootLabel(this.remoteTreeRootPath, data.source),
-                parentPath: null,
-                expanded: true,
-                sourceName: data.source?.name || ''
-            });
-
-            const currentNodeName = currentPath === this.remoteTreeRootPath
-                ? this.getRemoteRootLabel(this.remoteTreeRootPath, data.source)
-                : this.getRemoteNodeLabel(currentPath, currentPath);
-
-            const childPaths = [];
-            childDirs.forEach((entry) => {
-                childPaths.push(entry.path);
-                const existingNode = this.remoteTreeNodes[entry.path];
-                this.upsertRemoteTreeNode({
-                    path: entry.path,
-                    name: entry.name || this.getRemoteNodeLabel(entry.path, entry.path),
-                    parentPath: currentPath,
-                    childrenLoaded: existingNode?.childrenLoaded || false,
-                    expanded: existingNode?.expanded || false,
-                    isLoading: false,
-                    fileCount: existingNode?.fileCount || 0
-                });
-            });
-
-            this.upsertRemoteTreeNode({
-                path: currentPath,
-                name: currentNodeName,
-                parentPath: currentPath === this.remoteTreeRootPath ? null : (data.parent_path || this.remoteTreeNodes[currentPath]?.parentPath || null),
-                childrenPaths: childPaths,
-                childrenLoaded: true,
-                expanded: true,
-                isLoading: false,
-                fileCount
-            });
-
-            this.remoteBrowsePath = currentPath;
-            this.remoteParentPath = data.parent_path || null;
-            this.remoteBrowserMessage = childDirs.length
-                ? ''
-                : 'This folder has no subfolders. Select it directly if this is the folder you want to sync.';
-            this.updateRemotePathDisplay();
-            this.renderRemoteBrowser();
-            this.updateRemoteHint(`Browsing ${data.source?.name || this.remoteSourceId}: ${this.remoteBrowsePath}`, 'info');
-        } catch (error) {
-            const targetNode = path ? this.remoteTreeNodes[path] : null;
-            if (targetNode) {
-                targetNode.isLoading = false;
-                this.remoteTreeNodes[path] = targetNode;
-            }
-            this.remoteBrowserMessage = error.message;
-            this.updateRemoteHint(error.message, 'danger');
-            this.renderRemoteBrowser();
-            if (!skipLoading) this.showError(error.message);
-        } finally {
-            this.isBrowsingRemote = false;
-            if (!skipLoading) this.hideLoading();
-        }
-    },
-
-    async testRemoteSource() {
-        if (!this.remoteSourceId) {
-            this.showError('Please select an SSH data source first');
-            return;
-        }
-
-        this.showLoading('Testing SSH connection...', '测试连接');
-        try {
-            const response = await fetch('/api/remote-sources/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source_id: this.remoteSourceId })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || 'SSH connection test failed');
-
-            this.updateRemoteHint(`SSH connected. Root path: ${data.test_result.root_path}`, 'success');
-            await this.browseRemoteRoot();
-        } catch (error) {
-            this.updateRemoteHint(error.message, 'danger');
-            this.showError(error.message);
-        } finally {
-            this.hideLoading();
-        }
-    },
-
-    async syncRemoteAndScan() {
-        if (!this.remoteSourceId) {
-            this.showError('Please select an SSH data source first');
-            return;
-        }
-        if (!this.remoteSelectedPath) {
-            this.showError('Please select a remote folder to sync');
-            return;
-        }
-
-        this.showLoading('Syncing remote folder...', '远程同步');
-        this.log(`开始同步远程目录: ${this.remoteSelectedPath}`);
-
-        try {
-            const response = await fetch('/api/remote-sources/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source_id: this.remoteSourceId,
-                    remote_path: this.remoteSelectedPath
-                })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || 'Failed to sync remote folder');
-
-            this.stopSyncPolling();
-            this.pollSyncTaskStatus(data.task_id);
-        } catch (error) {
-            this.hideLoading();
-            this.showError(error.message);
-        }
-    },
-
-    async pollSyncTaskStatus(taskId) {
-        try {
-            const response = await fetch(`/api/remote-sources/sync-task/${encodeURIComponent(taskId)}`);
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || 'Failed to read sync task status');
-
-            this.updateLoadingProgress(data.progress, data.stage, data.detail, data.history || []);
-
-            if (data.status === 'completed') {
-                this.stopSyncPolling();
-                const localCachePath = data.result?.local_cache_path || '';
-                document.getElementById('pcBasePath').value = localCachePath;
-                this.setScanSummary(`远程目录 ${data.result?.remote_path || this.remoteSelectedPath} 已同步，开始扫描本地缓存。`);
-                this.log(`远程同步完成，本地缓存: ${localCachePath}`);
-                await this.scanLocalFolder(localCachePath, '正在扫描同步后的目录...');
-                return;
-            }
-
-            if (data.status === 'failed') {
-                this.stopSyncPolling();
-                this.hideLoading();
-                this.showError(data.error || data.detail || 'Remote sync failed');
-                return;
-            }
-
-            this.syncPollTimer = setTimeout(() => this.pollSyncTaskStatus(taskId), 1000);
-        } catch (error) {
-            this.stopSyncPolling();
-            this.hideLoading();
-            this.showError(error.message);
         }
     }
 };
