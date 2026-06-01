@@ -1,14 +1,4 @@
-<div class="row g-3 mb-3">
-    <div class="col-lg-4">
-        <label for="dataSourceMode" class="form-label">数据来源</label>
-        <select class="form-select" id="dataSourceMode">
-            <option value="local">本地目录</option>
-            <option value="remote">SSH Linux 服务器</option>
-        </select>
-    </div>
-</div>
-
-<div id="localSourcePanel" class="source-panel">
+<div id="localSourcePanel">
     <div class="row g-3 align-items-end">
         <div class="col-lg-9">
             <label for="basePath" class="form-label">输入数据目录</label>
@@ -43,63 +33,6 @@
         onchange="{{ analysis_js_object }}.{{ folder_input_handler }}(event)"
     >
     {% endif %}
-</div>
-
-<div id="remoteSourcePanel" class="source-panel d-none">
-    <div class="row g-3 align-items-end mb-3">
-        <div class="col-lg-6">
-            <label for="remoteSourceSelect" class="form-label">SSH 数据源</label>
-            <select class="form-select" id="remoteSourceSelect"></select>
-        </div>
-        <div class="col-lg-3 d-grid">
-            <button class="btn btn-outline-secondary" onclick="{{ analysis_js_object }}.browseRemoteRoot()">
-                <i class="bi bi-arrow-clockwise me-1"></i>读取根目录
-            </button>
-        </div>
-        <div class="col-lg-3 d-grid">
-            <button class="btn btn-outline-primary" onclick="{{ analysis_js_object }}.testRemoteSource()">
-                <i class="bi bi-plug me-1"></i>测试连接
-            </button>
-        </div>
-    </div>
-
-    <div class="alert alert-secondary mb-3" id="remoteSourceHint">
-        {{ remote_hint|default('从已配置的 SSH Linux 服务器中选择目录，系统会先同步到本地缓存，再继续分析流程。') }}
-    </div>
-
-    <div class="row g-3 mb-3">
-        <div class="col-lg-6">
-            <div class="small text-muted mb-1">当前浏览路径</div>
-            <div class="remote-browser-path" id="remoteCurrentPath">-</div>
-        </div>
-        <div class="col-lg-6">
-            <div class="small text-muted mb-1">待同步目录</div>
-            <div class="remote-browser-path" id="remoteSelectedPath">-</div>
-        </div>
-    </div>
-
-    <div class="d-flex flex-wrap gap-2 mb-3">
-        <button class="btn btn-outline-secondary btn-sm" onclick="{{ analysis_js_object }}.browseRemoteParent()">上一级</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="{{ analysis_js_object }}.selectCurrentRemotePath()">选择当前目录</button>
-        <button class="btn btn-primary btn-sm" onclick="{{ analysis_js_object }}.syncRemoteAndScan()">同步并扫描目录</button>
-    </div>
-
-    <div class="remote-tree-toolbar">
-        <div>
-            <label for="remoteTreeSearch" class="form-label form-label-sm mb-1">目录筛选</label>
-            <input
-                type="text"
-                class="form-control form-control-sm"
-                id="remoteTreeSearch"
-                placeholder="按目录名或路径过滤"
-            >
-        </div>
-        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="{{ analysis_js_object }}.refreshRemoteNode()">
-            <i class="bi bi-arrow-repeat me-1"></i>刷新
-        </button>
-    </div>
-
-    <div class="remote-tree-panel" id="remoteBrowserList"></div>
 </div>
 
 <div id="scanSummary" class="alert alert-info mt-3" style="display:none">

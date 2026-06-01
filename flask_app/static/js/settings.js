@@ -1,6 +1,6 @@
 /**
  * Settings Management Module
- * Handles application settings, server persistence, and SSH Linux remote sources.
+ * Handles application settings and server persistence.
  */
 const SettingsManager = {
     defaultSettings: {
@@ -15,8 +15,7 @@ const SettingsManager = {
         showValuesDefault: true,
         showAnnotationDefault: true,
         vminDefault: 0,
-        vmaxDefault: 1,
-        sshRemoteSources: []
+        vmaxDefault: 1
     },
 
     init() {
@@ -32,7 +31,6 @@ const SettingsManager = {
         document.getElementById('saveSettingsBtn')?.addEventListener('click', () => this.saveSettings());
         document.getElementById('resetSettingsBtn')?.addEventListener('click', () => this.resetSettings());
         document.getElementById('clearLocalDataBtn')?.addEventListener('click', () => this.clearLocalData());
-        document.getElementById('addRemoteSourceBtn')?.addEventListener('click', () => this.addRemoteSource());
     },
 
     async loadSettings() {
@@ -51,7 +49,6 @@ const SettingsManager = {
         }
 
         this.populateForm(settings);
-        this.renderRemoteSources(settings.sshRemoteSources || []);
         this.updateSummary();
     },
 
@@ -68,10 +65,7 @@ const SettingsManager = {
     mergeSettings(settings) {
         return {
             ...this.defaultSettings,
-            ...(settings || {}),
-            sshRemoteSources: Array.isArray(settings?.sshRemoteSources)
-                ? settings.sshRemoteSources.map(source => this.normalizeRemoteSource(source))
-                : []
+            ...(settings || {})
         };
     },
 
@@ -88,8 +82,7 @@ const SettingsManager = {
             showValuesDefault: config.bar_show_values,
             showAnnotationDefault: config.heatmap_annotation,
             vminDefault: config.heatmap_vmin,
-            vmaxDefault: config.heatmap_vmax,
-            sshRemoteSources: config.ssh_remote_sources || []
+            vmaxDefault: config.heatmap_vmax
         };
     },
 
@@ -105,8 +98,7 @@ const SettingsManager = {
             bar_show_values: settings.showValuesDefault,
             heatmap_annotation: settings.showAnnotationDefault,
             heatmap_vmin: settings.vminDefault,
-            heatmap_vmax: settings.vmaxDefault,
-            ssh_remote_sources: settings.sshRemoteSources
+            heatmap_vmax: settings.vmaxDefault
         };
     },
 
@@ -139,181 +131,6 @@ const SettingsManager = {
         }
     },
 
-    normalizeRemoteSource(source = {}) {
-        return {
-            id: String(source.id || '').trim(),
-            name: String(source.name || '').trim(),
-            host: String(source.host || '').trim(),
-            port: Number(source.port || 22),
-            username: String(source.username || '').trim(),
-            auth_type: String(source.auth_type || 'password').trim().toLowerCase() || 'password',
-            password: String(source.password || ''),
-            key_path: String(source.key_path || ''),
-            root_path: String(source.root_path || '/').trim() || '/',
-            enabled: source.enabled !== false,
-            description: String(source.description || '').trim()
-        };
-    },
-
-    getRemoteSourcesFromForm() {
-        return Array.from(document.querySelectorAll('.remote-source-card')).map(card => {
-            const authType = card.querySelector('[data-field="auth_type"]')?.value || 'password';
-            return this.normalizeRemoteSource({
-                id: card.querySelector('[data-field="id"]')?.value,
-                name: card.querySelector('[data-field="name"]')?.value,
-                host: card.querySelector('[data-field="host"]')?.value,
-                port: card.querySelector('[data-field="port"]')?.value,
-                username: card.querySelector('[data-field="username"]')?.value,
-                auth_type: authType,
-                password: authType === 'password' ? card.querySelector('[data-field="password"]')?.value : '',
-                key_path: authType === 'private_key' ? card.querySelector('[data-field="key_path"]')?.value : '',
-                root_path: card.querySelector('[data-field="root_path"]')?.value,
-                enabled: !!card.querySelector('[data-field="enabled"]')?.checked,
-                description: card.querySelector('[data-field="description"]')?.value
-            });
-        }).filter(source => source.id && source.host);
-    },
-
-    renderRemoteSources(sources) {
-        const list = document.getElementById('remoteSourcesList');
-        const empty = document.getElementById('remoteSourcesEmpty');
-        if (!list || !empty) return;
-
-        const normalizedSources = Array.isArray(sources) ? sources.map(source => this.normalizeRemoteSource(source)) : [];
-        list.innerHTML = '';
-        empty.classList.toggle('d-none', normalizedSources.length > 0);
-
-        normalizedSources.forEach((source, index) => {
-            const card = document.createElement('div');
-            card.className = 'card remote-source-card';
-            card.innerHTML = `
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
-                        <div class="fw-semibold">数据源 ${index + 1}</div>
-                        <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove-source">删除</button>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label">ID</label>
-                            <input type="text" class="form-control" data-field="id" value="${this.escapeHtml(source.id)}" placeholder="linux_server_a">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">名称</label>
-                            <input type="text" class="form-control" data-field="name" value="${this.escapeHtml(source.name)}" placeholder="Linux Server A">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">根目录</label>
-                            <input type="text" class="form-control" data-field="root_path" value="${this.escapeHtml(source.root_path)}" placeholder="/data/repertoire">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">主机</label>
-                            <input type="text" class="form-control" data-field="host" value="${this.escapeHtml(source.host)}" placeholder="10.0.0.8">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">端口</label>
-                            <input type="number" class="form-control" data-field="port" value="${Number.isFinite(source.port) ? source.port : 22}" min="1" max="65535">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">用户名</label>
-                            <input type="text" class="form-control" data-field="username" value="${this.escapeHtml(source.username)}" placeholder="analysis_user">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">认证方式</label>
-                            <select class="form-select" data-field="auth_type">
-                                <option value="password"${source.auth_type === 'password' ? ' selected' : ''}>密码</option>
-                                <option value="private_key"${source.auth_type === 'private_key' ? ' selected' : ''}>私钥</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 auth-field auth-password"${source.auth_type !== 'password' ? ' style="display:none;"' : ''}>
-                            <label class="form-label">密码</label>
-                            <div class="input-group">
-                                <input type="password" class="form-control" data-field="password" value="${this.escapeHtml(source.password)}" placeholder="server-side password">
-                                <button type="button" class="btn btn-outline-secondary" data-action="toggle-password" title="显示/隐藏密码">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-md-6 auth-field auth-key"${source.auth_type !== 'private_key' ? ' style="display:none;"' : ''}>
-                            <label class="form-label">私钥路径</label>
-                            <input type="text" class="form-control" data-field="key_path" value="${this.escapeHtml(source.key_path)}" placeholder="/home/user/.ssh/id_rsa">
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label">说明</label>
-                            <input type="text" class="form-control" data-field="description" value="${this.escapeHtml(source.description)}" placeholder="可选说明">
-                        </div>
-                        <div class="col-md-4 d-flex align-items-end">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" data-field="enabled"${source.enabled ? ' checked' : ''}>
-                                <label class="form-check-label">启用该数据源</label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            card.querySelector('[data-action="remove-source"]')?.addEventListener('click', () => {
-                card.remove();
-                this.updateRemoteSourcesEmptyState();
-                this.updateSummary();
-            });
-
-            card.querySelector('[data-action="toggle-password"]')?.addEventListener('click', (event) => {
-                const btn = event.currentTarget;
-                const input = card.querySelector('[data-field="password"]');
-                const icon = btn.querySelector('i');
-                if (input && icon) {
-                    const isPassword = input.type === 'password';
-                    input.type = isPassword ? 'text' : 'password';
-                    icon.className = isPassword ? 'bi bi-eye-slash' : 'bi bi-eye';
-                }
-            });
-
-            card.querySelector('[data-field="auth_type"]')?.addEventListener('change', event => {
-                this.toggleAuthFields(card, event.target.value);
-                this.updateSummary();
-            });
-
-            card.querySelectorAll('input, select').forEach(element => {
-                element.addEventListener('change', () => this.updateSummary());
-            });
-
-            list.appendChild(card);
-            this.toggleAuthFields(card, source.auth_type);
-        });
-
-        this.updateRemoteSourcesEmptyState();
-    },
-
-    updateRemoteSourcesEmptyState() {
-        const empty = document.getElementById('remoteSourcesEmpty');
-        if (!empty) return;
-        empty.classList.toggle('d-none', document.querySelectorAll('.remote-source-card').length > 0);
-    },
-
-    addRemoteSource() {
-        const sources = this.getRemoteSourcesFromForm();
-        sources.push({
-            id: '',
-            name: '',
-            host: '',
-            port: 22,
-            username: '',
-            auth_type: 'password',
-            password: '',
-            key_path: '',
-            root_path: '/data/repertoire',
-            enabled: true,
-            description: ''
-        });
-        this.renderRemoteSources(sources);
-        this.updateSummary();
-    },
-
-    toggleAuthFields(card, authType) {
-        card.querySelector('.auth-password')?.style.setProperty('display', authType === 'password' ? '' : 'none');
-        card.querySelector('.auth-key')?.style.setProperty('display', authType === 'private_key' ? '' : 'none');
-    },
-
     collectSettingsFromForm() {
         return this.mergeSettings({
             colorScheme: document.getElementById('colorScheme')?.value || this.defaultSettings.colorScheme,
@@ -327,20 +144,12 @@ const SettingsManager = {
             showValuesDefault: document.getElementById('showValuesDefault')?.checked !== false,
             showAnnotationDefault: document.getElementById('showAnnotationDefault')?.checked !== false,
             vminDefault: parseFloat(document.getElementById('vminDefault')?.value || this.defaultSettings.vminDefault),
-            vmaxDefault: parseFloat(document.getElementById('vmaxDefault')?.value || this.defaultSettings.vmaxDefault),
-            sshRemoteSources: this.getRemoteSourcesFromForm()
+            vmaxDefault: parseFloat(document.getElementById('vmaxDefault')?.value || this.defaultSettings.vmaxDefault)
         });
     },
 
     async saveSettings() {
         const settings = this.collectSettingsFromForm();
-
-        // Client-side validation for SSH remote sources
-        const sshErrors = this.validateRemoteSources(settings.sshRemoteSources);
-        if (sshErrors) {
-            this.showToast(sshErrors, 'danger');
-            return;
-        }
 
         localStorage.setItem('appSettings', JSON.stringify(settings));
 
@@ -351,30 +160,6 @@ const SettingsManager = {
         } catch (error) {
             this.showToast(error.message || '保存设置失败', 'danger');
         }
-    },
-
-    validateRemoteSources(sources) {
-        if (!Array.isArray(sources) || sources.length === 0) return null;
-        const parts = [];
-        sources.forEach((source, index) => {
-            const label = source.name || source.id || `数据源 ${index + 1}`;
-            if (source.auth_type === 'password' && !source.password) {
-                parts.push(`${label}: 密码不能为空`);
-            }
-            if (source.auth_type === 'private_key' && !source.key_path) {
-                parts.push(`${label}: 私钥路径不能为空`);
-            }
-            if (!source.root_path || !source.root_path.startsWith('/')) {
-                parts.push(`${label}: 根目录必须以 / 开头`);
-            }
-            if (!source.name) {
-                parts.push(`${label}: 名称不能为空`);
-            }
-            if (!source.username) {
-                parts.push(`${label}: 用户名不能为空`);
-            }
-        });
-        return parts.length ? 'SSH 数据源配置错误:\n' + parts.join('\n') : null;
     },
 
     async saveSettingsToServer(settings) {
@@ -394,9 +179,7 @@ const SettingsManager = {
             if (validationErrors) {
                 const parts = [];
                 for (const [field, fieldErrors] of Object.entries(validationErrors)) {
-                    if (field === 'ssh_remote_sources' && Array.isArray(fieldErrors)) {
-                        parts.push('SSH 数据源: ' + fieldErrors.join('; '));
-                    } else if (Array.isArray(fieldErrors)) {
+                    if (Array.isArray(fieldErrors)) {
                         parts.push(field + ': ' + fieldErrors.join(', '));
                     } else {
                         parts.push(field + ': ' + fieldErrors);
@@ -426,7 +209,6 @@ const SettingsManager = {
             localStorage.removeItem('appSettings');
             const settings = this.mergeSettings(this.mapServerConfigToClient(payload.config || {}));
             this.populateForm(settings);
-            this.renderRemoteSources(settings.sshRemoteSources || []);
             this.updateSummary();
             this.showToast('已恢复默认设置', 'info');
         } catch (error) {
@@ -445,19 +227,10 @@ const SettingsManager = {
         const colorScheme = document.getElementById('summaryColorScheme');
         const size = document.getElementById('summarySize');
         const dpi = document.getElementById('summaryDpi');
-        const remoteCount = document.getElementById('summaryRemoteSources');
-        const remoteRow = document.getElementById('summaryRemoteSourcesRow');
 
         if (colorScheme) colorScheme.textContent = settings.colorScheme || '-';
         if (size) size.textContent = `${settings.figureWidth} x ${settings.figureHeight} 英寸`;
         if (dpi) dpi.textContent = `${settings.exportDpi} DPI`;
-        if (remoteCount) {
-            const enabledCount = settings.sshRemoteSources.filter(source => source.enabled !== false).length;
-            remoteCount.textContent = `${settings.sshRemoteSources.length} 个，启用 ${enabledCount} 个`;
-        }
-        if (remoteRow) {
-            remoteRow.classList.remove('d-none');
-        }
     },
 
     escapeHtml(value) {

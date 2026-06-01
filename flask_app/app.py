@@ -186,7 +186,6 @@ def register_blueprints(app):
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
     from flask_app.routes.api_chord import chord_bp
     from flask_app.routes.api_combined_analysis import combined_analysis_bp
-    from flask_app.routes.api_remote_sources import remote_sources_bp
     from flask_app.routes.api_script_hub import script_hub_bp
     from flask_app.routes.api_treemap import treemap_bp
 
@@ -219,8 +218,6 @@ def register_blueprints(app):
     app.register_blueprint(combined_analysis_bp)
     # Register script hub API blueprint
     app.register_blueprint(script_hub_bp)
-    # Register SSH Linux remote data source API blueprint
-    app.register_blueprint(remote_sources_bp)
     # Register treemap analysis API blueprint
     app.register_blueprint(treemap_bp)
 

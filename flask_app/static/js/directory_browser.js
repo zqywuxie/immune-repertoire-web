@@ -260,7 +260,7 @@ const DirectoryBrowser = (() => {
             const toggle = document.createElement('span');
             toggle.className = 'dir-node-toggle';
             if (isDir && node.hasChildren) {
-                toggle.classList.add(node.childrenLoaded ? 'is-expanded' : '');
+                if (node.childrenLoaded) toggle.classList.add('is-expanded');
                 toggle.innerHTML = '<i class="bi bi-chevron-right"></i>';
                 toggle.addEventListener('click', async (e) => {
                     e.stopPropagation();

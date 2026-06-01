@@ -6,13 +6,13 @@ The application follows a Flask blueprint pattern. `flask_app/app.py` is the sin
 
 **Routes** (`flask_app/routes/`) — page routes in `pages.py`, API routes split by feature domain (e.g., `api_treemap.py`, `api_combined_analysis.py`, `api_script_hub.py`). Each API file registers its own blueprint with a `url_prefix`.
 
-**Services** (`flask_app/services/`) — all business logic lives here. Key services: `analysis_service.py` (core analysis), `treemap_renderer.py` (treemap visualization), `similarity_heatmap_report_service.py`, `chord_report_service.py`, `db_alignment_service.py`, `ssh_file_provider.py` (remote SSH browsing). The `analysis/` subdirectory contains a modular analysis system with a `registry.py` and pluggable modules under `analysis/modules/`.
+**Services** (`flask_app/services/`) — all business logic lives here. Key services: `analysis_service.py` (core analysis), `treemap_renderer.py` (treemap visualization), `similarity_heatmap_report_service.py`, `chord_report_service.py`, `db_alignment_service.py`. The `analysis/` subdirectory contains a modular analysis system with a `registry.py` and pluggable modules under `analysis/modules/`.
 
 **Templates** (`flask_app/templates/`) — Jinja2 templates with `base.html` as the layout foundation. Page-specific templates under `analysis/`, reusable components under `components/` (navbar, sidebar, field selectors, etc.).
 
 **Static assets** (`flask_app/static/`) — JavaScript modules map 1:1 to analysis features (e.g., `treemap_analysis.js`, `chord_diagram_analysis.js`, `script_hub.js`). `style.css` is the main stylesheet (~38KB).
 
-**Data flow**: Templates render pages → JS modules call API endpoints → Routes delegate to services → Services read/write files under `flask_app/data/` (uploads, results, remote_cache, PDF extractions).
+**Data flow**: Templates render pages → JS modules call API endpoints → Routes delegate to services → Services read/write files under `flask_app/data/` (uploads, results, PDF extractions).
 
 ## Build, Test, and Development Commands
 

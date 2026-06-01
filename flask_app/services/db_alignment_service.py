@@ -57,7 +57,6 @@ class DBAlignmentService:
         contained_pathology: bool = False,
         pathology_values: Optional[List[str]] = None,
         progress_callback=None,
-        ssh_file_provider=None,
     ) -> DBAlignmentReport:
         if not self.vdjdb_path.exists() or not self.mcpas_path.exists():
             raise ValidationError(
@@ -123,7 +122,6 @@ class DBAlignmentService:
 
                 input_df = self._load_input_frame(
                     file_info.get("filepath", ""), field_mapping,
-                    ssh_file_provider=ssh_file_provider,
                 )
                 if input_df.empty:
                     skipped_files.append({"sample": sample_name, "chain": chain, "reason": "empty_input"})
@@ -181,21 +179,12 @@ class DBAlignmentService:
         profile_df: pd.DataFrame | None = None
         detected_profile_path: str | Path | None = None
 
-        if ssh_file_provider is not None:
-            if profile_path:
-                try:
-                    profile_bytes = ssh_file_provider.read_file_bytes(profile_path)
-                    profile_df = pd.read_csv(io.BytesIO(profile_bytes), low_memory=False)
-                    detected_profile_path = profile_path
-                except Exception as exc:
-                    notes.append(f"Failed to read remote profile file {profile_path}: {exc}")
-        else:
-            detected_profile_path = self._resolve_profile_path(profile_path=profile_path, base_path=base_path)
-            if detected_profile_path is not None:
-                try:
-                    profile_df = pd.read_csv(detected_profile_path, low_memory=False)
-                except Exception as exc:
-                    notes.append(f"Failed to read profile file {detected_profile_path}: {exc}")
+        detected_profile_path = self._resolve_profile_path(profile_path=profile_path, base_path=base_path)
+        if detected_profile_path is not None:
+            try:
+                profile_df = pd.read_csv(detected_profile_path, low_memory=False)
+            except Exception as exc:
+                notes.append(f"Failed to read profile file {detected_profile_path}: {exc}")
 
         if detected_profile_path is not None and profile_df is not None:
             if "sample" not in profile_df.columns:
@@ -425,10 +414,7 @@ class DBAlignmentService:
         return candidate
 
     @staticmethod
-    def _load_input_frame(filepath: str, field_mapping: Dict[str, str], ssh_file_provider=None) -> pd.DataFrame:
-        if ssh_file_provider is not None:
-            return DBAlignmentService._load_input_frame_remote(ssh_file_provider, filepath, field_mapping)
-
+    def _load_input_frame(filepath: str, field_mapping: Dict[str, str]) -> pd.DataFrame:
         target = Path(str(filepath or ""))
         if not target.exists():
             raise ValidationError(message=f"Input file does not exist: {filepath}")
@@ -441,25 +427,6 @@ class DBAlignmentService:
             raise ValidationError(
                 message="DB alignment input file is missing mapped columns",
                 details={"filepath": str(target), "missing_columns": missing},
-            )
-
-        output = pd.DataFrame({
-            "CDR3(pep)": df[cdr3_col].fillna("").astype(str).str.strip(),
-            "copy": pd.to_numeric(df[copy_col], errors="coerce").fillna(0),
-        })
-        return output[output["CDR3(pep)"] != ""]
-
-    @staticmethod
-    def _load_input_frame_remote(ssh_file_provider, remote_path: str, field_mapping: Dict[str, str]) -> pd.DataFrame:
-        file_bytes = ssh_file_provider.read_file_bytes(remote_path)
-        df = pd.read_csv(io.BytesIO(file_bytes), low_memory=False)
-        cdr3_col = field_mapping["cdr3_column"]
-        copy_col = field_mapping["copy_column"]
-        missing = [column for column in [cdr3_col, copy_col] if column not in df.columns]
-        if missing:
-            raise ValidationError(
-                message="Remote DB alignment input file is missing mapped columns",
-                details={"remote_path": remote_path, "missing_columns": missing},
             )
 
         output = pd.DataFrame({

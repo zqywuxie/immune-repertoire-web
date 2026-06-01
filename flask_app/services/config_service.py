@@ -86,9 +86,6 @@ class UserConfiguration:
     locale: str = 'zh-CN'
     theme: str = 'light'
     
-    # SSH Linux remote sources
-    ssh_remote_sources: List[Dict[str, Any]] = field(default_factory=list)
-    
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
     
@@ -100,7 +97,7 @@ class UserConfiguration:
             'default_color_scheme', 'default_figure_size', 'default_font_size',
             'default_dpi', 'default_export_format', 'heatmap_annotation', 'heatmap_cmap', 'heatmap_vmin',
             'heatmap_vmax', 'bar_width', 'bar_spacing', 'bar_show_values',
-            'locale', 'theme', 'ssh_remote_sources'
+            'locale', 'theme'
         }
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         return cls(**filtered_data)
@@ -362,63 +359,6 @@ class ConfigService:
             if vmin >= vmax:
                 errors['heatmap_vmin'] = ['vmin must be less than vmax']
 
-        # Validate SSH remote sources
-        if 'ssh_remote_sources' in config_data:
-            ssh_sources = config_data['ssh_remote_sources']
-            if not isinstance(ssh_sources, list):
-                errors['ssh_remote_sources'] = ['ssh_remote_sources must be a list']
-            else:
-                source_errors = []
-                seen_ids = set()
-                for index, item in enumerate(ssh_sources):
-                    if not isinstance(item, dict):
-                        source_errors.append(f'Item {index + 1} must be an object')
-                        continue
-
-                    source_id = str(item.get('id') or '').strip()
-                    name = str(item.get('name') or '').strip()
-                    host = str(item.get('host') or '').strip()
-                    username = str(item.get('username') or '').strip()
-                    auth_type = str(item.get('auth_type') or 'password').strip().lower()
-                    root_path = str(item.get('root_path') or '').strip()
-                    enabled = item.get('enabled', True)
-
-                    if not source_id:
-                        source_errors.append(f'Item {index + 1} is missing id')
-                    elif source_id in seen_ids:
-                        source_errors.append(f'Duplicate SSH source id: {source_id}')
-                    else:
-                        seen_ids.add(source_id)
-
-                    if not name:
-                        source_errors.append(f'Item {index + 1} is missing name')
-                    if not host:
-                        source_errors.append(f'Item {index + 1} is missing host')
-                    if not username:
-                        source_errors.append(f'Item {index + 1} is missing username')
-
-                    try:
-                        port = int(item.get('port', 22))
-                        if port < 1 or port > 65535:
-                            raise ValueError
-                    except (TypeError, ValueError):
-                        source_errors.append(f'Item {index + 1} has invalid port')
-
-                    if auth_type not in {'password', 'private_key'}:
-                        source_errors.append(f'Item {index + 1} has invalid auth_type')
-                    elif auth_type == 'password' and not str(item.get('password') or '').strip():
-                        source_errors.append(f'Item {index + 1} requires password')
-                    elif auth_type == 'private_key' and not str(item.get('key_path') or '').strip():
-                        source_errors.append(f'Item {index + 1} requires key_path')
-
-                    if not root_path or not root_path.startswith('/'):
-                        source_errors.append(f'Item {index + 1} root_path must start with /')
-                    if not isinstance(enabled, bool):
-                        source_errors.append(f'Item {index + 1} enabled must be boolean')
-
-                if source_errors:
-                    errors['ssh_remote_sources'] = source_errors
-        
         return errors
 
 
