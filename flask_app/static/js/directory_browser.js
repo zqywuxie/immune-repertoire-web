@@ -136,14 +136,24 @@ const DirectoryBrowser = (() => {
             treeEl.innerHTML = '<div class="dir-browser-loading"><span class="spinner-border"></span>加载中...</div>';
 
             try {
-                const params = new URLSearchParams({ path: path });
+                const params = new URLSearchParams();
+                if (path) params.set('path', path);
                 if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
 
                 const resp = await fetch(`${this.opts.browseApi}?${params.toString()}`);
                 const data = await resp.json();
 
                 if (!resp.ok && data.error) {
-                    treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${data.error}</div>`;
+                    // If directory not found, try auto-detection (no path param)
+                    if (resp.status === 404 && path) {
+                        this.currentPath = path;
+                        pathInput.value = path;
+                        // Retry without path — server will auto-detect a valid root
+                        await this._loadPath('');
+                        return;
+                    }
+                    treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(data.error)}</div>`;
+                    if (path) pathInput.value = path;
                     return;
                 }
 
@@ -177,6 +187,7 @@ const DirectoryBrowser = (() => {
                 this._renderTree();
             } catch (err) {
                 treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(err.message)}</div>`;
+                if (path) pathInput.value = path;
             }
         }
 
@@ -366,6 +377,57 @@ const DirectoryBrowser = (() => {
             }
             this.built = false;
         }
+    }
+
+    /* ── Resolve a dotted callback string like "ScriptHubPage.onPepBrowserSelect" ── */
+    function _resolveCallback(name) {
+        if (!name) return null;
+        const parts = name.split('.');
+        let fn = window;
+        for (const part of parts) {
+            fn = fn[part];
+            if (!fn) return null;
+        }
+        return typeof fn === 'function' ? fn : null;
+    }
+
+    /* ── Auto-initialize from data-dir-browser elements on DOM ready ── */
+    function autoInit() {
+        const elements = document.querySelectorAll('[data-dir-browser]');
+        elements.forEach(el => {
+            const opts = {
+                container: '#' + el.id,
+                defaultPath: el.dataset.defaultPath || '',
+                fileFilter: el.dataset.fileFilter || '',
+                allowFileSelect: el.dataset.allowFileSelect === 'true',
+                onSelect: null,
+            };
+            const cbName = el.dataset.onSelect || '';
+            const jsVar = el.dataset.jsVar || '';
+            const cb = _resolveCallback(cbName);
+            if (cb) opts.onSelect = cb;
+
+            const instance = new Instance(opts);
+            instance.build();
+            instance.goTo(opts.defaultPath);
+
+            // Expose instance on window if js_var is specified
+            if (jsVar) {
+                const parts = jsVar.split('.');
+                let target = window;
+                for (let i = 0; i < parts.length - 1; i++) {
+                    if (!target[parts[i]]) target[parts[i]] = {};
+                    target = target[parts[i]];
+                }
+                target[parts[parts.length - 1]] = instance;
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', autoInit);
+    } else {
+        autoInit();
     }
 
     /* ── Static factory ── */

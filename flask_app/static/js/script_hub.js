@@ -248,11 +248,13 @@ const ScriptHubPage = {
             const hasRegisteredPaths = pepAssets.length > 0
                 || this.projectAssets.some(a => a.asset_type === 'datapoint');
 
-            if (hasRegisteredPaths) {
-                document.getElementById('scriptHubLocalPanel')?.classList.remove('sh-hidden');
-                document.getElementById('scriptHubRemotePanel')?.classList.add('sh-hidden');
-                const modeRow = document.getElementById('scriptHubDataSourceRow');
-                if (modeRow) modeRow.style.display = 'none';
+            // If there's a PEP directory from the project, navigate the browser to it
+            if (pepAssets.length > 0) {
+                const pepDir = pepAssets[0].storage_path;
+                const pepBrowser = window._pepBrowser;
+                if (pepBrowser && pepDir) {
+                    pepBrowser.goTo(pepDir);
+                }
             }
 
             this.stageUnlocked.data = true;
