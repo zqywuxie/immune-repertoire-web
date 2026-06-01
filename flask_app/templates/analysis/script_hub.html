@@ -2,7 +2,7 @@
 {% block title %}Script Hub{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/remote_tree_browser.css') }}">
+<link href="{{ url_for('static', filename='css/directory_browser.css') }}" rel="stylesheet">
 <style>
     .script-hub-page {
         --sh-page: linear-gradient(180deg, #f4f8fb 0%, #fbfcfd 48%, #f8f5ef 100%);
@@ -712,33 +712,27 @@
             </div>
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
-                    <!-- Data source mode (hidden when project has registered paths) -->
-                    <div class="row g-3 mb-3" id="scriptHubDataSourceRow">
-                        <div class="col-lg-4">
-                            <label for="scriptHubDataSourceMode" class="form-label">数据来源</label>
-                            <select class="form-select" id="scriptHubDataSourceMode">
-                                <option value="local">本地目录</option>
-                                <option value="remote">SSH Linux 服务器</option>
-                            </select>
-                        </div>
-                        <div class="col-lg-4 d-flex align-items-end">
-                            <button type="button" class="btn btn-outline-primary btn-sm" id="scriptHubAddRemotePathBtn" style="display:none;">
-                                <i class="bi bi-plus-circle me-1"></i>新增远程路径
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="scriptHubLocalPanel">
+                    <div>
                         <!-- PEP Path Selection -->
                         <div class="sh-subpanel mb-3">
                             <h3 class="sh-subpanel-title">PEP 文件路径 <span class="text-muted small">(多选)</span></h3>
-                            <p class="sh-subpanel-copy">从项目资产中选择或手动输入 PEP 文件所在目录路径。</p>
+                            <p class="sh-subpanel-copy">从下方目录树中选择 PEP 文件所在目录，或输入路径后按 Enter 跳转。</p>
+                            {% set pep_browser_config = {
+                                'browser_id': 'scriptHubPepBrowser',
+                                'js_var': 'window._pepBrowser',
+                                'file_filter': 'csv,tsv,csv.gz',
+                                'allow_file_select': True,
+                                'default_path': '/data',
+                                'on_select': 'ScriptHubPage.onPepBrowserSelect',
+                                'label': 'PEP 数据目录',
+                            } %}
+                            {% include 'components/directory_browser.html' %}
                             <div class="sh-pep-checkbox-list mb-2" id="scriptHubPepCheckboxList">
                                 <span class="text-muted small">选择项目后自动显示可用的 PEP 路径。</span>
                             </div>
                             <label for="scriptHubPepCustomPaths" class="form-label small mt-2">手动输入路径 <span class="text-muted">(每行一个，或用逗号分隔)</span></label>
                             <textarea class="form-control" id="scriptHubPepCustomPaths" rows="2"
-                                      placeholder="E:\Data\pep_root&#10;/remote/path/to/pep_data"></textarea>
+                                      placeholder="/data/projects/pep_data"></textarea>
                         </div>
 
                         <!-- Datapoint / Profile Selection -->
@@ -766,62 +760,6 @@
                             <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn">
                                 <i class="bi bi-check-circle me-1"></i>确认数据选择
                             </button>
-                        </div>
-                    </div>
-
-                    <!-- Remote panel -->
-                    <div id="scriptHubRemotePanel" class="sh-hidden sh-remote-shell">
-                        <div class="row g-3 align-items-end mb-3">
-                            <div class="col-lg-6">
-                                <label for="scriptHubRemoteSourceSelect" class="form-label">SSH 数据源</label>
-                                <select class="form-select" id="scriptHubRemoteSourceSelect"></select>
-                            </div>
-                            <div class="col-lg-3 d-grid">
-                                <button class="btn btn-outline-secondary" type="button" id="scriptHubBrowseRemoteRootBtn">读取根目录</button>
-                            </div>
-                            <div class="col-lg-3 d-grid">
-                                <button class="btn btn-outline-primary" type="button" id="scriptHubTestRemoteBtn">测试连接</button>
-                            </div>
-                        </div>
-
-                        <div class="alert alert-secondary mb-3" id="scriptHubRemoteHint">选择远程目录后可直接选取文件并注册到项目，分析时按需拉取数据。</div>
-
-                        <div class="sh-path-grid">
-                            <div class="sh-path-card">
-                                <span class="sh-path-label">Current path</span>
-                                <p class="sh-path-block" id="scriptHubRemoteCurrentPath">-</p>
-                            </div>
-                            <div class="sh-path-card">
-                                <span class="sh-path-label">Selected for sync</span>
-                                <p class="sh-path-block" id="scriptHubRemoteSelectedPath">-</p>
-                            </div>
-                        </div>
-
-                        <div class="sh-remote-actions mb-3">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubBrowseRemoteParentBtn">上一级</button>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubSelectRemoteCurrentBtn">选择当前目录</button>
-                            <button class="btn btn-primary btn-sm" type="button" id="scriptHubSyncRemoteBtn">同步并检测</button>
-                        </div>
-
-                        <div class="remote-tree-panel" id="scriptHubRemoteBrowserList"></div>
-
-                        <!-- Remote file selection (visible after browsing) -->
-                        <div id="scriptHubRemoteFileSelection" class="sh-hidden mt-3" style="border-top:1px solid var(--sh-line);padding-top:1rem;">
-                            <div class="fw-semibold mb-2">注册远程路径到项目</div>
-                            <p class="text-muted small mb-2">PEP 目录和 Profile 文件均支持多选。分析时所有路径合并检索。</p>
-                            <div class="sh-subpanel mb-2">
-                                <div class="fw-semibold mb-1" style="font-size:.88rem;">PEP 数据目录</div>
-                                <div id="scriptHubRemotePepDisplay" class="sh-path-block mb-1" style="word-break:break-all;">尚未选择目录</div>
-                                <span class="text-muted small">在上方浏览器中勾选目录复选框，或点击"选择当前目录"来切换。</span>
-                            </div>
-                            <div class="sh-subpanel mb-3">
-                                <div class="fw-semibold mb-1" style="font-size:.88rem;">Profile 文件 <span class="text-muted small">(可多选)</span></div>
-                                <div id="scriptHubRemoteDatapointSelect" class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;"></div>
-                            </div>
-                            <button class="btn btn-success btn-sm" type="button" id="scriptHubRegisterRemotePathsBtn">
-                                <i class="bi bi-folder-symlink me-1"></i>注册到项目
-                            </button>
-                            <span class="text-muted small ms-2" id="scriptHubRemoteRegisterHint"></span>
                         </div>
                     </div>
 
@@ -953,7 +891,7 @@
                                 </div>
                             </div>
                             <div class="alert alert-info mt-3 mb-0">
-                                图表模块会沿用当前选择的项目、本地/远程来源和 PEP 路径；远程数据会先同步为缓存目录后再扫描。
+                                图表模块会沿用当前选择的项目和 PEP 路径。
                             </div>
                         </div>
                     </div>
@@ -1285,6 +1223,7 @@
     </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
 {% endblock %}
 
 {% block extra_js %}
