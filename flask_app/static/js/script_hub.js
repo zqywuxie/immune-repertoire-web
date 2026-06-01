@@ -47,6 +47,8 @@ const ScriptHubPage = {
             this.onProjectChange(event.target.value || '');
         });
         document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
+        document.getElementById('scriptHubPepConfirmBtn')?.addEventListener('click', () => this.confirmPep());
+        document.getElementById('scriptHubProfileConfirmBtn')?.addEventListener('click', () => this.confirmProfile());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
         document.getElementById('scriptHubOpenViewerBtn')?.addEventListener('click', () => this.openResultUrl('viewer_url'));
         document.getElementById('scriptHubOpenZipBtn')?.addEventListener('click', () => this.openResultUrl('zip_url'));
@@ -160,9 +162,10 @@ const ScriptHubPage = {
 
         if (context.autoScan && effectiveLocalPath && !this._autoInspectTriggered) {
             this._autoInspectTriggered = true;
-            // Navigate the PEP browser to the project path
             const pepBrowser = window._pepBrowser;
             if (pepBrowser) pepBrowser.goTo(effectiveLocalPath);
+            const dpBrowser = window._profileBrowser;
+            if (dpBrowser) dpBrowser.goTo(effectiveLocalPath);
         }
     },
 
@@ -221,6 +224,7 @@ const ScriptHubPage = {
 
             // Auto-fill base path from first local PEP asset
             const pepAssets = this.projectAssets.filter(a => a.asset_type === 'pep');
+            const dpAssets = this.projectAssets.filter(a => a.asset_type === 'datapoint');
             const basePathInput = document.getElementById('scriptHubBasePath');
             const localPepAssets = pepAssets.filter(a => !(a.metadata || {}).remote_source_id);
 
@@ -231,22 +235,28 @@ const ScriptHubPage = {
                 basePathInput.value = '';
             }
 
-            // Always populate selectedPepPaths from registered PEP assets
+            // Auto-fill profile from registered datapoint
+            if (dpAssets.length > 0) {
+                const dpPath = dpAssets[0].storage_path;
+                const dpInput = document.getElementById('scriptHubDatapointPath');
+                if (dpInput) dpInput.value = dpPath;
+            }
+
             this.selectedPepPaths = [...new Set([
                 ...this.selectedPepPaths,
                 ...pepAssets.map(a => a.storage_path).filter(Boolean)
             ])];
 
-            const hasRegisteredPaths = pepAssets.length > 0
-                || this.projectAssets.some(a => a.asset_type === 'datapoint');
-
-            // Navigate the PEP browser to the first project PEP directory
+            // Navigate browsers to project paths
             if (localPepAssets.length > 0) {
                 const pepDir = localPepAssets[0].storage_path;
                 const pepBrowser = window._pepBrowser;
-                if (pepBrowser && pepDir) {
-                    pepBrowser.goTo(pepDir);
-                }
+                if (pepBrowser && pepDir) pepBrowser.goTo(pepDir);
+            }
+            if (dpAssets.length > 0) {
+                const dpPath = dpAssets[0].storage_path;
+                const dpBrowser = window._profileBrowser;
+                if (dpBrowser && dpPath) dpBrowser.goTo(dpPath);
             }
 
             this.stageUnlocked.data = true;
@@ -935,46 +945,79 @@ const ScriptHubPage = {
         }, 80);
     },
 
-    onPepSelected(path, type) {
-        document.getElementById('scriptHubBasePath').value = path || '';
-        document.getElementById('scriptHubSelectedPepPath').textContent = path || '未选择';
-        document.getElementById('scriptHubSelectedPanel').classList.remove('d-none');
-        this._afterDataSelected();
+    onPepHighlight(path, type) {
+        // Tree node is highlighted by the browser itself.
+        // Enable the confirm button, update hint.
+        const btn = document.getElementById('scriptHubPepConfirmBtn');
+        const hint = document.getElementById('scriptHubPepConfirmHint');
+        if (btn) btn.disabled = false;
+        if (hint) hint.textContent = `已高亮: ${path.split('/').filter(Boolean).pop() || path}`;
     },
 
-    onProfileSelected(path, type) {
-        document.getElementById('scriptHubDatapointPath').value = path || '';
-        document.getElementById('scriptHubSelectedProfilePath').textContent = path || '未选择';
-        document.getElementById('scriptHubSelectedPanel').classList.remove('d-none');
-        this._afterDataSelected();
+    onProfileHighlight(path, type) {
+        const btn = document.getElementById('scriptHubProfileConfirmBtn');
+        const hint = document.getElementById('scriptHubProfileConfirmHint');
+        if (btn) btn.disabled = false;
+        if (hint) hint.textContent = `已高亮: ${path.split('/').filter(Boolean).pop() || path}`;
     },
 
-    _afterDataSelected() {
+    confirmPep() {
+        const browser = window._pepBrowser;
+        if (!browser) return;
+        const sel = browser.getSelected();
+        if (!sel.path) return;
+        document.getElementById('scriptHubBasePath').value = sel.path;
+        document.getElementById('scriptHubConfirmedPep').textContent = sel.path;
+        document.getElementById('scriptHubConfirmedPanel').classList.remove('d-none');
+        const btn = document.getElementById('scriptHubPepConfirmBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.className = 'btn btn-primary btn-sm';
+            btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> PEP 已确认';
+        }
+        this._checkBothConfirmed();
+    },
+
+    confirmProfile() {
+        const browser = window._profileBrowser;
+        if (!browser) return;
+        const sel = browser.getSelected();
+        if (!sel.path) return;
+        document.getElementById('scriptHubDatapointPath').value = sel.path;
+        document.getElementById('scriptHubConfirmedProfile').textContent = sel.path;
+        document.getElementById('scriptHubConfirmedPanel').classList.remove('d-none');
+        const btn = document.getElementById('scriptHubProfileConfirmBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.className = 'btn btn-success btn-sm';
+            btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Profile 已确认';
+        }
+        this._checkBothConfirmed();
+    },
+
+    _checkBothConfirmed() {
         const pep = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const dp = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
-        const hasData = !!(pep || dp);
+        const both = !!(pep && dp);
+        const any = !!(pep || dp);
 
-        // Enable confirm button
-        const btn = document.getElementById('scriptHubDataConfirmBtn');
-        if (btn) btn.disabled = !hasData;
+        // Enable the main confirm button if at least one is confirmed
+        const mainBtn = document.getElementById('scriptHubDataConfirmBtn');
+        if (mainBtn) mainBtn.disabled = !any;
 
-        // Store paths
         this.selectedPepPaths = pep ? [pep] : [];
         this.selectedDatapointPaths = dp ? [dp] : [];
         this.selectedDatapointPath = dp || '';
 
-        if (hasData) {
+        if (any) {
             this.evaluateAvailableModules(this.selectedPepPaths, this.selectedDatapointPaths);
-            this._showModuleSelect();
-            this.showSourceFeedback(`PEP: ${pep || '未选择'} | Profile: ${dp || '未选择'} — 选择模块后点击「进入下一步」。`, 'success');
+            this.showSourceFeedback(
+                both ? 'PEP 和 Profile 均已确认。点击下方按钮进入下一步。' : (pep ? 'PEP 已确认，还需确认 Profile。' : 'Profile 已确认，还需确认 PEP。'),
+                both ? 'success' : 'info'
+            );
         }
     },
 
-    _showModuleSelect() {
-        const panel = document.getElementById('scriptHubModuleSelectPanel');
-        if (panel) panel.classList.remove('d-none');
-        this.renderModuleChips();
-    },
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
         const module = this.activeModule || 'db-alignment';

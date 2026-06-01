@@ -704,8 +704,8 @@
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">02</div>
                     <div>
-                        <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">点击目录作为 PEP 数据源，点击 CSV 文件作为 Profile。选好后自动进入下一步。</div>
+                        <div class="sh-stage-title">项目数据</div>
+                        <div class="sh-stage-meta">选择 PEP 数据目录和 Profile 文件。选择项目后目录树会自动跳转到对应路径。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -713,63 +713,72 @@
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
                     <div>
-                        <div class="row g-3">
-                            <!-- PEP directory browser -->
-                            <div class="col-lg-6">
-                                {% set pep_browser_config = {
-                                    'browser_id': 'scriptHubPepBrowser',
-                                    'js_var': 'window._pepBrowser',
-                                    'file_filter': '',
-                                    'allow_file_select': False,
-                                    'multi_select': False,
-                                    'default_path': '/data',
-                                    'on_select': 'ScriptHubPage.onPepSelected',
-                                    'label': 'PEP 数据目录',
-                                } %}
-                                {% include 'components/directory_browser.html' %}
+                        <!-- --- PEP 数据目录 --- -->
+                        <div class="sh-subpanel mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h3 class="sh-subpanel-title mb-0">📂 PEP 数据目录</h3>
+                                <span class="text-muted small">单击浏览目录 → 点击右侧按钮确认</span>
                             </div>
-                            <!-- Profile file browser -->
-                            <div class="col-lg-6">
-                                {% set dp_browser_config = {
-                                    'browser_id': 'scriptHubProfileBrowser',
-                                    'js_var': 'window._profileBrowser',
-                                    'file_filter': 'csv,tsv',
-                                    'allow_file_select': True,
-                                    'multi_select': False,
-                                    'default_path': '/data',
-                                    'on_select': 'ScriptHubPage.onProfileSelected',
-                                    'label': 'Profile 文件',
-                                } %}
-                                {% include 'components/directory_browser.html' %}
+                            {% set pep_browser_config = {
+                                'browser_id': 'scriptHubPepBrowser',
+                                'js_var': 'window._pepBrowser',
+                                'file_filter': '',
+                                'allow_file_select': False,
+                                'multi_select': False,
+                                'default_path': '/data',
+                                'on_select': 'ScriptHubPage.onPepHighlight',
+                                'label': '',
+                            } %}
+                            {% include 'components/directory_browser.html' %}
+                            <div class="d-flex gap-2 mt-2 align-items-center">
+                                <button class="btn btn-outline-primary btn-sm" type="button" id="scriptHubPepConfirmBtn" disabled>
+                                    <i class="bi bi-check-lg"></i> 确认为 PEP 目录
+                                </button>
+                                <span class="text-muted small" id="scriptHubPepConfirmHint">请先在树中点击一个目录</span>
                             </div>
                         </div>
 
-                        <!-- Selected paths display -->
-                        <div class="sh-subpanel mt-3 d-none" id="scriptHubSelectedPanel">
-                            <h3 class="sh-subpanel-title">已选择的数据</h3>
-                            <div class="d-flex flex-column gap-2">
-                                <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8fafb;border:1px solid #e2e8f0;">
-                                    <span style="font-size:1.1rem;">📂</span>
-                                    <div style="flex:1;min-width:0;">
-                                        <div class="fw-semibold small">PEP 数据目录</div>
-                                        <div class="text-muted small text-truncate" id="scriptHubSelectedPepPath">未选择</div>
-                                    </div>
-                                </div>
-                                <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8fafb;border:1px solid #e2e8f0;">
-                                    <span style="font-size:1.1rem;">📄</span>
-                                    <div style="flex:1;min-width:0;">
-                                        <div class="fw-semibold small">Profile 文件</div>
-                                        <div class="text-muted small text-truncate" id="scriptHubSelectedProfilePath">未选择</div>
-                                    </div>
-                                </div>
+                        <!-- --- Profile 文件 --- -->
+                        <div class="sh-subpanel mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h3 class="sh-subpanel-title mb-0">📄 Profile 文件</h3>
+                                <span class="text-muted small">单击浏览文件 → 点击右侧按钮确认</span>
+                            </div>
+                            {% set dp_browser_config = {
+                                'browser_id': 'scriptHubProfileBrowser',
+                                'js_var': 'window._profileBrowser',
+                                'file_filter': 'csv,tsv',
+                                'allow_file_select': True,
+                                'multi_select': False,
+                                'default_path': '/data',
+                                'on_select': 'ScriptHubPage.onProfileHighlight',
+                                'label': '',
+                            } %}
+                            {% include 'components/directory_browser.html' %}
+                            <div class="d-flex gap-2 mt-2 align-items-center">
+                                <button class="btn btn-outline-success btn-sm" type="button" id="scriptHubProfileConfirmBtn" disabled>
+                                    <i class="bi bi-check-lg"></i> 确认为 Profile 文件
+                                </button>
+                                <span class="text-muted small" id="scriptHubProfileConfirmHint">请先在树中点击一个 CSV/TSV 文件</span>
                             </div>
                         </div>
 
-                        <!-- Available modules (shown after selection) -->
-                        <div class="sh-subpanel mt-3 d-none" id="scriptHubModuleSelectPanel">
-                            <h3 class="sh-subpanel-title">可用分析模块</h3>
-                            <div class="sh-chip-list" id="scriptHubModuleChips">
-                                <span class="text-muted small">加载中...</span>
+                        <!-- Confirmed paths display -->
+                        <div class="sh-subpanel d-none" id="scriptHubConfirmedPanel">
+                            <h3 class="sh-subpanel-title">已确认的数据</h3>
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <div class="p-2 rounded" style="background:#e9f6ff;border:1px solid #b8d8ed;">
+                                        <div class="fw-semibold small">📂 PEP 目录</div>
+                                        <div class="small text-truncate" style="color:#11597c;" id="scriptHubConfirmedPep">未确认</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="p-2 rounded" style="background:#ecfbf6;border:1px solid #a3d9c5;">
+                                        <div class="fw-semibold small">📄 Profile 文件</div>
+                                        <div class="small text-truncate" style="color:#0b6b5f;" id="scriptHubConfirmedProfile">未确认</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -780,12 +789,12 @@
                         <!-- Enter next step -->
                         <div class="d-grid mt-3">
                             <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn" disabled>
-                                <i class="bi bi-arrow-right-circle me-1"></i>进入下一步
+                                <i class="bi bi-arrow-right-circle me-1"></i>确认数据，进入下一步
                             </button>
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">点击目录树中的目录/文件即可选择。PEP 选目录，Profile 选 CSV 文件。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">选择项目后目录树会自动跳转到对应路径。在树中单击浏览，点击按钮确认选择。</div>
                 </div>
             </div>
         </section>
