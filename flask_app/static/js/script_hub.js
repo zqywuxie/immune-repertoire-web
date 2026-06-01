@@ -35,15 +35,20 @@ const ScriptHubPage = {
     ],
 
     init() {
-        this.bindEvents();
-        this.projectContext = this.getProjectContext();
-        this.loadProjects();
-        this.initializeProjectContext();
-        this.syncStageUI();
-        // Init browsers after DOM is settled
-        if (typeof DirectoryBrowser !== 'undefined') {
-            this._initPepBrowser();
-            this._initProfileBrowser();
+        try {
+            this.bindEvents();
+            this.projectContext = this.getProjectContext();
+            this.loadProjects();
+            this.initializeProjectContext();
+            this.syncStageUI();
+            if (typeof DirectoryBrowser !== 'undefined') {
+                this._initPepBrowser();
+                this._initProfileBrowser();
+            } else {
+                console.warn('DirectoryBrowser not loaded');
+            }
+        } catch (e) {
+            console.error('ScriptHubPage.init() error:', e);
         }
     },
 
