@@ -37,6 +37,19 @@ const AutoHeatmap = {
     },
 
     init() {
+        if (typeof DirectoryBrowser !== 'undefined') {
+            window._heatmapBrowser = DirectoryBrowser.init({
+                container: '#heatmapDirBrowser',
+                fileFilter: 'csv,tsv,csv.gz',
+                allowFileSelect: false,
+                multiSelect: false,
+                defaultPath: '/data',
+                onSelect: (path, type) => AutoHeatmap.onBrowserSelect(path, type),
+            });
+            window._heatmapBrowser.build();
+            window._heatmapBrowser.goTo('/data');
+        }
+
         this.initDragAndDrop();
         this.initMetricTabs();
         this.loadHeatmapReportConfig();

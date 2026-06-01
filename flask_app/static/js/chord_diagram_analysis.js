@@ -21,6 +21,19 @@ const ChordDiagramAnalysis = {
     },
 
     init() {
+        if (typeof DirectoryBrowser !== 'undefined') {
+            window._chordBrowser = DirectoryBrowser.init({
+                container: '#chordDirBrowser',
+                fileFilter: 'csv,tsv,csv.gz',
+                allowFileSelect: false,
+                multiSelect: false,
+                defaultPath: '/data',
+                onSelect: (path, type) => ChordDiagramAnalysis.onBrowserSelect(path, type),
+            });
+            window._chordBrowser.build();
+            window._chordBrowser.goTo('/data');
+        }
+
         this.updateStepIndicator(1);
         this.initializeFromProjectContext?.();
     },

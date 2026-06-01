@@ -36,10 +36,38 @@ const ScriptHubPage = {
 
     init() {
         this.bindEvents();
+        this._initPepBrowser();
+        this._initProfileBrowser();
         this.projectContext = this.getProjectContext();
         this.loadProjects();
         this.initializeProjectContext();
         this.syncStageUI();
+    },
+
+    _initPepBrowser() {
+        window._pepBrowser = DirectoryBrowser.init({
+            container: '#scriptHubPepBrowser',
+            fileFilter: '',
+            allowFileSelect: false,
+            multiSelect: false,
+            defaultPath: '/data',
+            onSelect: (path, type) => this.onPepHighlight(path, type),
+        });
+        window._pepBrowser.build();
+        window._pepBrowser.goTo('/data');
+    },
+
+    _initProfileBrowser() {
+        window._profileBrowser = DirectoryBrowser.init({
+            container: '#scriptHubProfileBrowser',
+            fileFilter: 'csv,tsv',
+            allowFileSelect: true,
+            multiSelect: false,
+            defaultPath: '/data',
+            onSelect: (path, type) => this.onProfileHighlight(path, type),
+        });
+        window._profileBrowser.build();
+        window._profileBrowser.goTo('/data');
     },
 
     bindEvents() {

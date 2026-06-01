@@ -7,6 +7,19 @@ const PipelineComparisonPage = {
     projectContext: null,
 
     init() {
+        if (typeof DirectoryBrowser !== 'undefined') {
+            window._pcBrowser = DirectoryBrowser.init({
+                container: '#pcDirBrowser',
+                fileFilter: 'csv,tsv,csv.gz',
+                allowFileSelect: false,
+                multiSelect: false,
+                defaultPath: '/data',
+                onSelect: (path, type) => PipelineComparisonPage.onBrowserSelect(path, type),
+            });
+            window._pcBrowser.build();
+            window._pcBrowser.goTo('/data');
+        }
+
         this.bindEvents();
         this.loadConfig();
         this.initializeFromProjectContext();
