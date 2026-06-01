@@ -120,24 +120,22 @@
                     <div class="chart-source-body">
                         <div class="chart-source-shell">
                             <div class="chart-subpanel" id="chartLocalSourcePanel">
-                                <div class="chart-subpanel" id="chartLocalSourcePanel">
-                                    {% set combined_browser_config = {
-                                        'browser_id': 'combinedDirBrowser',
-                                        'js_var': 'window._combinedBrowser',
-                                        'file_filter': 'csv,tsv,csv.gz',
-                                        'allow_file_select': False,
-                                        'default_path': '/data',
-                                        'on_select': 'CombinedAnalysis.onBrowserSelect',
-                                        'label': '输入数据目录',
-                                    } %}
-                                    {% include 'components/directory_browser.html' %}
-                                    <!-- Hidden input to maintain backward compatibility with existing JS -->
-                                    <input type="hidden" id="basePath" value="">
-                                    <div class="d-grid mt-2">
-                                        <button class="btn btn-primary" id="chartScanButton" onclick="CombinedAnalysis.scanFolder()">
-                                            <i class="bi bi-search me-1"></i>扫描目录
-                                        </button>
-                                    </div>
+                                {% set combined_browser_config = {
+                                    'browser_id': 'combinedDirBrowser',
+                                    'js_var': 'window._combinedBrowser',
+                                    'file_filter': 'csv,tsv,csv.gz',
+                                    'allow_file_select': False,
+                                    'default_path': '/data',
+                                    'on_select': 'CombinedAnalysis.onBrowserSelect',
+                                    'label': '输入数据目录',
+                                } %}
+                                {% include 'components/directory_browser.html' %}
+                                <!-- Hidden input to maintain backward compatibility with existing JS -->
+                                <input type="hidden" id="basePath" value="">
+                                <div class="d-grid mt-2">
+                                    <button class="btn btn-primary" id="chartScanButton" onclick="CombinedAnalysis.scanFolder()">
+                                        <i class="bi bi-search me-1"></i>扫描目录
+                                    </button>
                                 </div>
                             </div>
 
