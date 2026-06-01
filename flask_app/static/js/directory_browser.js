@@ -1,282 +1,378 @@
 /**
- * Directory Browser Component
- * Provides directory browsing and selection functionality
- * Requirements: 12.2, 12.3, 12.4, 12.5
+ * Directory Browser - Reusable lazy-loading filesystem tree component.
+ * Usage:
+ *   const browser = DirectoryBrowser.init({
+ *       container: '#my-browser',
+ *       onSelect: (path, type) => { console.log(path, type); },
+ *       fileFilter: 'csv,tsv',
+ *       allowFileSelect: true,
+ *   });
  */
+const DirectoryBrowser = (() => {
+    'use strict';
 
-class DirectoryBrowser {
-    constructor(containerId, options = {}) {
-        this.container = document.getElementById(containerId);
-        if (!this.container) {
-            throw new Error(`Container element not found: ${containerId}`);
+    const DEFAULT_OPTIONS = {
+        container: '#dirBrowser',
+        onSelect: null,           // callback(path, type) — type: 'directory' | 'file'
+        fileFilter: '',           // comma-separated extensions e.g. "csv,tsv,csv.gz"
+        allowFileSelect: true,    // whether clicking a file triggers onSelect
+        defaultPath: '',          // initial path to browse
+        browseApi: '/api/browse-directory',
+    };
+
+    let uidCounter = 0;
+
+    class Instance {
+        constructor(opts) {
+            this.opts = Object.assign({}, DEFAULT_OPTIONS, opts);
+            this.id = `dirBrowser_${++uidCounter}`;
+            this.currentPath = '';
+            this.selectedPath = '';
+            this.selectedType = 'directory';
+            this.treeNodes = {};   // path -> { name, type, hasChildren, childrenLoaded, childrenPaths }
+            this.container = null;
+            this.built = false;
         }
 
-        this.options = {
-            onSelect: options.onSelect || null,
-            onCancel: options.onCancel || null,
-            showCreateButton: options.showCreateButton || false,
-            ...options
-        };
+        /* ── Public API ── */
 
-        this.currentPath = null;
-        this.selectedPath = null;
-
-        this.init();
-    }
-
-    init() {
-        this.render();
-        this.loadRootDirectories();
-    }
-
-    render() {
-        this.container.innerHTML = `
-            <div class="directory-browser">
-                <div class="directory-browser-header">
-                    <div class="current-path">
-                        <i class="bi bi-folder me-2"></i>
-                        <span id="currentPathDisplay">选择目录</span>
-                    </div>
-                    <button class="btn btn-sm btn-outline-secondary" id="parentDirBtn" disabled>
-                        <i class="bi bi-arrow-up"></i> 上级目录
-                    </button>
-                </div>
-                <div class="directory-browser-body" id="directoryList">
-                    <div class="text-center py-3">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <p class="text-muted mt-2">加载目录中...</p>
-                    </div>
-                </div>
-                <div class="directory-browser-footer">
-                    <button class="btn btn-sm btn-primary" id="selectDirBtn" disabled>
-                        <i class="bi bi-check"></i> 选择此目录
-                    </button>
-                    <button class="btn btn-sm btn-secondary" id="cancelDirBtn">
-                        <i class="bi bi-x"></i> 取消
-                    </button>
-                    ${this.options.showCreateButton ? `
-                        <button class="btn btn-sm btn-outline-primary" id="createDirBtn">
-                            <i class="bi bi-folder-plus"></i> 新建文件夹
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-
-        this.bindEvents();
-    }
-
-    bindEvents() {
-        // Parent directory button
-        const parentBtn = document.getElementById('parentDirBtn');
-        if (parentBtn) {
-            parentBtn.addEventListener('click', () => this.navigateToParent());
+        /** Build and render the browser into the container. Call once. */
+        build() {
+            const el = document.querySelector(this.opts.container);
+            if (!el) throw new Error(`DirectoryBrowser: container "${this.opts.container}" not found`);
+            this.container = el;
+            this.container.innerHTML = this._html();
+            this._bindEvents();
+            this.built = true;
+            return this;
         }
 
-        // Select button
-        const selectBtn = document.getElementById('selectDirBtn');
-        if (selectBtn) {
-            selectBtn.addEventListener('click', () => this.selectDirectory());
+        /** Navigate to a path and reload the tree. */
+        async goTo(path) {
+            if (!this.built) this.build();
+            this.currentPath = path || this.opts.defaultPath || '/';
+            await this._loadPath(this.currentPath);
         }
 
-        // Cancel button
-        const cancelBtn = document.getElementById('cancelDirBtn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => this.cancel());
+        /** Get currently selected path. */
+        getSelected() {
+            return { path: this.selectedPath, type: this.selectedType };
         }
 
-        // Create directory button
-        const createBtn = document.getElementById('createDirBtn');
-        if (createBtn) {
-            createBtn.addEventListener('click', () => this.createDirectory());
-        }
-    }
-
-    async loadRootDirectories() {
-        try {
-            const response = await fetch('/api/directories');
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to load directories');
-            }
-
-            this.displayDirectories(data);
-
-        } catch (error) {
-            console.error('Error loading root directories:', error);
-            this.showError('加载目录失败: ' + error.message);
-        }
-    }
-
-    async loadDirectory(path) {
-        try {
-            const response = await fetch(`/api/directories?parent_path=${encodeURIComponent(path)}`);
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to load directory');
-            }
-
-            this.displayDirectories(data);
-
-        } catch (error) {
-            console.error('Error loading directory:', error);
-            this.showError('加载目录失败: ' + error.message);
-        }
-    }
-
-    displayDirectories(data) {
-        this.currentPath = data.current_path;
-        this.parentPath = data.parent_path;
-
-        // Update current path display
-        const pathDisplay = document.getElementById('currentPathDisplay');
-        if (pathDisplay) {
-            pathDisplay.textContent = this.currentPath || '根目录';
+        /** Set selected path programmatically. */
+        setSelected(path, type = 'directory') {
+            this.selectedPath = path;
+            this.selectedType = type;
+            this._updateSelectedDisplay();
+            this._highlightSelected();
+            if (this.opts.onSelect) this.opts.onSelect(path, type);
         }
 
-        // Enable/disable parent button
-        const parentBtn = document.getElementById('parentDirBtn');
-        if (parentBtn) {
-            parentBtn.disabled = !this.parentPath;
+        /* ── HTML template ── */
+        _html() {
+            const id = this.id;
+            return `
+<div class="dir-browser" id="${id}">
+    <div class="dir-browser-toolbar">
+        <button class="dir-browser-tool-btn" data-action="home" title="回到根目录">
+            <i class="bi bi-house-door"></i>
+        </button>
+        <button class="dir-browser-tool-btn" data-action="up" title="上一级">
+            <i class="bi bi-arrow-up"></i>
+        </button>
+        <input class="dir-browser-path-input" data-action="pathInput"
+               type="text" placeholder="输入路径后按 Enter 跳转..."
+               title="当前路径。输入新路径后按 Enter 跳转">
+        <button class="dir-browser-tool-btn" data-action="refresh" title="刷新">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    <div class="dir-browser-tree" data-role="tree">
+        <div class="dir-browser-empty">
+            <i class="bi bi-folder2-open"></i>加载中...
+        </div>
+    </div>
+    <div class="dir-browser-selected is-empty" data-role="selected">
+        <i class="bi bi-chevron-right"></i><span>未选择目录</span>
+    </div>
+</div>`;
         }
 
-        // Enable select button if we have a current path
-        const selectBtn = document.getElementById('selectDirBtn');
-        if (selectBtn) {
-            selectBtn.disabled = !this.currentPath;
-        }
+        /* ── Event bindings ── */
+        _bindEvents() {
+            const root = document.getElementById(this.id);
+            if (!root) return;
 
-        // Display directories
-        const listContainer = document.getElementById('directoryList');
-        if (!listContainer) return;
-
-        if (data.directories.length === 0) {
-            listContainer.innerHTML = `
-                <div class="text-center py-3">
-                    <i class="bi bi-folder-x text-muted" style="font-size: 2rem;"></i>
-                    <p class="text-muted mt-2">此目录为空</p>
-                </div>
-            `;
-            return;
-        }
-
-        listContainer.innerHTML = '';
-
-        data.directories.forEach(dir => {
-            const dirItem = document.createElement('div');
-            dirItem.className = 'directory-item';
-            dirItem.innerHTML = `
-                <i class="bi bi-folder-fill text-warning me-2"></i>
-                <span class="directory-name">${this.escapeHtml(dir.name)}</span>
-                ${dir.has_children ? '<i class="bi bi-chevron-right ms-auto"></i>' : ''}
-            `;
-
-            dirItem.addEventListener('click', () => {
-                this.loadDirectory(dir.path);
+            // Toolbar buttons
+            root.querySelector('[data-action="home"]').addEventListener('click', () => {
+                this.goTo(this.opts.defaultPath || '/');
+            });
+            root.querySelector('[data-action="up"]').addEventListener('click', async () => {
+                const parent = this._getParentPath(this.currentPath);
+                if (parent) await this._loadPath(parent);
+            });
+            root.querySelector('[data-action="refresh"]').addEventListener('click', async () => {
+                await this._loadPath(this.currentPath);
             });
 
-            listContainer.appendChild(dirItem);
-        });
-    }
-
-    navigateToParent() {
-        if (this.parentPath) {
-            this.loadDirectory(this.parentPath);
-        }
-    }
-
-    selectDirectory() {
-        if (!this.currentPath) {
-            alert('请选择一个目录');
-            return;
-        }
-
-        this.selectedPath = this.currentPath;
-
-        if (this.options.onSelect) {
-            this.options.onSelect(this.selectedPath);
-        }
-    }
-
-    cancel() {
-        this.selectedPath = null;
-
-        if (this.options.onCancel) {
-            this.options.onCancel();
-        }
-    }
-
-    async createDirectory() {
-        const dirName = prompt('请输入新文件夹名称:');
-        if (!dirName) return;
-
-        if (!this.currentPath) {
-            alert('请先选择一个父目录');
-            return;
-        }
-
-        const newPath = `${this.currentPath}/${dirName}`;
-
-        try {
-            const response = await fetch('/api/directories/create', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    path: newPath
-                })
+            // Path input - Enter to jump
+            const pathInput = root.querySelector('[data-action="pathInput"]');
+            pathInput.addEventListener('keydown', async (e) => {
+                if (e.key === 'Enter') {
+                    const targetPath = pathInput.value.trim();
+                    if (targetPath) {
+                        await this._loadPath(targetPath);
+                    }
+                }
             });
+        }
 
-            const data = await response.json();
+        /* ── Core: load a directory listing ── */
+        async _loadPath(path) {
+            if (!this.built) return;
+            const treeEl = this.container.querySelector('[data-role="tree"]');
+            const pathInput = this.container.querySelector('[data-action="pathInput"]');
 
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to create directory');
+            treeEl.innerHTML = '<div class="dir-browser-loading"><span class="spinner-border"></span>加载中...</div>';
+
+            try {
+                const params = new URLSearchParams({ path: path });
+                if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
+
+                const resp = await fetch(`${this.opts.browseApi}?${params.toString()}`);
+                const data = await resp.json();
+
+                if (!resp.ok && data.error) {
+                    treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${data.error}</div>`;
+                    return;
+                }
+
+                this.currentPath = data.current_path || path;
+                pathInput.value = this.currentPath;
+
+                // Build tree nodes from items
+                this.treeNodes = {};
+                const rootNode = {
+                    name: this.currentPath === '/' ? '/' : (this.currentPath.split('/').filter(Boolean).pop() || '/'),
+                    path: this.currentPath,
+                    type: 'directory',
+                    hasChildren: data.items.length > 0,
+                    childrenLoaded: true,
+                    childrenPaths: [],
+                };
+
+                for (const item of data.items) {
+                    rootNode.childrenPaths.push(item.path);
+                    this.treeNodes[item.path] = {
+                        name: item.name,
+                        path: item.path,
+                        type: item.type,
+                        hasChildren: item.has_children || false,
+                        childrenLoaded: false,
+                        childrenPaths: [],
+                    };
+                }
+                this.treeNodes[this.currentPath] = rootNode;
+
+                this._renderTree();
+            } catch (err) {
+                treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        /** Load children of a specific directory node (lazy). */
+        async _loadChildren(dirPath) {
+            const node = this.treeNodes[dirPath];
+            if (!node || node.type !== 'directory' || node.childrenLoaded) return;
+
+            try {
+                const params = new URLSearchParams({ path: dirPath });
+                if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
+
+                const resp = await fetch(`${this.opts.browseApi}?${params.toString()}`);
+                const data = await resp.json();
+
+                if (!resp.ok) return;
+
+                node.childrenPaths = [];
+                for (const item of data.items) {
+                    const childPath = item.path;
+                    node.childrenPaths.push(childPath);
+                    if (!this.treeNodes[childPath]) {
+                        this.treeNodes[childPath] = {
+                            name: item.name,
+                            path: childPath,
+                            type: item.type,
+                            hasChildren: item.has_children || false,
+                            childrenLoaded: false,
+                            childrenPaths: [],
+                        };
+                    }
+                }
+                node.childrenLoaded = true;
+                this._renderTree();
+            } catch (err) {
+                // silently fail — user can retry by toggling again
+            }
+        }
+
+        /* ── Render tree ── */
+        _renderTree() {
+            const treeEl = this.container.querySelector('[data-role="tree"]');
+            if (!treeEl) return;
+
+            const rootNode = this.treeNodes[this.currentPath];
+            if (!rootNode) {
+                treeEl.innerHTML = '<div class="dir-browser-empty"><i class="bi bi-folder2-open"></i>目录为空</div>';
+                return;
             }
 
-            // Reload current directory
-            this.loadDirectory(this.currentPath);
+            treeEl.innerHTML = '';
+            const rootEl = this._renderNode(rootNode, 0, true);
+            if (rootEl) treeEl.appendChild(rootEl);
 
-        } catch (error) {
-            console.error('Error creating directory:', error);
-            alert('创建文件夹失败: ' + error.message);
+            // Re-highlight selected
+            this._highlightSelected();
+        }
+
+        _renderNode(node, depth, isRoot = false) {
+            const isDir = node.type === 'directory';
+            const isSelected = (node.path === this.selectedPath);
+
+            const row = document.createElement('div');
+            row.className = 'dir-node' + (isSelected ? ' is-selected' : '');
+            row.dataset.path = node.path;
+            row.dataset.type = node.type;
+            row.style.paddingLeft = `${0.75 + depth * 1.2}rem`;
+
+            // Toggle arrow
+            const toggle = document.createElement('span');
+            toggle.className = 'dir-node-toggle';
+            if (isDir && node.hasChildren) {
+                toggle.classList.add(node.childrenLoaded ? 'is-expanded' : '');
+                toggle.innerHTML = '<i class="bi bi-chevron-right"></i>';
+                toggle.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!node.childrenLoaded) {
+                        await this._loadChildren(node.path);
+                    } else {
+                        // Toggle collapse/expand
+                        node._collapsed = !node._collapsed;
+                    }
+                    this._renderTree();
+                });
+            } else if (isDir && !node.hasChildren) {
+                toggle.classList.add('is-hidden');
+            } else {
+                toggle.classList.add('is-hidden');
+            }
+            row.appendChild(toggle);
+
+            // Icon
+            const icon = document.createElement('span');
+            icon.className = 'dir-node-icon ' + (isDir ? 'folder' : 'file');
+            icon.innerHTML = isDir
+                ? (node.childrenLoaded && !node._collapsed ? '<i class="bi bi-folder2-open"></i>' : '<i class="bi bi-folder"></i>')
+                : '<i class="bi bi-file-earmark"></i>';
+            row.appendChild(icon);
+
+            // Name
+            const name = document.createElement('span');
+            name.className = 'dir-node-name';
+            name.textContent = node.name;
+            name.title = node.path;
+            row.appendChild(name);
+
+            // Click to select
+            row.addEventListener('click', () => {
+                if (isDir || this.opts.allowFileSelect) {
+                    this.setSelected(node.path, node.type);
+                }
+            });
+
+            const wrapper = document.createElement('div');
+
+            // Children container
+            if (isDir && node.childrenLoaded && !node._collapsed && node.childrenPaths.length > 0) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'dir-node-children';
+
+                // Sort: directories first, then files
+                const sorted = [...node.childrenPaths].sort((a, b) => {
+                    const na = this.treeNodes[a];
+                    const nb = this.treeNodes[b];
+                    if (!na || !nb) return 0;
+                    if (na.type !== nb.type) return na.type === 'directory' ? -1 : 1;
+                    return na.name.localeCompare(nb.name);
+                });
+
+                for (const childPath of sorted) {
+                    const childNode = this.treeNodes[childPath];
+                    if (!childNode) continue;
+                    const childEl = this._renderNode(childNode, depth + 1);
+                    if (childEl) childrenContainer.appendChild(childEl);
+                }
+                wrapper.appendChild(row);
+                wrapper.appendChild(childrenContainer);
+            } else {
+                wrapper.appendChild(row);
+            }
+
+            return wrapper;
+        }
+
+        /* ── Helpers ── */
+        _getParentPath(p) {
+            if (!p || p === '/') return null;
+            const parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
+            if (parts.length === 0) return '/';
+            parts.pop();
+            return '/' + parts.join('/');
+        }
+
+        _updateSelectedDisplay() {
+            const selEl = this.container.querySelector('[data-role="selected"]');
+            if (!selEl) return;
+            if (this.selectedPath) {
+                selEl.classList.remove('is-empty');
+                const icon = this.selectedType === 'directory' ? 'bi-folder2-open' : 'bi-file-earmark';
+                selEl.innerHTML = `<i class="bi ${icon}"></i><span>${this._escapeHtml(this.selectedPath)}</span>`;
+            } else {
+                selEl.classList.add('is-empty');
+                selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择目录</span>';
+            }
+        }
+
+        _highlightSelected() {
+            const treeEl = this.container.querySelector('[data-role="tree"]');
+            if (!treeEl) return;
+            treeEl.querySelectorAll('.dir-node.is-selected').forEach(el => el.classList.remove('is-selected'));
+            if (this.selectedPath) {
+                const escaped = this.selectedPath.replace(/\\/g, '\\\\');
+                const match = treeEl.querySelector(`[data-path="${escaped}"]`);
+                if (match) match.classList.add('is-selected');
+            }
+        }
+
+        _escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        /** Destroy the browser instance and clean up DOM. */
+        destroy() {
+            if (this.container) {
+                this.container.innerHTML = '';
+            }
+            this.built = false;
         }
     }
 
-    showError(message) {
-        const listContainer = document.getElementById('directoryList');
-        if (listContainer) {
-            listContainer.innerHTML = `
-                <div class="alert alert-danger" role="alert">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    ${this.escapeHtml(message)}
-                </div>
-            `;
-        }
-    }
-
-    getSelectedPath() {
-        return this.selectedPath;
-    }
-
-    refresh() {
-        if (this.currentPath) {
-            this.loadDirectory(this.currentPath);
-        } else {
-            this.loadRootDirectories();
-        }
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-}
-
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = DirectoryBrowser;
-}
+    /* ── Static factory ── */
+    return {
+        init(opts) {
+            return new Instance(opts);
+        },
+    };
+})();
