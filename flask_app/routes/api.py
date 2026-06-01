@@ -1349,7 +1349,8 @@ def browse_directory():
             for item in sorted(resolved.iterdir()):
                 try:
                     is_dir = item.is_dir()
-                    suffix = item.suffix.lower()
+                    # Use suffixes (plural) to support compound extensions like .csv.gz
+                    suffix = ''.join(item.suffixes).lower()
 
                     # Apply file filter
                     if not is_dir and allowed_extensions and suffix not in allowed_extensions:
