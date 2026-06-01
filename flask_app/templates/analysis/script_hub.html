@@ -705,7 +705,7 @@
                     <div class="sh-stage-index">02</div>
                     <div>
                         <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">浏览目录树并选择 PEP 数据目录和 Profile 文件路径。</div>
+                        <div class="sh-stage-meta">浏览目录树，勾选 PEP 数据目录（可多选），并选择一个 Profile 文件。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -713,38 +713,31 @@
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
                     <div>
-                        <!-- PEP data directory browser -->
+                        <!-- PEP data directory browser (multi-select) -->
                         {% set pep_browser_config = {
                             'browser_id': 'scriptHubPepBrowser',
                             'js_var': 'window._pepBrowser',
                             'file_filter': '',
                             'allow_file_select': False,
+                            'multi_select': True,
                             'default_path': '/data',
-                            'on_select': 'ScriptHubPage.onPepDirSelected',
-                            'label': 'PEP 数据目录',
+                            'on_select': 'ScriptHubPage.onPepPathsChanged',
+                            'label': 'PEP 数据目录（可多选）',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
-                        <!-- Profile file browser -->
+                        <!-- Profile file browser (single-select) -->
                         {% set profile_browser_config = {
                             'browser_id': 'scriptHubProfileBrowser',
                             'js_var': 'window._profileBrowser',
                             'file_filter': 'csv,tsv',
                             'allow_file_select': True,
+                            'multi_select': False,
                             'default_path': '/data',
                             'on_select': 'ScriptHubPage.onProfileFileSelected',
-                            'label': 'Profile 文件',
+                            'label': 'Profile 文件（单选）',
                         } %}
                         {% include 'components/directory_browser.html' %}
-
-                        <!-- Selected paths summary -->
-                        <div class="sh-subpanel mb-3" id="scriptHubSelectedSummary" style="display:none;">
-                            <h3 class="sh-subpanel-title">已选择的路径</h3>
-                            <div class="d-flex flex-column gap-1 small">
-                                <div><strong>PEP 目录：</strong><span id="scriptHubSelectedPep" class="text-muted">未选择</span></div>
-                                <div><strong>Profile 文件：</strong><span id="scriptHubSelectedProfile" class="text-muted">未选择</span></div>
-                            </div>
-                        </div>
 
                         <!-- Cached Usage Sources -->
                         <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
@@ -764,7 +757,7 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">请在目录树中选择 PEP 数据目录和 Profile 文件。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选 PEP 数据目录，点击选择一个 Profile 文件。</div>
                 </div>
             </div>
         </section>

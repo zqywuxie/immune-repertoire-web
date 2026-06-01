@@ -1,11 +1,18 @@
 /**
  * Directory Browser - Reusable lazy-loading filesystem tree component.
- * Usage:
- *   const browser = DirectoryBrowser.init({
+ *
+ * Usage (single-select, default):
+ *   DirectoryBrowser.init({
  *       container: '#my-browser',
- *       onSelect: (path, type) => { console.log(path, type); },
+ *       onSelect: (path, type) => { ... },
+ *   });
+ *
+ * Usage (multi-select):
+ *   DirectoryBrowser.init({
+ *       container: '#my-browser',
+ *       multiSelect: true,
  *       fileFilter: 'csv,tsv',
- *       allowFileSelect: true,
+ *       onSelect: (paths) => { ... },  // paths: [{path, type}, ...]
  *   });
  */
 const DirectoryBrowser = (() => {
@@ -13,9 +20,10 @@ const DirectoryBrowser = (() => {
 
     const DEFAULT_OPTIONS = {
         container: '#dirBrowser',
-        onSelect: null,           // callback(path, type) — type: 'directory' | 'file'
+        onSelect: null,           // callback — in multiSelect: (paths[]), single: (path, type)
         fileFilter: '',           // comma-separated extensions e.g. "csv,tsv,csv.gz"
         allowFileSelect: true,    // whether clicking a file triggers onSelect
+        multiSelect: false,       // toggle multi-path selection
         defaultPath: '',          // initial path to browse
         browseApi: '/api/browse-directory',
     };
@@ -29,14 +37,15 @@ const DirectoryBrowser = (() => {
             this.currentPath = '';
             this.selectedPath = '';
             this.selectedType = 'directory';
-            this.treeNodes = {};   // path -> { name, type, hasChildren, childrenLoaded, childrenPaths }
+            this.selectedPaths = new Set();    // Set of paths (multi-select)
+            this.selectedPathsOrder = [];      // ordered list for display
+            this.treeNodes = {};
             this.container = null;
             this.built = false;
         }
 
         /* ── Public API ── */
 
-        /** Build and render the browser into the container. Call once. */
         build() {
             const el = document.querySelector(this.opts.container);
             if (!el) throw new Error(`DirectoryBrowser: container "${this.opts.container}" not found`);
@@ -47,25 +56,70 @@ const DirectoryBrowser = (() => {
             return this;
         }
 
-        /** Navigate to a path and reload the tree. */
         async goTo(path) {
             if (!this.built) this.build();
             this.currentPath = path || this.opts.defaultPath || '/';
             await this._loadPath(this.currentPath);
         }
 
-        /** Get currently selected path. */
+        /** Single-select: get currently selected path. */
         getSelected() {
+            if (this.opts.multiSelect) {
+                return this.selectedPathsOrder.map(p => ({ path: p, type: this.treeNodes[p]?.type || 'directory' }));
+            }
             return { path: this.selectedPath, type: this.selectedType };
         }
 
-        /** Set selected path programmatically. */
+        /** Multi-select: get all selected paths. */
+        getSelectedPaths() {
+            return this.selectedPathsOrder.map(p => ({ path: p, type: this.treeNodes[p]?.type || 'directory' }));
+        }
+
+        /** Multi-select: remove a path from the selection. */
+        removeSelected(path) {
+            this.selectedPaths.delete(path);
+            this.selectedPathsOrder = this.selectedPathsOrder.filter(p => p !== path);
+            this._renderTree();
+            this._updateSelectedDisplay();
+            this._notify();
+        }
+
+        /** Single-select: set selected path programmatically. */
         setSelected(path, type = 'directory') {
+            if (this.opts.multiSelect) {
+                this._toggleMulti(path, type);
+                return;
+            }
             this.selectedPath = path;
             this.selectedType = type;
             this._updateSelectedDisplay();
             this._highlightSelected();
             if (this.opts.onSelect) this.opts.onSelect(path, type);
+        }
+
+        _toggleMulti(path, type) {
+            if (this.selectedPaths.has(path)) {
+                this.selectedPaths.delete(path);
+                this.selectedPathsOrder = this.selectedPathsOrder.filter(p => p !== path);
+            } else {
+                this.selectedPaths.add(path);
+                this.selectedPathsOrder.push(path);
+            }
+            this._renderTree();
+            this._updateSelectedDisplay();
+            this._notify();
+        }
+
+        _notify() {
+            if (!this.opts.onSelect) return;
+            if (this.opts.multiSelect) {
+                this.opts.onSelect(this.getSelectedPaths());
+            }
+        }
+
+        destroy() {
+            if (this.container) this.container.innerHTML = '';
+            this.built = false;
         }
 
         /* ── HTML template ── */
@@ -93,7 +147,7 @@ const DirectoryBrowser = (() => {
         </div>
     </div>
     <div class="dir-browser-selected is-empty" data-role="selected">
-        <i class="bi bi-chevron-right"></i><span>未选择目录</span>
+        <i class="bi bi-chevron-right"></i><span>未选择</span>
     </div>
 </div>`;
         }
@@ -103,7 +157,6 @@ const DirectoryBrowser = (() => {
             const root = document.getElementById(this.id);
             if (!root) return;
 
-            // Toolbar buttons
             root.querySelector('[data-action="home"]').addEventListener('click', () => {
                 this.goTo(this.opts.defaultPath || '/');
             });
@@ -115,14 +168,11 @@ const DirectoryBrowser = (() => {
                 await this._loadPath(this.currentPath);
             });
 
-            // Path input - Enter to jump
             const pathInput = root.querySelector('[data-action="pathInput"]');
             pathInput.addEventListener('keydown', async (e) => {
                 if (e.key === 'Enter') {
                     const targetPath = pathInput.value.trim();
-                    if (targetPath) {
-                        await this._loadPath(targetPath);
-                    }
+                    if (targetPath) await this._loadPath(targetPath);
                 }
             });
         }
@@ -144,11 +194,9 @@ const DirectoryBrowser = (() => {
                 const data = await resp.json();
 
                 if (!resp.ok && data.error) {
-                    // If directory not found, try auto-detection (no path param)
                     if (resp.status === 404 && path) {
                         this.currentPath = path;
                         pathInput.value = path;
-                        // Retry without path — server will auto-detect a valid root
                         await this._loadPath('');
                         return;
                     }
@@ -160,7 +208,6 @@ const DirectoryBrowser = (() => {
                 this.currentPath = data.current_path || path;
                 pathInput.value = this.currentPath;
 
-                // Build tree nodes from items
                 this.treeNodes = {};
                 const rootNode = {
                     name: this.currentPath === '/' ? '/' : (this.currentPath.split('/').filter(Boolean).pop() || '/'),
@@ -191,7 +238,6 @@ const DirectoryBrowser = (() => {
             }
         }
 
-        /** Load children of a specific directory node (lazy). */
         async _loadChildren(dirPath) {
             const node = this.treeNodes[dirPath];
             if (!node || node.type !== 'directory' || node.childrenLoaded) return;
@@ -223,7 +269,7 @@ const DirectoryBrowser = (() => {
                 node.childrenLoaded = true;
                 this._renderTree();
             } catch (err) {
-                // silently fail — user can retry by toggling again
+                // silently fail — user can retry
             }
         }
 
@@ -242,16 +288,23 @@ const DirectoryBrowser = (() => {
             const rootEl = this._renderNode(rootNode, 0, true);
             if (rootEl) treeEl.appendChild(rootEl);
 
-            // Re-highlight selected
-            this._highlightSelected();
+            if (this.opts.multiSelect) {
+                this._highlightMultiSelected();
+            } else {
+                this._highlightSelected();
+            }
         }
 
         _renderNode(node, depth, isRoot = false) {
             const isDir = node.type === 'directory';
-            const isSelected = (node.path === this.selectedPath);
+            const multi = this.opts.multiSelect;
+            const isSingleSelected = !multi && (node.path === this.selectedPath);
+            const isMultiSelected = multi && this.selectedPaths.has(node.path);
 
             const row = document.createElement('div');
-            row.className = 'dir-node' + (isSelected ? ' is-selected' : '');
+            row.className = 'dir-node'
+                + (isSingleSelected ? ' is-selected' : '')
+                + (isMultiSelected ? ' is-checked' : '');
             row.dataset.path = node.path;
             row.dataset.type = node.type;
             row.style.paddingLeft = `${0.75 + depth * 1.2}rem`;
@@ -267,17 +320,26 @@ const DirectoryBrowser = (() => {
                     if (!node.childrenLoaded) {
                         await this._loadChildren(node.path);
                     } else {
-                        // Toggle collapse/expand
                         node._collapsed = !node._collapsed;
                     }
                     this._renderTree();
                 });
-            } else if (isDir && !node.hasChildren) {
-                toggle.classList.add('is-hidden');
             } else {
                 toggle.classList.add('is-hidden');
             }
             row.appendChild(toggle);
+
+            // Checkmark for multi-select
+            if (multi) {
+                const chk = document.createElement('span');
+                chk.className = 'dir-node-check';
+                chk.innerHTML = isMultiSelected ? '<i class="bi bi-check-circle-fill"></i>' : '<i class="bi bi-circle"></i>';
+                chk.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._toggleMulti(node.path, node.type);
+                });
+                row.appendChild(chk);
+            }
 
             // Icon
             const icon = document.createElement('span');
@@ -303,12 +365,10 @@ const DirectoryBrowser = (() => {
 
             const wrapper = document.createElement('div');
 
-            // Children container
             if (isDir && node.childrenLoaded && !node._collapsed && node.childrenPaths.length > 0) {
                 const childrenContainer = document.createElement('div');
                 childrenContainer.className = 'dir-node-children';
 
-                // Sort: directories first, then files
                 const sorted = [...node.childrenPaths].sort((a, b) => {
                     const na = this.treeNodes[a];
                     const nb = this.treeNodes[b];
@@ -344,13 +404,38 @@ const DirectoryBrowser = (() => {
         _updateSelectedDisplay() {
             const selEl = this.container.querySelector('[data-role="selected"]');
             if (!selEl) return;
+
+            if (this.opts.multiSelect) {
+                const count = this.selectedPathsOrder.length;
+                if (count === 0) {
+                    selEl.className = 'dir-browser-selected is-empty';
+                    selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择</span>';
+                } else {
+                    selEl.className = 'dir-browser-selected';
+                    selEl.innerHTML = '<i class="bi bi-check-circle-fill"></i>' +
+                        this.selectedPathsOrder.slice(-3).reverse().map(p =>
+                            `<span class="dir-browser-chip" title="${this._escapeHtml(p)}">${this._escapeHtml(this.treeNodes[p]?.name || p.split('/').filter(Boolean).pop() || p)}<button class="dir-browser-chip-x" data-remove-path="${this._escapeHtml(p)}">&times;</button></span>`
+                        ).join('') +
+                        (count > 3 ? `<span class="dir-browser-chip-more">+${count - 3}</span>` : '') +
+                        `<span class="dir-browser-chip-count">共 ${count} 项</span>`;
+                    // Bind remove buttons
+                    selEl.querySelectorAll('[data-remove-path]').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            this.removeSelected(btn.dataset.removePath);
+                        });
+                    });
+                }
+                return;
+            }
+
             if (this.selectedPath) {
                 selEl.classList.remove('is-empty');
                 const icon = this.selectedType === 'directory' ? 'bi-folder2-open' : 'bi-file-earmark';
                 selEl.innerHTML = `<i class="bi ${icon}"></i><span>${this._escapeHtml(this.selectedPath)}</span>`;
             } else {
                 selEl.classList.add('is-empty');
-                selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择目录</span>';
+                selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择</span>';
             }
         }
 
@@ -364,22 +449,24 @@ const DirectoryBrowser = (() => {
             }
         }
 
+        _highlightMultiSelected() {
+            const treeEl = this.container.querySelector('[data-role="tree"]');
+            if (!treeEl) return;
+            treeEl.querySelectorAll('.dir-node.is-checked').forEach(el => el.classList.remove('is-checked'));
+            this.selectedPaths.forEach(p => {
+                const match = treeEl.querySelector(`[data-path="${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
+                if (match) match.classList.add('is-checked');
+            });
+        }
+
         _escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
         }
-
-        /** Destroy the browser instance and clean up DOM. */
-        destroy() {
-            if (this.container) {
-                this.container.innerHTML = '';
-            }
-            this.built = false;
-        }
     }
 
-    /* ── Resolve a dotted callback string like "ScriptHubPage.onPepBrowserSelect" ── */
+    /* ── Resolve dotted callback ── */
     function _resolveCallback(name) {
         if (!name) return null;
         const parts = name.split('.');
@@ -391,7 +478,7 @@ const DirectoryBrowser = (() => {
         return typeof fn === 'function' ? fn : null;
     }
 
-    /* ── Auto-initialize from data-dir-browser elements on DOM ready ── */
+    /* ── Auto-init from data-dir-browser elements ── */
     function autoInit() {
         const elements = document.querySelectorAll('[data-dir-browser]');
         elements.forEach(el => {
@@ -400,6 +487,7 @@ const DirectoryBrowser = (() => {
                 defaultPath: el.dataset.defaultPath || '',
                 fileFilter: el.dataset.fileFilter || '',
                 allowFileSelect: el.dataset.allowFileSelect === 'true',
+                multiSelect: el.dataset.multiSelect === 'true',
                 onSelect: null,
             };
             const cbName = el.dataset.onSelect || '';
@@ -411,7 +499,6 @@ const DirectoryBrowser = (() => {
             instance.build();
             instance.goTo(opts.defaultPath);
 
-            // Expose instance on window if js_var is specified
             if (jsVar) {
                 const parts = jsVar.split('.');
                 let target = window;
@@ -430,7 +517,6 @@ const DirectoryBrowser = (() => {
         autoInit();
     }
 
-    /* ── Static factory ── */
     return {
         init(opts) {
             return new Instance(opts);

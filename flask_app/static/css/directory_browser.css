@@ -135,6 +135,39 @@
     visibility: hidden;
 }
 
+/* ── Multi-select checkmark ── */
+.dir-node-check {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: .95rem;
+    color: #c5d2db;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: color .12s, background .12s;
+}
+
+.dir-node-check:hover {
+    color: #11597c;
+    background: #e9f6ff;
+}
+
+.dir-node.is-checked .dir-node-check {
+    color: #11597c;
+}
+
+.dir-node.is-checked {
+    background: #e9f6ff;
+}
+
+.dir-node.is-checked .dir-node-name {
+    color: #11597c;
+    font-weight: 600;
+}
+
 /* ── Icon ── */
 .dir-node-icon {
     font-size: 1rem;
@@ -220,4 +253,48 @@
 .dir-browser-selected.is-empty {
     color: #8ea4b6;
     font-style: italic;
+}
+
+/* ── Multi-select chips ── */
+.dir-browser-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .15rem .5rem;
+    border-radius: 8px;
+    background: #e9f6ff;
+    border: 1px solid #b8d8ed;
+    font-size: .78rem;
+    color: #11597c;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+}
+
+.dir-browser-chip-x {
+    border: none;
+    background: none;
+    color: #8ea4b6;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 1rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.dir-browser-chip-x:hover {
+    color: #c0392b;
+}
+
+.dir-browser-chip-more {
+    font-size: .75rem;
+    color: #8ea4b6;
+}
+
+.dir-browser-chip-count {
+    font-size: .75rem;
+    color: #8ea4b6;
+    margin-left: .25rem;
 }

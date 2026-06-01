@@ -274,100 +274,6 @@ const ScriptHubPage = {
         `;
     },
 
-    renderPepCheckboxList(assets) {
-        const container = document.getElementById('scriptHubPepCheckboxList');
-        if (!container) return;
-        const pepAssets = (assets || []).filter(a => a.asset_type === 'pep');
-        if (!pepAssets.length) {
-            container.innerHTML = '<span class="text-muted">项目中暂无 PEP 目录资产。</span>';
-            return;
-        }
-        container.innerHTML = pepAssets.map((asset, idx) => {
-            const storagePath = asset.storage_path || '';
-            const displayName = asset.original_name || storagePath || '';
-            const meta = asset.metadata || {};
-            const isRemote = !!meta.remote_source_id;
-            const badge = isRemote
-                ? `<span class="badge bg-info" style="font-size:.72rem;">远程 · ${this.escapeHtml(meta.source_name || meta.remote_source_id)}</span>`
-                : `<span class="badge bg-secondary" style="font-size:.72rem;">本地</span>`;
-            return `<div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="word-break:break-all;background:#f8fafb;border:1px solid #e2e8f0;">
-                <input class="form-check-input" type="checkbox" value="${this.escapeHtml(storagePath)}" id="pep_path_${idx}" checked style="flex-shrink:0;margin-top:0;">
-                <label class="form-check-label" for="pep_path_${idx}" style="min-width:0;flex:1;">
-                    <div style="font-size:.85rem;font-weight:600;">${this.escapeHtml(displayName)}</div>
-                    <div style="font-size:.75rem;color:var(--sh-muted);">${this.escapeHtml(storagePath)}</div>
-                </label>
-                ${badge}
-                <button type="button" class="btn btn-outline-danger btn-sm" style="flex-shrink:0;padding:0 .35rem;font-size:.7rem;"
-                    data-delete-asset="${this.escapeHtml(asset.id)}" title="删除此路径">×</button>
-            </div>`;
-        }).join('');
-
-        container.querySelectorAll('[data-delete-asset]').forEach(btn => {
-            btn.addEventListener('click', async (event) => {
-                event.stopPropagation();
-                const assetId = btn.dataset.deleteAsset;
-                if (assetId) await this.deleteProjectAsset(assetId);
-            });
-        });
-    },
-
-    renderDatapointSelect(assets) {
-        const select = document.getElementById('scriptHubDatapointPath');
-        const display = document.getElementById('scriptHubProfileDisplay');
-        const dpAssets = (assets || []).filter(a => a.asset_type === 'datapoint');
-
-        // Populate hidden select (for backward compat)
-        if (select) {
-            select.innerHTML = '<option value="">-- 选择 Datapoint 文件 --</option>';
-            dpAssets.forEach(dp => {
-                const opt = document.createElement('option');
-                opt.value = dp.storage_path || '';
-                opt.textContent = dp.original_name || dp.storage_path || '';
-                select.appendChild(opt);
-            });
-        }
-
-        // Render rich display with radio buttons, badges, delete
-        if (display) {
-            if (!dpAssets.length) {
-                display.innerHTML = '<span class="text-muted">项目中暂无 Profile 文件资产。</span>';
-            } else {
-                display.innerHTML = dpAssets.map((dp, idx) => {
-                    const storagePath = dp.storage_path || '';
-                    const displayName = dp.original_name || storagePath || '';
-                    const meta = dp.metadata || {};
-                    const isRemote = !!meta.remote_source_id;
-                    const badge = isRemote
-                        ? `<span class="badge bg-info" style="font-size:.72rem;">远程 · ${this.escapeHtml(meta.source_name || meta.remote_source_id)}</span>`
-                        : `<span class="badge bg-secondary" style="font-size:.72rem;">本地</span>`;
-                    return `<div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="word-break:break-all;background:#f8fafb;border:1px solid #e2e8f0;">
-                        <input class="form-check-input" type="radio" name="scriptHubDatapointRadio" value="${this.escapeHtml(storagePath)}" ${idx === 0 ? 'checked' : ''} style="flex-shrink:0;margin-top:0;"
-                            onchange="document.getElementById('scriptHubDatapointPath').value=this.value">
-                        <label style="min-width:0;flex:1;">
-                            <div style="font-size:.85rem;font-weight:600;">${this.escapeHtml(displayName)}</div>
-                            <div style="font-size:.75rem;color:var(--sh-muted);">${this.escapeHtml(storagePath)}</div>
-                        </label>
-                        ${badge}
-                        <button type="button" class="btn btn-outline-danger btn-sm" style="flex-shrink:0;padding:0 .35rem;font-size:.7rem;"
-                            data-delete-asset="${this.escapeHtml(dp.id)}" title="删除此路径">×</button>
-                    </div>`;
-                }).join('');
-                // Sync hidden select with first item
-                if (dpAssets.length && select) {
-                    select.value = dpAssets[0].storage_path || '';
-                }
-            }
-
-            display.querySelectorAll('[data-delete-asset]').forEach(btn => {
-                btn.addEventListener('click', async (event) => {
-                    event.stopPropagation();
-                    const assetId = btn.dataset.deleteAsset;
-                    if (assetId) await this.deleteProjectAsset(assetId);
-                });
-            });
-        }
-    },
-
     async deleteProjectAsset(assetId) {
         const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
         if (!projectId || !assetId) return;
@@ -409,14 +315,15 @@ const ScriptHubPage = {
     },
 
     async confirmDataSelection() {
-        const pepPath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const pepPathRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const profilePath = document.getElementById('scriptHubDatapointPath')?.value || '';
 
-        this.selectedPepPaths = pepPath ? [pepPath] : [];
+        // Split comma-separated PEP paths
+        this.selectedPepPaths = pepPathRaw ? pepPathRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
         this.selectedDatapointPath = profilePath;
 
-        if (!pepPath && !profilePath && !this.selectedCachedAssetId) {
-            alert('请先在目录树中选择 PEP 数据目录和 Profile 文件。');
+        if (this.selectedPepPaths.length === 0 && !profilePath && !this.selectedCachedAssetId) {
+            alert('请在目录树中通过 ☑ 勾选 PEP 数据目录，并点击选择一个 Profile 文件。');
             return;
         }
 
@@ -1023,20 +930,16 @@ const ScriptHubPage = {
         }, 80);
     },
 
-    onPepDirSelected(path, type) {
-        document.getElementById('scriptHubBasePath').value = path;
-        const sel = document.getElementById('scriptHubSelectedPep');
-        if (sel) sel.textContent = path;
-        document.getElementById('scriptHubSelectedSummary').style.display = '';
-        this.showSourceFeedback(`PEP 目录已选择: ${path}`, 'info');
+    onPepPathsChanged(paths) {
+        // paths = [{path, type}, ...]
+        const pepPaths = paths.map(p => p.path);
+        document.getElementById('scriptHubBasePath').value = pepPaths.join(',');
+        this.showSourceFeedback(pepPaths.length ? `已选择 ${pepPaths.length} 个 PEP 目录：${pepPaths.join(', ')}` : '未选择 PEP 目录', pepPaths.length ? 'success' : 'info');
     },
 
     onProfileFileSelected(path, type) {
-        document.getElementById('scriptHubDatapointPath').value = path;
-        const sel = document.getElementById('scriptHubSelectedProfile');
-        if (sel) sel.textContent = path;
-        document.getElementById('scriptHubSelectedSummary').style.display = '';
-        this.showSourceFeedback(`Profile 文件已选择: ${path}`, 'info');
+        document.getElementById('scriptHubDatapointPath').value = path || '';
+        this.showSourceFeedback(path ? `Profile 文件已选择: ${path}` : '未选择 Profile 文件', path ? 'success' : 'info');
     },
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
