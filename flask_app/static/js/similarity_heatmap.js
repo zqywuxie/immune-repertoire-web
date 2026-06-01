@@ -2276,5 +2276,6 @@ const AutoHeatmap = {
         summary.style.display = 'block';
         summary.className = `alert alert-${variant} mt-3`;
         text.textContent = message || '';
-    },
+    }
 
+};
