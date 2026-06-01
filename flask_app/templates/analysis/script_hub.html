@@ -705,7 +705,7 @@
                     <div class="sh-stage-index">02</div>
                     <div>
                         <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">在目录树中浏览并选择数据根目录，系统会自动发现目录下的 PEP 文件和 Profile 文件。</div>
+                        <div class="sh-stage-meta">浏览目录树并选择 PEP 数据目录和 Profile 文件路径。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -713,56 +713,48 @@
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
                     <div>
-                        <!-- Unified data source browser -->
-                        {% set data_browser_config = {
-                            'browser_id': 'scriptHubDataBrowser',
-                            'js_var': 'window._dataBrowser',
-                            'file_filter': 'csv,tsv,csv.gz',
+                        <!-- PEP data directory browser -->
+                        {% set pep_browser_config = {
+                            'browser_id': 'scriptHubPepBrowser',
+                            'js_var': 'window._pepBrowser',
+                            'file_filter': '',
                             'allow_file_select': False,
                             'default_path': '/data',
-                            'on_select': 'ScriptHubPage.onDataBrowserSelect',
-                            'label': '数据根目录',
+                            'on_select': 'ScriptHubPage.onPepDirSelected',
+                            'label': 'PEP 数据目录',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
-                        <div class="d-grid mt-2 mb-3">
-                            <button class="btn btn-primary" type="button" id="scriptHubScanDataBtn">
-                                <i class="bi bi-search me-1"></i>扫描目录 — 自动发现 PEP 和 Profile 文件
-                            </button>
-                        </div>
+                        <!-- Profile file browser -->
+                        {% set profile_browser_config = {
+                            'browser_id': 'scriptHubProfileBrowser',
+                            'js_var': 'window._profileBrowser',
+                            'file_filter': 'csv,tsv',
+                            'allow_file_select': True,
+                            'default_path': '/data',
+                            'on_select': 'ScriptHubPage.onProfileFileSelected',
+                            'label': 'Profile 文件',
+                        } %}
+                        {% include 'components/directory_browser.html' %}
 
-                        <!-- Scan result summary -->
-                        <div class="sh-subpanel mb-3 d-none" id="scriptHubScanResultPanel">
-                            <h3 class="sh-subpanel-title">扫描结果</h3>
-                            <div id="scriptHubScanResult" class="small"></div>
-                        </div>
-
-                        <!-- PEP detected paths (auto-populated) -->
-                        <div class="sh-subpanel mb-3 d-none" id="scriptHubPepPathsPanel">
-                            <h3 class="sh-subpanel-title">PEP 文件路径</h3>
-                            <div class="sh-pep-checkbox-list" id="scriptHubPepCheckboxList">
-                                <span class="text-muted small">扫描目录后自动显示可用的 PEP 路径。</span>
+                        <!-- Selected paths summary -->
+                        <div class="sh-subpanel mb-3" id="scriptHubSelectedSummary" style="display:none;">
+                            <h3 class="sh-subpanel-title">已选择的路径</h3>
+                            <div class="d-flex flex-column gap-1 small">
+                                <div><strong>PEP 目录：</strong><span id="scriptHubSelectedPep" class="text-muted">未选择</span></div>
+                                <div><strong>Profile 文件：</strong><span id="scriptHubSelectedProfile" class="text-muted">未选择</span></div>
                             </div>
-                        </div>
-
-                        <!-- Profile file selector (auto-populated) -->
-                        <div class="sh-subpanel mb-3 d-none" id="scriptHubProfilePanel">
-                            <h3 class="sh-subpanel-title">Profile 文件</h3>
-                            <select class="form-select" id="scriptHubDatapointPath">
-                                <option value="">-- 扫描目录后自动填充 --</option>
-                            </select>
-                            <div id="scriptHubProfileDisplay" class="mt-1"></div>
                         </div>
 
                         <!-- Cached Usage Sources -->
                         <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
                             <h3 class="sh-subpanel-title">缓存数据源</h3>
-                            <p class="sh-subpanel-copy">项目已有的 Pep Analysis 缓存 Usage 数据，可直接作为分析输入。</p>
                             <div id="scriptHubCachedSourceCards" class="d-flex flex-wrap gap-2"></div>
                         </div>
 
                         <!-- Base path (hidden, for internal compatibility) -->
                         <input type="hidden" id="scriptHubBasePath" value="">
+                        <input type="hidden" id="scriptHubDatapointPath" value="">
 
                         <!-- Confirm button -->
                         <div class="d-grid mt-3">
@@ -772,7 +764,7 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">请在目录树中选择数据根目录，然后点击「扫描目录」。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">请在目录树中选择 PEP 数据目录和 Profile 文件。</div>
                 </div>
             </div>
         </section>

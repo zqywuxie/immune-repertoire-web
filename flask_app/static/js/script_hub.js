@@ -46,7 +46,6 @@ const ScriptHubPage = {
             this.onProjectChange(event.target.value || '');
         });
         document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
-        document.getElementById('scriptHubScanDataBtn')?.addEventListener('click', () => this.scanDataSource());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
         document.getElementById('scriptHubOpenViewerBtn')?.addEventListener('click', () => this.openResultUrl('viewer_url'));
         document.getElementById('scriptHubOpenZipBtn')?.addEventListener('click', () => this.openResultUrl('zip_url'));
@@ -158,9 +157,11 @@ const ScriptHubPage = {
             }
         }
 
-        if (context.autoScan && this.activeModule !== 'charts' && effectiveLocalPath && !this._autoInspectTriggered) {
+        if (context.autoScan && effectiveLocalPath && !this._autoInspectTriggered) {
             this._autoInspectTriggered = true;
-            this.inspectBasePath(effectiveLocalPath);
+            // Navigate the PEP browser to the project path
+            const pepBrowser = window._pepBrowser;
+            if (pepBrowser) pepBrowser.goTo(effectiveLocalPath);
         }
     },
 
@@ -211,10 +212,6 @@ const ScriptHubPage = {
             this.projectAssets = project.assets || [];
             this.renderProjectAssetSummary(project);
 
-            // Populate Stage 02 data selectors
-            this.renderPepCheckboxList(this.projectAssets);
-            this.renderDatapointSelect(this.projectAssets);
-
             const cachedResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/cached-assets?asset_type=cached_usage`);
             const cachedData = await cachedResponse.json();
             const cachedAssets = cachedData.success ? (cachedData.assets || []) : [];
@@ -242,14 +239,12 @@ const ScriptHubPage = {
             const hasRegisteredPaths = pepAssets.length > 0
                 || this.projectAssets.some(a => a.asset_type === 'datapoint');
 
-            // Navigate the data browser to the first PEP asset directory
+            // Navigate the PEP browser to the first project PEP directory
             if (localPepAssets.length > 0) {
                 const pepDir = localPepAssets[0].storage_path;
-                const dataBrowser = window._dataBrowser;
-                if (dataBrowser && pepDir) {
-                    dataBrowser.goTo(pepDir);
-                    // Auto-scan the directory
-                    window.setTimeout(() => this.scanDataSource(), 500);
+                const pepBrowser = window._pepBrowser;
+                if (pepBrowser && pepDir) {
+                    pepBrowser.goTo(pepDir);
                 }
             }
 
@@ -414,27 +409,18 @@ const ScriptHubPage = {
     },
 
     async confirmDataSelection() {
-        // Collect PEP paths from checkboxes + the base path (from browser or scan)
-        const checkboxes = document.querySelectorAll('#scriptHubPepCheckboxList input[type="checkbox"]:checked');
-        const checkedPepPaths = Array.from(checkboxes).map(cb => cb.value);
-        const basePath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const pepPath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const profilePath = document.getElementById('scriptHubDatapointPath')?.value || '';
 
-        // Merge: checked PEP paths + base path as fallback
-        const allPepPaths = [...new Set([
-            ...checkedPepPaths,
-            ...(basePath ? [basePath] : []),
-        ])];
-        this.selectedPepPaths = allPepPaths;
-        this.selectedDatapointPath = document.getElementById('scriptHubDatapointPath')?.value || '';
+        this.selectedPepPaths = pepPath ? [pepPath] : [];
+        this.selectedDatapointPath = profilePath;
 
-        if (allPepPaths.length === 0 && !this.selectedDatapointPath && !this.selectedCachedAssetId) {
-            alert('请先在目录树中选择数据根目录，然后点击「扫描目录」检测数据。');
+        if (!pepPath && !profilePath && !this.selectedCachedAssetId) {
+            alert('请先在目录树中选择 PEP 数据目录和 Profile 文件。');
             return;
         }
 
-        if (allPepPaths.length > 0) {
-            document.getElementById('scriptHubBasePath').value = allPepPaths[0];
-        }
+        const allPepPaths = this.selectedPepPaths;
 
         this.evaluateAvailableModules(allPepPaths, this.selectedDatapointPath);
         this.stageUnlocked.module = true;
@@ -981,63 +967,6 @@ const ScriptHubPage = {
             `;
         }
 
-        // Populate Stage 02 unified panels
-        const scanResultPanel = document.getElementById('scriptHubScanResultPanel');
-        const scanResult = document.getElementById('scriptHubScanResult');
-        if (scanResultPanel && scanResult) {
-            scanResultPanel.classList.remove('d-none');
-            scanResult.innerHTML = `
-                <div class="d-flex flex-wrap gap-2">
-                    <span class="badge bg-success">${data.sample_count || 0} 个样本</span>
-                    <span class="badge bg-primary">${(data.selected_chains || []).join(', ') || '-'} 链</span>
-                    <span class="badge bg-info">${data.pep_file_count || 0} 个 PEP 文件</span>
-                    ${data.profile_path ? `<span class="badge bg-warning text-dark">Profile: ${this.escapeHtml(data.profile_path)}</span>` : ''}
-                </div>`;
-        }
-
-        // Populate PEP paths panel
-        const pepPathsPanel = document.getElementById('scriptHubPepPathsPanel');
-        const pepList = document.getElementById('scriptHubPepCheckboxList');
-        if (pepPathsPanel && pepList) {
-            pepPathsPanel.classList.remove('d-none');
-            // Use the base_path as the primary PEP path
-            const pepPath = data.base_path || '';
-            if (pepPath) {
-                pepList.innerHTML = `
-                    <label class="form-check">
-                        <input class="form-check-input" type="checkbox" value="${this.escapeHtml(pepPath)}" checked>
-                        <span class="form-check-label">${this.escapeHtml(pepPath)}</span>
-                    </label>`;
-            } else {
-                pepList.innerHTML = '<span class="text-muted small">未检测到 PEP 路径。</span>';
-            }
-        }
-
-        // Populate Profile file selector
-        const profilePanel = document.getElementById('scriptHubProfilePanel');
-        const profileSelect = document.getElementById('scriptHubDatapointPath');
-        const profileDisplay = document.getElementById('scriptHubProfileDisplay');
-        if (profilePanel && profileSelect) {
-            const profileCandidates = Array.isArray(data.profile_candidates) ? data.profile_candidates : [];
-            const datapointCandidates = Array.isArray(data.datapoint_candidates) ? data.datapoint_candidates : [];
-            const allCandidates = [...profileCandidates, ...datapointCandidates];
-
-            if (allCandidates.length > 0) {
-                profilePanel.classList.remove('d-none');
-                profileSelect.style.display = '';
-                profileSelect.innerHTML = '<option value="">-- 选择 Profile 文件 --</option>' +
-                    allCandidates.map(p => `<option value="${this.escapeHtml(p)}" ${p === data.profile_path ? 'selected' : ''}>${this.escapeHtml(p)}</option>`).join('');
-            }
-
-            // Also show registered project profile paths
-            if (profileDisplay) {
-                const existingOptions = Array.from(profileSelect.options).map(o => o.value).filter(Boolean);
-                if (existingOptions.length > 0) {
-                    profileDisplay.innerHTML = `<small class="text-muted">已发现 ${existingOptions.length} 个候选文件</small>`;
-                }
-            }
-        }
-
         const samplePreview = document.getElementById('scriptHubSamplePreview');
         if (samplePreview) {
             const sampleItems = Array.isArray(data.sample_preview) ? data.sample_preview : [];
@@ -1094,25 +1023,20 @@ const ScriptHubPage = {
         }, 80);
     },
 
-    onDataBrowserSelect(path, type) {
-        // When user selects a directory from the browser, update the hidden basePath
-        const basePathInput = document.getElementById('scriptHubBasePath');
-        if (basePathInput) basePathInput.value = path;
-        this.showSourceFeedback(`已选择: ${path}。点击「扫描目录」自动发现 PEP 和 Profile 文件。`, 'info');
+    onPepDirSelected(path, type) {
+        document.getElementById('scriptHubBasePath').value = path;
+        const sel = document.getElementById('scriptHubSelectedPep');
+        if (sel) sel.textContent = path;
+        document.getElementById('scriptHubSelectedSummary').style.display = '';
+        this.showSourceFeedback(`PEP 目录已选择: ${path}`, 'info');
     },
 
-    async scanDataSource() {
-        const basePath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        if (!basePath) {
-            this.showSourceFeedback('请先在目录树中选择数据根目录。', 'warning');
-            return;
-        }
-        // Auto-detect what to inspect based on selected module or default to db-alignment
-        if (this.activeModule) {
-            await this.inspectBasePath(basePath);
-        } else {
-            await this.inspectBasePath(basePath);
-        }
+    onProfileFileSelected(path, type) {
+        document.getElementById('scriptHubDatapointPath').value = path;
+        const sel = document.getElementById('scriptHubSelectedProfile');
+        if (sel) sel.textContent = path;
+        document.getElementById('scriptHubSelectedSummary').style.display = '';
+        this.showSourceFeedback(`Profile 文件已选择: ${path}`, 'info');
     },
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
