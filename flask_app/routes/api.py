@@ -4,6 +4,7 @@ Provides RESTful endpoints for file management, analysis, and configuration.
 """
 import io
 import os
+import platform
 import uuid
 import logging
 from datetime import datetime
@@ -1284,10 +1285,6 @@ def browse_directory():
         path: Absolute path to browse (default: auto-detect Linux root)
         filter: Optional comma-separated file extensions to show (e.g. "csv,tsv,csv.gz")
     """
-    import os
-    import platform
-    from pathlib import Path
-
     path = request.args.get('path', '')
     file_filter = request.args.get('filter', '')
 
@@ -1322,7 +1319,7 @@ def browse_directory():
         resolved = Path(path).resolve()
 
         # Security: block sensitive system paths on Linux
-        restricted_prefixes = ['/sys', '/proc', '/dev', '/run', '/boot']
+        restricted_prefixes = ['/sys', '/proc', '/dev', '/run', '/boot', '/etc', '/root']
         if platform.system() == 'Linux':
             for prefix in restricted_prefixes:
                 if str(resolved).startswith(prefix):
@@ -1397,7 +1394,8 @@ def browse_directory():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Unexpected error browsing directory: %s", path)
+        return jsonify({'error': 'Internal server error while browsing directory'}), 500
 
 
 @api_bp.route('/generate-ppt', methods=['POST'])
