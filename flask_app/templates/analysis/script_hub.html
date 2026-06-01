@@ -705,7 +705,7 @@
                     <div class="sh-stage-index">02</div>
                     <div>
                         <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">勾选 PEP 数据目录（支持多目录合并）和 Datapoint 文件（Profile），点击确认进入下一步。</div>
+                        <div class="sh-stage-meta">点击目录作为 PEP 数据源，点击 CSV 文件作为 Profile。选好后自动进入下一步。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -713,84 +713,97 @@
             <div class="sh-stage-body">
                 <div class="sh-source-shell">
                     <div>
-                        <!-- PEP data directory browser (multi-select) -->
-                        {% set pep_browser_config = {
-                            'browser_id': 'scriptHubPepBrowser',
-                            'js_var': 'window._pepBrowser',
-                            'file_filter': '',
-                            'allow_file_select': False,
-                            'multi_select': True,
-                            'default_path': '/data',
-                            'on_select': 'ScriptHubPage.onPepPathsChanged',
-                            'label': 'PEP 数据目录（多选）',
-                        } %}
-                        {% include 'components/directory_browser.html' %}
-
-                        <!-- Datapoint file browser (multi-select) -->
-                        {% set dp_browser_config = {
-                            'browser_id': 'scriptHubDpBrowser',
-                            'js_var': 'window._dpBrowser',
-                            'file_filter': 'csv,tsv',
-                            'allow_file_select': True,
-                            'multi_select': True,
-                            'default_path': '/data',
-                            'on_select': 'ScriptHubPage.onDpPathsChanged',
-                            'label': 'Datapoint / Profile 文件（多选）',
-                        } %}
-                        {% include 'components/directory_browser.html' %}
-
-                        <!-- Auto-scan result summary -->
-                        <div class="sh-subpanel mb-3 d-none" id="scriptHubPreviewPanel">
-                            <h3 class="sh-subpanel-title">数据摘要</h3>
-                            <div id="scriptHubPreviewContent" class="small"></div>
+                        <div class="row g-3">
+                            <!-- PEP directory browser -->
+                            <div class="col-lg-6">
+                                {% set pep_browser_config = {
+                                    'browser_id': 'scriptHubPepBrowser',
+                                    'js_var': 'window._pepBrowser',
+                                    'file_filter': '',
+                                    'allow_file_select': False,
+                                    'multi_select': False,
+                                    'default_path': '/data',
+                                    'on_select': 'ScriptHubPage.onPepSelected',
+                                    'label': 'PEP 数据目录',
+                                } %}
+                                {% include 'components/directory_browser.html' %}
+                            </div>
+                            <!-- Profile file browser -->
+                            <div class="col-lg-6">
+                                {% set dp_browser_config = {
+                                    'browser_id': 'scriptHubProfileBrowser',
+                                    'js_var': 'window._profileBrowser',
+                                    'file_filter': 'csv,tsv',
+                                    'allow_file_select': True,
+                                    'multi_select': False,
+                                    'default_path': '/data',
+                                    'on_select': 'ScriptHubPage.onProfileSelected',
+                                    'label': 'Profile 文件',
+                                } %}
+                                {% include 'components/directory_browser.html' %}
+                            </div>
                         </div>
 
-                        <!-- Cached Usage Sources -->
-                        <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
-                            <h3 class="sh-subpanel-title">缓存数据源</h3>
-                            <div id="scriptHubCachedSourceCards" class="d-flex flex-wrap gap-2"></div>
+                        <!-- Selected paths display -->
+                        <div class="sh-subpanel mt-3 d-none" id="scriptHubSelectedPanel">
+                            <h3 class="sh-subpanel-title">已选择的数据</h3>
+                            <div class="d-flex flex-column gap-2">
+                                <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8fafb;border:1px solid #e2e8f0;">
+                                    <span style="font-size:1.1rem;">📂</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div class="fw-semibold small">PEP 数据目录</div>
+                                        <div class="text-muted small text-truncate" id="scriptHubSelectedPepPath">未选择</div>
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8fafb;border:1px solid #e2e8f0;">
+                                    <span style="font-size:1.1rem;">📄</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div class="fw-semibold small">Profile 文件</div>
+                                        <div class="text-muted small text-truncate" id="scriptHubSelectedProfilePath">未选择</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Available modules (shown after selection) -->
+                        <div class="sh-subpanel mt-3 d-none" id="scriptHubModuleSelectPanel">
+                            <h3 class="sh-subpanel-title">可用分析模块</h3>
+                            <div class="sh-chip-list" id="scriptHubModuleChips">
+                                <span class="text-muted small">加载中...</span>
+                            </div>
                         </div>
 
                         <!-- Base paths (hidden) -->
                         <input type="hidden" id="scriptHubBasePath" value="">
                         <input type="hidden" id="scriptHubDatapointPath" value="">
 
-                        <!-- Confirm button -->
+                        <!-- Enter next step -->
                         <div class="d-grid mt-3">
                             <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn" disabled>
-                                <i class="bi bi-check-circle me-1"></i>确认数据选择
+                                <i class="bi bi-arrow-right-circle me-1"></i>进入下一步
                             </button>
-                            <div class="text-muted small text-center mt-1" id="scriptHubDataConfirmHint">请先勾选数据</div>
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选 PEP 目录和 Datapoint 文件。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">点击目录树中的目录/文件即可选择。PEP 选目录，Profile 选 CSV 文件。</div>
                 </div>
             </div>
         </section>
 
-        <!-- Stage 03: Select Analysis Module -->
+        <!-- Stage 03: Configure & Run -->
         <section class="sh-stage sh-hidden" id="scriptHubModuleStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">03</div>
                     <div>
-                        <div class="sh-stage-title">选择分析模块</div>
-                        <div class="sh-stage-meta">选择要运行的分析模块。根据所选数据，可用模块已预先筛选。</div>
+                        <div class="sh-stage-title">配置与运行</div>
+                        <div class="sh-stage-meta">确认模块参数，点击运行开始分析。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubModuleState">等待数据</div>
             </div>
             <div class="sh-stage-body">
-                <div class="alert alert-info mb-3" id="scriptHubModuleFeedback">确认数据选择后解锁模块选择。</div>
-
-                <div class="sh-subpanel mb-3">
-                    <h3 class="sh-subpanel-title">可用分析模块</h3>
-                    <p class="sh-subpanel-copy">点击选择要运行的分析模块。灰色模块表示当前数据不支持。</p>
-                    <div class="sh-chip-list" id="scriptHubModuleChips">
-                        <span class="text-muted small">数据确认后加载可用模块...</span>
-                    </div>
-                </div>
+                <div class="alert alert-info mb-3" id="scriptHubModuleFeedback">选择模块后解锁配置参数。</div>
 
                 <div class="sh-subpanel mb-3" id="scriptHubDataSummaryPanel" style="display:none;">
                     <h3 class="sh-subpanel-title">已选数据摘要</h3>

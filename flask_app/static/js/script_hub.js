@@ -316,26 +316,20 @@ const ScriptHubPage = {
     },
 
     async confirmDataSelection() {
-        const pepPathRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const dpPathRaw = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const pepPath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const dpPath = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
 
-        this.selectedPepPaths = pepPathRaw ? pepPathRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-        this.selectedDatapointPaths = dpPathRaw ? dpPathRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        this.selectedPepPaths = pepPath ? [pepPath] : [];
+        this.selectedDatapointPaths = dpPath ? [dpPath] : [];
+        this.selectedDatapointPath = dpPath || '';
 
         if (this.selectedPepPaths.length === 0 && this.selectedDatapointPaths.length === 0 && !this.selectedCachedAssetId) {
-            alert('请先在目录树中通过 ☑ 勾选 PEP 目录和/或 Datapoint 文件。');
+            alert('请先在目录树中点击选择 PEP 目录和 Profile 文件。');
             return;
         }
 
         const allPepPaths = this.selectedPepPaths;
         const allDpPaths = this.selectedDatapointPaths;
-        this.selectedDatapointPath = allDpPaths[0] || '';
-
-        // Ensure scan has run
-        const panel = document.getElementById('scriptHubPreviewPanel');
-        if (panel && panel.classList.contains('d-none')) {
-            await this._doPreviewScan();
-        }
 
         this.evaluateAvailableModules(allPepPaths, allDpPaths);
         this.stageUnlocked.module = true;
@@ -369,28 +363,13 @@ const ScriptHubPage = {
             const data = await response.json();
             const modules = Array.isArray(data.modules) ? data.modules : [];
 
-            // Per-module data requirements
-            const requirements = {
-                'charts': '需要 PEP 目录',
-                'db-alignment': '需要 PEP 目录 + Datapoint',
-                'boxplot': '需要 Datapoint 文件',
-                'pep-analysis': '需要 PEP 目录 + Datapoint',
-                'topclone': '需要 PEP 目录 + Datapoint',
-                'umap': '需要 Datapoint 文件',
-                'volcano': '需要 Datapoint 文件',
-                'umapin': '需要 Datapoint 文件',
-            };
-
             container.innerHTML = modules.map(m => {
                 const available = this.moduleAvailability[m.key] !== false;
-                const req = requirements[m.key] || '';
-                return `<span class="sh-chip sh-chip-selectable${available ? '' : ' opacity-50'}"
+                return `<span class="sh-chip sh-chip-selectable${available ? '' : ''}"
                     data-module-key="${this.escapeHtml(m.key)}"
                     style="${available ? '' : 'opacity:0.4;cursor:not-allowed;'}"
-                    title="${available ? this.escapeHtml(m.description || m.label) + ' — ' + req : '当前数据不支持此模块。' + req}">
-                    ${this.escapeHtml(m.label)}
-                    <small class="d-block text-muted" style="font-size:.7rem;">${this.escapeHtml(req)}</small>
-                </span>`;
+                    title="${available ? this.escapeHtml(m.description || m.label) : '当前数据不支持此模块'}">
+                    ${this.escapeHtml(m.label)}</span>`;
             }).join('');
             container.querySelectorAll('.sh-chip-selectable').forEach(chip => {
                 chip.addEventListener('click', () => {
@@ -956,106 +935,45 @@ const ScriptHubPage = {
         }, 80);
     },
 
-    onPepPathsChanged(paths) {
-        const pepPaths = paths.map(p => p.path);
-        document.getElementById('scriptHubBasePath').value = pepPaths.join(',');
-        this._updateConfirmButton();
-        this._debouncedPreviewScan();
+    onPepSelected(path, type) {
+        document.getElementById('scriptHubBasePath').value = path || '';
+        document.getElementById('scriptHubSelectedPepPath').textContent = path || '未选择';
+        document.getElementById('scriptHubSelectedPanel').classList.remove('d-none');
+        this._afterDataSelected();
     },
 
-    onDpPathsChanged(paths) {
-        const dpPaths = paths.map(p => p.path);
-        document.getElementById('scriptHubDatapointPath').value = dpPaths.join(',');
-        this._updateConfirmButton();
-        this._debouncedPreviewScan();
+    onProfileSelected(path, type) {
+        document.getElementById('scriptHubDatapointPath').value = path || '';
+        document.getElementById('scriptHubSelectedProfilePath').textContent = path || '未选择';
+        document.getElementById('scriptHubSelectedPanel').classList.remove('d-none');
+        this._afterDataSelected();
     },
 
-    _updateConfirmButton() {
-        const pepRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const dpRaw = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
-        const hasData = !!(pepRaw || dpRaw);
+    _afterDataSelected() {
+        const pep = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const dp = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const hasData = !!(pep || dp);
+
+        // Enable confirm button
         const btn = document.getElementById('scriptHubDataConfirmBtn');
-        const hint = document.getElementById('scriptHubDataConfirmHint');
         if (btn) btn.disabled = !hasData;
-        if (hint) hint.textContent = hasData ? '已选择数据，可以确认进入下一步' : '请先勾选数据';
+
+        // Store paths
+        this.selectedPepPaths = pep ? [pep] : [];
+        this.selectedDatapointPaths = dp ? [dp] : [];
+        this.selectedDatapointPath = dp || '';
+
+        if (hasData) {
+            this.evaluateAvailableModules(this.selectedPepPaths, this.selectedDatapointPaths);
+            this._showModuleSelect();
+            this.showSourceFeedback(`PEP: ${pep || '未选择'} | Profile: ${dp || '未选择'} — 选择模块后点击「进入下一步」。`, 'success');
+        }
     },
 
-    _debouncedPreviewScan() {
-        if (this._previewTimer) clearTimeout(this._previewTimer);
-        this._previewTimer = setTimeout(() => this._doPreviewScan(), 400);
-    },
-
-    async _doPreviewScan() {
-        const pepRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const dpRaw = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
-        const pepPaths = pepRaw ? pepRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const dpPaths = dpRaw ? dpRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const allPaths = [...pepPaths, ...dpPaths];
-
-        const panel = document.getElementById('scriptHubPreviewPanel');
-        const content = document.getElementById('scriptHubPreviewContent');
-        if (!panel || !content) return;
-
-        if (!allPaths.length) {
-            panel.classList.add('d-none');
-            return;
-        }
-
-        try {
-            const resp = await fetch('/api/script-hub/quick-scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ paths: allPaths }),
-            });
-            const data = await resp.json();
-            if (!data.success) throw new Error(data.message);
-
-            const s = data.summary;
-            const rows = data.results;
-            let html = '';
-
-            const pepRows = rows.filter(r => r.type === 'directory');
-            if (pepRows.length) {
-                html += '<div class="mb-1 fw-semibold small">📂 PEP 目录</div>';
-                pepRows.forEach(r => {
-                    if (r.error) {
-                        html += `<div class="text-danger small mb-1">⚠ ${this.escapeHtml(r.name)} — ${this.escapeHtml(r.error)}</div>`;
-                    } else {
-                        html += `<div class="mb-1 ps-2 border-start border-3 border-primary small">${this.escapeHtml(r.name)} — ${r.sample_count || 0} 样本, ${(r.chains || []).join(',') || '-'} 链, ${r.pep_file_count || 0} 文件</div>`;
-                    }
-                });
-            }
-
-            const dpRows = rows.filter(r => r.type === 'file');
-            if (dpRows.length) {
-                html += '<div class="mt-2 mb-1 fw-semibold small">📄 Datapoint</div>';
-                dpRows.forEach(r => {
-                    if (r.error) {
-                        html += `<div class="text-danger small mb-1">⚠ ${this.escapeHtml(r.name)} — ${this.escapeHtml(r.error)}</div>`;
-                    } else {
-                        html += `<div class="mb-1 ps-2 border-start border-3 border-success small">${this.escapeHtml(r.name)} — ${r.column_count || 0} 列: ${this.escapeHtml((r.columns || []).slice(0, 6).join(', '))}${(r.columns || []).length > 6 ? '…' : ''}</div>`;
-                    }
-                });
-            }
-
-            html += '<div class="mt-2 pt-2 border-top d-flex flex-wrap gap-1">';
-            html += `<span class="badge bg-primary">${s.pep_dir_count || 0} PEP</span>`;
-            html += `<span class="badge bg-success">${s.dp_file_count || 0} Datapoint</span>`;
-            html += `<span class="badge bg-info">${s.total_samples || 0} 样本</span>`;
-            html += `<span class="badge bg-secondary">${s.total_pep_files || 0} PEP 文件</span>`;
-            html += `<span class="badge bg-warning text-dark">${(s.all_chains || []).join(',') || '-'} 链</span>`;
-            if (s.dp_file_count > 1) {
-                html += `<span class="badge ${s.columns_aligned ? 'bg-success' : 'bg-danger'}">列对齐${s.columns_aligned ? '✅' : '⚠'}</span>`;
-            }
-            html += '</div>';
-
-            panel.classList.remove('d-none');
-            content.innerHTML = html;
-            this.showSourceFeedback('勾选完成。确认后进入模块选择。', 'success');
-        } catch (err) {
-            panel.classList.remove('d-none');
-            content.innerHTML = `<div class="text-danger small">扫描失败: ${this.escapeHtml(err.message)}</div>`;
-        }
+    _showModuleSelect() {
+        const panel = document.getElementById('scriptHubModuleSelectPanel');
+        if (panel) panel.classList.remove('d-none');
+        this.renderModuleChips();
     },
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
