@@ -2279,3 +2279,4 @@ const AutoHeatmap = {
     }
 
 };
+window.AutoHeatmap = AutoHeatmap;

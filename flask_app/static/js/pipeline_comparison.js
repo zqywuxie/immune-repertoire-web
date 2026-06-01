@@ -831,3 +831,4 @@ const PipelineComparisonPage = {
 document.addEventListener('DOMContentLoaded', () => {
     PipelineComparisonPage.init();
 });
+window.PipelineComparisonPage = PipelineComparisonPage;

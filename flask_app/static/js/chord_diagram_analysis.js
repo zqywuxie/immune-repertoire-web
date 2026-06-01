@@ -719,3 +719,4 @@ const ChordDiagramAnalysis = {
 document.addEventListener('DOMContentLoaded', () => {
     ChordDiagramAnalysis.init();
 });
+window.ChordDiagramAnalysis = ChordDiagramAnalysis;

@@ -858,3 +858,4 @@ const CombinedAnalysis = {
 };
 
 document.addEventListener('DOMContentLoaded', () => CombinedAnalysis.init());
+window.CombinedAnalysis = CombinedAnalysis;

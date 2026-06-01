@@ -2767,3 +2767,4 @@ const ScriptHubPage = {
 document.addEventListener('DOMContentLoaded', () => {
     ScriptHubPage.init();
 });
+window.ScriptHubPage = ScriptHubPage;

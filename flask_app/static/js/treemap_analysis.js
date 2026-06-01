@@ -849,3 +849,4 @@ const TreemapAnalysis = {
 document.addEventListener('DOMContentLoaded', () => {
     TreemapAnalysis.init();
 });
+window.TreemapAnalysis = TreemapAnalysis;
