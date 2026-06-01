@@ -25,21 +25,7 @@ const TreemapAnalysis = {
         j_column: ['j', 'j_gene', 'jgene', 'bestjgene', 'j_call']
     },
 
-    init() {
-        if (typeof DirectoryBrowser !== 'undefined') {
-            window._treemapBrowser = DirectoryBrowser.init({
-                container: '#treemapDirBrowser',
-                fileFilter: 'csv,tsv,csv.gz',
-                allowFileSelect: false,
-                multiSelect: false,
-                defaultPath: '/data',
-                onSelect: (path, type) => TreemapAnalysis.onBrowserSelect(path, type),
-            });
-            window._treemapBrowser.build();
-            window._treemapBrowser.goTo('/data');
-        }
-
-        this.updateStepIndicator(1);
+    init() {        this.updateStepIndicator(1);
         const topcloneOnly = document.getElementById('topcloneOnly');
         if (topcloneOnly) {
             topcloneOnly.addEventListener('change', () => this.updateTopcloneOnlyState());

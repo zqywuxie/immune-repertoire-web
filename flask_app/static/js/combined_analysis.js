@@ -24,21 +24,7 @@ const CombinedAnalysis = {
         j_column: ['j', 'j_gene', 'jgene', 'bestjgene', 'j_call']
     },
 
-    init() {
-        if (typeof DirectoryBrowser !== 'undefined') {
-            window._combinedBrowser = DirectoryBrowser.init({
-                container: '#combinedDirBrowser',
-                fileFilter: 'csv,tsv,csv.gz',
-                allowFileSelect: false,
-                multiSelect: false,
-                defaultPath: '/data',
-                onSelect: (path, type) => CombinedAnalysis.onBrowserSelect(path, type),
-            });
-            window._combinedBrowser.build();
-            window._combinedBrowser.goTo('/data');
-        }
-
-        this.updateStepIndicator(1);
+    init() {        this.updateStepIndicator(1);
         this.projectContext = this.getProjectContext();
 
         this.loadProjects();

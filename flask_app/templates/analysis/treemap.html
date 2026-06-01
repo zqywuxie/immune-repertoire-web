@@ -227,7 +227,21 @@
         <div class="progress-log" id="loadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof TreemapAnalysis === 'undefined') return;
+    window._treemapBrowser = DirectoryBrowser.init({
+        container: '#treemapDirBrowser',
+        fileFilter: 'csv,tsv,csv.gz',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { TreemapAnalysis.onBrowserSelect(path, type); },
+    });
+    window._treemapBrowser.build();
+    window._treemapBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}
 
 {% block extra_js %}

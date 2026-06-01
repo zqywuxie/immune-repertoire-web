@@ -35,47 +35,11 @@ const ScriptHubPage = {
     ],
 
     init() {
-        try {
-            this.bindEvents();
-            this.projectContext = this.getProjectContext();
-            this.loadProjects();
-            this.initializeProjectContext();
-            this.syncStageUI();
-            if (typeof DirectoryBrowser !== 'undefined') {
-                this._initPepBrowser();
-                this._initProfileBrowser();
-            } else {
-                console.warn('DirectoryBrowser not loaded');
-            }
-        } catch (e) {
-            console.error('ScriptHubPage.init() error:', e);
-        }
-    },
-
-    _initPepBrowser() {
-        window._pepBrowser = DirectoryBrowser.init({
-            container: '#scriptHubPepBrowser',
-            fileFilter: '',
-            allowFileSelect: false,
-            multiSelect: false,
-            defaultPath: '/data',
-            onSelect: (path, type) => this.onPepHighlight(path, type),
-        });
-        window._pepBrowser.build();
-        window._pepBrowser.goTo('/data');
-    },
-
-    _initProfileBrowser() {
-        window._profileBrowser = DirectoryBrowser.init({
-            container: '#scriptHubProfileBrowser',
-            fileFilter: 'csv,tsv',
-            allowFileSelect: true,
-            multiSelect: false,
-            defaultPath: '/data',
-            onSelect: (path, type) => this.onProfileHighlight(path, type),
-        });
-        window._profileBrowser.build();
-        window._profileBrowser.goTo('/data');
+        this.bindEvents();
+        this.projectContext = this.getProjectContext();
+        this.loadProjects();
+        this.initializeProjectContext();
+        this.syncStageUI();
     },
 
     bindEvents() {

@@ -416,7 +416,21 @@
         <div class="pc-loading-log" id="pcLoadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof PipelineComparisonPage === 'undefined') return;
+    window._pcBrowser = DirectoryBrowser.init({
+        container: '#pcDirBrowser',
+        fileFilter: 'csv,tsv,csv.gz',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { PipelineComparisonPage.onBrowserSelect(path, type); },
+    });
+    window._pcBrowser.build();
+    window._pcBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}
 
 {% block extra_js %}

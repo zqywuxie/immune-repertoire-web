@@ -273,7 +273,21 @@
         <div class="progress-log" id="loadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof CombinedAnalysis === 'undefined') return;
+    window._combinedBrowser = DirectoryBrowser.init({
+        container: '#combinedDirBrowser',
+        fileFilter: 'csv,tsv,csv.gz',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { CombinedAnalysis.onBrowserSelect(path, type); },
+    });
+    window._combinedBrowser.build();
+    window._combinedBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}
 
 {% block extra_js %}

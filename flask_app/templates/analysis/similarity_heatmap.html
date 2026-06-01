@@ -758,7 +758,21 @@
         </div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof AutoHeatmap === 'undefined') return;
+    window._heatmapBrowser = DirectoryBrowser.init({
+        container: '#heatmapDirBrowser',
+        fileFilter: 'csv,tsv,csv.gz',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { AutoHeatmap.onBrowserSelect(path, type); },
+    });
+    window._heatmapBrowser.build();
+    window._heatmapBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}
 
 {% block extra_js %}

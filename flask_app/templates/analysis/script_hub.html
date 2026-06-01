@@ -1251,4 +1251,32 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/script_hub.js') }}"></script>
+<script>
+// Init directory browsers after all scripts have loaded
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof ScriptHubPage === 'undefined') return;
+
+    window._pepBrowser = DirectoryBrowser.init({
+        container: '#scriptHubPepBrowser',
+        fileFilter: '',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { ScriptHubPage.onPepHighlight(path, type); },
+    });
+    window._pepBrowser.build();
+    window._pepBrowser.goTo('/data');
+
+    window._profileBrowser = DirectoryBrowser.init({
+        container: '#scriptHubProfileBrowser',
+        fileFilter: 'csv,tsv',
+        allowFileSelect: true,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { ScriptHubPage.onProfileHighlight(path, type); },
+    });
+    window._profileBrowser.build();
+    window._profileBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}

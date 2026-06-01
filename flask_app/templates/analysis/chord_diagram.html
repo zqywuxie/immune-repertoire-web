@@ -163,7 +163,21 @@
         <div class="progress-log" id="loadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined' || typeof ChordDiagramAnalysis === 'undefined') return;
+    window._chordBrowser = DirectoryBrowser.init({
+        container: '#chordDirBrowser',
+        fileFilter: 'csv,tsv,csv.gz',
+        allowFileSelect: false,
+        multiSelect: false,
+        defaultPath: '/data',
+        onSelect: function(path, type) { ChordDiagramAnalysis.onBrowserSelect(path, type); },
+    });
+    window._chordBrowser.build();
+    window._chordBrowser.goTo('/data');
+})();
+</script>
 {% endblock %}
 
 {% block extra_js %}
