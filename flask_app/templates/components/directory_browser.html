@@ -1,0 +1,46 @@
+{#
+    Directory Browser Component
+    ===========================
+    Parameters:
+        browser_id:       Unique DOM id for this browser instance (required)
+        js_var:           JS variable name to store the instance (e.g. "window._pepBrowser")
+        default_path:     Initial path to browse (default: auto via API)
+        file_filter:      Comma-separated extensions e.g. "csv,tsv,csv.gz" (default: "")
+        allow_file_select: Whether files are selectable (default: true)
+        on_select:        JS callback function name (e.g. "onPepPathSelected")
+        label:            Label text above the browser (default: "数据源目录")
+#}
+{% set bid = browser_id|default('dirBrowser') %}
+{% set jsv = js_var|default('window._dirBrowser') %}
+{% set dp = default_path|default('') %}
+{% set ff = file_filter|default('') %}
+{% set afs = 'true' if allow_file_select|default(true) else 'false' %}
+{% set nos = on_select|default('null') %}
+
+<div class="mb-3">
+    <label class="form-label fw-semibold">{{ label|default('数据源目录') }}</label>
+    <div id="{{ bid }}"></div>
+</div>
+
+<script>
+(function() {
+    if (typeof DirectoryBrowser === 'undefined') {
+        console.error('DirectoryBrowser module not loaded. Include directory_browser.js first.');
+        return;
+    }
+    {{ jsv }} = DirectoryBrowser.init({
+        container: '#{{ bid }}',
+        fileFilter: '{{ ff }}',
+        allowFileSelect: {{ afs }},
+        defaultPath: '{{ dp }}',
+        onSelect: function(path, type) {
+            {% if nos and nos != 'null' %}
+            {{ nos }}(path, type);
+            {% endif %}
+        },
+    });
+    {{ jsv }}.build();
+    // Auto-load the default or root path
+    {{ jsv }}.goTo('{{ dp }}');
+})();
+</script>
