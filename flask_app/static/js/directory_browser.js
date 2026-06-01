@@ -348,8 +348,7 @@ const DirectoryBrowser = (() => {
             if (!treeEl) return;
             treeEl.querySelectorAll('.dir-node.is-selected').forEach(el => el.classList.remove('is-selected'));
             if (this.selectedPath) {
-                const escaped = this.selectedPath.replace(/\\/g, '\\\\');
-                const match = treeEl.querySelector(`[data-path="${escaped}"]`);
+                const match = treeEl.querySelector(`[data-path="${this.selectedPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
                 if (match) match.classList.add('is-selected');
             }
         }
