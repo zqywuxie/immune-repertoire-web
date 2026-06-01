@@ -36,12 +36,15 @@ const ScriptHubPage = {
 
     init() {
         this.bindEvents();
-        this._initPepBrowser();
-        this._initProfileBrowser();
         this.projectContext = this.getProjectContext();
         this.loadProjects();
         this.initializeProjectContext();
         this.syncStageUI();
+        // Init browsers after DOM is settled
+        if (typeof DirectoryBrowser !== 'undefined') {
+            this._initPepBrowser();
+            this._initProfileBrowser();
+        }
     },
 
     _initPepBrowser() {
