@@ -705,7 +705,7 @@
                     <div class="sh-stage-index">02</div>
                     <div>
                         <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">浏览目录树，勾选 PEP 数据目录和 Datapoint 文件。后续分析会合并所有选中的数据。</div>
+                        <div class="sh-stage-meta">勾选 PEP 数据目录（支持多目录合并）和 Datapoint 文件（Profile），点击确认进入下一步。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -722,7 +722,7 @@
                             'multi_select': True,
                             'default_path': '/data',
                             'on_select': 'ScriptHubPage.onPepPathsChanged',
-                            'label': 'PEP 数据目录（多选，合并分析）',
+                            'label': 'PEP 数据目录（多选）',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
@@ -735,22 +735,20 @@
                             'multi_select': True,
                             'default_path': '/data',
                             'on_select': 'ScriptHubPage.onDpPathsChanged',
-                            'label': 'Datapoint 文件（多选，合并分析）',
+                            'label': 'Datapoint / Profile 文件（多选）',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
-                        <!-- Preview Scan button -->
-                        <div class="d-flex gap-2 mb-3">
-                            <button class="btn btn-outline-primary" type="button" id="scriptHubPreviewScanBtn">
-                                <i class="bi bi-search me-1"></i>预览选中数据
-                            </button>
-                            <span class="text-muted small align-self-center">查看已选目录和文件的统计信息</span>
+                        <!-- Auto-scan result summary -->
+                        <div class="sh-subpanel mb-3 d-none" id="scriptHubPreviewPanel">
+                            <h3 class="sh-subpanel-title">数据摘要</h3>
+                            <div id="scriptHubPreviewContent" class="small"></div>
                         </div>
 
-                        <!-- Scan result summary -->
-                        <div class="sh-subpanel mb-3 d-none" id="scriptHubPreviewPanel">
-                            <h3 class="sh-subpanel-title">已选数据摘要</h3>
-                            <div id="scriptHubPreviewContent" class="small"></div>
+                        <!-- Cached Usage Sources -->
+                        <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
+                            <h3 class="sh-subpanel-title">缓存数据源</h3>
+                            <div id="scriptHubCachedSourceCards" class="d-flex flex-wrap gap-2"></div>
                         </div>
 
                         <!-- Base paths (hidden) -->
@@ -759,13 +757,14 @@
 
                         <!-- Confirm button -->
                         <div class="d-grid mt-3">
-                            <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn">
+                            <button class="btn btn-primary btn-lg" type="button" id="scriptHubDataConfirmBtn" disabled>
                                 <i class="bi bi-check-circle me-1"></i>确认数据选择
                             </button>
+                            <div class="text-muted small text-center mt-1" id="scriptHubDataConfirmHint">请先勾选数据</div>
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选需要合并分析的 PEP 目录和 Datapoint 文件，然后点击「预览选中数据」查看统计。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选 PEP 目录和 Datapoint 文件。</div>
                 </div>
             </div>
         </section>
