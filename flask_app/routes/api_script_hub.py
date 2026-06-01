@@ -567,6 +567,78 @@ def _run_boxplot_task(
         )
 
 
+@script_hub_bp.route("/quick-scan", methods=["POST"])
+def quick_scan():
+    """Lightweight scan of a single directory or file. Returns stats for the UI preview panel."""
+    data = request.get_json() or {}
+    paths = data.get("paths") or []
+    if isinstance(paths, str):
+        paths = [paths]
+    if not isinstance(paths, list) or len(paths) == 0:
+        return jsonify({"success": False, "message": "paths is required"}), 400
+
+    results = []
+    total_samples = 0
+    total_pep_files = 0
+    all_chains = set()
+
+    for p in paths:
+        target = Path(str(p))
+        entry = {"path": str(p), "type": "file", "name": target.name}
+        try:
+            if target.is_dir():
+                entry["type"] = "directory"
+                # Scan for PEP files: {Sample}__{Chain}.csv
+                pep_files = list(target.glob("*.csv")) + list(target.glob("*.csv.gz")) + list(target.glob("*.tsv")) + list(target.glob("*.tsv.gz"))
+                samples = set()
+                chains = set()
+                for f in pep_files:
+                    name = f.name
+                    if "__" in name:
+                        parts = name.rsplit("__", 1)
+                        stem = parts[0]
+                        chain_raw = parts[1].rsplit(".", 1)[0]
+                        chain = _normalize_chain(chain_raw)
+                        if chain in _SUPPORTED_CHAINS_WIDE:
+                            samples.add(stem)
+                            chains.add(chain)
+                entry["sample_count"] = len(samples)
+                entry["pep_file_count"] = len(pep_files)
+                entry["chains"] = sorted(chains)
+                total_samples += len(samples)
+                total_pep_files += len(pep_files)
+                all_chains.update(chains)
+            elif target.is_file():
+                entry["type"] = "file"
+                df = pd.read_csv(target, nrows=0)
+                entry["columns"] = df.columns.tolist()
+                entry["column_count"] = len(entry["columns"])
+            else:
+                entry["error"] = "Path does not exist"
+        except Exception as e:
+            entry["error"] = str(e)
+        results.append(entry)
+
+    column_sets = [set(r.get("columns", [])) for r in results if r.get("type") == "file" and "columns" in r]
+    columns_aligned = True
+    if len(column_sets) > 1:
+        first = column_sets[0]
+        columns_aligned = all(s == first for s in column_sets[1:])
+
+    return jsonify({
+        "success": True,
+        "results": results,
+        "summary": {
+            "pep_dir_count": sum(1 for r in results if r.get("type") == "directory"),
+            "dp_file_count": sum(1 for r in results if r.get("type") == "file"),
+            "total_samples": total_samples,
+            "total_pep_files": total_pep_files,
+            "all_chains": sorted(all_chains),
+            "columns_aligned": columns_aligned,
+        },
+    })
+
+
 @script_hub_bp.route("/modules", methods=["GET"])
 def list_modules():
     return jsonify(

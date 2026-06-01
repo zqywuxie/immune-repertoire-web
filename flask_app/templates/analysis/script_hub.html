@@ -705,7 +705,7 @@
                     <div class="sh-stage-index">02</div>
                     <div>
                         <div class="sh-stage-title">选择数据</div>
-                        <div class="sh-stage-meta">浏览目录树，勾选 PEP 数据目录（可多选），并选择一个 Profile 文件。</div>
+                        <div class="sh-stage-meta">浏览目录树，勾选 PEP 数据目录和 Datapoint 文件。后续分析会合并所有选中的数据。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubDataState">未激活</div>
@@ -722,30 +722,38 @@
                             'multi_select': True,
                             'default_path': '/data',
                             'on_select': 'ScriptHubPage.onPepPathsChanged',
-                            'label': 'PEP 数据目录（可多选）',
+                            'label': 'PEP 数据目录（多选，合并分析）',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
-                        <!-- Profile file browser (single-select) -->
-                        {% set profile_browser_config = {
-                            'browser_id': 'scriptHubProfileBrowser',
-                            'js_var': 'window._profileBrowser',
+                        <!-- Datapoint file browser (multi-select) -->
+                        {% set dp_browser_config = {
+                            'browser_id': 'scriptHubDpBrowser',
+                            'js_var': 'window._dpBrowser',
                             'file_filter': 'csv,tsv',
                             'allow_file_select': True,
-                            'multi_select': False,
+                            'multi_select': True,
                             'default_path': '/data',
-                            'on_select': 'ScriptHubPage.onProfileFileSelected',
-                            'label': 'Profile 文件（单选）',
+                            'on_select': 'ScriptHubPage.onDpPathsChanged',
+                            'label': 'Datapoint 文件（多选，合并分析）',
                         } %}
                         {% include 'components/directory_browser.html' %}
 
-                        <!-- Cached Usage Sources -->
-                        <div class="sh-subpanel mb-3" id="scriptHubCachedUsagePanel" style="display:none;">
-                            <h3 class="sh-subpanel-title">缓存数据源</h3>
-                            <div id="scriptHubCachedSourceCards" class="d-flex flex-wrap gap-2"></div>
+                        <!-- Preview Scan button -->
+                        <div class="d-flex gap-2 mb-3">
+                            <button class="btn btn-outline-primary" type="button" id="scriptHubPreviewScanBtn">
+                                <i class="bi bi-search me-1"></i>预览选中数据
+                            </button>
+                            <span class="text-muted small align-self-center">查看已选目录和文件的统计信息</span>
                         </div>
 
-                        <!-- Base path (hidden, for internal compatibility) -->
+                        <!-- Scan result summary -->
+                        <div class="sh-subpanel mb-3 d-none" id="scriptHubPreviewPanel">
+                            <h3 class="sh-subpanel-title">已选数据摘要</h3>
+                            <div id="scriptHubPreviewContent" class="small"></div>
+                        </div>
+
+                        <!-- Base paths (hidden) -->
                         <input type="hidden" id="scriptHubBasePath" value="">
                         <input type="hidden" id="scriptHubDatapointPath" value="">
 
@@ -757,7 +765,7 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选 PEP 数据目录，点击选择一个 Profile 文件。</div>
+                    <div class="alert alert-info sh-source-feedback" id="scriptHubSourceFeedback">在目录树中点击 ☑ 勾选需要合并分析的 PEP 目录和 Datapoint 文件，然后点击「预览选中数据」查看统计。</div>
                 </div>
             </div>
         </section>

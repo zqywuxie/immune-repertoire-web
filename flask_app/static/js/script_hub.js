@@ -11,6 +11,7 @@ const ScriptHubPage = {
     isApplyingAutoValues: false,
     stageUnlocked: { project: true, data: false, module: false, config: false },
     selectedPepPaths: [],
+    selectedDatapointPaths: [],
     customPepPaths: [],
     selectedDatapointPath: '',
     selectedCachedAssetId: '',
@@ -46,6 +47,7 @@ const ScriptHubPage = {
             this.onProjectChange(event.target.value || '');
         });
         document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
+        document.getElementById('scriptHubPreviewScanBtn')?.addEventListener('click', () => this.previewScan());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
         document.getElementById('scriptHubOpenViewerBtn')?.addEventListener('click', () => this.openResultUrl('viewer_url'));
         document.getElementById('scriptHubOpenZipBtn')?.addEventListener('click', () => this.openResultUrl('zip_url'));
@@ -316,30 +318,31 @@ const ScriptHubPage = {
 
     async confirmDataSelection() {
         const pepPathRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const profilePath = document.getElementById('scriptHubDatapointPath')?.value || '';
+        const dpPathRaw = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
 
-        // Split comma-separated PEP paths
         this.selectedPepPaths = pepPathRaw ? pepPathRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-        this.selectedDatapointPath = profilePath;
+        this.selectedDatapointPaths = dpPathRaw ? dpPathRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
 
-        if (this.selectedPepPaths.length === 0 && !profilePath && !this.selectedCachedAssetId) {
-            alert('请在目录树中通过 ☑ 勾选 PEP 数据目录，并点击选择一个 Profile 文件。');
+        if (this.selectedPepPaths.length === 0 && this.selectedDatapointPaths.length === 0 && !this.selectedCachedAssetId) {
+            alert('请在目录树中通过 ☑ 勾选需要合并分析的 PEP 目录和 Datapoint 文件。');
             return;
         }
 
         const allPepPaths = this.selectedPepPaths;
+        const allDpPaths = this.selectedDatapointPaths;
+        this.selectedDatapointPath = allDpPaths[0] || '';  // legacy compat
 
-        this.evaluateAvailableModules(allPepPaths, this.selectedDatapointPath);
+        this.evaluateAvailableModules(allPepPaths, allDpPaths);
         this.stageUnlocked.module = true;
         this.syncStageUI();
         this.renderModuleChips();
-        this.renderDataSummary(allPepPaths);
+        this.renderDataSummary(allPepPaths, allDpPaths);
         window.setTimeout(() => { document.getElementById('scriptHubModuleStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
     },
 
-    evaluateAvailableModules(pepPaths, datapointPath) {
+    evaluateAvailableModules(pepPaths, dpPaths) {
         const hasPep = pepPaths.length > 0 || !!this.selectedCachedAssetId;
-        const hasDatapoint = !!datapointPath;
+        const hasDatapoint = dpPaths.length > 0;
         this.moduleAvailability = {
             'charts': hasPep,
             'db-alignment': hasPep,
@@ -406,14 +409,15 @@ const ScriptHubPage = {
         window.setTimeout(() => { document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
     },
 
-    renderDataSummary(pepPaths) {
+    renderDataSummary(pepPaths, dpPaths) {
         const panel = document.getElementById('scriptHubDataSummaryPanel');
         const summary = document.getElementById('scriptHubDataSummary');
         if (!panel || !summary) return;
         panel.style.display = '';
         const parts = [];
         if (pepPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>PEP 路径 (${pepPaths.length})：</strong> ${pepPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
-        if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
+        if (dpPaths && dpPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint (${dpPaths.length})：</strong> ${dpPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
+        else if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
         if (this.selectedCachedAssetId) parts.push(`<div class="sh-data-summary-item"><strong>缓存数据源：</strong> ${this.escapeHtml(this.selectedCachedAssetId)}</div>`);
         summary.innerHTML = parts.length ? parts.join('') : '<span class="text-muted">未选择数据。</span>';
     },
@@ -931,15 +935,101 @@ const ScriptHubPage = {
     },
 
     onPepPathsChanged(paths) {
-        // paths = [{path, type}, ...]
         const pepPaths = paths.map(p => p.path);
         document.getElementById('scriptHubBasePath').value = pepPaths.join(',');
-        this.showSourceFeedback(pepPaths.length ? `已选择 ${pepPaths.length} 个 PEP 目录：${pepPaths.join(', ')}` : '未选择 PEP 目录', pepPaths.length ? 'success' : 'info');
+        const n = pepPaths.length;
+        this.showSourceFeedback(n ? `已勾选 ${n} 个 PEP 目录。点击「预览选中数据」查看统计。` : '未选择 PEP 目录', n ? 'info' : 'info');
     },
 
-    onProfileFileSelected(path, type) {
-        document.getElementById('scriptHubDatapointPath').value = path || '';
-        this.showSourceFeedback(path ? `Profile 文件已选择: ${path}` : '未选择 Profile 文件', path ? 'success' : 'info');
+    onDpPathsChanged(paths) {
+        const dpPaths = paths.map(p => p.path);
+        document.getElementById('scriptHubDatapointPath').value = dpPaths.join(',');
+        const n = dpPaths.length;
+        this.showSourceFeedback(n ? `已勾选 ${n} 个 Datapoint 文件。点击「预览选中数据」查看统计。` : '未选择 Datapoint 文件', n ? 'info' : 'info');
+    },
+
+    async previewScan() {
+        const pepRaw = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const dpRaw = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const pepPaths = pepRaw ? pepRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const dpPaths = dpRaw ? dpRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const allPaths = [...pepPaths, ...dpPaths];
+
+        if (!allPaths.length) {
+            this.showSourceFeedback('请先在目录树中勾选数据。', 'warning');
+            return;
+        }
+
+        this.showSourceFeedback('正在扫描选中数据...', 'secondary');
+        const panel = document.getElementById('scriptHubPreviewPanel');
+        const content = document.getElementById('scriptHubPreviewContent');
+
+        try {
+            const resp = await fetch('/api/script-hub/quick-scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: allPaths }),
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message);
+
+            const s = data.summary;
+            const rows = data.results;
+            let html = '';
+
+            // PEP dirs
+            const pepRows = rows.filter(r => r.type === 'directory');
+            if (pepRows.length) {
+                html += '<div class="mb-2 fw-semibold">📂 PEP 目录</div>';
+                pepRows.forEach(r => {
+                    if (r.error) {
+                        html += `<div class="text-danger small mb-1">⚠ ${this.escapeHtml(r.path)} — ${this.escapeHtml(r.error)}</div>`;
+                    } else {
+                        html += `<div class="mb-1 ps-2 border-start border-3 border-primary">
+                            <strong>${this.escapeHtml(r.name)}</strong>
+                            <span class="text-muted ms-2">${r.sample_count || 0} 样本 | ${(r.chains || []).join(', ') || '-'} 链 | ${r.pep_file_count || 0} 文件</span>
+                        </div>`;
+                    }
+                });
+            }
+
+            // Datapoint files
+            const dpRows = rows.filter(r => r.type === 'file');
+            if (dpRows.length) {
+                html += '<div class="mt-2 mb-2 fw-semibold">📄 Datapoint 文件</div>';
+                dpRows.forEach(r => {
+                    if (r.error) {
+                        html += `<div class="text-danger small mb-1">⚠ ${this.escapeHtml(r.path)} — ${this.escapeHtml(r.error)}</div>`;
+                    } else {
+                        html += `<div class="mb-1 ps-2 border-start border-3 border-success">
+                            <strong>${this.escapeHtml(r.name)}</strong>
+                            <span class="text-muted ms-2">${r.column_count || 0} 列</span>
+                            <div class="text-muted small" style="word-break:break-all;">${this.escapeHtml((r.columns || []).join(', '))}</div>
+                        </div>`;
+                    }
+                });
+            }
+
+            // Merge summary
+            html += '<div class="mt-3 pt-2 border-top">';
+            html += `<span class="badge bg-primary me-2">${s.pep_dir_count || 0} 个 PEP 目录</span>`;
+            html += `<span class="badge bg-success me-2">${s.dp_file_count || 0} 个 Datapoint</span>`;
+            html += `<span class="badge bg-info me-2">${s.total_samples || 0} 个样本</span>`;
+            html += `<span class="badge bg-secondary me-2">${s.total_pep_files || 0} 个 PEP 文件</span>`;
+            html += `<span class="badge bg-warning text-dark">${(s.all_chains || []).join(', ') || '-'} 链</span>`;
+            if (s.dp_file_count > 1) {
+                html += `<span class="badge ${s.columns_aligned ? 'bg-success' : 'bg-danger'} ms-2">列对齐: ${s.columns_aligned ? '✅' : '⚠ 不一致'}</span>`;
+            }
+            html += '</div>';
+
+            panel.classList.remove('d-none');
+            content.innerHTML = html;
+            this.showSourceFeedback('扫描完成。请查看下方摘要，确认后点击「确认数据选择」。', 'success');
+        } catch (err) {
+            if (panel) panel.classList.remove('d-none');
+            if (content) content.innerHTML = `<div class="text-danger">扫描失败: ${this.escapeHtml(err.message)}</div>`;
+            this.showSourceFeedback(`扫描失败: ${err.message}`, 'danger');
+        }
     },
 
     async inspectBasePath(explicitBasePath = '', loadingText = 'Scanning asset directory...') {
@@ -1644,10 +1734,11 @@ const ScriptHubPage = {
 
         const basePath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
-        const datapointPath = this.selectedDatapointPath || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const allDpPaths = this.selectedDatapointPaths;
+        const datapointPath = allDpPaths[0] || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
 
-        if (!basePath) {
-            throw new Error('Please inspect a base path before running the script');
+        if (!basePath && allPepPaths.length === 0) {
+            throw new Error('请先选择数据');
         }
         return {
             module: 'db-alignment',
@@ -1668,7 +1759,7 @@ const ScriptHubPage = {
                 .map((item) => item.trim())
                 .filter(Boolean),
             pep_paths: allPepPaths.length > 0 ? allPepPaths : null,
-            datapoint_path: datapointPath || null,
+            datapoint_paths: allDpPaths.length > 0 ? allDpPaths : null,
         };
     },
 
