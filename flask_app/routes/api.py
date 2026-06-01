@@ -1277,87 +1277,124 @@ def upload_folder():
 @api_bp.route('/browse-directory', methods=['GET'])
 def browse_directory():
     """
-    Browse directories on the server for folder selection.
-    GET /api/browse-directory?path=/some/path
-    
-    Returns immediate children (directories and files) of the given path.
-    Enhanced to support full filesystem browsing with security checks.
+    Browse directories on the server filesystem.
+    GET /api/browse-directory?path=/some/path&filter=csv,tsv
+
+    Query params:
+        path: Absolute path to browse (default: auto-detect Linux root)
+        filter: Optional comma-separated file extensions to show (e.g. "csv,tsv,csv.gz")
     """
     import os
+    import platform
     from pathlib import Path
-    
+
     path = request.args.get('path', '')
-    
-    # Default to a safe base directory (e.g., project root or data folder)
+    file_filter = request.args.get('filter', '')
+
+    # Parse file filter
+    allowed_extensions = set()
+    if file_filter:
+        allowed_extensions = {
+            ext.strip().lower() if ext.strip().startswith('.') else f'.{ext.strip().lower()}'
+            for ext in file_filter.split(',') if ext.strip()
+        }
+
+    # Auto-detect reasonable root on Linux
     if not path:
-        base_paths = [
-            Path('e:/Desktop/南华/Work/WenJing Pan'),
-            Path('C:/Data'),
-            Path('D:/Data'),
-            Path('E:/Data')
-        ]
-        # Find first existing path
-        for base_path in base_paths:
-            if base_path.exists():
-                path = str(base_path)
+        if platform.system() == 'Linux':
+            candidates = ['/data', '/home', '/mnt', '/opt', '/srv', '/']
+        else:
+            candidates = [
+                str(Path.home() / 'Data'),
+                str(Path.home()),
+                'C:/Data', 'D:/Data', 'E:/Data',
+            ]
+
+        for candidate in candidates:
+            p = Path(candidate)
+            if p.exists() and p.is_dir():
+                path = str(p)
                 break
         else:
-            # Fallback to current working directory
-            path = os.getcwd()
-    
+            path = str(Path.cwd())
+
     try:
-        # Resolve and normalize the path to prevent directory traversal
-        path = Path(path).resolve()
-        
-        # Enhanced security check - prevent browsing system directories
-        # Allow access to user data directories and project directories
-        restricted_patterns = [
-            Path('C:/Windows').resolve(),
-            Path('C:/Program Files').resolve(),
-            Path('C:/Program Files (x86)').resolve(),
-            Path('C:/ProgramData').resolve(),
-            Path('C:/System32').resolve(),
-            Path('C:/SysWOW64').resolve(),
-        ]
-        
-        # Check if path is under restricted directories
-        for restricted in restricted_patterns:
-            if str(path).startswith(str(restricted)):
-                return jsonify({'error': 'Access denied: System directory access restricted'}), 403
-        
-        # For full filesystem access, we allow all other paths
-        # The path.resolve() call above prevents directory traversal attacks
-        
-        if not path.exists():
-            return jsonify({'error': 'Directory not found'}), 404
-        
-        if not path.is_dir():
+        resolved = Path(path).resolve()
+
+        # Security: block sensitive system paths on Linux
+        restricted_prefixes = ['/sys', '/proc', '/dev', '/run', '/boot']
+        if platform.system() == 'Linux':
+            for prefix in restricted_prefixes:
+                if str(resolved).startswith(prefix):
+                    return jsonify({
+                        'error': 'Access denied: system directory restricted',
+                        'current_path': str(resolved),
+                        'parent_path': str(resolved.parent) if resolved.parent != resolved else None,
+                        'items': [],
+                    }), 403
+
+        if not resolved.exists():
+            return jsonify({
+                'error': 'Directory not found',
+                'current_path': str(resolved),
+                'parent_path': str(resolved.parent) if resolved.parent != resolved else None,
+                'items': [],
+            }), 404
+
+        if not resolved.is_dir():
             return jsonify({'error': 'Path is not a directory'}), 400
-        
-        # List contents
+
         items = []
         try:
-            for item in sorted(path.iterdir()):
+            for item in sorted(resolved.iterdir()):
                 try:
+                    is_dir = item.is_dir()
+                    suffix = item.suffix.lower()
+
+                    # Apply file filter
+                    if not is_dir and allowed_extensions and suffix not in allowed_extensions:
+                        continue
+
+                    # Skip hidden items (start with .)
+                    if item.name.startswith('.'):
+                        continue
+
+                    # Check if directory has children (for expand icon)
+                    has_children = False
+                    if is_dir:
+                        try:
+                            has_children = any(
+                                not child.name.startswith('.')
+                                for child in item.iterdir()
+                            )
+                        except (PermissionError, OSError):
+                            has_children = False
+
                     item_info = {
                         'name': item.name,
                         'path': str(item),
-                        'type': 'directory' if item.is_dir() else 'file',
-                        'has_children': item.is_dir() and len(list(item.iterdir())) > 0 if item.is_dir() else False
+                        'type': 'directory' if is_dir else 'file',
+                        'suffix': suffix if not is_dir else '',
+                        'has_children': has_children,
                     }
                     items.append(item_info)
                 except (PermissionError, OSError):
-                    # Skip items we can't access
-                    pass
+                    continue
         except (PermissionError, OSError) as e:
             return jsonify({'error': f'Cannot read directory: {str(e)}'}), 403
-        
+
+        parent_path = str(resolved.parent) if resolved.parent != resolved else None
+        # Don't allow navigating above filesystem root
+        if parent_path and not Path(parent_path).exists():
+            parent_path = None
+
         return jsonify({
-            'current_path': str(path),
-            'parent_path': str(path.parent) if path.parent != path else None,
-            'items': items
+            'current_path': str(resolved),
+            'parent_path': parent_path,
+            'items': items,
+            'platform': platform.system(),
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
