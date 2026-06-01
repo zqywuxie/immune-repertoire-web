@@ -17,18 +17,6 @@ const CombinedAnalysis = {
     result: null,
     activeTaskId: null,
     pollTimer: null,
-    dataSourceMode: 'local',
-    remoteSources: [],
-    remoteSourceId: '',
-    remoteBrowsePath: '',
-    remoteSelectedPath: '',
-    remoteParentPath: null,
-    remoteTreeNodes: {},
-    remoteTreeRootPath: '',
-    remoteTreeFilter: '',
-    remoteBrowserMessage: '',
-    isBrowsingRemote: false,
-
     COLUMN_HINTS: {
         cdr3_column: ['cdr3(pep)', 'cdr3_pep', 'cdr3aa', 'cdr3_aa', 'cdr3'],
         copy_column: ['copy', 'copies', 'count', 'reads', 'umis', 'umi'],
@@ -39,25 +27,7 @@ const CombinedAnalysis = {
     init() {
         this.updateStepIndicator(1);
         this.projectContext = this.getProjectContext();
-        const modeSelect = document.getElementById('dataSourceMode');
-        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
-        const remoteTreeSearch = document.getElementById('remoteTreeSearch');
 
-        if (modeSelect) {
-            this.dataSourceMode = modeSelect.value || 'local';
-            modeSelect.addEventListener('change', () => this.toggleDataSourceMode(modeSelect.value));
-            this.toggleDataSourceMode(this.dataSourceMode);
-        }
-
-        if (remoteSourceSelect) {
-            remoteSourceSelect.addEventListener('change', () => this.handleRemoteSourceChange());
-        }
-
-        if (remoteTreeSearch) {
-            remoteTreeSearch.addEventListener('input', event => this.handleRemoteTreeSearch(event.target.value));
-        }
-
-        this.loadRemoteSources();
         this.loadProjects();
 
         const projectSelect = document.getElementById('combinedProjectSelect');
@@ -107,26 +77,10 @@ const CombinedAnalysis = {
 
     getProjectContext() {
         const params = new URLSearchParams(window.location.search);
-        const parseJsonList = (name) => {
-            const raw = params.get(name) || '';
-            if (!raw) return [];
-            try {
-                const parsed = JSON.parse(raw);
-                return Array.isArray(parsed) ? parsed.map(item => String(item || '')).filter(Boolean) : [];
-            } catch (error) {
-                return raw.split(',').map(item => item.trim()).filter(Boolean);
-            }
-        };
         return {
             projectId: params.get('project_id') || '',
             projectName: params.get('project_name') || '',
             basePath: params.get('base_path') || '',
-            localBasePath: params.get('local_base_path') || '',
-            sourceMode: params.get('source_mode') || (params.get('remote_source_id') ? 'remote' : 'local'),
-            remoteSourceId: params.get('remote_source_id') || '',
-            remotePath: params.get('remote_path') || '',
-            remotePepPaths: parseJsonList('remote_pep_paths'),
-            autoSync: params.get('auto_sync') === '1',
             autoScan: params.get('auto_scan') === '1',
             analysisType: params.get('analysis_type') || '',
             activeModule: params.get('active_module') || '',
@@ -141,24 +95,13 @@ const CombinedAnalysis = {
         const context = this.projectContext || this.getProjectContext();
         this.activeModule = context.activeModule || '';
 
-        const effectiveLocalPath = context.localBasePath || context.basePath;
-        const hasRemoteProjectSource = ['remote', 'mixed'].includes(String(context.sourceMode || '').toLowerCase())
-            && context.remoteSourceId
-            && context.remotePath;
+        const effectiveLocalPath = context.basePath;
 
         if (effectiveLocalPath) {
             const basePathInput = document.getElementById('basePath');
             if (basePathInput && !basePathInput.value) {
                 basePathInput.value = effectiveLocalPath;
             }
-        }
-        if (hasRemoteProjectSource) {
-            this.remoteSourceId = context.remoteSourceId;
-            this.remoteBrowsePath = context.remotePath;
-            this.remoteSelectedPath = context.remotePath;
-            this.dataSourceMode = 'remote';
-            const modeSelect = document.getElementById('dataSourceMode');
-            if (modeSelect) modeSelect.value = 'remote';
         }
 
         if (context.projectId) {
@@ -178,45 +121,9 @@ const CombinedAnalysis = {
             }
         }
 
-        if (context.autoScan && hasRemoteProjectSource && context.autoSync && !this._autoScanTriggered) {
-            this._autoScanTriggered = true;
-            this.syncProjectRemoteAndScan(context);
-            return;
-        }
-
         if (context.autoScan && effectiveLocalPath && !this._autoScanTriggered) {
             this._autoScanTriggered = true;
             this.scanFolder();
-        }
-    },
-
-    async syncProjectRemoteAndScan(context) {
-        this.showLoading('正在同步项目远程目录...');
-        this.setScanSummary?.(`正在同步远程目录 ${context.remotePath}，同步完成后会自动扫描本地缓存。`, 'info');
-        try {
-            const response = await fetch('/api/remote-sources/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source_id: context.remoteSourceId,
-                    remote_path: context.remotePath
-                })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || '远程同步任务创建失败');
-
-            const result = await this.waitForSyncCompletion(data.task_id);
-            const localCachePath = result?.local_cache_path || '';
-            if (!localCachePath) throw new Error('远程同步完成，但没有返回本地缓存路径');
-
-            const basePathInput = document.getElementById('basePath');
-            if (basePathInput) basePathInput.value = localCachePath;
-            await this.scanLocalFolder(localCachePath, '正在扫描项目远程缓存...');
-        } catch (error) {
-            this.showError(error.message || '项目远程数据同步失败');
-            this.setScanSummary?.(error.message || '项目远程数据同步失败', 'danger');
-        } finally {
-            this.hideLoading();
         }
     },
 
@@ -299,35 +206,14 @@ const CombinedAnalysis = {
             const project = await response.json();
             this.renderProjectAssetSummary(project);
             const pepAssets = (project.assets || []).filter(a => a.asset_type === 'pep');
-            const remotePepAssets = pepAssets.filter(a => !!(a.metadata || {}).remote_source_id);
             const localPepAssets = pepAssets.filter(a => !(a.metadata || {}).remote_source_id);
             const basePathInput = document.getElementById('basePath');
-            const modeSelect = document.getElementById('dataSourceMode');
-
-            if (remotePepAssets.length > 0) {
-                const firstRemoteAsset = remotePepAssets[0];
-                const meta = firstRemoteAsset.metadata || {};
-                this.remoteSourceId = meta.remote_source_id || this.remoteSourceId;
-                this.remoteBrowsePath = meta.remote_path || firstRemoteAsset.storage_path || this.remoteBrowsePath;
-                this.remoteSelectedPath = firstRemoteAsset.storage_path || this.remoteBrowsePath;
-            }
 
             if (localPepAssets.length > 0) {
                 const pepDir = localPepAssets[0].storage_path || '';
                 if (basePathInput && !basePathInput.value) {
                     basePathInput.value = pepDir;
                 }
-                if (remotePepAssets.length === 0) {
-                    this.dataSourceMode = 'local';
-                    if (modeSelect) modeSelect.value = 'local';
-                    this.toggleDataSourceMode('local');
-                }
-            } else if (remotePepAssets.length > 0) {
-                this.dataSourceMode = 'remote';
-                if (modeSelect) modeSelect.value = 'remote';
-                if (basePathInput) basePathInput.value = '';
-                this.toggleDataSourceMode('remote');
-                this.setScanSummary('当前项目使用远程 PEP 数据，请同步远程目录后再扫描图表数据。', 'info');
             }
         } catch (error) {
             console.warn('Failed to load project assets for charts:', error);
@@ -345,8 +231,7 @@ const CombinedAnalysis = {
         const assets = project.assets || [];
         const pepAssets = assets.filter(a => a.asset_type === 'pep');
         const rawAssets = assets.filter(a => a.asset_type === 'raw_archive');
-        const remoteCount = assets.filter(a => !!(a.metadata || {}).remote_source_id).length;
-        const localCount = assets.length - remoteCount;
+        const localCount = assets.filter(a => !(a.metadata || {}).remote_source_id).length;
 
         if (!assets.length) {
             container.innerHTML = '<span class="text-muted small">当前项目暂无已登记数据，可在下方手动选择目录。</span>';
@@ -356,8 +241,7 @@ const CombinedAnalysis = {
         container.innerHTML = [
             `<span class="chart-asset-pill">PEP <span>${pepAssets.length}</span></span>`,
             `<span class="chart-asset-pill">Raw <span>${rawAssets.length}</span></span>`,
-            `<span class="chart-asset-pill">本地 <span>${localCount}</span></span>`,
-            `<span class="chart-asset-pill">远程 <span>${remoteCount}</span></span>`
+            `<span class="chart-asset-pill">本地 <span>${localCount}</span></span>`
         ].join('');
     },
 
@@ -376,424 +260,6 @@ const CombinedAnalysis = {
         summary.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-warning', 'alert-danger');
         summary.classList.add(`alert-${tone}`);
         summary.textContent = message || '';
-    },
-
-toggleDataSourceMode(mode = 'local') {
-        this.dataSourceMode = mode;
-        const remotePanel = document.getElementById('remoteSourcePanel');
-        const localPanel = document.getElementById('chartLocalSourcePanel');
-        const basePathInput = document.getElementById('basePath');
-        const scanButton = document.getElementById('chartScanButton')
-            || document.querySelector('button[onclick="CombinedAnalysis.scanFolder()"]');
-        
-        if (remotePanel) {
-            remotePanel.classList.toggle('d-none', mode !== 'remote');
-        }
-        if (localPanel) {
-            localPanel.classList.toggle('d-none', mode !== 'local');
-        }
-        
-        // Show/hide local input based on mode
-        if (basePathInput && !localPanel) {
-            basePathInput.closest('.row').style.display = mode === 'local' ? '' : 'none';
-        }
-        if (scanButton && !localPanel) {
-            scanButton.closest('.col-lg-3').style.display = mode === 'local' ? '' : 'none';
-        }
-        
-        // Only browse remote root when we switch to remote mode and have a source
-        if (mode === 'remote' && this.remoteSourceId && !this.remoteBrowsePath) {
-            this.browseRemoteRoot();
-        }
-    },
-
-    handleRemoteSourceChange() {
-        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
-        if (!remoteSourceSelect) return;
-        this.remoteSourceId = remoteSourceSelect.value;
-        // Reset browsing state when source changes
-        this.remoteBrowsePath = '';
-        this.remoteSelectedPath = '';
-        this.remoteParentPath = null;
-        this.updateRemotePathDisplay();
-        
-        // Only browse remote root when we have a source and are in remote mode
-        if (this.remoteSourceId && this.dataSourceMode === 'remote') {
-            this.browseRemoteRoot();
-        }
-    },
-
-    async loadRemoteSources() {
-        const remoteSourceSelect = document.getElementById('remoteSourceSelect');
-        if (!remoteSourceSelect) return;
-
-        try {
-            const response = await fetch('/api/remote-sources');
-            const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.message || '加载 SSH 数据源失败');
-            }
-
-            this.remoteSources = Array.isArray(data.sources) ? data.sources : [];
-            remoteSourceSelect.innerHTML = '';
-
-            if (!this.remoteSources.length) {
-                remoteSourceSelect.disabled = true;
-                remoteSourceSelect.innerHTML = '<option value="">未配置 SSH 数据源</option>';
-                this.remoteSourceId = '';
-                this.remoteBrowsePath = '';
-                this.remoteSelectedPath = '';
-                this.remoteParentPath = null;
-                this.updateRemotePathDisplay();
-                this.updateRemoteHint('当前未配置 SSH Linux 数据源。请先在服务端配置 SSH_REMOTE_SOURCES。', 'danger');
-                return;
-            }
-
-            remoteSourceSelect.disabled = false;
-            this.remoteSources.forEach(source => {
-                const option = document.createElement('option');
-                option.value = source.id;
-                option.textContent = `${source.name} (${source.username}@${source.host}:${source.port})`;
-                remoteSourceSelect.appendChild(option);
-            });
-
-            const currentSourceId = this.remoteSourceId;
-            const hasCurrentSource = currentSourceId
-                && this.remoteSources.some(source => source.id === currentSourceId);
-            this.remoteSourceId = hasCurrentSource ? currentSourceId : this.remoteSources[0].id;
-            remoteSourceSelect.value = this.remoteSourceId;
-            this.updateRemoteHint('已加载 SSH 数据源，请选择目录后点击"同步并扫描目录"。', 'secondary');
-
-            if (this.dataSourceMode === 'remote') {
-                if (this.remoteBrowsePath) {
-                    await this.browseRemotePath(this.remoteBrowsePath);
-                } else {
-                    await this.browseRemoteRoot();
-                }
-            }
-        } catch (error) {
-            this.remoteSources = [];
-            this.remoteSourceId = '';
-            remoteSourceSelect.innerHTML = '<option value="">加载 SSH 数据源失败</option>';
-            remoteSourceSelect.disabled = true;
-            this.updateRemotePathDisplay();
-            this.updateRemoteHint(error.message, 'danger');
-        }
-    },
-
-    updateRemoteHint(message, tone = 'secondary') {
-        const hint = document.getElementById('remoteSourceHint');
-        if (!hint) return;
-        hint.classList.remove('alert-secondary', 'alert-info', 'alert-danger', 'alert-success');
-        hint.classList.add(`alert-${tone}`);
-        hint.textContent = message;
-    },
-
-    async testRemoteSource() {
-        if (!this.remoteSourceId) {
-            this.showError('请先选择 SSH 数据源');
-            return;
-        }
-
-        this.showLoading('正在测试 SSH 连接...');
-        try {
-            const response = await fetch('/api/remote-sources/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source_id: this.remoteSourceId })
-            });
-            const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.message || 'SSH 连接测试失败');
-            }
-
-            this.updateRemoteHint(`SSH 连接成功，根目录: ${data.test_result.root_path}`, 'success');
-        } catch (error) {
-            this.updateRemoteHint(error.message, 'danger');
-            this.showError(error.message);
-        } finally {
-            this.hideLoading();
-        }
-    },
-
-    refreshRemoteNode() {
-        if (this.remoteBrowsePath) {
-            this.browseRemotePath(this.remoteBrowsePath);
-        }
-    },
-
-    handleRemoteTreeSearch(query) {
-        this.remoteTreeFilter = query || '';
-        this.updateRemoteTreeDisplay();
-    },
-
-    async browseRemoteRoot() {
-        if (!this.remoteSourceId) {
-            this.showError('请先选择 SSH 数据源');
-            return;
-        }
-
-        this.showLoading('正在读取根目录...');
-        this.isBrowsingRemote = true;
-        try {
-            const response = await fetch('/api/remote-sources/browse', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source_id: this.remoteSourceId })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || '读取根目录失败');
-
-            const rootPath = data.current_path || '/';
-            this.remoteBrowsePath = rootPath;
-            this.remoteSelectedPath = rootPath;
-            this.remoteParentPath = data.parent_path || null;
-            this.remoteTreeRootPath = rootPath;
-            this.remoteTreeNodes = data.entries || {};
-            this.updateRemoteTreeDisplay();
-            this.updateRemotePathDisplay();
-        } catch (error) {
-            this.showError(error.message || '读取根目录失败');
-        } finally {
-            this.hideLoading();
-            this.isBrowsingRemote = false;
-        }
-    },
-
-    async browseRemoteParent() {
-        if (!this.remoteBrowsePath || !this.remoteParentPath) return;
-        this.browseRemotePath(this.remoteParentPath);
-    },
-
-    async browseRemotePath(path) {
-        if (!path || !this.remoteSourceId) return;
-        this.showLoading('正在浏览目录...');
-        this.isBrowsingRemote = true;
-        try {
-            const response = await fetch('/api/remote-sources/browse', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    source_id: this.remoteSourceId,
-                    path: path 
-                })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.message || '浏览目录失败');
-            
-            this.remoteBrowsePath = data.current_path || path;
-            this.remoteParentPath = data.parent_path || null;
-            
-            // Convert entries to nodes format for backward compatibility
-            this.remoteTreeNodes = {};
-            if (Array.isArray(data.entries)) {
-                data.entries.forEach(entry => {
-                    this.remoteTreeNodes[entry.path] = entry.is_dir;
-                });
-            }
-            
-            this.renderRemoteBrowser(data.entries || [], '当前目录为空');
-            this.updateRemotePathDisplay();
-        } catch (error) {
-            this.showError(error.message || '浏览目录失败');
-        } finally {
-            this.hideLoading();
-            this.isBrowsingRemote = false;
-        }
-    },
-
-    selectCurrentRemotePath() {
-        this.remoteSelectedPath = this.remoteBrowsePath;
-        this.updateRemotePathDisplay();
-    },
-
-    async syncRemoteAndScan() {
-        if (!this.remoteSelectedPath) {
-            this.showError('请先选择要同步的目录');
-            return;
-        }
-
-        this.showLoading('正在同步目录...');
-        try {
-            // First sync the remote directory
-            const syncResponse = await fetch('/api/remote-sources/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source_id: this.remoteSourceId,
-                    remote_path: this.remoteSelectedPath
-                })
-            });
-            const syncData = await syncResponse.json();
-            if (!syncData.success) throw new Error(syncData.message || '同步失败');
-
-            // Wait for sync to complete
-            const taskId = syncData.task_id;
-            await this.waitForSyncCompletion(taskId);
-            
-            // Get the local cache path from sync result
-            const taskStatus = this.getSyncTaskStatus(taskId);
-            const localCachePath = taskStatus?.result?.local_cache_path || '';
-            if (!localCachePath) {
-                throw new Error('无法获取同步后的本地路径');
-            }
-
-            // Now scan the local directory
-            await this.scanLocalFolder(localCachePath, '正在扫描已同步的目录...');
-        } catch (error) {
-            this.showError(error.message || '同步和扫描失败');
-            this.setScanSummary(error.message || '同步和扫描失败', 'danger');
-        } finally {
-            this.hideLoading();
-        }
-    },
-
-    async waitForSyncCompletion(taskId) {
-        return new Promise((resolve, reject) => {
-            const checkStatus = async () => {
-                try {
-                    const response = await fetch(`/api/remote-sources/sync-task/${encodeURIComponent(taskId)}`);
-                    const data = await response.json();
-                    
-                    if (data.status === 'completed') {
-                        resolve(data.result || {});
-                        return;
-                    }
-                    
-                    if (data.status === 'failed') {
-                        reject(new Error(data.detail || data.error || '同步失败'));
-                        return;
-                    }
-                    
-                    // Still running, check again
-                    setTimeout(checkStatus, 1000);
-                } catch (error) {
-                    reject(error);
-                }
-            };
-            checkStatus();
-        });
-    },
-
-    getSyncTaskStatus(taskId) {
-        // This is a simplified version - in a real app, you might want to poll the API
-        return null; // Will be updated by actual API calls
-    },
-
-    async scanLocalFolder(basePath, message = '正在扫描目录...') {
-        this.showLoading(message);
-        try {
-            const response = await fetch('/api/auto-heatmap/scan-folder', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base_path: basePath })
-            });
-            const data = await response.json();
-            if (!data.success) {
-                throw new Error(data.message || '扫描目录失败');
-            }
-            if (!data.has_chain_suffix) {
-                throw new Error('当前模块仅支持带链后缀的 repertoire 文件，例如 SAMPLE__IGH.csv.gz');
-            }
-
-            this.basePath = basePath;
-            this.scanResult = data;
-            this.samples = Array.isArray(data.samples) ? data.samples : [];
-            this.selectedChains = Array.isArray(data.all_chains) ? [...data.all_chains] : [];
-            this.selectedSampleKeys = new Set(this.samples.map(sample => this.getSampleKey(sample)));
-            this.result = null;
-            this.activeTaskId = null;
-            this.selectedFilePath = null;
-            this.fileColumns = [];
-            this.fieldMapping = { cdr3_column: '', copy_column: '', v_column: '', j_column: '' };
-
-            this.renderChainList();
-            this.renderDetectedSamples();
-            this.updateStepIndicator(2);
-            document.getElementById('step2Card').style.display = '';
-            document.getElementById('step3Card').style.display = 'none';
-            document.getElementById('step4Card').style.display = 'none';
-            document.getElementById('resultsCard').style.display = 'none';
-            this.setScanSummary(data.summary || `找到 ${this.samples.length} 个样本`, 'success');
-        } catch (error) {
-            this.showError(error.message || '扫描目录失败');
-            this.setScanSummary(error.message || '扫描目录失败', 'danger');
-        }
-    },
-
-    renderRemoteBrowser(entries = [], emptyMessage = '当前目录为空') {
-        const container = document.getElementById('remoteBrowserList');
-        if (!container) return;
-
-        container.innerHTML = '';
-        if (!entries.length) {
-            const emptyHint = this.remoteBrowsePath
-                ? `${emptyMessage}<div class="mt-2">当前目录为空，请返回上一级或选择其他目录。</div>`
-                : emptyMessage;
-            container.innerHTML = `<div class="text-muted small">${emptyHint}</div>`;
-            return;
-        }
-
-        entries.forEach(entry => {
-            const item = document.createElement('div');
-            item.className = `remote-browser-item${this.remoteSelectedPath === entry.path ? ' selected' : ''}`;
-
-            const title = document.createElement('div');
-            title.className = 'fw-semibold mb-2';
-            title.textContent = entry.name || entry.path;
-            item.appendChild(title);
-
-            const path = document.createElement('div');
-            path.className = 'remote-browser-path text-muted mb-3';
-            path.textContent = entry.path;
-            item.appendChild(path);
-
-            const meta = document.createElement('div');
-            meta.className = 'small text-muted mb-3';
-            meta.textContent = entry.is_dir ? '目录' : `文件 ${entry.size || 0} bytes`;
-            item.appendChild(meta);
-
-            const actions = document.createElement('div');
-            actions.className = 'd-flex flex-wrap gap-2';
-
-            if (entry.is_dir) {
-                const browseBtn = document.createElement('button');
-                browseBtn.className = 'btn btn-outline-secondary btn-sm';
-                browseBtn.textContent = '进入';
-                browseBtn.addEventListener('click', () => this.browseRemotePath(entry.path));
-                actions.appendChild(browseBtn);
-
-                const selectBtn = document.createElement('button');
-                selectBtn.className = 'btn btn-outline-primary btn-sm';
-                selectBtn.textContent = '选择此目录';
-                selectBtn.addEventListener('click', () => {
-                    this.remoteSelectedPath = entry.path;
-                    this.updateRemotePathDisplay();
-                });
-                actions.appendChild(selectBtn);
-            }
-
-            item.appendChild(actions);
-            container.appendChild(item);
-        });
-    },
-
-    updateRemoteTreeDisplay() {
-        // This method now just renders the browser using entries
-        const entries = Object.entries(this.remoteTreeNodes || {}).map(([name, isDir]) => ({
-            name: name,
-            path: name,
-            is_dir: isDir,
-            size: isDir ? 0 : 1024 // Placeholder size
-        }));
-        this.renderRemoteBrowser(entries);
-    },
-
-    updateRemotePathDisplay() {
-        const currentPathEl = document.getElementById('remoteCurrentPath');
-        const selectedPathEl = document.getElementById('remoteSelectedPath');
-        if (currentPathEl) currentPathEl.textContent = this.remoteBrowsePath || '-';
-        if (selectedPathEl) selectedPathEl.textContent = this.remoteSelectedPath || '-';
     },
 
     updateProgress(progress, stage, detail, history = []) {
@@ -901,6 +367,10 @@ toggleDataSourceMode(mode = 'local') {
 
     updateModuleConfigVisibility() {
         return;
+    },
+
+    onBrowserSelect(path, type) {
+        document.getElementById('basePath').value = path;
     },
 
     async scanFolder() {
