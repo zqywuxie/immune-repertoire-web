@@ -180,6 +180,30 @@ const DirectoryBrowser = (() => {
             });
         }
 
+        /* ── Fetch with timeout ── */
+        async _fetchApi(path, filter) {
+            const params = new URLSearchParams();
+            var cleanPath = (path || '').replace(/\\/g, '/');
+            if (cleanPath) params.set('path', cleanPath);
+            if (filter) params.set('filter', filter);
+            var url = this.opts.browseApi;
+            var qs = params.toString();
+            if (qs) url += '?' + qs;
+
+            const controller = new AbortController();
+            const timer = setTimeout(function() { controller.abort(); }, 10000);
+
+            try {
+                const resp = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+                const data = await resp.json();
+                return { ok: resp.ok, status: resp.status, data: data };
+            } catch (err) {
+                clearTimeout(timer);
+                throw err;
+            }
+        }
+
         /* ── Core: load a directory listing ── */
         async _loadPath(path) {
             if (!this.built) return;
@@ -188,26 +212,25 @@ const DirectoryBrowser = (() => {
             treeEl.innerHTML = '<div class="dir-browser-loading"><span class="spinner-border"></span>加载中...</div>';
 
             try {
-                const params = new URLSearchParams();
-                // Normalize path: convert backslashes to forward slashes (Windows)
-                var cleanPath = (path || '').replace(/\\/g, '/');
-                if (cleanPath) params.set('path', cleanPath);
-                if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
+                // Try the requested path
+                var result = await this._fetchApi(path, this.opts.fileFilter);
 
-                var url = this.opts.browseApi;
-                var qs = params.toString();
-                if (qs) url += '?' + qs;
+                // On 404 with a specific path, retry without path (auto-detect root)
+                if (!result.ok && path) {
+                    result = await this._fetchApi('', this.opts.fileFilter);
+                }
 
-                const resp = await fetch(url);
-                const data = await resp.json();
-
-                if (!resp.ok) {
-                    treeEl.innerHTML = '<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>' + this._escapeHtml(data.error || '无法加载目录') + '</div>';
+                if (!result.ok) {
+                    treeEl.innerHTML = '<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>' + this._escapeHtml((result.data && result.data.error) || '无法加载目录') + '</div>';
                     return;
                 }
 
+                var data = result.data;
                 // Normalize received path (Windows backslashes -> forward slashes)
-                this.currentPath = (data.current_path || cleanPath).replace(/\\/g, '/');
+                this.currentPath = (data.current_path || path || '').replace(/\\/g, '/');
+                if (!this.currentPath || this.currentPath === '/') {
+                    this.currentPath = '/';
+                }
                 this._renderPathBar();
 
                 this.treeNodes = {};
@@ -247,20 +270,10 @@ const DirectoryBrowser = (() => {
             if (!node || node.type !== 'directory' || node.childrenLoaded) return;
 
             try {
-                const params = new URLSearchParams();
-                var cleanPath = (dirPath || '').replace(/\\/g, '/');
-                if (cleanPath) params.set('path', cleanPath);
-                if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
+                var result = await this._fetchApi(dirPath, this.opts.fileFilter);
+                if (!result.ok) return;
 
-                var url = this.opts.browseApi;
-                var qs = params.toString();
-                if (qs) url += '?' + qs;
-
-                const resp = await fetch(url);
-                const data = await resp.json();
-
-                if (!resp.ok) return;
-
+                var data = result.data;
                 node.childrenPaths = [];
                 for (const item of data.items) {
                     const childPath = (item.path || '').replace(/\\/g, '/');
