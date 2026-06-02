@@ -706,9 +706,19 @@
         flex: 0 0 auto;
     }
 
+    .script-hub-page {
+        overflow-x: hidden;
+    }
+
+    .script-hub-page .main-content,
+    .script-hub-page .sh-stage-body {
+        overflow-x: auto;
+    }
+
     .sh-chart-flow {
         display: grid;
         gap: 1rem;
+        min-width: 0;
     }
 
     .sh-chart-step {
@@ -741,24 +751,26 @@
 
     .sh-chart-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: .65rem;
+        min-width: 0;
     }
 
     #scriptHubChartChainList {
-        grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     }
 
     #scriptHubChartSampleList {
-        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-        max-height: 330px;
-        overflow: auto;
-        padding-right: .15rem;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        max-height: 360px;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .sh-chart-item {
         position: relative;
-        display: grid;
+        display: flex;
+        flex-direction: column;
         gap: .22rem;
         min-height: 68px;
         padding: .7rem 2.05rem .7rem .78rem;
@@ -767,6 +779,8 @@
         background: #fbfdfe;
         cursor: pointer;
         transition: border-color .15s, box-shadow .15s, background .15s;
+        min-width: 0;
+        text-align: left;
     }
 
     .sh-chart-item:hover {
@@ -778,6 +792,20 @@
         border-color: var(--sh-accent);
         box-shadow: 0 0 0 2px rgba(17, 89, 124, .16);
         background: var(--sh-accent-soft);
+    }
+
+    .sh-chart-item span {
+        font-size: .8rem;
+        color: var(--sh-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .sh-chart-item strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .sh-chart-check {
