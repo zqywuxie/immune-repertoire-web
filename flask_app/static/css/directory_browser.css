@@ -56,6 +56,36 @@
     flex-shrink: 0;
 }
 
+/* ── Jump Input ── */
+.dir-browser-jump {
+    padding: .35rem .75rem .5rem;
+    border-bottom: 1px solid #f0f3f6;
+    background: #fdfefe;
+}
+
+.dir-browser-jump-input {
+    width: 100%;
+    border: 1px solid #dde7ee;
+    border-radius: 8px;
+    padding: .35rem .65rem;
+    font-size: .82rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    color: #163247;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.dir-browser-jump-input:focus {
+    outline: none;
+    border-color: #11597c;
+    box-shadow: 0 0 0 2px rgba(17, 89, 124, 0.1);
+}
+
+.dir-browser-jump-input::placeholder {
+    color: #a0b4c4;
+    font-family: inherit;
+}
+
 .dir-browser-tool-btn {
     width: 34px;
     height: 34px;

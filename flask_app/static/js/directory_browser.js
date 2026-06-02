@@ -153,6 +153,11 @@ const DirectoryBrowser = (() => {
             <i class="bi bi-arrow-clockwise"></i>
         </button>
     </div>
+    <div class="dir-browser-jump">
+        <input class="dir-browser-jump-input" data-action="jumpInput"
+               type="text" placeholder="输入路径后按 Enter 直接跳转…"
+               title="直接输入完整路径后按 Enter 快速定位">
+    </div>
     <div class="dir-browser-tree" data-role="tree">
         <div class="dir-browser-empty">
             <i class="bi bi-folder2-open"></i>加载中...
@@ -175,6 +180,19 @@ const DirectoryBrowser = (() => {
             root.querySelector('[data-action="refresh"]').addEventListener('click', async () => {
                 await this._loadPath(this.currentPath);
             });
+
+            const jumpInput = root.querySelector('[data-action="jumpInput"]');
+            jumpInput.addEventListener('keydown', async (e) => {
+                if (e.key === 'Enter') {
+                    const target = jumpInput.value.trim();
+                    if (target) {
+                        await this._loadPath(target);
+                        jumpInput.select();
+                    }
+                }
+            });
+            // Also on focus: select all text for easy paste
+            jumpInput.addEventListener('focus', () => jumpInput.select());
         }
 
         /* ── Fetch with timeout ── */
