@@ -275,6 +275,8 @@ const DirectoryBrowser = (() => {
                 }
                 node.childrenLoaded = true;
                 this._renderTree();
+                // Refresh the selected bar so the child count badge updates
+                this._updateSelectedDisplay();
             } catch (err) {
                 // silently fail — user can retry
             }
