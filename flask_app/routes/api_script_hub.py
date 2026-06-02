@@ -762,9 +762,18 @@ def quick_scan():
                 all_chains.update(chains)
             elif target.is_file():
                 entry["type"] = "file"
-                df = pd.read_csv(target, nrows=0)
-                entry["columns"] = df.columns.tolist()
-                entry["column_count"] = len(entry["columns"])
+                if target.suffix.lower() == '.xlsx':
+                    xl = pd.ExcelFile(target)
+                    entry["sheets"] = xl.sheet_names
+                    entry["sheet_count"] = len(xl.sheet_names)
+                    # Preview first sheet
+                    df = pd.read_excel(target, sheet_name=0, nrows=0)
+                    entry["columns"] = df.columns.tolist()
+                    entry["column_count"] = len(entry["columns"])
+                else:
+                    df = pd.read_csv(target, nrows=0)
+                    entry["columns"] = df.columns.tolist()
+                    entry["column_count"] = len(entry["columns"])
             else:
                 entry["error"] = "Path does not exist"
         except Exception as e:

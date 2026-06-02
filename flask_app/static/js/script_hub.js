@@ -20,6 +20,7 @@ const ScriptHubPage = {
     dataSelection: {
         pepPaths: [],
         profilePath: '',
+        profileSheet: null,
         profileType: '',
         validation: null,
     },
@@ -1493,6 +1494,7 @@ const ScriptHubPage = {
 
     clearSelectedProfile() {
         this.dataSelection.profilePath = '';
+        this.dataSelection.profileSheet = null;
         this.dataSelection.profileType = '';
         this.dataSelection.validation = null;
         this.syncDataSelectionState();
@@ -1516,9 +1518,11 @@ const ScriptHubPage = {
 
         const baseInput = document.getElementById('scriptHubBasePath');
         const profileInput = document.getElementById('scriptHubDatapointPath');
+        const sheetInput = document.getElementById('scriptHubProfileSheet');
         const dbProfileInput = document.getElementById('scriptHubProfilePath');
         if (baseInput) baseInput.value = this.selectedPepPaths[0] || '';
         if (profileInput) profileInput.value = this.selectedDatapointPath;
+        if (sheetInput) sheetInput.value = this.dataSelection.profileSheet || '';
         if (dbProfileInput && this.selectedDatapointPath && !dbProfileInput.value) {
             dbProfileInput.value = this.selectedDatapointPath;
         }
@@ -1559,10 +1563,12 @@ const ScriptHubPage = {
 
         if (profileList) {
             const profilePath = this.dataSelection.profilePath;
+            const sheetInfo = this.dataSelection.profileSheet
+                ? `<span class="badge bg-info ms-1" style="font-size:.7rem;">工作表: ${this.escapeHtml(this.dataSelection.profileSheet)}</span>` : '';
             profileList.innerHTML = profilePath
                 ? `<div class="sh-selected-row">
                     <div title="${this.escapeHtml(profilePath)}">
-                        <strong>${this.escapeHtml(this.getPathName(profilePath) || profilePath)}</strong>
+                        <strong>${this.escapeHtml(this.getPathName(profilePath) || profilePath)}${sheetInfo}</strong>
                         <span>${this.escapeHtml(profilePath)}</span>
                     </div>
                     <div class="sh-selected-row-actions">
@@ -1652,7 +1658,91 @@ const ScriptHubPage = {
     },
 
     isTabularFile(path) {
-        return /\.(csv|tsv|csv\.gz)$/i.test(String(path || ''));
+        return /\.(csv|tsv|csv\.gz|xlsx)$/i.test(String(path || ''));
+    },
+
+    async setHighlightedProfile() {
+        const selection = this.highlightedSource;
+        if (!selection?.path) return;
+        if (selection.type !== 'file' || !this.isTabularFile(selection.path)) {
+            this.showSourceFeedback('Profile 需要选择 CSV/TSV/XLSX 文件。', 'warning');
+            return;
+        }
+
+        // If it's an xlsx, show sheet picker first
+        if (/\.xlsx$/i.test(selection.path)) {
+            await this._selectXlsxSheet(selection.path);
+            return;
+        }
+
+        this.dataSelection.profilePath = selection.path;
+        this.dataSelection.profileSheet = null;
+        this.dataSelection.profileType = selection.type || 'file';
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+        this.showSourceFeedback(`已设置 Profile 文件：${selection.path}`, 'success');
+    },
+
+    async _selectXlsxSheet(filePath) {
+        this.showSourceFeedback('正在读取 Excel 工作表列表...', 'secondary');
+        try {
+            const resp = await fetch('/api/file-sheets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: filePath }),
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message || '读取工作表失败');
+
+            const sheets = data.sheets || [];
+            if (!sheets.length) throw new Error('Excel 文件没有工作表');
+
+            if (sheets.length === 1) {
+                // Single sheet, auto-select
+                this.dataSelection.profilePath = filePath;
+                this.dataSelection.profileSheet = sheets[0];
+                this.dataSelection.profileType = 'file';
+                this.dataSelection.validation = null;
+                this.syncDataSelectionState();
+                this.showSourceFeedback(`已设置 Profile：${filePath} → ${sheets[0]}`, 'success');
+                return;
+            }
+
+            // Multiple sheets — show picker
+            this._showXlsxSheetPicker(filePath, sheets);
+        } catch (error) {
+            this.showSourceFeedback(error.message || '读取工作表失败', 'danger');
+        }
+    },
+
+    _showXlsxSheetPicker(filePath, sheets) {
+        const profileList = document.getElementById('scriptHubProfileSelectionList');
+        if (!profileList) return;
+        profileList.innerHTML = '<div class="d-flex flex-column gap-2">' +
+            '<div class="fw-semibold small">选择工作表</div>' +
+            '<div class="text-muted small text-truncate">' + this.escapeHtml(filePath) + '</div>' +
+            sheets.map((s, i) =>
+                '<button class="btn btn-outline-secondary btn-sm text-start" data-xlsx-sheet="' + this.escapeHtml(s) + '">' +
+                this.escapeHtml(s) +
+                '</button>'
+            ).join('') +
+            '<button class="btn btn-link btn-sm text-muted text-start" data-xlsx-sheet="">取消</button>' +
+            '</div>';
+        profileList.querySelectorAll('[data-xlsx-sheet]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const sheet = btn.dataset.xlsxSheet;
+                if (sheet) {
+                    this.dataSelection.profilePath = filePath;
+                    this.dataSelection.profileSheet = sheet;
+                    this.dataSelection.profileType = 'file';
+                    this.dataSelection.validation = null;
+                    this.syncDataSelectionState();
+                    this.showSourceFeedback(`已设置 Profile：${filePath} → ${sheet}`, 'success');
+                } else {
+                    this.syncDataSelectionState();
+                }
+            });
+        });
     },
 
     onPepHighlight(path, type) {

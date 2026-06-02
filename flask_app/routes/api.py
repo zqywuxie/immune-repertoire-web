@@ -1275,6 +1275,28 @@ def upload_folder():
     })
 
 
+@api_bp.route('/file-sheets', methods=['POST'])
+def file_sheets():
+    """Return sheet names from an Excel (.xlsx) file."""
+    data = request.get_json() or {}
+    path = str(data.get('path', '')).strip()
+    if not path:
+        return jsonify({'success': False, 'message': 'path is required'}), 400
+
+    try:
+        target = Path(path)
+        if not target.exists() or not target.is_file():
+            return jsonify({'success': False, 'message': 'File not found'}), 404
+
+        import openpyxl
+        wb = openpyxl.load_workbook(target, read_only=True)
+        sheets = wb.sheetnames
+        wb.close()
+        return jsonify({'success': True, 'sheets': sheets, 'count': len(sheets)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @api_bp.route('/browse-directory', methods=['GET'])
 def browse_directory():
     """
