@@ -392,7 +392,7 @@
 
     <!-- Step 1: Scan Folder -->
     <div class="card mb-4" id="step1Card">
-        <div class="card-header">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-folder me-2"></i>步骤 1: 扫描样本文件夹</h6>
         </div>
         <div class="card-body">
@@ -424,7 +424,7 @@
 
     <!-- Step 2: Select File Type and Field Mapping (Combined) -->
     <div class="card mb-4" id="step2Card" style="display:none">
-        <div class="card-header">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-file-earmark-spreadsheet me-2"></i>步骤 2: 选择数据文件与字段映射</h6>
         </div>
         <div class="card-body">
@@ -485,6 +485,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-list-check me-2"></i>步骤 3: 选择样本并重命名</h6>
             <div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="document.getElementById('step2Card').scrollIntoView({behavior:'smooth'})"><i class="bi bi-arrow-up"></i> 修改链和样本选择</button>
                 <span class="badge bg-primary me-2" id="selectedCount">已选: 0</span>
                 <button class="btn btn-sm btn-outline-secondary" onclick="AutoHeatmap.toggleAllSamples()">
                     <i class="bi bi-check-all me-1"></i>全选/取消
