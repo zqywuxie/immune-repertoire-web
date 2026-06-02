@@ -149,7 +149,6 @@ const ScriptHubPage = {
         document.getElementById('scriptHubChartConfirmSamples')?.addEventListener('click', () => this.confirmChartSamples());
         document.getElementById('scriptHubChartEditSamples')?.addEventListener('click', () => this.reopenChartSampleSelection());
         document.getElementById('scriptHubChartConfirmFields')?.addEventListener('click', () => this.confirmChartFields());
-        document.getElementById('scriptHubChartRunBtn')?.addEventListener('click', () => this.runChartCombined());
         document.getElementById('scriptHubChartSelectAllModules')?.addEventListener('click', () => this.setChartModuleSelection(['heatmap', 'treemap', 'chord']));
         document.getElementById('scriptHubChartClearModules')?.addEventListener('click', () => this.setChartModuleSelection([]));
         ['scriptHubChartHeatmap', 'scriptHubChartTreemap', 'scriptHubChartChord'].forEach((id) => {
@@ -607,6 +606,16 @@ const ScriptHubPage = {
             }
         });
 
+        // Main run button: show for non-charts, hide for charts (controlled by confirmChartFields)
+        const runBtn = document.getElementById('scriptHubRunBtn');
+        if (runBtn) {
+            if (module === 'charts') {
+                runBtn.style.display = 'none';
+            } else {
+                runBtn.style.display = '';
+            }
+        }
+
         if (module === 'charts') {
             document.getElementById('scriptHubRunBtnLabel').textContent = '运行综合图表';
             document.getElementById('scriptHubConfigHint').textContent = '使用上游已确认的 PEP 数据，在 Script Hub 内完成 Heatmap / Treemap / Chord 图表报告。';
@@ -905,6 +914,7 @@ const ScriptHubPage = {
         const runStep = document.getElementById('scriptHubChartRunStep');
         if (fieldStep) fieldStep.style.display = 'none';
         if (runStep) runStep.style.display = 'none';
+        // Main run button is hidden by syncModuleUI for charts
         const results = document.getElementById('scriptHubChartResults');
         if (results) results.innerHTML = '';
         const flow = document.getElementById('scriptHubChartFlow');
@@ -1289,15 +1299,9 @@ const ScriptHubPage = {
             return;
         }
         document.getElementById('scriptHubChartRunStep').style.display = '';
-    },
-
-    async runChartCombined() {
-        try {
-            const payload = this.collectChartRunPayload();
-            await this.runChartAnalysis(payload);
-        } catch (error) {
-            this.showError(error.message || '提交图表任务失败');
-        }
+        // Show main run button for charts
+        const runBtn = document.getElementById('scriptHubRunBtn');
+        if (runBtn) runBtn.style.display = '';
     },
 
     hideChartFieldAndRunSteps() {
@@ -1306,6 +1310,11 @@ const ScriptHubPage = {
         if (fieldStep) fieldStep.style.display = 'none';
         if (runStep) runStep.style.display = 'none';
         document.getElementById('scriptHubChartFlow')?.classList.remove('has-confirmed-samples');
+        // Re-hide main run button — needs re-confirm fields to show again
+        const runBtn = document.getElementById('scriptHubRunBtn');
+        if (runBtn && this.activeModule === 'charts') {
+            runBtn.style.display = 'none';
+        }
     },
 
     reopenChartSampleSelection() {
