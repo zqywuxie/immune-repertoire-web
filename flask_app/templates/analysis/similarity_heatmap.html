@@ -403,7 +403,7 @@
                     'js_var': 'window._heatmapBrowser',
                     'file_filter': 'csv,tsv,csv.gz',
                     'allow_file_select': False,
-                    'default_path': '/data',
+                    'default_path': '',
                     'on_select': 'AutoHeatmap.onBrowserSelect',
                     'label': '输入数据目录',
                 } %}
@@ -766,11 +766,11 @@
         fileFilter: 'csv,tsv,csv.gz',
         allowFileSelect: false,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { AutoHeatmap.onBrowserSelect(path, type); },
     });
     window._heatmapBrowser.build();
-    window._heatmapBrowser.goTo('/data');
+    window._heatmapBrowser.goTo('');
 })();
 </script>
 {% endblock %}

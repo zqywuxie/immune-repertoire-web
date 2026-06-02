@@ -35,7 +35,7 @@
                     'js_var': 'window._chordBrowser',
                     'file_filter': 'csv,tsv,csv.gz',
                     'allow_file_select': False,
-                    'default_path': '/data',
+                    'default_path': '',
                     'on_select': 'ChordDiagramAnalysis.onBrowserSelect',
                     'label': '输入数据目录',
                 } %}
@@ -171,11 +171,11 @@
         fileFilter: 'csv,tsv,csv.gz',
         allowFileSelect: false,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { ChordDiagramAnalysis.onBrowserSelect(path, type); },
     });
     window._chordBrowser.build();
-    window._chordBrowser.goTo('/data');
+    window._chordBrowser.goTo('');
 })();
 </script>
 {% endblock %}

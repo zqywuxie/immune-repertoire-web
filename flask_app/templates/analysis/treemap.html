@@ -37,7 +37,7 @@
                     'js_var': 'window._treemapBrowser',
                     'file_filter': 'csv,tsv,csv.gz',
                     'allow_file_select': False,
-                    'default_path': '/data',
+                    'default_path': '',
                     'on_select': 'TreemapAnalysis.onBrowserSelect',
                     'label': '输入数据目录',
                 } %}
@@ -235,11 +235,11 @@
         fileFilter: 'csv,tsv,csv.gz',
         allowFileSelect: false,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { TreemapAnalysis.onBrowserSelect(path, type); },
     });
     window._treemapBrowser.build();
-    window._treemapBrowser.goTo('/data');
+    window._treemapBrowser.goTo('');
 })();
 </script>
 {% endblock %}

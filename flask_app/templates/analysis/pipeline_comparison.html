@@ -256,7 +256,7 @@
                             'js_var': 'window._pcBrowser',
                             'file_filter': 'csv,tsv,csv.gz',
                             'allow_file_select': False,
-                            'default_path': '/data',
+                            'default_path': '',
                             'on_select': 'PipelineComparisonPage.onBrowserSelect',
                             'label': 'Pipeline 根目录',
                         } %}
@@ -424,11 +424,11 @@
         fileFilter: 'csv,tsv,csv.gz',
         allowFileSelect: false,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { PipelineComparisonPage.onBrowserSelect(path, type); },
     });
     window._pcBrowser.build();
-    window._pcBrowser.goTo('/data');
+    window._pcBrowser.goTo('');
 })();
 </script>
 {% endblock %}

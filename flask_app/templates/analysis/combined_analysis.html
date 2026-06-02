@@ -125,7 +125,7 @@
                                     'js_var': 'window._combinedBrowser',
                                     'file_filter': 'csv,tsv,csv.gz',
                                     'allow_file_select': False,
-                                    'default_path': '/data',
+                                    'default_path': '',
                                     'on_select': 'CombinedAnalysis.onBrowserSelect',
                                     'label': '输入数据目录',
                                 } %}
@@ -281,11 +281,11 @@
         fileFilter: 'csv,tsv,csv.gz',
         allowFileSelect: false,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { CombinedAnalysis.onBrowserSelect(path, type); },
     });
     window._combinedBrowser.build();
-    window._combinedBrowser.goTo('/data');
+    window._combinedBrowser.goTo('');
 })();
 </script>
 {% endblock %}

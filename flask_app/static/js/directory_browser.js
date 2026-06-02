@@ -58,8 +58,8 @@ const DirectoryBrowser = (() => {
 
         async goTo(path) {
             if (!this.built) this.build();
-            this.currentPath = path || this.opts.defaultPath || '/';
-            await this._loadPath(this.currentPath);
+            // If no explicit path, let the backend auto-detect the root filesystem
+            await this._loadPath(path || this.opts.defaultPath || '');
         }
 
         /** Single-select: get currently selected path. */

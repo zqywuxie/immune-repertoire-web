@@ -1704,11 +1704,11 @@
         fileFilter: '',
         allowFileSelect: true,
         multiSelect: false,
-        defaultPath: '/data',
+        defaultPath: '',
         onSelect: function(path, type) { ScriptHubPage.onSourceHighlight(path, type); },
     });
     window._sourceBrowser.build();
-    window._sourceBrowser.goTo('/data');
+    window._sourceBrowser.goTo('');
 })();
 </script>
 {% endblock %}
