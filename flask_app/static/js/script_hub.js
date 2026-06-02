@@ -421,13 +421,13 @@ const ScriptHubPage = {
         const hasDatapoint = dpPaths.length > 0;
         this.moduleAvailability = {
             'charts': hasPep,
-            'db-alignment': hasPep,
-            'boxplot': hasDatapoint,
-            'pep-analysis': hasPep || !!this.selectedCachedAssetId,
-            'topclone': hasPep,
-            'umap': hasDatapoint,
-            'volcano': hasDatapoint,
-            'umapin': hasDatapoint,
+            'db-alignment': hasPep && hasDatapoint,
+            'boxplot': hasPep && hasDatapoint,
+            'pep-analysis': hasPep && hasDatapoint,
+            'topclone': hasPep && hasDatapoint,
+            'umap': hasPep && hasDatapoint,
+            'volcano': hasPep && hasDatapoint,
+            'umapin': hasPep && hasDatapoint,
         };
     },
 
@@ -1717,18 +1717,20 @@ const ScriptHubPage = {
         const any = !!(pep || dp);
 
         // Enable the main confirm button if at least one is confirmed
-        const mainBtn = document.getElementById('scriptHubDataConfirmBtn');
-        if (mainBtn) mainBtn.disabled = !any;
-
         this.selectedDatapointPaths = dp ? [dp] : [];
         this.selectedDatapointPath = dp || '';
 
         if (any) {
             this.evaluateAvailableModules(this.selectedPepPaths, this.selectedDatapointPaths);
-            this.showSourceFeedback(
-                both ? 'PEP 和 Profile 均已确认。点击下方按钮进入下一步。' : (pep ? 'PEP 已确认，还需确认 Profile。' : 'Profile 已确认，还需确认 PEP。'),
-                both ? 'success' : 'info'
-            );
+            const mainBtn = document.getElementById('scriptHubDataConfirmBtn');
+            if (mainBtn) mainBtn.disabled = false;
+            if (both) {
+                this.showSourceFeedback('PEP 和 Profile 均已确认，全部模块可用。点击下方按钮进入下一步。', 'success');
+            } else if (pep) {
+                this.showSourceFeedback('PEP 已确认（综合图表可用），数据库比对/共享分析/TopClone 还需要 Profile 文件。', 'warning');
+            } else {
+                this.showSourceFeedback('Profile 已确认（箱线图/UMAP/火山图/UMAPin 可用），数据库比对/共享分析/TopClone 还需要 PEP 目录。', 'warning');
+            }
         }
     },
 
