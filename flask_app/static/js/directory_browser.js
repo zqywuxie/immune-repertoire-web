@@ -138,17 +138,16 @@ const DirectoryBrowser = (() => {
         <button class="dir-browser-tool-btn" data-action="home" title="回到根目录">
             <i class="bi bi-house-door"></i>
         </button>
-        <button class="dir-browser-tool-btn" data-action="up" title="上一级">
-            <i class="bi bi-arrow-up"></i>
-        </button>
-        <input class="dir-browser-path-input" data-action="pathInput"
-               type="text" placeholder="输入路径后按 Enter 跳转..."
-               title="当前路径。输入新路径后按 Enter 跳转">
+        <div class="dir-browser-path-bar" data-role="pathBar">
+            <span class="dir-browser-path-seg">/</span>
+        </div>
         <button class="dir-browser-tool-btn" data-action="refresh" title="刷新">
             <i class="bi bi-arrow-clockwise"></i>
         </button>
     </div>
-    <div class="dir-browser-breadcrumb" data-role="breadcrumb"></div>
+    <div class="dir-browser-tree" data-role="tree">
+        </button>
+    </div>
     <div class="dir-browser-tree" data-role="tree">
         <div class="dir-browser-empty">
             <i class="bi bi-folder2-open"></i>加载中...
@@ -168,20 +167,8 @@ const DirectoryBrowser = (() => {
             root.querySelector('[data-action="home"]').addEventListener('click', () => {
                 this.goTo(this.opts.defaultPath || '/');
             });
-            root.querySelector('[data-action="up"]').addEventListener('click', async () => {
-                const parent = this._getParentPath(this.currentPath);
-                if (parent) await this._loadPath(parent);
-            });
             root.querySelector('[data-action="refresh"]').addEventListener('click', async () => {
                 await this._loadPath(this.currentPath);
-            });
-
-            const pathInput = root.querySelector('[data-action="pathInput"]');
-            pathInput.addEventListener('keydown', async (e) => {
-                if (e.key === 'Enter') {
-                    const targetPath = pathInput.value.trim();
-                    if (targetPath) await this._loadPath(targetPath);
-                }
             });
         }
 
@@ -189,7 +176,6 @@ const DirectoryBrowser = (() => {
         async _loadPath(path) {
             if (!this.built) return;
             const treeEl = this.container.querySelector('[data-role="tree"]');
-            const pathInput = this.container.querySelector('[data-action="pathInput"]');
 
             treeEl.innerHTML = '<div class="dir-browser-loading"><span class="spinner-border"></span>加载中...</div>';
 
@@ -204,17 +190,16 @@ const DirectoryBrowser = (() => {
                 if (!resp.ok && data.error) {
                     if (resp.status === 404 && path) {
                         this.currentPath = path;
-                        pathInput.value = path;
+                        this._renderPathBar();
                         await this._loadPath('');
                         return;
                     }
                     treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(data.error)}</div>`;
-                    if (path) pathInput.value = path;
                     return;
                 }
 
                 this.currentPath = data.current_path || path;
-                pathInput.value = this.currentPath;
+                this._renderPathBar();
 
                 this.treeNodes = {};
                 const rootNode = {
@@ -240,10 +225,8 @@ const DirectoryBrowser = (() => {
                 this.treeNodes[this.currentPath] = rootNode;
 
                 this._renderTree();
-                this._renderBreadcrumb();
             } catch (err) {
                 treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(err.message)}</div>`;
-                if (path) pathInput.value = path;
             }
         }
 
@@ -404,35 +387,53 @@ const DirectoryBrowser = (() => {
         }
 
         /* ── Helpers ── */
-
-        _renderBreadcrumb() {
-            var bc = this.container.querySelector('[data-role="breadcrumb"]');
-            if (!bc) return;
-            var p = this.currentPath;
-            if (!p || p === '/') {
-                bc.innerHTML = '<span class="dir-bc-seg">' + String.fromCodePoint(0x1F3E0) + ' /</span>';
-                return;
-            }
-            var parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
-            var html = '<span class="dir-bc-seg dir-bc-root" data-bc-path="/">' + String.fromCodePoint(0x1F3E0) + ' /</span>';
-            var accum = '';
-            for (var i = 0; i < parts.length; i++) {
-                accum += '/' + parts[i];
-                html += '<span class="dir-bc-sep">' + String.fromCharCode(8250) + '</span>';
-                html += '<span class="dir-bc-seg" data-bc-path="' + this._escapeHtml(accum) + '">' + this._escapeHtml(parts[i]) + '</span>';
-            }
-            bc.innerHTML = html;
-            var self = this;
-            bc.querySelectorAll('.dir-bc-seg[data-bc-path]').forEach(function(seg) {
-                seg.addEventListener('click', function() { self._loadPath(seg.dataset.bcPath); });
-            });
-        }
         _getParentPath(p) {
             if (!p || p === '/') return null;
             const parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
             if (parts.length === 0) return '/';
             parts.pop();
             return '/' + parts.join('/');
+        }
+
+        _renderPathBar() {
+            var bar = this.container.querySelector('[data-role="pathBar"]');
+            if (!bar) return;
+            var p = this.currentPath;
+            if (!p || p === '/') {
+                bar.innerHTML = '<span class="dir-browser-path-seg">/</span>';
+                return;
+            }
+            // Split into segments. On Windows, handle drive letters (C:) as first segment.
+            var isWin = /^[a-zA-Z]:/.test(p);
+            var parts;
+            if (isWin) {
+                var normalized = p.replace(/\\/g, '/');
+                var match = normalized.match(/^([a-zA-Z]:)(.*)/);
+                parts = [match[1]];
+                var rest = match[2].replace(/\/+$/, '').split('/').filter(Boolean);
+                parts = parts.concat(rest);
+            } else {
+                parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
+                parts.unshift('/');
+            }
+            var html = '';
+            var accum = isWin ? '' : '';
+            for (var i = 0; i < parts.length; i++) {
+                if (i === 0 && !isWin) {
+                    accum = '/';
+                } else if (i === 0 && isWin) {
+                    accum = parts[0];
+                } else {
+                    accum = accum.replace(/\/+$/, '') + '/' + parts[i];
+                }
+                html += '<span class="dir-browser-path-sep">' + String.fromCharCode(8250) + '</span>';
+                html += '<span class="dir-browser-path-seg" data-nav-path="' + this._escapeHtml(accum) + '">' + this._escapeHtml(parts[i]) + '</span>';
+            }
+            bar.innerHTML = html;
+            var self = this;
+            bar.querySelectorAll('.dir-browser-path-seg[data-nav-path]').forEach(function(seg) {
+                seg.addEventListener('click', function() { self._loadPath(seg.dataset.navPath); });
+            });
         }
 
         _updateSelectedDisplay() {

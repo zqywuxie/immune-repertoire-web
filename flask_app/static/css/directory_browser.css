@@ -17,22 +17,43 @@
     background: #f8fafb;
 }
 
-.dir-browser-path-input {
+.dir-browser-path-bar {
     flex: 1;
-    border: 1px solid #d7e2ea;
-    border-radius: 10px;
-    padding: .45rem .75rem;
-    font-size: .88rem;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    color: #163247;
-    background: #fff;
-    transition: border-color .15s, box-shadow .15s;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    padding: .15rem 0;
 }
 
-.dir-browser-path-input:focus {
-    outline: none;
-    border-color: #11597c;
-    box-shadow: 0 0 0 3px rgba(17, 89, 124, 0.1);
+.dir-browser-path-bar::-webkit-scrollbar {
+    display: none;
+}
+
+.dir-browser-path-seg {
+    cursor: pointer;
+    color: #163247;
+    padding: .2rem .45rem;
+    border-radius: 6px;
+    font-size: .83rem;
+    font-weight: 600;
+    transition: background .12s, color .12s;
+    flex-shrink: 0;
+}
+
+.dir-browser-path-seg:hover {
+    background: #e9f6ff;
+    color: #11597c;
+}
+
+.dir-browser-path-sep {
+    color: #c5d2db;
+    margin: 0 .05rem;
+    font-size: .85rem;
+    user-select: none;
+    flex-shrink: 0;
 }
 
 .dir-browser-tool-btn {
