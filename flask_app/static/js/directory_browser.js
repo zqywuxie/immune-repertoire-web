@@ -94,7 +94,14 @@ const DirectoryBrowser = (() => {
             this.selectedType = type;
             this._updateSelectedDisplay();
             this._highlightSelected();
-            // Auto-expand if it's an unloaded directory — show user the contents immediately
+            // Update the path bar to reflect the selected item
+            if (type === 'directory') {
+                this.currentPath = path;
+            } else {
+                // For files, show the parent directory path
+                this.currentPath = this._getParentPath(path) || path;
+            }
+            this._renderPathBar();
             if (type === 'directory') {
                 const node = this.treeNodes[path];
                 if (node && node.hasChildren && !node.childrenLoaded) {
@@ -417,16 +424,14 @@ const DirectoryBrowser = (() => {
                 parts.unshift('/');
             }
             var html = '';
-            var accum = isWin ? '' : '';
+            var accum = '';
             for (var i = 0; i < parts.length; i++) {
-                if (i === 0 && !isWin) {
-                    accum = '/';
-                } else if (i === 0 && isWin) {
-                    accum = parts[0];
+                if (i === 0) {
+                    accum = (isWin ? parts[0] : '/');
                 } else {
                     accum = accum.replace(/\/+$/, '') + '/' + parts[i];
+                    html += '<span class="dir-browser-path-sep">' + String.fromCharCode(8250) + '</span>';
                 }
-                html += '<span class="dir-browser-path-sep">' + String.fromCharCode(8250) + '</span>';
                 html += '<span class="dir-browser-path-seg" data-nav-path="' + this._escapeHtml(accum) + '">' + this._escapeHtml(parts[i]) + '</span>';
             }
             bar.innerHTML = html;
