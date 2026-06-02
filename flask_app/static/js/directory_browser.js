@@ -148,6 +148,7 @@ const DirectoryBrowser = (() => {
             <i class="bi bi-arrow-clockwise"></i>
         </button>
     </div>
+    <div class="dir-browser-breadcrumb" data-role="breadcrumb"></div>
     <div class="dir-browser-tree" data-role="tree">
         <div class="dir-browser-empty">
             <i class="bi bi-folder2-open"></i>加载中...
@@ -239,6 +240,7 @@ const DirectoryBrowser = (() => {
                 this.treeNodes[this.currentPath] = rootNode;
 
                 this._renderTree();
+                this._renderBreadcrumb();
             } catch (err) {
                 treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(err.message)}</div>`;
                 if (path) pathInput.value = path;
@@ -402,6 +404,29 @@ const DirectoryBrowser = (() => {
         }
 
         /* ── Helpers ── */
+
+        _renderBreadcrumb() {
+            var bc = this.container.querySelector('[data-role="breadcrumb"]');
+            if (!bc) return;
+            var p = this.currentPath;
+            if (!p || p === '/') {
+                bc.innerHTML = '<span class="dir-bc-seg">' + String.fromCodePoint(0x1F3E0) + ' /</span>';
+                return;
+            }
+            var parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
+            var html = '<span class="dir-bc-seg dir-bc-root" data-bc-path="/">' + String.fromCodePoint(0x1F3E0) + ' /</span>';
+            var accum = '';
+            for (var i = 0; i < parts.length; i++) {
+                accum += '/' + parts[i];
+                html += '<span class="dir-bc-sep">' + String.fromCharCode(8250) + '</span>';
+                html += '<span class="dir-bc-seg" data-bc-path="' + this._escapeHtml(accum) + '">' + this._escapeHtml(parts[i]) + '</span>';
+            }
+            bc.innerHTML = html;
+            var self = this;
+            bc.querySelectorAll('.dir-bc-seg[data-bc-path]').forEach(function(seg) {
+                seg.addEventListener('click', function() { self._loadPath(seg.dataset.bcPath); });
+            });
+        }
         _getParentPath(p) {
             if (!p || p === '/') return null;
             const parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
