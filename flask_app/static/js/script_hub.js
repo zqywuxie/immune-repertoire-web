@@ -149,6 +149,7 @@ const ScriptHubPage = {
         document.getElementById('scriptHubChartConfirmSamples')?.addEventListener('click', () => this.confirmChartSamples());
         document.getElementById('scriptHubChartEditSamples')?.addEventListener('click', () => this.reopenChartSampleSelection());
         document.getElementById('scriptHubChartConfirmFields')?.addEventListener('click', () => this.confirmChartFields());
+        document.getElementById('scriptHubChartRunBtn')?.addEventListener('click', () => this.runChartCombined());
         document.getElementById('scriptHubChartSelectAllModules')?.addEventListener('click', () => this.setChartModuleSelection(['heatmap', 'treemap', 'chord']));
         document.getElementById('scriptHubChartClearModules')?.addEventListener('click', () => this.setChartModuleSelection([]));
         ['scriptHubChartHeatmap', 'scriptHubChartTreemap', 'scriptHubChartChord'].forEach((id) => {
@@ -1288,6 +1289,15 @@ const ScriptHubPage = {
             return;
         }
         document.getElementById('scriptHubChartRunStep').style.display = '';
+    },
+
+    async runChartCombined() {
+        try {
+            const payload = this.collectChartRunPayload();
+            await this.runChartAnalysis(payload);
+        } catch (error) {
+            this.showError(error.message || '提交图表任务失败');
+        }
     },
 
     hideChartFieldAndRunSteps() {
