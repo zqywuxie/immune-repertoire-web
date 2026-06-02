@@ -28,6 +28,25 @@ const ChordDiagramAnalysis = {
         document.getElementById('basePath').value = path;
     },
 
+    backToStep2() {
+        document.getElementById('step2Card').style.display = '';
+        document.getElementById('step3Card').style.display = 'none';
+        document.getElementById('step4Card').style.display = 'none';
+        var resultsCard = document.getElementById('resultsCard');
+        if (resultsCard) resultsCard.style.display = 'none';
+        var step1Card = document.getElementById('step1Card');
+        if (step1Card) {
+            window.setTimeout(function() {
+                step1Card.scrollIntoView({behavior: 'smooth'});
+            }, 50);
+        } else {
+            window.setTimeout(function() {
+                document.getElementById('step2Card').scrollIntoView({behavior: 'smooth'});
+            }, 50);
+        }
+    },
+
+
     updateStepIndicator(step) {
         document.querySelectorAll('.step-item').forEach((item, index) => {
             const stepNum = index + 1;
