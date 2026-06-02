@@ -58,8 +58,9 @@ const DirectoryBrowser = (() => {
 
         async goTo(path) {
             if (!this.built) this.build();
-            // If no explicit path, let the backend auto-detect the root filesystem
-            await this._loadPath(path || this.opts.defaultPath || '');
+            // Normalize path first, then let backend auto-detect if empty
+            var cleanPath = (path || this.opts.defaultPath || '').replace(/\\/g, '/');
+            await this._loadPath(cleanPath);
         }
 
         /** Single-select: get currently selected path. */
@@ -171,8 +172,8 @@ const DirectoryBrowser = (() => {
             const root = document.getElementById(this.id);
             if (!root) return;
 
-            root.querySelector('[data-action="home"]').addEventListener('click', () => {
-                this.goTo(this.opts.defaultPath || '/');
+            root.querySelector('[data-action="home"]').addEventListener('click', async () => {
+                await this._loadPath('');
             });
             root.querySelector('[data-action="refresh"]').addEventListener('click', async () => {
                 await this._loadPath(this.currentPath);
@@ -188,29 +189,31 @@ const DirectoryBrowser = (() => {
 
             try {
                 const params = new URLSearchParams();
-                if (path) params.set('path', path);
+                // Normalize path: convert backslashes to forward slashes (Windows)
+                var cleanPath = (path || '').replace(/\\/g, '/');
+                if (cleanPath) params.set('path', cleanPath);
                 if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
 
-                const resp = await fetch(`${this.opts.browseApi}?${params.toString()}`);
+                var url = this.opts.browseApi;
+                var qs = params.toString();
+                if (qs) url += '?' + qs;
+
+                const resp = await fetch(url);
                 const data = await resp.json();
 
-                if (!resp.ok && data.error) {
-                    if (resp.status === 404 && path) {
-                        this.currentPath = path;
-                        this._renderPathBar();
-                        await this._loadPath('');
-                        return;
-                    }
-                    treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(data.error)}</div>`;
+                if (!resp.ok) {
+                    treeEl.innerHTML = '<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>' + this._escapeHtml(data.error || '无法加载目录') + '</div>';
                     return;
                 }
 
-                this.currentPath = data.current_path || path;
+                // Normalize received path (Windows backslashes -> forward slashes)
+                this.currentPath = (data.current_path || cleanPath).replace(/\\/g, '/');
                 this._renderPathBar();
 
                 this.treeNodes = {};
+                const rootName = this.currentPath === '/' ? '/' : (this.currentPath.replace(/\/+$/, '').split('/').filter(Boolean).pop() || '/');
                 const rootNode = {
-                    name: this.currentPath === '/' ? '/' : (this.currentPath.split('/').filter(Boolean).pop() || '/'),
+                    name: rootName,
                     path: this.currentPath,
                     type: 'directory',
                     hasChildren: data.items.length > 0,
@@ -219,10 +222,12 @@ const DirectoryBrowser = (() => {
                 };
 
                 for (const item of data.items) {
-                    rootNode.childrenPaths.push(item.path);
-                    this.treeNodes[item.path] = {
+                    // Normalize item paths too
+                    var itemPath = (item.path || '').replace(/\\/g, '/');
+                    rootNode.childrenPaths.push(itemPath);
+                    this.treeNodes[itemPath] = {
                         name: item.name,
-                        path: item.path,
+                        path: itemPath,
                         type: item.type,
                         hasChildren: item.has_children || false,
                         childrenLoaded: false,
@@ -233,7 +238,7 @@ const DirectoryBrowser = (() => {
 
                 this._renderTree();
             } catch (err) {
-                treeEl.innerHTML = `<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>${this._escapeHtml(err.message)}</div>`;
+                treeEl.innerHTML = '<div class="dir-browser-empty"><i class="bi bi-exclamation-triangle"></i>' + this._escapeHtml(err.message || '网络错误') + '</div>';
             }
         }
 
@@ -242,17 +247,23 @@ const DirectoryBrowser = (() => {
             if (!node || node.type !== 'directory' || node.childrenLoaded) return;
 
             try {
-                const params = new URLSearchParams({ path: dirPath });
+                const params = new URLSearchParams();
+                var cleanPath = (dirPath || '').replace(/\\/g, '/');
+                if (cleanPath) params.set('path', cleanPath);
                 if (this.opts.fileFilter) params.set('filter', this.opts.fileFilter);
 
-                const resp = await fetch(`${this.opts.browseApi}?${params.toString()}`);
+                var url = this.opts.browseApi;
+                var qs = params.toString();
+                if (qs) url += '?' + qs;
+
+                const resp = await fetch(url);
                 const data = await resp.json();
 
                 if (!resp.ok) return;
 
                 node.childrenPaths = [];
                 for (const item of data.items) {
-                    const childPath = item.path;
+                    const childPath = (item.path || '').replace(/\\/g, '/');
                     node.childrenPaths.push(childPath);
                     if (!this.treeNodes[childPath]) {
                         this.treeNodes[childPath] = {
@@ -396,26 +407,32 @@ const DirectoryBrowser = (() => {
         /* ── Helpers ── */
         _getParentPath(p) {
             if (!p || p === '/') return null;
-            const parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
+            p = p.replace(/\\/g, '/');
+            // Windows drive root check (e.g., "C:/" or "C:")
+            if (/^[a-zA-Z]:\/?$/.test(p)) return null;
+            var parts = p.replace(/\/+$/, '').split('/').filter(Boolean);
             if (parts.length === 0) return '/';
             parts.pop();
+            if (parts.length === 0) {
+                // We went above a drive root, return to filesystem root
+                return '/';
+            }
             return '/' + parts.join('/');
         }
 
         _renderPathBar() {
             var bar = this.container.querySelector('[data-role="pathBar"]');
             if (!bar) return;
-            var p = this.currentPath;
+            var p = this.currentPath || '';
+            p = p.replace(/\\/g, '/');
             if (!p || p === '/') {
                 bar.innerHTML = '<span class="dir-browser-path-seg">/</span>';
                 return;
             }
-            // Split into segments. On Windows, handle drive letters (C:) as first segment.
             var isWin = /^[a-zA-Z]:/.test(p);
             var parts;
             if (isWin) {
-                var normalized = p.replace(/\\/g, '/');
-                var match = normalized.match(/^([a-zA-Z]:)(.*)/);
+                var match = p.match(/^([a-zA-Z]:)(.*)/);
                 parts = [match[1]];
                 var rest = match[2].replace(/\/+$/, '').split('/').filter(Boolean);
                 parts = parts.concat(rest);
