@@ -94,6 +94,13 @@ const DirectoryBrowser = (() => {
             this.selectedType = type;
             this._updateSelectedDisplay();
             this._highlightSelected();
+            // Auto-expand if it's an unloaded directory — show user the contents immediately
+            if (type === 'directory') {
+                const node = this.treeNodes[path];
+                if (node && node.hasChildren && !node.childrenLoaded) {
+                    this._loadChildren(path);
+                }
+            }
             if (this.opts.onSelect) this.opts.onSelect(path, type);
         }
 
@@ -443,7 +450,7 @@ const DirectoryBrowser = (() => {
                         childHtml = '<span class="dir-browser-badge">含子项</span>';
                     }
                 }
-                selEl.innerHTML = `<i class="bi ${icon}"></i><strong>${this._escapeHtml(basename)}</strong>${childHtml}<span class="dir-browser-fullpath">${this._escapeHtml(this.selectedPath)}</span>`;
+                selEl.innerHTML = `<i class="bi ${icon}"></i><strong>${this._escapeHtml(basename)}</strong>${childHtml}`;
             } else {
                 selEl.classList.add('is-empty');
                 selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择</span>';
