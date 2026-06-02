@@ -431,8 +431,19 @@ const DirectoryBrowser = (() => {
 
             if (this.selectedPath) {
                 selEl.classList.remove('is-empty');
+                const node = this.treeNodes[this.selectedPath];
+                const basename = node?.name || this.selectedPath.split('/').filter(Boolean).pop() || this.selectedPath;
                 const icon = this.selectedType === 'directory' ? 'bi-folder2-open' : 'bi-file-earmark';
-                selEl.innerHTML = `<i class="bi ${icon}"></i><span>${this._escapeHtml(this.selectedPath)}</span>`;
+                // Show child count if children are loaded, or "has items" hint
+                let childHtml = '';
+                if (node && node.type === 'directory') {
+                    if (node.childrenLoaded) {
+                        childHtml = `<span class="dir-browser-badge">${node.childrenPaths.length} 项</span>`;
+                    } else if (node.hasChildren) {
+                        childHtml = '<span class="dir-browser-badge">含子项</span>';
+                    }
+                }
+                selEl.innerHTML = `<i class="bi ${icon}"></i><strong>${this._escapeHtml(basename)}</strong>${childHtml}<span class="dir-browser-fullpath">${this._escapeHtml(this.selectedPath)}</span>`;
             } else {
                 selEl.classList.add('is-empty');
                 selEl.innerHTML = '<i class="bi bi-chevron-right"></i><span>未选择</span>';

@@ -1288,6 +1288,9 @@ def browse_directory():
     path = request.args.get('path', '')
     file_filter = request.args.get('filter', '')
 
+    if path == '/data' and platform.system() != 'Linux' and not Path(path).exists():
+        path = ''
+
     # Parse file filter
     allowed_extensions = set()
     if file_filter:

@@ -975,6 +975,7 @@ class TreemapReportService:
             )
 
         result_samples: List[Dict[str, Any]] = []
+        warnings: List[str] = []
 
         for sample_index, item in enumerate(sample_work_items, start=1):
             sample = item["sample"]
@@ -1094,7 +1095,6 @@ class TreemapReportService:
 
                     overview_source_paths[chain] = html_path
                     chain_output["html"] = str(html_path.relative_to(output_base)).replace("\\", "/")
-                    chain_output["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
 
                 chain_outputs[chain] = chain_output
 
@@ -1128,15 +1128,30 @@ class TreemapReportService:
                     png_width, png_height = (700, 1500) if canvas_shape == "portrait" else (1200, 1200)
                     png_tasks.append((html_path, png_path, png_width, png_height, True))
 
+                rendered_png_paths: Dict[str, Path] = {}
                 with ThreadPoolExecutor(max_workers=min(6, max(1, len(png_tasks)))) as executor:
                     future_map = {
                         executor.submit(self._render_html_to_png, html_path, png_path, width, height, panel_mode): (html_path, png_path)
                         for html_path, png_path, width, height, panel_mode in png_tasks
                     }
                     for future in as_completed(future_map):
-                        future.result()
                         html_path, png_path = future_map[future]
                         chain_name = html_path.stem.split("__")[-1].replace("_treemap", "")
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            warning = f"{display_name} | {chain_name} PNG 导出失败: {exc}"
+                            warnings.append(warning)
+                            logger.warning(warning, exc_info=True)
+                            continue
+                        if not png_path.exists() or not png_path.is_file():
+                            warning = f"{display_name} | {chain_name} PNG 导出失败: 未生成文件 {png_path.name}"
+                            warnings.append(warning)
+                            logger.warning(warning)
+                            continue
+                        rendered_png_paths[chain_name] = png_path
+                        if chain_name in chain_outputs:
+                            chain_outputs[chain_name]["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
                         advance(
                             "导出单链 PNG",
                             f"{display_name} | {chain_name}",
@@ -1150,27 +1165,34 @@ class TreemapReportService:
                         )
 
                 trim_size = (1260, 2700) if canvas_shape == "portrait" else (1800, 1800)
-                for _, png_path, _, _, _ in png_tasks:
-                    self._trim_white_border(png_path, output_size=trim_size)
+                for chain_name, png_path in list(rendered_png_paths.items()):
+                    try:
+                        self._trim_white_border(png_path, output_size=trim_size)
+                    except Exception as exc:
+                        warning = f"{display_name} | {chain_name} PNG 裁剪失败: {exc}"
+                        warnings.append(warning)
+                        logger.warning(warning, exc_info=True)
 
-                overview_png_sources = {
-                    chain: sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
-                    for chain in generated_chains
-                }
-                self._compose_overview_png_from_individuals(overview_png_sources, overview_png_path)
-                advance(
-                    "导出七链 PNG",
-                    f"{display_name} | overview",
-                    phase="overview_png",
-                    sample_name=display_name,
-                    sample_index=sample_index,
-                    output_file=overview_png_filename,
-                )
+                if rendered_png_paths:
+                    self._compose_overview_png_from_individuals(rendered_png_paths, overview_png_path)
+                    advance(
+                        "导出七链 PNG",
+                        f"{display_name} | overview",
+                        phase="overview_png",
+                        sample_name=display_name,
+                        sample_index=sample_index,
+                        output_file=overview_png_filename,
+                    )
+                else:
+                    warning = f"{display_name} 未生成可用于汇总的 treemap PNG，已保留 HTML/CSV 输出。"
+                    warnings.append(warning)
+                    logger.warning(warning)
 
                 overview_treemaps = {
                     "html": str(overview_html_path.relative_to(output_base)).replace("\\", "/"),
-                    "png": str(overview_png_path.relative_to(output_base)).replace("\\", "/"),
                 }
+                if overview_png_path.exists() and overview_png_path.is_file():
+                    overview_treemaps["png"] = str(overview_png_path.relative_to(output_base)).replace("\\", "/")
 
             result_samples.append(
                 {
@@ -1198,6 +1220,7 @@ class TreemapReportService:
             "layout_mode": layout_mode,
             "canvas_shape": canvas_shape,
             "samples": result_samples,
+            "warnings": warnings,
         }
         metadata_path = output_base / self._METADATA_FILE_NAME
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

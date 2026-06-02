@@ -336,6 +336,7 @@ def _generate_treemap_report(
         "zip_url": f"/api/treemap/export-zip/{report.job_id}",
         "metadata_url": f"/api/treemap/results/{report.job_id}/metadata.json",
         "topclone_only": bool(report.metadata.get("topclone_only")),
+        "warnings": report.metadata.get("warnings") or [],
     }
 
 
@@ -687,6 +688,7 @@ def _run_combined_task(
                         "zip_url": f"/api/treemap/export-zip/{report.job_id}",
                         "metadata_url": f"/api/treemap/results/{report.job_id}/metadata.json",
                         "topclone_only": bool(report.metadata.get("topclone_only")),
+                        "warnings": report.metadata.get("warnings") or [],
                     }
                     completed_modules += 1
                 elif module_name == "chord":

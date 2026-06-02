@@ -186,6 +186,158 @@ def _collect_asset_hints(base_path: str, profile_path: Optional[str]) -> Dict[st
     }
 
 
+def _is_profile_like_file(path: Path) -> bool:
+    lowered = path.name.lower()
+    return lowered.startswith("profile") and lowered.endswith((".csv", ".tsv"))
+
+
+def _infer_wide_chain_from_filename(filename: str) -> str:
+    upper_name = filename.upper()
+    for chain in sorted(_SUPPORTED_CHAINS_WIDE, key=len, reverse=True):
+        if (
+            f"__{chain}.CSV" in upper_name
+            or upper_name.endswith(f"_{chain}.CSV")
+            or upper_name.endswith(f"-{chain}.CSV")
+            or f"_{chain}_" in upper_name
+            or f"-{chain}-" in upper_name
+        ):
+            return chain
+    inferred = _normalize_chain(_infer_chain_from_filename(filename))
+    return inferred if inferred in _SUPPORTED_CHAINS_WIDE else ""
+
+
+def _sample_name_from_pep_file(path: Path, chain: str) -> str:
+    stem = path.name
+    upper_stem = stem.upper()
+    markers = [f"__{chain}.CSV", f"_{chain}.CSV", f"-{chain}.CSV"]
+    for marker in markers:
+        index = upper_stem.rfind(marker)
+        if index > 0:
+            return stem[:index].rstrip("_- ")
+    return path.stem
+
+
+def _iter_candidate_pep_files(paths: List[str]) -> List[Path]:
+    files: List[Path] = []
+    seen: set[str] = set()
+    for raw_path in paths:
+        if not str(raw_path or "").strip():
+            continue
+        path = Path(str(raw_path).strip())
+        if not path.exists():
+            continue
+        candidates = [path] if path.is_file() else sorted(path.rglob("*.csv"))
+        for candidate in candidates:
+            if not candidate.is_file() or _is_profile_like_file(candidate):
+                continue
+            resolved = str(candidate.resolve())
+            if resolved not in seen:
+                seen.add(resolved)
+                files.append(candidate.resolve())
+    return files
+
+
+def _read_table_columns(path: Optional[Path]) -> List[str]:
+    if path is None or not path.exists() or not path.is_file():
+        return []
+    try:
+        sep = "\t" if path.suffix.lower() == ".tsv" else ","
+        return pd.read_csv(path, nrows=0, sep=sep).columns.tolist()
+    except Exception as exc:  # pragma: no cover - returned as warning by caller
+        logger.warning("Failed to read table columns from %s: %s", path, exc)
+        return []
+
+
+def _find_profile_candidates(pep_paths: List[str], explicit_profile_path: Optional[str] = None) -> List[str]:
+    candidates: List[Path] = []
+    explicit = Path(str(explicit_profile_path or "").strip()) if str(explicit_profile_path or "").strip() else None
+    if explicit and explicit.exists() and explicit.is_file():
+        candidates.append(explicit.resolve())
+
+    roots: List[Path] = []
+    for raw_path in pep_paths:
+        path = Path(str(raw_path or "").strip())
+        if not path.exists():
+            continue
+        root = path.parent if path.is_file() else path
+        roots.extend([root, root.parent])
+
+    seen_roots: set[str] = set()
+    for root in roots:
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            continue
+        root_key = str(resolved_root)
+        if root_key in seen_roots or not resolved_root.exists() or not resolved_root.is_dir():
+            continue
+        seen_roots.add(root_key)
+        for pattern in ("Profile_All.csv", "Profile.csv", "Profile*.csv", "profile*.csv"):
+            candidates.extend(sorted(resolved_root.glob(pattern))[:10])
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        resolved = str(candidate.resolve())
+        if resolved not in seen:
+            seen.add(resolved)
+            deduped.append(resolved)
+    return deduped[:20]
+
+
+def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional[str]) -> Dict[str, Any]:
+    pep_files = _iter_candidate_pep_files(pep_paths)
+    discovered_chains: set[str] = set()
+    sample_names: set[str] = set()
+    file_preview: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+
+    for pep_file in pep_files:
+        chain = _infer_wide_chain_from_filename(pep_file.name)
+        if not chain:
+            continue
+        discovered_chains.add(chain)
+        sample_names.add(_sample_name_from_pep_file(pep_file, chain))
+        if len(file_preview) < 20:
+            file_preview.append({
+                "path": str(pep_file),
+                "filename": pep_file.name,
+                "chain": chain,
+                "sample": _sample_name_from_pep_file(pep_file, chain),
+            })
+
+    profile_candidates = _find_profile_candidates(pep_paths, profile_path)
+    resolved_profile = str(profile_path or "").strip()
+    if not resolved_profile and profile_candidates:
+        resolved_profile = profile_candidates[0]
+
+    profile_file = Path(resolved_profile) if resolved_profile else None
+    profile_columns = _read_table_columns(profile_file)
+    group_fields = [column for column in profile_columns if str(column).strip().lower() != "sample"]
+
+    if pep_paths and not pep_files:
+        warnings.append("No CSV files were found under the selected PEP paths.")
+    if pep_files and not discovered_chains:
+        warnings.append("CSV files were found, but no supported chain suffix was detected.")
+    if resolved_profile and not profile_columns:
+        warnings.append("Profile file was selected, but its header could not be read.")
+
+    return {
+        "pep_paths": pep_paths,
+        "profile_path": resolved_profile,
+        "profile_candidates": profile_candidates,
+        "profile_columns": profile_columns,
+        "group_fields": group_fields,
+        "chains": sorted(discovered_chains),
+        "chain_count": len(discovered_chains),
+        "sample_count": len(sample_names),
+        "samples": sorted(sample_names)[:50],
+        "pep_file_count": len(pep_files),
+        "pep_files_preview": file_preview,
+        "warnings": warnings,
+    }
+
+
 def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], requested_mapping: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not str(base_path or "").strip():
         raise ValidationError(message="base_path is required", details={"field": "base_path"})
@@ -696,6 +848,23 @@ def list_modules():
             ],
         }
     )
+
+
+@script_hub_bp.route("/data-selection/inspect", methods=["POST"])
+def inspect_data_selection():
+    try:
+        data = request.get_json() or {}
+        pep_paths = data.get("pep_paths") if isinstance(data.get("pep_paths"), list) else []
+        pep_paths = [str(item).strip() for item in pep_paths if str(item or "").strip()]
+        profile_path = str(data.get("profile_path") or "").strip() or None
+        discovery = _inspect_data_selection_payload(pep_paths, profile_path)
+        return jsonify({"success": True, **discovery})
+    except ValidationError as exc:
+        logger.warning("Validation error in inspect_data_selection: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error inspecting Script Hub data selection: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_SELECTION_ERROR", "message": str(exc)}), 500
 
 
 @script_hub_bp.route("/db-alignment/inspect", methods=["POST"])
@@ -1278,28 +1447,31 @@ def inspect_pep_analysis():
     try:
         data = request.get_json() or {}
         base_path = str(data.get("base_path") or "").strip()
+        pep_paths = data.get("pep_paths") if isinstance(data.get("pep_paths"), list) else []
+        pep_paths = [str(item).strip() for item in pep_paths if str(item or "").strip()]
+        if base_path and base_path not in pep_paths:
+            pep_paths.insert(0, base_path)
+        profile_path = str(data.get("profile_path") or "").strip() or None
 
-        # Discover pep files: {Sample}__{Chain}.csv
-        discovered_chains: set[str] = set()
-        sample_names: set[str] = set()
-        pep_file_count = 0
+        discovery = _inspect_data_selection_payload(pep_paths, profile_path)
 
-        if not discovered_chains:
+        if not discovery["chains"]:
             raise ValidationError(
                 message="No pep files detected. Expected format: {Sample}__{Chain}.csv",
-                details={"base_path": base_path}
+                details={"base_path": base_path, "pep_paths": pep_paths, "warnings": discovery.get("warnings", [])}
             )
 
-        chain_list = sorted(discovered_chains)
         return jsonify({
             "success": True,
-            "base_path": base_path,
-            "chains": chain_list,
-            "chain_count": len(chain_list),
-            "sample_count": len(sample_names),
-            "pep_file_count": pep_file_count,
-            "profile_candidates": profile_candidates[:10],
-            "profile_columns": profile_columns,
+            "base_path": base_path or (pep_paths[0] if pep_paths else ""),
+            "chains": discovery["chains"],
+            "chain_count": discovery["chain_count"],
+            "sample_count": discovery["sample_count"],
+            "pep_file_count": discovery["pep_file_count"],
+            "profile_candidates": discovery["profile_candidates"][:10],
+            "profile_columns": discovery["profile_columns"],
+            "group_fields": discovery["group_fields"],
+            "warnings": discovery["warnings"],
         })
     except ValidationError as exc:
         logger.warning("Validation error in inspect_pep_analysis: %s", exc.message)

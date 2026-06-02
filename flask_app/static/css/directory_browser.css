@@ -250,6 +250,36 @@
     color: #c8960c;
 }
 
+.dir-browser-selected strong {
+    font-size: .85rem;
+    margin-right: .35rem;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dir-browser-badge {
+    font-size: .7rem;
+    color: #61778a;
+    background: #f0f5f9;
+    border-radius: 6px;
+    padding: 0 .4rem;
+    margin-right: .35rem;
+    flex-shrink: 0;
+}
+
+.dir-browser-fullpath {
+    display: block;
+    font-size: .7rem;
+    color: #a0b4c4;
+    font-style: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: .15rem;
+}
+
 .dir-browser-selected.is-empty {
     color: #8ea4b6;
     font-style: italic;

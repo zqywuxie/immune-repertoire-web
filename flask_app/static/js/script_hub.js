@@ -16,6 +16,31 @@ const ScriptHubPage = {
     selectedDatapointPath: '',
     selectedCachedAssetId: '',
     moduleAvailability: {},
+    highlightedSource: null,
+    dataSelection: {
+        pepPaths: [],
+        profilePath: '',
+        profileType: '',
+        validation: null,
+    },
+    chartScanResult: null,
+    chartSamples: [],
+    chartSelectedChains: [],
+    chartSelectedSampleKeys: new Set(),
+    chartSelectedFilePath: '',
+    chartFileColumns: [],
+    chartFieldMapping: {
+        cdr3_column: '',
+        copy_column: '',
+        v_column: '',
+        j_column: '',
+    },
+    chartFieldHints: {
+        cdr3_column: ['cdr3(pep)', 'cdr3_pep', 'cdr3aa', 'cdr3_aa', 'cdr3'],
+        copy_column: ['copy', 'copies', 'count', 'reads', 'umis', 'umi'],
+        v_column: ['v', 'v_gene', 'vgene', 'bestvgene', 'v_call'],
+        j_column: ['j', 'j_gene', 'jgene', 'bestjgene', 'j_call'],
+    },
 
     CONFIG_FIELD_IDS: [
         'scriptHubOutputName',
@@ -47,12 +72,16 @@ const ScriptHubPage = {
             this.onProjectChange(event.target.value || '');
         });
         document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
+        document.getElementById('scriptHubAddPepBtn')?.addEventListener('click', () => this.addHighlightedPep());
+        document.getElementById('scriptHubSetProfileBtn')?.addEventListener('click', () => this.setHighlightedProfile());
         document.getElementById('scriptHubPepConfirmBtn')?.addEventListener('click', () => this.confirmPep());
         document.getElementById('scriptHubProfileConfirmBtn')?.addEventListener('click', () => this.confirmProfile());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
         document.getElementById('scriptHubOpenViewerBtn')?.addEventListener('click', () => this.openResultUrl('viewer_url'));
         document.getElementById('scriptHubOpenZipBtn')?.addEventListener('click', () => this.openResultUrl('zip_url'));
         document.getElementById('scriptHubOpenMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
+        document.getElementById('scriptHubOpenChartViewerBtn')?.addEventListener('click', () => this.openResultUrl('viewer_url'));
+        document.getElementById('scriptHubOpenChartMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
         document.getElementById('scriptHubOpenBpMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
         document.getElementById('scriptHubDatapointPath')?.addEventListener('change', () => {
             if (this.activeModule === 'boxplot') this.onDatapointFileChange();
@@ -92,6 +121,7 @@ const ScriptHubPage = {
             if (container) container.style.display = event.target.checked ? 'none' : '';
         });
         document.getElementById('scriptHubOpenPepMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
+        this.bindChartEvents();
 
         this.CONFIG_FIELD_IDS.forEach((fieldId) => {
             const element = document.getElementById(fieldId);
@@ -99,6 +129,32 @@ const ScriptHubPage = {
             const eventName = element.tagName === 'SELECT' || element.type === 'checkbox' ? 'change' : 'input';
             element.addEventListener(eventName, () => this.markFieldTouched(fieldId));
         });
+    },
+
+    bindChartEvents() {
+        document.getElementById('scriptHubChartChainList')?.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-chart-chain]');
+            if (item) this.toggleChartChain(item.dataset.chartChain || '');
+        });
+        document.getElementById('scriptHubChartSampleList')?.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-chart-sample-key]');
+            if (item) this.toggleChartSample(item.dataset.chartSampleKey || '');
+        });
+        document.getElementById('scriptHubChartSelectAllChains')?.addEventListener('click', () => this.selectAllChartChains());
+        document.getElementById('scriptHubChartInvertChains')?.addEventListener('click', () => this.invertChartChains());
+        document.getElementById('scriptHubChartClearChains')?.addEventListener('click', () => this.clearChartChains());
+        document.getElementById('scriptHubChartSelectAllSamples')?.addEventListener('click', () => this.selectAllChartSamples());
+        document.getElementById('scriptHubChartInvertSamples')?.addEventListener('click', () => this.invertChartSamples());
+        document.getElementById('scriptHubChartClearSamples')?.addEventListener('click', () => this.clearChartSamples());
+        document.getElementById('scriptHubChartConfirmSamples')?.addEventListener('click', () => this.confirmChartSamples());
+        document.getElementById('scriptHubChartEditSamples')?.addEventListener('click', () => this.reopenChartSampleSelection());
+        document.getElementById('scriptHubChartConfirmFields')?.addEventListener('click', () => this.confirmChartFields());
+        document.getElementById('scriptHubChartSelectAllModules')?.addEventListener('click', () => this.setChartModuleSelection(['heatmap', 'treemap', 'chord']));
+        document.getElementById('scriptHubChartClearModules')?.addEventListener('click', () => this.setChartModuleSelection([]));
+        ['scriptHubChartHeatmap', 'scriptHubChartTreemap', 'scriptHubChartChord'].forEach((id) => {
+            document.getElementById(id)?.addEventListener('change', () => this.updateChartModuleCards());
+        });
+        this.updateChartModuleCards();
     },
 
     getProjectContext() {
@@ -162,10 +218,8 @@ const ScriptHubPage = {
 
         if (context.autoScan && effectiveLocalPath && !this._autoInspectTriggered) {
             this._autoInspectTriggered = true;
-            const pepBrowser = window._pepBrowser;
-            if (pepBrowser) pepBrowser.goTo(effectiveLocalPath);
-            const dpBrowser = window._profileBrowser;
-            if (dpBrowser) dpBrowser.goTo(effectiveLocalPath);
+            const sourceBrowser = window._sourceBrowser || window._pepBrowser;
+            if (sourceBrowser) sourceBrowser.goTo(effectiveLocalPath);
         }
     },
 
@@ -246,18 +300,26 @@ const ScriptHubPage = {
                 ...this.selectedPepPaths,
                 ...pepAssets.map(a => a.storage_path).filter(Boolean)
             ])];
+            this.dataSelection.pepPaths = this.selectedPepPaths.map((path) => ({
+                path,
+                type: 'directory',
+                source: 'project',
+            }));
 
             // Navigate browsers to project paths
             if (localPepAssets.length > 0) {
                 const pepDir = localPepAssets[0].storage_path;
-                const pepBrowser = window._pepBrowser;
-                if (pepBrowser && pepDir) pepBrowser.goTo(pepDir);
+                const sourceBrowser = window._sourceBrowser || window._pepBrowser;
+                if (sourceBrowser && pepDir) sourceBrowser.goTo(pepDir);
             }
             if (dpAssets.length > 0) {
                 const dpPath = dpAssets[0].storage_path;
-                const dpBrowser = window._profileBrowser;
-                if (dpBrowser && dpPath) dpBrowser.goTo(dpPath);
+                this.dataSelection.profilePath = dpPath;
+                this.dataSelection.profileType = 'file';
+                this.selectedDatapointPaths = [dpPath];
+                this.selectedDatapointPath = dpPath;
             }
+            this.syncDataSelectionState();
 
             this.stageUnlocked.data = true;
             this.syncStageUI();
@@ -326,20 +388,24 @@ const ScriptHubPage = {
     },
 
     async confirmDataSelection() {
-        const pepPath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const dpPath = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
-
-        this.selectedPepPaths = pepPath ? [pepPath] : [];
-        this.selectedDatapointPaths = dpPath ? [dpPath] : [];
-        this.selectedDatapointPath = dpPath || '';
+        this.syncDataSelectionState();
 
         if (this.selectedPepPaths.length === 0 && this.selectedDatapointPaths.length === 0 && !this.selectedCachedAssetId) {
-            alert('请先在目录树中点击选择 PEP 目录和 Profile 文件。');
+            alert('请先在目录树中加入 PEP 路径或设置 Profile 文件。');
             return;
         }
 
         const allPepPaths = this.selectedPepPaths;
         const allDpPaths = this.selectedDatapointPaths;
+
+        try {
+            await this.inspectDataSelection();
+            await this.saveDataSelectionToProject();
+        } catch (error) {
+            this.showSourceFeedback(error.message || '数据选择检测失败。', 'danger');
+            this.showError(error.message || '数据选择检测失败');
+            return;
+        }
 
         this.evaluateAvailableModules(allPepPaths, allDpPaths);
         this.stageUnlocked.module = true;
@@ -413,7 +479,8 @@ const ScriptHubPage = {
         this.stageUnlocked.config = true;
         this.syncStageUI();
         if (moduleKey === 'charts') {
-            this.showSourceFeedback('已选择综合图表报告。确认下游图表内容后进入图表配置。', 'info');
+            this.showSourceFeedback('已选择综合图表报告。将在 Script Hub 内完成链、样本、字段映射和图表生成。', 'info');
+            this.prepareChartWorkflow();
         } else {
             this.inspectBasePath();
         }
@@ -427,8 +494,12 @@ const ScriptHubPage = {
         panel.style.display = '';
         const parts = [];
         if (pepPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>PEP 路径 (${pepPaths.length})：</strong> ${pepPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
-        if (dpPaths && dpPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint (${dpPaths.length})：</strong> ${dpPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
-        else if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Datapoint：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
+        if (dpPaths && dpPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>Profile：</strong> ${dpPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
+        else if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Profile：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
+        if (this.dataSelection.validation) {
+            const validation = this.dataSelection.validation;
+            parts.push(`<div class="sh-data-summary-item"><strong>检测：</strong> ${this.escapeHtml(String(validation.sample_count || 0))} 样本，${this.escapeHtml(String(validation.pep_file_count || 0))} 个 PEP 文件，链：${this.escapeHtml((validation.chains || []).join(', ') || '-')}</div>`);
+        }
         if (this.selectedCachedAssetId) parts.push(`<div class="sh-data-summary-item"><strong>缓存数据源：</strong> ${this.escapeHtml(this.selectedCachedAssetId)}</div>`);
         summary.innerHTML = parts.length ? parts.join('') : '<span class="text-muted">未选择数据。</span>';
     },
@@ -536,10 +607,10 @@ const ScriptHubPage = {
         });
 
         if (module === 'charts') {
-            document.getElementById('scriptHubRunBtnLabel').textContent = '进入图表配置';
-            document.getElementById('scriptHubConfigHint').textContent = '使用上游已确认的数据来源进入 Heatmap / Treemap / Chord 图表报告流程。';
-            document.getElementById('scriptHubResultSummary').textContent = '图表报告已打开。';
-            document.getElementById('scriptHubResultMeta').textContent = '图表配置在下游页面完成。';
+            document.getElementById('scriptHubRunBtnLabel').textContent = '运行综合图表';
+            document.getElementById('scriptHubConfigHint').textContent = '使用上游已确认的 PEP 数据，在 Script Hub 内完成 Heatmap / Treemap / Chord 图表报告。';
+            document.getElementById('scriptHubResultSummary').textContent = '综合图表生成完成。';
+            document.getElementById('scriptHubResultMeta').textContent = '任务完成后可打开总览页、单模块 viewer 或下载 ZIP。';
         } else if (isBoxPlot) {
             document.getElementById('scriptHubRunBtnLabel').textContent = '运行箱线图分析';
             document.getElementById('scriptHubConfigHint').textContent = '启用分组可按组绘制箱线图并做 Mann-Whitney U 检验，取消则所有样本作为未分组箱体。';
@@ -795,6 +866,9 @@ const ScriptHubPage = {
         this._pepActiveGroup = null;
         this._pepActiveChain = null;
         this._pepActiveResultType = null;
+        if (this.activeModule === 'charts') {
+            this.resetChartWorkflow();
+        }
         const pepLinks = document.getElementById('scriptHubPepResultLinks');
         if (pepLinks) pepLinks.innerHTML = '';
         const pepImage = document.getElementById('scriptHubPepResultImage');
@@ -805,6 +879,36 @@ const ScriptHubPage = {
         if (pepChainSelect) pepChainSelect.innerHTML = '<option value="">-- Select --</option>';
         this.setUiState('idle');
         this.syncModuleUI();
+    },
+
+    resetChartWorkflow() {
+        this.chartScanResult = null;
+        this.chartSamples = [];
+        this.chartSelectedChains = [];
+        this.chartSelectedSampleKeys = new Set();
+        this.chartSelectedFilePath = '';
+        this.chartFileColumns = [];
+        this.chartFieldMapping = { cdr3_column: '', copy_column: '', v_column: '', j_column: '' };
+        this.renderChartChainList();
+        this.renderChartSampleList();
+        this.renderChartPreviewTable([], []);
+        const summary = document.getElementById('scriptHubChartSummary');
+        if (summary) {
+            const basePath = this.getPrimaryPepPath();
+            summary.className = 'alert alert-info mb-0';
+            summary.textContent = basePath
+                ? `综合图表将使用第一个 PEP 路径：${basePath}`
+                : '请先在数据选择中加入 PEP 路径。';
+        }
+        const fieldStep = document.getElementById('scriptHubChartFieldStep');
+        const runStep = document.getElementById('scriptHubChartRunStep');
+        if (fieldStep) fieldStep.style.display = 'none';
+        if (runStep) runStep.style.display = 'none';
+        const results = document.getElementById('scriptHubChartResults');
+        if (results) results.innerHTML = '';
+        const flow = document.getElementById('scriptHubChartFlow');
+        if (flow) flow.classList.remove('has-confirmed-samples');
+        this.updateChartModuleCards();
     },
 
     populateFieldSelect(selectId, columns, selectedValue) {
@@ -845,6 +949,371 @@ const ScriptHubPage = {
         tbody.innerHTML = safeRows.length
             ? safeRows.map((row) => `<tr>${safeColumns.map((_, index) => `<td>${this.escapeHtml(row[index] ?? '')}</td>`).join('')}</tr>`).join('')
             : '<tr><td class="text-muted" colspan="99">No preview rows</td></tr>';
+    },
+
+    getPrimaryPepPath() {
+        return (this.selectedPepPaths && this.selectedPepPaths[0])
+            || document.getElementById('scriptHubBasePath')?.value?.trim()
+            || '';
+    },
+
+    async prepareChartWorkflow() {
+        const basePath = this.getPrimaryPepPath();
+        this.resetChartWorkflow();
+        if (!basePath) {
+            this.showSourceFeedback('请先加入 PEP 路径后再选择综合图表。', 'warning');
+            return;
+        }
+        if (this.selectedPepPaths.length > 1) {
+            this.showSourceFeedback(`综合图表当前使用第一个 PEP 路径：${basePath}`, 'info');
+        }
+        await this.scanChartFolder(basePath);
+    },
+
+    async scanChartFolder(basePath) {
+        this.showLoading('正在扫描综合图表数据...', '扫描图表数据');
+        try {
+            const response = await fetch('/api/auto-heatmap/scan-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_path: basePath }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '扫描目录失败');
+            if (!data.has_chain_suffix) {
+                throw new Error('综合图表需要带链后缀的 repertoire 文件，例如 SAMPLE__IGH.csv 或 SAMPLE__TRB.csv。');
+            }
+
+            this.chartScanResult = data;
+            this.chartSamples = Array.isArray(data.samples) ? data.samples : [];
+            this.chartSelectedChains = Array.isArray(data.all_chains) ? [...data.all_chains] : [];
+            this.chartSelectedSampleKeys = new Set(this.chartSamples.map(sample => this.getChartSampleKey(sample)));
+            this.chartSelectedFilePath = '';
+            this.chartFileColumns = [];
+            this.chartFieldMapping = { cdr3_column: '', copy_column: '', v_column: '', j_column: '' };
+            this.renderChartChainList();
+            this.renderChartSampleList();
+
+            const summary = document.getElementById('scriptHubChartSummary');
+            if (summary) {
+                summary.className = 'alert alert-success mb-0';
+                summary.textContent = data.summary || `已扫描 ${this.chartSamples.length} 个样本，${this.chartSelectedChains.length} 条链。`;
+            }
+        } catch (error) {
+            const summary = document.getElementById('scriptHubChartSummary');
+            if (summary) {
+                summary.className = 'alert alert-danger mb-0';
+                summary.textContent = error.message || '综合图表扫描失败';
+            }
+            this.showSourceFeedback(error.message || '综合图表扫描失败', 'danger');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    filenameMatchesChartChain(filename, chain) {
+        const nameWithoutExt = String(filename || '').replace(/\.(csv|tsv|txt)(\.gz)?$/i, '');
+        const normalizedName = nameWithoutExt.toUpperCase();
+        const normalizedChain = String(chain || '').toUpperCase();
+        return normalizedName.endsWith(`__${normalizedChain}`) || normalizedName.endsWith(`_${normalizedChain}`);
+    },
+
+    getChartSampleKey(sample) {
+        return `${sample.original_name || ''}::${sample.folder_path || ''}`;
+    },
+
+    getChartSampleAvailableChains(sample) {
+        const available = new Set();
+        (sample.data_files || []).forEach((fileInfo) => {
+            this.chartSelectedChains.forEach((chain) => {
+                if (this.filenameMatchesChartChain(fileInfo.filename, chain)) {
+                    available.add(chain);
+                }
+            });
+        });
+        return Array.from(available);
+    },
+
+    getVisibleChartSamples() {
+        if (!this.chartSelectedChains.length) return [];
+        return this.chartSamples
+            .map(sample => ({ sample, chains: this.getChartSampleAvailableChains(sample) }))
+            .filter(item => item.chains.length > 0);
+    },
+
+    getSelectedChartSamplesPayload() {
+        const visibleKeys = new Set(this.getVisibleChartSamples().map(item => this.getChartSampleKey(item.sample)));
+        return this.chartSamples
+            .filter(sample => visibleKeys.has(this.getChartSampleKey(sample)) && this.chartSelectedSampleKeys.has(this.getChartSampleKey(sample)))
+            .map(sample => ({
+                original_name: sample.original_name,
+                display_name: sample.display_name,
+                folder_path: sample.folder_path,
+                data_files: (sample.data_files || []).map(fileInfo => ({
+                    filename: fileInfo.filename,
+                    filepath: fileInfo.filepath,
+                    size: fileInfo.size,
+                    rows: fileInfo.rows,
+                    columns: fileInfo.columns,
+                })),
+            }));
+    },
+
+    renderChartChainList() {
+        const list = document.getElementById('scriptHubChartChainList');
+        const summary = document.getElementById('scriptHubChartChainSummary');
+        if (!list) return;
+        const allChains = Array.isArray(this.chartScanResult?.all_chains) ? this.chartScanResult.all_chains : [];
+        if (!allChains.length) {
+            list.innerHTML = '<div class="sh-selection-empty">等待扫描 PEP 路径。</div>';
+            if (summary) summary.textContent = '尚未扫描到链。';
+            return;
+        }
+        list.innerHTML = allChains.map((chain) => {
+            const sampleCount = this.chartSamples.filter(sample =>
+                (sample.data_files || []).some(fileInfo => this.filenameMatchesChartChain(fileInfo.filename, chain))
+            ).length;
+            const selected = this.chartSelectedChains.includes(chain);
+            return `<button class="sh-chart-item${selected ? ' is-selected' : ''}" type="button" data-chart-chain="${this.escapeHtml(chain)}" aria-pressed="${selected ? 'true' : 'false'}">
+                <strong>${this.escapeHtml(chain)}</strong>
+                <span>${sampleCount} 个样本可用</span>
+                <span class="sh-chart-check" aria-hidden="true">✓</span>
+            </button>`;
+        }).join('');
+        if (summary) summary.textContent = `已选 ${this.chartSelectedChains.length} / ${allChains.length} 条链`;
+    },
+
+    toggleChartChain(chain) {
+        if (!chain) return;
+        if (this.chartSelectedChains.includes(chain)) {
+            this.chartSelectedChains = this.chartSelectedChains.filter(item => item !== chain);
+        } else {
+            this.chartSelectedChains.push(chain);
+        }
+        this.renderChartChainList();
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    selectAllChartChains() {
+        this.chartSelectedChains = Array.isArray(this.chartScanResult?.all_chains) ? [...this.chartScanResult.all_chains] : [];
+        this.renderChartChainList();
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    invertChartChains() {
+        const allChains = Array.isArray(this.chartScanResult?.all_chains) ? this.chartScanResult.all_chains : [];
+        this.chartSelectedChains = allChains.filter(chain => !this.chartSelectedChains.includes(chain));
+        this.renderChartChainList();
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    clearChartChains() {
+        this.chartSelectedChains = [];
+        this.renderChartChainList();
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    renderChartSampleList() {
+        const list = document.getElementById('scriptHubChartSampleList');
+        const summary = document.getElementById('scriptHubChartSampleSummary');
+        if (!list || !summary) return;
+        const visibleSamples = this.getVisibleChartSamples();
+        if (!this.chartSelectedChains.length) {
+            list.innerHTML = '<div class="sh-selection-empty">请先选择至少 1 条链。</div>';
+            summary.textContent = '尚未选择链。';
+            return;
+        }
+        if (!visibleSamples.length) {
+            list.innerHTML = '<div class="sh-selection-empty">当前所选链下没有可用样本。</div>';
+            summary.textContent = '0 个可选样本。';
+            return;
+        }
+        list.innerHTML = visibleSamples.map(({ sample, chains }) => {
+            const sampleKey = this.getChartSampleKey(sample);
+            const selected = this.chartSelectedSampleKeys.has(sampleKey);
+            const fileCount = Array.isArray(sample.data_files) ? sample.data_files.length : 0;
+            const name = sample.display_name || sample.original_name || sampleKey;
+            return `<button class="sh-chart-item${selected ? ' is-selected' : ''}" type="button" data-chart-sample-key="${this.escapeHtml(sampleKey)}" title="${this.escapeHtml(name)}" aria-pressed="${selected ? 'true' : 'false'}">
+                <strong>${this.escapeHtml(name)}</strong>
+                <span>${chains.join(', ')} · ${fileCount} 个文件</span>
+                <span class="sh-chart-check" aria-hidden="true">✓</span>
+            </button>`;
+        }).join('');
+        const selectedCount = visibleSamples.filter(({ sample }) => this.chartSelectedSampleKeys.has(this.getChartSampleKey(sample))).length;
+        summary.textContent = `已选 ${selectedCount} / ${visibleSamples.length} 个样本`;
+    },
+
+    toggleChartSample(sampleKey) {
+        if (!sampleKey) return;
+        if (this.chartSelectedSampleKeys.has(sampleKey)) this.chartSelectedSampleKeys.delete(sampleKey);
+        else this.chartSelectedSampleKeys.add(sampleKey);
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    selectAllChartSamples() {
+        const nextSelected = new Set(this.chartSelectedSampleKeys);
+        this.getVisibleChartSamples().forEach(item => nextSelected.add(this.getChartSampleKey(item.sample)));
+        this.chartSelectedSampleKeys = nextSelected;
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    invertChartSamples() {
+        const visibleKeys = new Set(this.getVisibleChartSamples().map(item => this.getChartSampleKey(item.sample)));
+        const nextSelected = new Set(Array.from(this.chartSelectedSampleKeys).filter(key => !visibleKeys.has(key)));
+        this.getVisibleChartSamples().forEach(({ sample }) => {
+            const key = this.getChartSampleKey(sample);
+            if (!this.chartSelectedSampleKeys.has(key)) nextSelected.add(key);
+        });
+        this.chartSelectedSampleKeys = nextSelected;
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    clearChartSamples() {
+        const visibleKeys = new Set(this.getVisibleChartSamples().map(item => this.getChartSampleKey(item.sample)));
+        this.chartSelectedSampleKeys = new Set(Array.from(this.chartSelectedSampleKeys).filter(key => !visibleKeys.has(key)));
+        this.renderChartSampleList();
+        this.hideChartFieldAndRunSteps();
+    },
+
+    getChartPreviewFilePath() {
+        const selectedSamples = this.getSelectedChartSamplesPayload();
+        for (const sample of selectedSamples) {
+            for (const chain of this.chartSelectedChains) {
+                const fileInfo = (sample.data_files || []).find(item => this.filenameMatchesChartChain(item.filename, chain));
+                if (fileInfo?.filepath) return fileInfo.filepath;
+            }
+        }
+        return '';
+    },
+
+    async confirmChartSamples() {
+        if (!this.chartSelectedChains.length) {
+            this.showError('请至少选择 1 条链');
+            return;
+        }
+        if (this.getSelectedChartSamplesPayload().length < 2) {
+            this.showError('请至少选择 2 个样本');
+            return;
+        }
+        const previewPath = this.getChartPreviewFilePath();
+        if (!previewPath) {
+            this.showError('没有找到可用于字段映射的文件');
+            return;
+        }
+        this.chartSelectedFilePath = previewPath;
+        await this.loadChartFileColumns(previewPath);
+    },
+
+    async loadChartFileColumns(filepath) {
+        this.showLoading('正在读取综合图表字段...', '读取字段');
+        try {
+            const response = await fetch('/api/auto-heatmap/get-file-columns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filepath }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '读取字段失败');
+            this.chartFileColumns = Array.isArray(data.columns) ? data.columns : [];
+            this.populateChartFieldSelect('scriptHubChartCdr3Column', 'cdr3_column', data.suggested_cdr3);
+            this.populateChartFieldSelect('scriptHubChartCopyColumn', 'copy_column', data.suggested_copy);
+            this.populateChartFieldSelect('scriptHubChartVColumn', 'v_column', null);
+            this.populateChartFieldSelect('scriptHubChartJColumn', 'j_column', null);
+            this.renderChartPreviewTable(this.chartFileColumns, data.sample_data || []);
+            document.getElementById('scriptHubChartFieldStep').style.display = '';
+            document.getElementById('scriptHubChartRunStep').style.display = 'none';
+            this.updateChartConfirmedSummary();
+            document.getElementById('scriptHubChartFlow')?.classList.add('has-confirmed-samples');
+        } catch (error) {
+            this.showError(error.message || '读取字段失败');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    populateChartFieldSelect(selectId, mappingKey, suggested) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const columns = this.chartFileColumns || [];
+        select.innerHTML = ['<option value="">-- 请选择 --</option>']
+            .concat(columns.map(column => `<option value="${this.escapeHtml(column)}">${this.escapeHtml(column)}</option>`))
+            .join('');
+        const hints = (this.chartFieldHints[mappingKey] || []).map(item => item.toLowerCase());
+        let selected = suggested && columns.includes(suggested) ? suggested : '';
+        if (!selected) {
+            selected = columns.find(column => hints.includes(String(column).toLowerCase())) || '';
+        }
+        if (selected) {
+            select.value = selected;
+            this.chartFieldMapping[mappingKey] = selected;
+        }
+        select.onchange = () => {
+            this.chartFieldMapping[mappingKey] = select.value || '';
+        };
+    },
+
+    renderChartPreviewTable(columns, rows) {
+        const table = document.getElementById('scriptHubChartPreviewTable');
+        if (!table) return;
+        const thead = table.querySelector('thead');
+        const tbody = table.querySelector('tbody');
+        const safeColumns = Array.isArray(columns) ? columns : [];
+        if (!safeColumns.length) {
+            thead.innerHTML = '';
+            tbody.innerHTML = '<tr><td class="text-muted">No preview data</td></tr>';
+            return;
+        }
+        thead.innerHTML = `<tr>${safeColumns.map(column => `<th>${this.escapeHtml(column)}</th>`).join('')}</tr>`;
+        tbody.innerHTML = (rows || []).length
+            ? rows.map(row => `<tr>${safeColumns.map((_, index) => `<td>${this.escapeHtml(row[index] ?? '')}</td>`).join('')}</tr>`).join('')
+            : '<tr><td class="text-muted" colspan="99">No preview rows</td></tr>';
+    },
+
+    confirmChartFields() {
+        this.chartFieldMapping = {
+            cdr3_column: document.getElementById('scriptHubChartCdr3Column')?.value || '',
+            copy_column: document.getElementById('scriptHubChartCopyColumn')?.value || '',
+            v_column: document.getElementById('scriptHubChartVColumn')?.value || '',
+            j_column: document.getElementById('scriptHubChartJColumn')?.value || '',
+        };
+        if (Object.values(this.chartFieldMapping).some(value => !value)) {
+            this.showError('请完成 CDR3、copy、V、J 字段映射');
+            return;
+        }
+        document.getElementById('scriptHubChartRunStep').style.display = '';
+    },
+
+    hideChartFieldAndRunSteps() {
+        const fieldStep = document.getElementById('scriptHubChartFieldStep');
+        const runStep = document.getElementById('scriptHubChartRunStep');
+        if (fieldStep) fieldStep.style.display = 'none';
+        if (runStep) runStep.style.display = 'none';
+        document.getElementById('scriptHubChartFlow')?.classList.remove('has-confirmed-samples');
+    },
+
+    reopenChartSampleSelection() {
+        document.getElementById('scriptHubChartFlow')?.classList.remove('has-confirmed-samples');
+        this.hideChartFieldAndRunSteps();
+        this.renderChartChainList();
+        this.renderChartSampleList();
+    },
+
+    updateChartConfirmedSummary() {
+        const summary = document.getElementById('scriptHubChartConfirmedSummary');
+        if (!summary) return;
+        const samples = this.getSelectedChartSamplesPayload();
+        const chains = this.chartSelectedChains || [];
+        const sampleNames = samples
+            .map(sample => sample.display_name || sample.original_name || '')
+            .filter(Boolean);
+        summary.textContent = `${chains.length} 条链：${chains.join(', ') || '-'}；${samples.length} 个样本：${sampleNames.slice(0, 5).join(', ')}${sampleNames.length > 5 ? ` 等 ${sampleNames.length} 个` : ''}`;
     },
 
     renderInspection(data) {
@@ -945,9 +1414,230 @@ const ScriptHubPage = {
         }, 80);
     },
 
+    onSourceHighlight(path, type) {
+        this.highlightedSource = { path, type };
+        const name = this.getPathName(path);
+        const addPepBtn = document.getElementById('scriptHubAddPepBtn');
+        const profileBtn = document.getElementById('scriptHubSetProfileBtn');
+        const hint = document.getElementById('scriptHubSourceHint');
+        const isFile = type === 'file';
+        const canUseProfile = isFile && this.isTabularFile(path);
+
+        if (addPepBtn) addPepBtn.disabled = false;
+        if (profileBtn) {
+            profileBtn.disabled = !canUseProfile;
+            profileBtn.title = canUseProfile ? '' : 'Profile 需要选择 CSV/TSV 文件';
+        }
+        if (hint) {
+            hint.textContent = canUseProfile
+                ? `已选择文件: ${name}`
+                : `已选择${isFile ? '文件' : '目录'}: ${name}`;
+        }
+    },
+
+    addHighlightedPep() {
+        const selection = this.highlightedSource;
+        if (!selection?.path) return;
+        const path = selection.path;
+        const exists = this.dataSelection.pepPaths.some(item => item.path === path);
+        if (!exists) {
+            this.dataSelection.pepPaths.push({
+                path,
+                type: selection.type || 'directory',
+                source: 'tree',
+            });
+        }
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+        this.showSourceFeedback(`已加入 PEP 路径：${path}`, 'success');
+    },
+
+    setHighlightedProfile() {
+        const selection = this.highlightedSource;
+        if (!selection?.path) return;
+        if (selection.type !== 'file' || !this.isTabularFile(selection.path)) {
+            this.showSourceFeedback('Profile 需要选择 CSV/TSV 文件。', 'warning');
+            return;
+        }
+        this.dataSelection.profilePath = selection.path;
+        this.dataSelection.profileType = selection.type || 'file';
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+        this.showSourceFeedback(`已设置 Profile 文件：${selection.path}`, 'success');
+    },
+
+    removeSelectedPep(path) {
+        this.dataSelection.pepPaths = this.dataSelection.pepPaths.filter(item => item.path !== path);
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+    },
+
+    clearSelectedProfile() {
+        this.dataSelection.profilePath = '';
+        this.dataSelection.profileType = '';
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+    },
+
+    syncDataSelectionState() {
+        const pepPaths = this.dataSelection.pepPaths
+            .map(item => typeof item === 'string' ? { path: item, type: 'directory', source: 'legacy' } : item)
+            .filter(item => item && item.path);
+        const deduped = [];
+        const seen = new Set();
+        pepPaths.forEach((item) => {
+            if (seen.has(item.path)) return;
+            seen.add(item.path);
+            deduped.push(item);
+        });
+        this.dataSelection.pepPaths = deduped;
+        this.selectedPepPaths = deduped.map(item => item.path);
+        this.selectedDatapointPath = this.dataSelection.profilePath || '';
+        this.selectedDatapointPaths = this.selectedDatapointPath ? [this.selectedDatapointPath] : [];
+
+        const baseInput = document.getElementById('scriptHubBasePath');
+        const profileInput = document.getElementById('scriptHubDatapointPath');
+        const dbProfileInput = document.getElementById('scriptHubProfilePath');
+        if (baseInput) baseInput.value = this.selectedPepPaths[0] || '';
+        if (profileInput) profileInput.value = this.selectedDatapointPath;
+        if (dbProfileInput && this.selectedDatapointPath && !dbProfileInput.value) {
+            dbProfileInput.value = this.selectedDatapointPath;
+        }
+
+        this.renderDataSelectionBasket();
+        this._checkBothConfirmed();
+    },
+
+    renderDataSelectionBasket() {
+        const pepList = document.getElementById('scriptHubPepSelectionList');
+        const profileList = document.getElementById('scriptHubProfileSelectionList');
+        if (pepList) {
+            pepList.innerHTML = this.dataSelection.pepPaths.length
+                ? this.dataSelection.pepPaths.map((item, index) => `
+                    <div class="sh-selected-row">
+                        <div title="${this.escapeHtml(item.path)}">
+                            <strong>${this.escapeHtml(this.getPathName(item.path) || item.path)}</strong>
+                            <span>${this.escapeHtml(item.path)}</span>
+                        </div>
+                        <div class="sh-selected-row-actions">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-locate-path="${this.escapeHtml(item.path)}" data-locate-type="${this.escapeHtml(item.type || 'directory')}" title="在左侧文件树定位">
+                                <i class="bi bi-crosshair"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" type="button" data-remove-pep="${this.escapeHtml(item.path)}" title="移除 PEP 路径">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('')
+                : '<div class="sh-selection-empty">尚未选择 PEP 路径</div>';
+            pepList.querySelectorAll('[data-locate-path]').forEach((button) => {
+                button.addEventListener('click', () => this.locatePathInSourceTree(button.dataset.locatePath || '', button.dataset.locateType || 'directory'));
+            });
+            pepList.querySelectorAll('[data-remove-pep]').forEach((button) => {
+                button.addEventListener('click', () => this.removeSelectedPep(button.dataset.removePep || ''));
+            });
+        }
+
+        if (profileList) {
+            const profilePath = this.dataSelection.profilePath;
+            profileList.innerHTML = profilePath
+                ? `<div class="sh-selected-row">
+                    <div title="${this.escapeHtml(profilePath)}">
+                        <strong>${this.escapeHtml(this.getPathName(profilePath) || profilePath)}</strong>
+                        <span>${this.escapeHtml(profilePath)}</span>
+                    </div>
+                    <div class="sh-selected-row-actions">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" id="scriptHubLocateProfileBtn" title="在左侧文件树定位">
+                            <i class="bi bi-crosshair"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" type="button" id="scriptHubClearProfileBtn" title="清除 Profile">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>`
+                : '<div class="sh-selection-empty">尚未设置 Profile 文件</div>';
+            document.getElementById('scriptHubLocateProfileBtn')?.addEventListener('click', () => this.locatePathInSourceTree(profilePath, 'file'));
+            document.getElementById('scriptHubClearProfileBtn')?.addEventListener('click', () => this.clearSelectedProfile());
+        }
+    },
+
+    async locatePathInSourceTree(path, type = 'directory') {
+        if (!path) return;
+        const browser = window._sourceBrowser || window._pepBrowser;
+        if (!browser) return;
+        const targetType = type || 'directory';
+        const normalized = String(path).replace(/\\/g, '/');
+        const parentPath = targetType === 'file'
+            ? normalized.split('/').slice(0, -1).join('/') || normalized
+            : normalized;
+        await browser.goTo(parentPath);
+        browser.setSelected(path, targetType);
+        this.highlightedSource = { path, type: targetType };
+    },
+
+    async inspectDataSelection() {
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        const body = {
+            project_id: projectId || null,
+            pep_paths: this.selectedPepPaths,
+            profile_path: this.selectedDatapointPath || null,
+        };
+        const response = await fetch('/api/script-hub/data-selection/inspect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.message || '数据选择检测失败');
+        }
+        this.dataSelection.validation = data;
+        const profileInput = document.getElementById('scriptHubProfilePath');
+        if (profileInput && data.profile_path) {
+            profileInput.value = data.profile_path;
+        }
+        this.showSourceFeedback(
+            `数据检测完成：${data.sample_count || 0} 个样本，${data.pep_file_count || 0} 个 PEP 文件，${(data.chains || []).join(', ') || '未识别链'}。`,
+            (data.warnings || []).length ? 'warning' : 'success'
+        );
+        return data;
+    },
+
+    async saveDataSelectionToProject() {
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        if (!projectId) return;
+
+        const tasks = [];
+        this.selectedPepPaths.forEach((path, index) => {
+            tasks.push(this._registerPathToProject('pep', path, {
+                source: 'script-hub',
+                role: 'pep',
+                selection_index: index,
+                registered_from: 'data-selection',
+            }));
+        });
+        if (this.selectedDatapointPath) {
+            tasks.push(this._registerPathToProject('datapoint', this.selectedDatapointPath, {
+                source: 'script-hub',
+                role: 'profile',
+                registered_from: 'data-selection',
+            }));
+        }
+        if (!tasks.length) return;
+        await Promise.all(tasks);
+        this.showSourceFeedback('数据路径已保存到项目。下次选择该项目会自动带入这些路径。', 'success');
+    },
+
+    getPathName(path) {
+        return String(path || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || String(path || '');
+    },
+
+    isTabularFile(path) {
+        return /\.(csv|tsv|csv\.gz)$/i.test(String(path || ''));
+    },
+
     onPepHighlight(path, type) {
-        // Tree node is highlighted by the browser itself.
-        // Enable the confirm button, update hint.
+        this.onSourceHighlight(path, type);
         const btn = document.getElementById('scriptHubPepConfirmBtn');
         const hint = document.getElementById('scriptHubPepConfirmHint');
         if (btn) btn.disabled = false;
@@ -962,13 +1652,16 @@ const ScriptHubPage = {
     },
 
     confirmPep() {
-        const browser = window._pepBrowser;
+        const browser = window._pepBrowser || window._sourceBrowser;
         if (!browser) return;
         const sel = browser.getSelected();
         if (!sel.path) return;
+        this.highlightedSource = sel;
+        this.addHighlightedPep();
         document.getElementById('scriptHubBasePath').value = sel.path;
-        document.getElementById('scriptHubConfirmedPep').textContent = sel.path;
-        document.getElementById('scriptHubConfirmedPanel').classList.remove('d-none');
+        const confirmedPep = document.getElementById('scriptHubConfirmedPep');
+        if (confirmedPep) confirmedPep.textContent = sel.path;
+        document.getElementById('scriptHubConfirmedPanel')?.classList.remove('d-none');
         const btn = document.getElementById('scriptHubPepConfirmBtn');
         if (btn) {
             btn.disabled = true;
@@ -979,13 +1672,16 @@ const ScriptHubPage = {
     },
 
     confirmProfile() {
-        const browser = window._profileBrowser;
+        const browser = window._profileBrowser || window._sourceBrowser;
         if (!browser) return;
         const sel = browser.getSelected();
         if (!sel.path) return;
+        this.highlightedSource = sel;
+        this.setHighlightedProfile();
         document.getElementById('scriptHubDatapointPath').value = sel.path;
-        document.getElementById('scriptHubConfirmedProfile').textContent = sel.path;
-        document.getElementById('scriptHubConfirmedPanel').classList.remove('d-none');
+        const confirmedProfile = document.getElementById('scriptHubConfirmedProfile');
+        if (confirmedProfile) confirmedProfile.textContent = sel.path;
+        document.getElementById('scriptHubConfirmedPanel')?.classList.remove('d-none');
         const btn = document.getElementById('scriptHubProfileConfirmBtn');
         if (btn) {
             btn.disabled = true;
@@ -996,8 +1692,8 @@ const ScriptHubPage = {
     },
 
     _checkBothConfirmed() {
-        const pep = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
-        const dp = document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const pep = this.selectedPepPaths[0] || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const dp = this.selectedDatapointPath || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
         const both = !!(pep && dp);
         const any = !!(pep || dp);
 
@@ -1005,7 +1701,6 @@ const ScriptHubPage = {
         const mainBtn = document.getElementById('scriptHubDataConfirmBtn');
         if (mainBtn) mainBtn.disabled = !any;
 
-        this.selectedPepPaths = pep ? [pep] : [];
         this.selectedDatapointPaths = dp ? [dp] : [];
         this.selectedDatapointPath = dp || '';
 
@@ -1041,7 +1736,9 @@ const ScriptHubPage = {
             return this.inspectUmapin(explicitBasePath, loadingText);
         }
 
-        const basePath = explicitBasePath || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
+        const basePath = explicitBasePath
+            || (this.selectedPepPaths.length ? this.selectedPepPaths[0] : '')
+            || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
 
         if (!basePath) {
             this.showSourceFeedback('请先提供基础目录。', 'warning');
@@ -1055,7 +1752,7 @@ const ScriptHubPage = {
         try {
             const body = {
                 base_path: basePath,
-                profile_path: document.getElementById('scriptHubProfilePath')?.value?.trim() || null,
+                profile_path: this.selectedDatapointPath || document.getElementById('scriptHubProfilePath')?.value?.trim() || null,
                 field_mapping: {
                     cdr3_column: document.getElementById('scriptHubCdr3Column')?.value || '',
                     copy_column: document.getElementById('scriptHubCopyColumn')?.value || '',
@@ -1072,6 +1769,10 @@ const ScriptHubPage = {
             }
 
             document.getElementById('scriptHubBasePath').value = data.base_path || basePath;
+            if (data.profile_path) {
+                this.dataSelection.profilePath = data.profile_path;
+                this.syncDataSelectionState();
+            }
             this.renderInspection(data);
             this._registerPathToProject('pep', data.base_path);
         } catch (error) {
@@ -1693,12 +2394,19 @@ const ScriptHubPage = {
             };
         }
 
+        if (this.activeModule === 'charts') {
+            return this.collectChartRunPayload();
+        }
+
         if (this.activeModule === 'pep-analysis') {
-            const pepDir = document.getElementById('scriptHubPepDataDir')?.value?.trim() || '';
+            const pepDir = document.getElementById('scriptHubPepDataDir')?.value?.trim()
+                || (this.selectedPepPaths.length ? this.selectedPepPaths[0] : '');
             if (!pepDir || !this.inspectData) {
                 throw new Error('Please inspect a base directory before running CDR3 sharing analysis');
             }
-            const profilePath = document.getElementById('scriptHubPepProfilePath')?.value || '';
+            const profilePath = document.getElementById('scriptHubPepProfilePath')?.value
+                || this.selectedDatapointPath
+                || '';
             if (!profilePath) throw new Error('Please select a Profile file');
             const chains = this._pepSelectedChains || [];
             if (!chains.length) throw new Error('Please select at least one chain');
@@ -1719,8 +2427,8 @@ const ScriptHubPage = {
             };
         }
 
-        const basePath = document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
+        const basePath = allPepPaths[0] || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const allDpPaths = this.selectedDatapointPaths;
         const datapointPath = allDpPaths[0] || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
 
@@ -1731,7 +2439,7 @@ const ScriptHubPage = {
             module: 'db-alignment',
             base_path: basePath || null,
             output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
-            profile_path: document.getElementById('scriptHubProfilePath')?.value?.trim() || null,
+            profile_path: this.selectedDatapointPath || document.getElementById('scriptHubProfilePath')?.value?.trim() || null,
             field_mapping: {
                 cdr3_column: document.getElementById('scriptHubCdr3Column')?.value || '',
                 copy_column: document.getElementById('scriptHubCopyColumn')?.value || '',
@@ -1755,7 +2463,7 @@ const ScriptHubPage = {
             const payload = this.collectRunPayload();
             const module = this.activeModule || 'db-alignment';
             if (module === 'charts') {
-                this.openChartWorkspaceFromSelection();
+                await this.runChartAnalysis(payload);
                 return;
             }
             const isBoxPlot = module === 'boxplot';
@@ -1808,42 +2516,149 @@ const ScriptHubPage = {
             .map(([key]) => key);
     },
 
-    openChartWorkspaceFromSelection() {
-        const allPepPaths = [...new Set([...this.selectedPepPaths, ...this.customPepPaths])];
-        const basePath = allPepPaths[0]
-            || document.getElementById('scriptHubBasePath')?.value?.trim()
-            || '';
-        if (!basePath) {
-            this.showError('请先确认 PEP 数据路径后再进入图表配置。');
-            return;
-        }
+    setChartModuleSelection(moduleKeys) {
+        const selected = new Set(moduleKeys || []);
+        [
+            ['heatmap', 'scriptHubChartHeatmap'],
+            ['treemap', 'scriptHubChartTreemap'],
+            ['chord', 'scriptHubChartChord'],
+        ].forEach(([key, id]) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = selected.has(key);
+        });
+        this.updateChartModuleCards();
+    },
 
+    updateChartModuleCards() {
+        const modules = [
+            ['heatmap', 'scriptHubChartHeatmap'],
+            ['treemap', 'scriptHubChartTreemap'],
+            ['chord', 'scriptHubChartChord'],
+        ];
+        let selectedCount = 0;
+        modules.forEach(([, id]) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const card = input.closest('.module-option');
+            const isSelected = Boolean(input.checked);
+            if (isSelected) selectedCount += 1;
+            card?.classList.toggle('is-selected', isSelected);
+        });
+        const summary = document.getElementById('scriptHubChartModuleSummary');
+        if (summary) {
+            summary.textContent = selectedCount
+                ? `已选 ${selectedCount} / ${modules.length} 个图表模块`
+                : '未选择图表模块，运行前至少选择 1 个';
+            summary.classList.toggle('text-danger', selectedCount === 0);
+            summary.classList.toggle('text-muted', selectedCount > 0);
+        }
+    },
+
+    collectChartRunPayload() {
+        const samples = this.getSelectedChartSamplesPayload();
         const chartModules = this.getSelectedChartModules();
-        if (!chartModules.length) {
-            this.showError('请至少选择一个图表报告内容。');
-            return;
+        const basePath = this.getPrimaryPepPath();
+        this.chartFieldMapping = {
+            cdr3_column: document.getElementById('scriptHubChartCdr3Column')?.value || '',
+            copy_column: document.getElementById('scriptHubChartCopyColumn')?.value || '',
+            v_column: document.getElementById('scriptHubChartVColumn')?.value || '',
+            j_column: document.getElementById('scriptHubChartJColumn')?.value || '',
+        };
+        if (!basePath) throw new Error('请先确认 PEP 数据路径。');
+        if (!this.chartSelectedChains.length) throw new Error('请至少选择 1 条链。');
+        if (samples.length < 2) throw new Error('请至少选择 2 个样本。');
+        if (Object.values(this.chartFieldMapping).some(value => !value)) {
+            throw new Error('请完成 CDR3、copy、V、J 字段映射。');
         }
+        if (!chartModules.length) {
+            throw new Error('请至少选择一个图表报告内容。');
+        }
+        return {
+            module: 'charts',
+            samples,
+            selected_chains: this.chartSelectedChains,
+            selected_modules: chartModules,
+            field_mapping: this.chartFieldMapping,
+            config: {
+                base_path: basePath,
+                output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
+                heatmap_color_scheme: document.getElementById('scriptHubChartHeatmapColorScheme')?.value || 'viridis',
+                heatmap_annotation: document.getElementById('scriptHubChartHeatmapAnnotation')?.checked ?? true,
+                treemap_min_copy_default: Number(document.getElementById('scriptHubChartTreemapMinCopyDefault')?.value || 30),
+                treemap_top_n: Number(document.getElementById('scriptHubChartTreemapTopN')?.value || 100),
+                treemap_layout_mode: document.getElementById('scriptHubChartTreemapLayoutMode')?.value || 'tetris',
+                treemap_canvas_shape: document.getElementById('scriptHubChartTreemapCanvasShape')?.value || 'square',
+                treemap_topclone_only: document.getElementById('scriptHubChartTreemapTopcloneOnly')?.checked ?? false,
+            },
+        };
+    },
 
-        const context = this.projectContext || this.getProjectContext();
-        const params = new URLSearchParams();
-        params.set('legacy', '1');
-        params.set('auto_scan', '1');
-        params.set('analysis_type', 'combined-report');
-        params.set('active_module', this._pendingChartModule && this._pendingChartModule !== 'combined'
-            ? this._pendingChartModule
-            : chartModules[0]);
-        params.set('chart_modules', chartModules.join(','));
-        if (context.projectId) params.set('project_id', context.projectId);
-        if (context.projectName) params.set('project_name', context.projectName);
-        params.set('base_path', basePath);
-
-        window.location.href = `/analysis/combined-report?${params.toString()}`;
+    async runChartAnalysis(payload) {
+        this.setUiState('running');
+        this.showSourceFeedback('配置已锁定，正在提交综合图表任务...', 'info');
+        this.showLoading('正在提交综合图表任务...', '排队中');
+        try {
+            const response = await fetch('/api/combined-analysis/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    samples: payload.samples,
+                    selected_chains: payload.selected_chains,
+                    selected_modules: payload.selected_modules,
+                    field_mapping: payload.field_mapping,
+                    config: payload.config,
+                }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '创建综合图表任务失败');
+            this.activeTaskId = data.task_id;
+            this.stopTaskPolling();
+            this.pollChartTaskStatus(data.task_id);
+        } catch (error) {
+            this.hideLoading();
+            this.setUiState('inspected');
+            this.showSourceFeedback(error.message || '创建综合图表任务失败', 'danger');
+            this.showError(error.message || '创建综合图表任务失败');
+        }
     },
 
     stopTaskPolling() {
         if (this.taskPollTimer) {
             clearTimeout(this.taskPollTimer);
             this.taskPollTimer = null;
+        }
+    },
+
+    async pollChartTaskStatus(taskId) {
+        try {
+            const response = await fetch(`/api/combined-analysis/task/${encodeURIComponent(taskId)}`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '读取综合图表任务状态失败');
+
+            this.updateLoadingProgress(data.progress, data.stage, data.detail, data.history || []);
+
+            if (data.status === 'completed') {
+                this.stopTaskPolling();
+                this.hideLoading();
+                this.result = data.result || null;
+                this.renderChartResult(this.result);
+                await this.registerProjectResult(this.result);
+                return;
+            }
+
+            if (data.status === 'failed') {
+                this.stopTaskPolling();
+                this.hideLoading();
+                throw new Error(data.detail || data.error || '综合图表任务失败');
+            }
+
+            this.taskPollTimer = setTimeout(() => this.pollChartTaskStatus(taskId), 1500);
+        } catch (error) {
+            this.stopTaskPolling();
+            this.hideLoading();
+            this.setUiState('inspected');
+            this.showSourceFeedback(error.message || '读取综合图表任务状态失败', 'danger');
+            this.showError(error.message || '读取综合图表任务状态失败');
         }
     },
 
@@ -1882,6 +2697,11 @@ const ScriptHubPage = {
 
     renderResult(result) {
         if (!result) return;
+
+        if ((result.module || '') === 'charts' || result.selected_modules || result.modules) {
+            this.renderChartResult(result);
+            return;
+        }
 
         const isBoxPlot = (result.module || '') === 'boxplot';
         const isPep = (result.module || '') === 'pep-analysis';
@@ -1935,6 +2755,78 @@ const ScriptHubPage = {
         window.setTimeout(() => {
             document.getElementById('scriptHubResultStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 80);
+    },
+
+    renderChartResult(result) {
+        if (!result) return;
+        this.setUiState('completed');
+        this.result = result;
+        const failedCount = Array.isArray(result.failed_modules) ? result.failed_modules.length : 0;
+        const summary = result.summary || '综合图表结果已生成。';
+        this.showSourceFeedback(summary, failedCount ? 'warning' : 'success');
+        document.getElementById('scriptHubResultSummary').textContent = summary;
+        document.getElementById('scriptHubResultMeta').textContent =
+            `模块：${(result.selected_modules || []).join(', ') || '-'} | 失败：${(result.failed_modules || []).join(', ') || '无'}`;
+        document.getElementById('scriptHubResultLog').textContent =
+            JSON.stringify({
+                job_id: result.job_id,
+                output_base: result.output_base,
+                selected_modules: result.selected_modules || [],
+                failed_modules: result.failed_modules || [],
+            }, null, 2);
+
+        const container = document.getElementById('scriptHubChartResults');
+        if (container) {
+            const modules = result.modules || {};
+            const order = (result.selected_modules && result.selected_modules.length)
+                ? result.selected_modules
+                : ['heatmap', 'treemap', 'chord'];
+            container.innerHTML = order.map((key) => {
+                const moduleInfo = modules[key] || {};
+                const status = moduleInfo.status || 'failed';
+                const label = moduleInfo.label || this.getChartModuleLabel(key);
+                const message = moduleInfo.message || (
+                    status === 'completed'
+                        ? (moduleInfo.topclone_only ? '结果已生成，本次仅导出 TopClone CSV。' : '结果已生成，可打开查看器或下载 ZIP。')
+                        : '该模块本次未成功生成。'
+                );
+                const warnings = Array.isArray(moduleInfo.warnings) ? moduleInfo.warnings.filter(Boolean) : [];
+                const warningHtml = warnings.length
+                    ? `<div class="small text-warning-emphasis mb-3">${this.escapeHtml(warnings.slice(0, 2).join('；'))}${warnings.length > 2 ? `；另有 ${warnings.length - 2} 条 warning` : ''}</div>`
+                    : '';
+                const buttons = [];
+                if (moduleInfo.viewer_url) {
+                    buttons.push(`<button class="btn btn-sm btn-primary" type="button" onclick="window.open('${this.escapeHtml(moduleInfo.viewer_url)}', '_blank', 'noopener')">打开查看器</button>`);
+                }
+                if (moduleInfo.zip_url) {
+                    buttons.push(`<button class="btn btn-sm btn-outline-primary" type="button" onclick="window.open('${this.escapeHtml(moduleInfo.zip_url)}', '_blank', 'noopener')">下载 ZIP</button>`);
+                }
+                if (moduleInfo.metadata_url) {
+                    buttons.push(`<button class="btn btn-sm btn-outline-secondary" type="button" onclick="window.open('${this.escapeHtml(moduleInfo.metadata_url)}', '_blank', 'noopener')">Metadata</button>`);
+                }
+                return `<div class="sh-chart-result-card ${status === 'completed' ? 'is-success' : 'is-failed'}">
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                        <strong>${this.escapeHtml(label)}</strong>
+                        <span class="small fw-semibold ${status === 'completed' ? 'text-success' : 'text-danger'}">${status === 'completed' ? '已生成' : '失败'}</span>
+                    </div>
+                    <div class="text-muted small mb-3">${this.escapeHtml(message)}</div>
+                    ${warningHtml}
+                    <div class="d-flex flex-wrap gap-2">${buttons.length ? buttons.join('') : '<span class="text-muted small">无可用输出</span>'}</div>
+                </div>`;
+            }).join('');
+        }
+
+        window.setTimeout(() => {
+            document.getElementById('scriptHubResultStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+    },
+
+    getChartModuleLabel(key) {
+        return {
+            heatmap: 'Heatmap',
+            treemap: 'Treemap',
+            chord: 'Chord',
+        }[key] || key;
     },
 
     renderUmapResult(result) {
@@ -2326,7 +3218,11 @@ const ScriptHubPage = {
         this.showSourceFeedback('Inspecting for pep files...', 'secondary');
         this.showLoading(loadingText || 'Scanning for pep files...', 'Inspect CDR3 Sharing assets');
         try {
-            const body = { base_path: basePath };
+            const body = {
+                base_path: basePath,
+                pep_paths: this.selectedPepPaths,
+                profile_path: this.selectedDatapointPath || null,
+            };
             const response = await fetch('/api/script-hub/pep-analysis/inspect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2360,7 +3256,11 @@ const ScriptHubPage = {
 
             // Profile candidates
             const profileSelect = document.getElementById('scriptHubPepProfilePath');
-            const profileCandidates = Array.isArray(data.profile_candidates) ? data.profile_candidates : [];
+            const selectedProfile = this.selectedDatapointPath || '';
+            const profileCandidates = [...new Set([
+                ...(selectedProfile ? [selectedProfile] : []),
+                ...(Array.isArray(data.profile_candidates) ? data.profile_candidates : []),
+            ])];
             if (profileSelect) {
                 profileSelect.innerHTML = '<option value="">-- Select a Profile CSV --</option>' +
                     profileCandidates.map((p) => {
@@ -2369,7 +3269,7 @@ const ScriptHubPage = {
                         return `<option value="${this.escapeHtml(p)}">${this.escapeHtml(basename)}</option>`;
                     }).join('');
                 if (profileCandidates.length > 0) {
-                    profileSelect.value = profileCandidates[0];
+                    profileSelect.value = selectedProfile || profileCandidates[0];
                 }
             }
 
@@ -2725,6 +3625,7 @@ const ScriptHubPage = {
             const body = {
                 asset_type: assetType,
                 storage_path: storagePath,
+                original_name: this.getPathName(storagePath) || storagePath,
             };
             if (extraMeta && Object.keys(extraMeta).length) {
                 body.metadata_json = extraMeta;
