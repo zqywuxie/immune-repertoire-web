@@ -1695,20 +1695,24 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/script_hub.js') }}?v=script-hub-20260602-2"></script>
 <script>
-// Init directory browsers after all scripts have loaded
 (function() {
-    if (typeof DirectoryBrowser === 'undefined' || typeof ScriptHubPage === 'undefined') return;
+    if (typeof DirectoryBrowser === 'undefined') { console.error('DirectoryBrowser not loaded'); return; }
+    if (typeof ScriptHubPage === 'undefined') { console.error('ScriptHubPage not loaded'); return; }
 
-    window._sourceBrowser = DirectoryBrowser.init({
-        container: '#scriptHubSourceBrowser',
-        fileFilter: '',
-        allowFileSelect: true,
-        multiSelect: false,
-        defaultPath: '',
-        onSelect: function(path, type) { ScriptHubPage.onSourceHighlight(path, type); },
-    });
-    window._sourceBrowser.build();
-    window._sourceBrowser.goTo('');
+    try {
+        window._sourceBrowser = DirectoryBrowser.init({
+            container: '#scriptHubSourceBrowser',
+            fileFilter: '',
+            allowFileSelect: true,
+            multiSelect: false,
+            defaultPath: '',
+            onSelect: function(path, type) { ScriptHubPage.onSourceHighlight(path, type); },
+        });
+        window._sourceBrowser.build();
+        window._sourceBrowser.goTo('');
+    } catch (e) {
+        console.error('DirectoryBrowser init error:', e);
+    }
 })();
 </script>
 {% endblock %}
