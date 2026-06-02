@@ -710,15 +710,20 @@
         overflow-x: hidden;
     }
 
-    .script-hub-page .main-content,
     .script-hub-page .sh-stage-body {
         overflow-x: auto;
+        overflow-y: visible;
     }
 
     .sh-chart-flow {
         display: grid;
         gap: 1rem;
         min-width: 0;
+    }
+
+    .sh-chart-step {
+        min-width: 0;
+        overflow: hidden;
     }
 
     .sh-chart-step {
@@ -794,18 +799,17 @@
         background: var(--sh-accent-soft);
     }
 
-    .sh-chart-item span {
-        font-size: .8rem;
-        color: var(--sh-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .sh-chart-item strong {
+        display: block;
+        line-height: 1.35;
     }
 
-    .sh-chart-item strong {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .sh-chart-item span {
+        display: block;
+        font-size: .8rem;
+        color: var(--sh-muted);
+        line-height: 1.35;
+        word-break: break-word;
     }
 
     .sh-chart-check {
