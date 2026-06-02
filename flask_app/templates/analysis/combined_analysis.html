@@ -283,7 +283,7 @@
         <div class="progress-log" id="loadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script><script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined' || typeof CombinedAnalysis === 'undefined') return;
     window._combinedBrowser = DirectoryBrowser.init({
@@ -302,5 +302,5 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/analysis_workspace.js') }}"></script>
-<script src="{{ url_for('static', filename='js/combined_analysis.js') }}"></script>
+<script src="{{ url_for('static', filename='js/combined_analysis.js') }}?v=20260602-3"></script>
 {% endblock %}

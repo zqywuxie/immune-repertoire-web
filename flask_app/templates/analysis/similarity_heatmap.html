@@ -759,7 +759,7 @@
         </div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script><script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script><script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined' || typeof AutoHeatmap === 'undefined') return;
     window._heatmapBrowser = DirectoryBrowser.init({
@@ -779,7 +779,7 @@
 {% block extra_js %}
 <!-- JSZip for downloading all results as ZIP -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="{{ url_for('static', filename='js/similarity_heatmap.js') }}"></script>
+<script src="{{ url_for('static', filename='js/similarity_heatmap.js') }}?v=20260602-3"></script>
 <script src="{{ url_for('static', filename='js/analysis_workspace.js') }}"></script>
 <script>
 window.AnalysisWorkspace?.enhance(window.AutoHeatmap, {

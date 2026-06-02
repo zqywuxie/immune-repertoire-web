@@ -1689,11 +1689,11 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=script-hub-20260602-2"></script>
+<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260602-3"></script>
 <script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined') { console.error('DirectoryBrowser not loaded'); return; }
