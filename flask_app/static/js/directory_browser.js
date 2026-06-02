@@ -154,9 +154,6 @@ const DirectoryBrowser = (() => {
         </button>
     </div>
     <div class="dir-browser-tree" data-role="tree">
-        </button>
-    </div>
-    <div class="dir-browser-tree" data-role="tree">
         <div class="dir-browser-empty">
             <i class="bi bi-folder2-open"></i>加载中...
         </div>
