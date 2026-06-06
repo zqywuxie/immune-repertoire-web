@@ -80,7 +80,7 @@ const ProjectManagementPage = {
 
         tableBody.innerHTML = projects.map((project) => {
             const chips = [
-                project.has_datapoint ? '<span class="asset-chip">datapoint</span>' : '',
+                project.has_profile ? '<span class="asset-chip">profile</span>' : '',
                 project.has_pep ? '<span class="asset-chip">pep</span>' : '',
                 project.has_sample_summary ? '<span class="asset-chip">sample summary</span>' : '',
                 project.has_group_spec ? '<span class="asset-chip">group spec</span>' : '',
@@ -210,7 +210,7 @@ const ProjectDetailPage = {
         document.getElementById('overviewSampleCount').textContent = String(project.sample_count || 0);
         document.getElementById('overviewResultCount').textContent = String(project.result_count || 0);
         document.getElementById('overviewPepCount').textContent = String(counts.pep || 0);
-        document.getElementById('overviewDatapointCount').textContent = String(counts.datapoint || 0);
+        document.getElementById('overviewDatapointCount').textContent = String(counts.profile || 0);
 
         this.renderAssets(project.assets || []);
         this.renderSamplesPreview(project.samples_preview || []);
@@ -228,17 +228,26 @@ const ProjectDetailPage = {
             const metadata = asset.metadata || {};
             const openUrl = metadata.report_url || metadata.viewer_url || metadata.metadata_url || '';
             const zipUrl = metadata.zip_url || '';
-            const relativePath = metadata.relative_path || metadata.report_path || '-';
+            const signature = metadata.analysis_signature || '';
+            const relativePath = asset.asset_type === 'processed_result'
+                ? (metadata.output_base || metadata.report_path || asset.storage_path || '-')
+                : (metadata.relative_path || metadata.report_path || '-');
             const canDirectDownload = asset.asset_type !== 'processed_result'
                 || (metadata.report_path && !String(metadata.report_path).startsWith('/api/'));
             const openButton = openUrl
-                ? `<a class="btn btn-sm btn-outline-primary" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">打开</a>`
+                ? `<a class="btn btn-sm btn-outline-primary" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">打开 Viewer</a>`
                 : '';
             const zipButton = zipUrl
-                ? `<a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener">ZIP</a>`
+                ? `<a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener">下载 ZIP</a>`
                 : '';
             const downloadButton = canDirectDownload
                 ? `<a class="btn btn-sm btn-outline-secondary" href="/api/projects/${encodeURIComponent(this.projectId)}/assets/${encodeURIComponent(asset.id)}/download">下载</a>`
+                : '';
+            const deleteButton = metadata.source === 'mongodb'
+                ? ''
+                : `<button class="btn btn-sm btn-outline-danger" data-asset-delete="${escapeHtml(asset.id)}">删除</button>`;
+            const resultMeta = asset.asset_type === 'processed_result'
+                ? `<div class="asset-row-meta">Type: ${escapeHtml(metadata.analysis_type || '-')} | Signature: ${escapeHtml(signature ? signature.slice(0, 12) : '-')}</div>`
                 : '';
             return `
                 <tr>
@@ -246,6 +255,7 @@ const ProjectDetailPage = {
                         <div class="fw-semibold">${escapeHtml(asset.asset_type)}</div>
                         <div>${escapeHtml(asset.original_name || '-')}</div>
                         <div class="asset-row-meta">${escapeHtml(formatFileSize(asset.size || 0))}</div>
+                        ${resultMeta}
                     </td>
                     <td class="text-break">${escapeHtml(relativePath)}</td>
                     <td>${escapeHtml(formatDateTime(asset.uploaded_at))}</td>
@@ -253,7 +263,7 @@ const ProjectDetailPage = {
                         ${openButton}
                         ${zipButton}
                         ${downloadButton}
-                        <button class="btn btn-sm btn-outline-danger" data-asset-delete="${escapeHtml(asset.id)}">删除</button>
+                        ${deleteButton}
                     </td>
                 </tr>
             `;

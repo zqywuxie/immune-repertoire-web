@@ -40,6 +40,104 @@ def _parse_csv_values(raw_value: str | None) -> List[str]:
     return [item.strip() for item in str(raw_value or '').split(',') if item.strip()]
 
 
+def _mongo_cached_usage_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = doc.get('metadata_json') if isinstance(doc.get('metadata_json'), dict) else {}
+    merged_metadata = {
+        **metadata,
+        'source': 'mongodb',
+        'mongo_id': str(doc.get('_id') or ''),
+        'source_job_id': doc.get('source_job_id', ''),
+        'source_result_signature': doc.get('source_result_signature') or metadata.get('source_result_signature', ''),
+        'source_result_id': doc.get('source_result_id') or metadata.get('source_result_id', ''),
+        'usage_scope': doc.get('usage_scope') or metadata.get('usage_scope', ''),
+        'group_field': doc.get('group_field') or metadata.get('group_field', ''),
+        'chains': doc.get('chains') or metadata.get('chains', []),
+        'group_fields': doc.get('group_fields') or metadata.get('group_fields', []),
+        'usage_types': doc.get('usage_types') or metadata.get('usage_types', {}),
+    }
+    cached_at = doc.get('cached_at')
+    return {
+        'id': str(doc.get('_id') or ''),
+        'project_id': doc.get('project_id', ''),
+        'asset_type': 'cached_usage',
+        'original_name': doc.get('original_name') or f"cached_usage_{doc.get('source_job_id', '')}",
+        'storage_path': doc.get('storage_path') or metadata.get('storage_path', ''),
+        'mime_type': None,
+        'size': 0,
+        'metadata': merged_metadata,
+        'metadata_json': merged_metadata,
+        'uploaded_at': cached_at.isoformat() if hasattr(cached_at, 'isoformat') else None,
+    }
+
+
+def _mongo_result_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = doc.get('metadata_json') if isinstance(doc.get('metadata_json'), dict) else {}
+    signature = str(doc.get('analysis_signature') or '').strip()
+    analysis_type = str(doc.get('analysis_type') or '').strip()
+    job_id = str(doc.get('job_id') or '').strip()
+    merged_metadata = {
+        **metadata,
+        'source': 'mongodb',
+        'mongo_id': str(doc.get('_id') or ''),
+        'result_id': str(doc.get('_id') or ''),
+        'analysis_type': analysis_type,
+        'job_id': job_id,
+        'analysis_signature': signature,
+        'output_base': doc.get('output_base') or metadata.get('output_base', ''),
+        'viewer_url': doc.get('viewer_url') or metadata.get('viewer_url', ''),
+        'report_url': doc.get('viewer_url') or metadata.get('report_url', ''),
+        'zip_url': doc.get('zip_url') or metadata.get('zip_url', ''),
+        'input_assets': doc.get('input_assets') or [],
+        'config_json': doc.get('config_json') or {},
+    }
+    created_at = doc.get('created_at') or doc.get('updated_at')
+    return {
+        'id': str(doc.get('_id') or ''),
+        'project_id': doc.get('project_id', ''),
+        'asset_type': 'processed_result',
+        'original_name': f"{analysis_type}_{job_id or signature[:12] or 'result'}",
+        'storage_path': doc.get('output_base') or metadata.get('output_base', ''),
+        'mime_type': 'application/octet-stream',
+        'size': 0,
+        'metadata': merged_metadata,
+        'metadata_json': merged_metadata,
+        'uploaded_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else None,
+    }
+
+
+def _merge_mongo_results(project_id: str, payload_assets: List[Dict[str, Any]], analysis_type: str = '') -> List[Dict[str, Any]]:
+    try:
+        from flask_app.services.mongo_service import get_project_results
+        mongo_assets = [_mongo_result_to_asset(doc) for doc in get_project_results(project_id, analysis_type or None)]
+    except Exception:
+        current_app.logger.warning("Failed to load Mongo results for project %s", project_id, exc_info=True)
+        return payload_assets
+
+    seen = set()
+    for item in payload_assets:
+        metadata = item.get('metadata') or item.get('metadata_json') or {}
+        key = (
+            item.get('asset_type'),
+            str(metadata.get('analysis_signature') or ''),
+            str(metadata.get('job_id') or ''),
+            item.get('storage_path') or '',
+        )
+        seen.add(key)
+
+    for item in mongo_assets:
+        metadata = item.get('metadata') or item.get('metadata_json') or {}
+        key = (
+            item.get('asset_type'),
+            str(metadata.get('analysis_signature') or ''),
+            str(metadata.get('job_id') or ''),
+            item.get('storage_path') or '',
+        )
+        if key not in seen:
+            seen.add(key)
+            payload_assets.append(item)
+    return payload_assets
+
+
 @project_api_bp.route('/projects', methods=['GET'])
 def list_projects():
     projects = _project_service().list_projects(
@@ -72,7 +170,13 @@ def get_project(project_id: str):
     group_specs = get_group_spec_service().list_specs(project.id)
     sample_records = get_sample_registry_service().list_samples(project_id=project.id)
     payload = project.to_dict()
-    payload['assets'] = [asset.to_dict() for asset in assets]
+    payload_assets = _merge_mongo_results(project.id, [asset.to_dict() for asset in assets])
+    payload['assets'] = payload_assets
+    payload['asset_counts'] = {
+        **(payload.get('asset_counts') or {}),
+        'processed_result': len([asset for asset in payload_assets if asset.get('asset_type') == 'processed_result']),
+    }
+    payload['result_count'] = payload['asset_counts'].get('processed_result', 0)
     payload['group_specs'] = [spec.to_dict() for spec in group_specs]
     payload['samples_preview'] = [sample.to_dict() for sample in sample_records[:20]]
     return jsonify(payload)
@@ -98,7 +202,20 @@ def list_project_assets(project_id: str):
     project = _project_service().get_project(project_id)
     asset_type = request.args.get('asset_type', '').strip()
     assets = _asset_service().list_assets(project.id, asset_type=asset_type)
-    return jsonify({'assets': [asset.to_dict() for asset in assets]})
+    payload_assets = [asset.to_dict() for asset in assets]
+    if not asset_type or asset_type == 'processed_result':
+        payload_assets = _merge_mongo_results(project.id, payload_assets)
+        if asset_type == 'processed_result':
+            payload_assets = [asset for asset in payload_assets if asset.get('asset_type') == 'processed_result']
+    return jsonify({'assets': payload_assets})
+
+
+@project_api_bp.route('/projects/<project_id>/results', methods=['GET'])
+def list_project_results(project_id: str):
+    project = _project_service().get_project(project_id)
+    analysis_type = request.args.get('analysis_type', '').strip()
+    assets = _merge_mongo_results(project.id, [], analysis_type=analysis_type)
+    return jsonify({'success': True, 'results': assets})
 
 
 @project_api_bp.route('/projects/<project_id>/assets', methods=['POST'])
@@ -135,7 +252,20 @@ def list_cached_assets(project_id: str):
     project = _project_service().get_project(project_id)
     asset_type = request.args.get('asset_type', 'cached_usage').strip()
     assets = _asset_service().list_assets(project.id, asset_type=asset_type)
-    return jsonify({'success': True, 'assets': [asset.to_dict() for asset in assets]})
+    payload_assets = [asset.to_dict() for asset in assets]
+    if asset_type == 'cached_usage':
+        try:
+            from flask_app.services.mongo_service import get_cached_usage
+            mongo_assets = [_mongo_cached_usage_to_asset(doc) for doc in get_cached_usage(project.id)]
+            seen = {(item.get('asset_type'), item.get('storage_path'), (item.get('metadata') or {}).get('source_job_id')) for item in payload_assets}
+            for item in mongo_assets:
+                key = (item.get('asset_type'), item.get('storage_path'), (item.get('metadata') or {}).get('source_job_id'))
+                if key not in seen:
+                    seen.add(key)
+                    payload_assets.append(item)
+        except Exception:
+            current_app.logger.warning("Failed to load Mongo cached usage for project %s", project.id, exc_info=True)
+    return jsonify({'success': True, 'assets': payload_assets})
 
 
 @project_api_bp.route('/projects/<project_id>/assets/register', methods=['POST'])

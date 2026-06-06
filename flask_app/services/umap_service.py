@@ -20,12 +20,32 @@ from scipy.stats import mannwhitneyu
 from sklearn.preprocessing import StandardScaler
 import umap
 
+from flask_app.services.figure_style import category_palette, apply_publication_style, soften_axes
+
+_CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+
+apply_publication_style(font_size=10, axes_linewidth=0.9)
+
+
+def _try_read_csv(filepath, **kwargs):
+    suffix = str(filepath).lower()
+    sep = kwargs.pop("sep", ",")
+    if suffix.endswith((".tsv", ".tsv.gz")):
+        sep = "\t"
+    for enc in _CSV_ENCODINGS:
+        try:
+            return pd.read_csv(filepath, encoding=enc, sep=sep, **kwargs)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return pd.read_csv(filepath, sep=sep, **kwargs)
+
 
 @dataclass
 class UmapReport:
     job_id: str
     output_base: Path
     png_paths: List[str]
+    pdf_paths: List[str]
     csv_paths: List[str]
     zip_path: str
     metadata: Dict[str, Any]
@@ -53,7 +73,7 @@ class UmapService:
         if not datapoint.exists():
             raise FileNotFoundError(f"Datapoint file not found: {datapoint_path}")
 
-        df = pd.read_csv(datapoint, low_memory=False)
+        df = _try_read_csv(datapoint, low_memory=False)
         df.fillna(0, inplace=True)
 
         columns = df.columns.tolist()
@@ -70,7 +90,7 @@ class UmapService:
         output_base = self.output_parent / job_id
         output_base.mkdir(parents=True, exist_ok=True)
 
-        png_paths, csv_paths = self._generate(
+        png_paths, pdf_paths, csv_paths = self._generate(
             df, class_columns, param_columns,
             pvalue_threshold, n_neighbors, min_dist,
             output_base, progress_callback,
@@ -80,6 +100,11 @@ class UmapService:
         zip_path = output_base / "umap_results.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in png_paths:
+                pp = Path(p)
+                if pp.exists():
+                    parts = pp.relative_to(output_base).parts
+                    zf.write(pp, "umaps/" + "/".join(parts))
+            for p in pdf_paths:
                 pp = Path(p)
                 if pp.exists():
                     parts = pp.relative_to(output_base).parts
@@ -105,6 +130,7 @@ class UmapService:
             "n_neighbors": n_neighbors,
             "min_dist": min_dist,
             "png_paths": png_paths,
+            "pdf_paths": pdf_paths,
             "csv_paths": csv_paths,
         }
         (output_base / "umap_metadata.json").write_text(
@@ -114,6 +140,7 @@ class UmapService:
             job_id=job_id,
             output_base=output_base,
             png_paths=png_paths,
+            pdf_paths=pdf_paths,
             csv_paths=csv_paths,
             zip_path=str(zip_path),
             metadata=metadata,
@@ -131,6 +158,7 @@ class UmapService:
         progress_callback,
     ):
         png_paths: List[str] = []
+        pdf_paths: List[str] = []
         csv_paths: List[str] = []
 
         total = len(class_columns)
@@ -173,32 +201,51 @@ class UmapService:
                 use_df = pd.concat([
                     df[df[class_col] == t] for t in type_list
                 ])
+                if use_df.shape[0] < 3:
+                    continue
 
                 bio_data = use_df[params].values
                 scaled = StandardScaler().fit_transform(bio_data)
+                local_subset_nn = min(local_nn, max(2, use_df.shape[0] - 1))
                 reducer = umap.UMAP(
-                    n_neighbors=local_nn,
+                    n_neighbors=local_subset_nn,
                     min_dist=min_dist,
                     n_epochs=50,
                     random_state=42,
                 )
                 embedding = reducer.fit_transform(scaled)
 
-                # Plot
+                # Plot with restrained categorical colors.
                 map_dic = {t: i for i, t in enumerate(type_list)}
-                color_list = [map_dic[row[class_col]] for _, row in use_df.iterrows()]
+                palette = category_palette(type_list)
+                labels_for_rows = [str(row[class_col]) for _, row in use_df.iterrows()]
 
-                fig, ax = plt.subplots(figsize=(6, 5))
-                scatter = ax.scatter(embedding[:, 0], embedding[:, 1],
-                                     c=color_list, cmap="tab10", s=20, alpha=0.8)
-                ax.legend(handles=scatter.legend_elements()[0], labels=type_list,
-                          title=class_col, fontsize=8)
+                fig, ax = plt.subplots(figsize=(5.4, 4.8))
+                for type_name in type_list:
+                    mask = [label == str(type_name) for label in labels_for_rows]
+                    ax.scatter(
+                        embedding[mask, 0],
+                        embedding[mask, 1],
+                        c=palette[str(type_name)],
+                        label=str(type_name),
+                        s=36,
+                        alpha=0.88,
+                        edgecolors="white",
+                        linewidths=0.55,
+                    )
+                ax.legend(title=class_col, loc="best", markerscale=1.1)
                 ax.set_aspect("equal", "datalim")
                 name = str(type_tuple).replace("(", "").replace(")", "").replace(", ", "_").replace("'", "")
-                ax.set_title(f"{name} in {class_col}", fontsize=10)
+                ax.set_xlabel("UMAP1")
+                ax.set_ylabel("UMAP2")
+                ax.set_title("UMAP of " + name + " in " + class_col, fontsize=11, fontweight="bold")
+                soften_axes(ax, grid_axis="both")
 
+                pdf_path = category_dir / f"{name}.pdf"
+                fig.savefig(pdf_path, bbox_inches="tight", dpi=300, facecolor="white")
+                pdf_paths.append(str(pdf_path))
                 fig_path = category_dir / f"{name}.png"
-                fig.savefig(fig_path, bbox_inches="tight", dpi=300)
+                fig.savefig(fig_path, bbox_inches="tight", dpi=300, facecolor="white")
                 plt.close("all")
                 png_paths.append(str(fig_path))
 
@@ -217,7 +264,7 @@ class UmapService:
                 umap_points.to_csv(csv_path, index=False)
                 csv_paths.append(str(csv_path))
 
-        return png_paths, csv_paths
+        return png_paths, pdf_paths, csv_paths
 
     def _find_significant_params(
         self,

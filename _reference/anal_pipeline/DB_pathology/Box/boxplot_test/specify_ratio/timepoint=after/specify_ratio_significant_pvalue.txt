@@ -1,0 +1,2 @@
+class_col	group1	group2	param	pvalue
+group_type	control	experiment	TRA_ratio_VDJdb	0.022248866185794865

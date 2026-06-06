@@ -25,12 +25,14 @@ class ProjectAssetService:
 
     ASSET_TYPES = {
         'datapoint',
+        'profile',
         'pep',
         'sample_summary',
         'group_spec',
         'processed_result',
         'raw_archive',
         'cached_usage',
+        'cached_step34',
         'pdf_source',
         'ppt_template',
     }
@@ -147,10 +149,9 @@ class ProjectAssetService:
                     ProjectGroupSpec.project_id == asset.project_id,
                     ProjectGroupSpec.id == spec_id,
                 ).delete()
+        self._delete_managed_storage_path(asset, target_path)
         db.session.delete(asset)
         db.session.commit()
-        if target_path.exists() and target_path.is_file():
-            target_path.unlink(missing_ok=True)
 
     def delete_assets_by_type(self, project: Project, asset_type: str) -> None:
         assets = ProjectAsset.query.filter(
@@ -194,24 +195,60 @@ class ProjectAssetService:
         if not chosen_storage:
             raise ValidationError(message="Result path is required", details={'field': 'report_path/output_base'})
 
+        result_metadata = metadata or {}
+        analysis_signature = str(result_metadata.get('analysis_signature') or '').strip()
+        metadata_json = {
+            'analysis_type': analysis_type,
+            'job_id': job_id,
+            'output_base': output_base,
+            'report_path': report_path,
+            'report_url': report_url,
+            'metadata_url': metadata_url,
+            'zip_url': zip_url,
+            'viewer_url': viewer_url,
+            'analysis_signature': analysis_signature,
+            'result_id': str(result_metadata.get('result_id') or ''),
+            'input_assets': result_metadata.get('input_assets') or [],
+            'config_json': result_metadata.get('config_json') or {},
+            'metadata': result_metadata,
+        }
+
+        existing = None
+        if analysis_signature:
+            candidates = ProjectAsset.query.filter(
+                ProjectAsset.project_id == project.id,
+                ProjectAsset.asset_type == 'processed_result',
+            ).all()
+            for candidate in candidates:
+                candidate_meta = candidate.metadata_json or {}
+                if str(candidate_meta.get('analysis_signature') or '').strip() == analysis_signature:
+                    existing = candidate
+                    break
+
+        if existing is None:
+            existing = ProjectAsset.query.filter(
+                ProjectAsset.project_id == project.id,
+                ProjectAsset.asset_type == 'processed_result',
+                ProjectAsset.storage_path == chosen_storage,
+            ).first()
+
+        if existing:
+            existing.original_name = f"{analysis_type}_{job_id or analysis_signature[:12] or uuid.uuid4().hex[:8]}"
+            existing.storage_path = chosen_storage
+            existing.mime_type = 'text/html' if str(report_path).lower().endswith('.html') else 'application/octet-stream'
+            existing.metadata_json = {**(existing.metadata_json or {}), **metadata_json}
+            existing.uploaded_at = datetime.utcnow()
+            db.session.commit()
+            return existing
+
         asset = ProjectAsset(
             project_id=project.id,
             asset_type='processed_result',
-            original_name=f"{analysis_type}_{job_id or uuid.uuid4().hex[:8]}",
+            original_name=f"{analysis_type}_{job_id or analysis_signature[:12] or uuid.uuid4().hex[:8]}",
             storage_path=chosen_storage,
             mime_type='text/html' if str(report_path).lower().endswith('.html') else 'application/octet-stream',
             size=0,
-            metadata_json={
-                'analysis_type': analysis_type,
-                'job_id': job_id,
-                'output_base': output_base,
-                'report_path': report_path,
-                'report_url': report_url,
-                'metadata_url': metadata_url,
-                'zip_url': zip_url,
-                'viewer_url': viewer_url,
-                'metadata': metadata or {},
-            },
+            metadata_json=metadata_json,
         )
         db.session.add(asset)
         db.session.commit()
@@ -232,11 +269,12 @@ class ProjectAssetService:
             raise ValidationError(message="storage_path is required")
 
         normalized_path = str(storage_path)
-        existing = ProjectAsset.query.filter(
+        query = ProjectAsset.query.filter(
             ProjectAsset.project_id == project.id,
-            ProjectAsset.asset_type == asset_type,
             ProjectAsset.storage_path == normalized_path,
-        ).first()
+            ProjectAsset.asset_type == asset_type,
+        )
+        existing = query.first()
 
         if existing:
             if metadata:
@@ -323,6 +361,32 @@ class ProjectAssetService:
         if not safe_parts:
             raise ValidationError(message="Relative path is invalid")
         return '/'.join(safe_parts)
+
+    def _delete_managed_storage_path(self, asset: ProjectAsset, target_path: Path) -> None:
+        """Delete only storage owned by this project's managed asset directory."""
+        if not target_path.exists():
+            return
+
+        try:
+            resolved_target = target_path.resolve()
+            project_dir = (self.projects_root / asset.project_id).resolve()
+            resolved_target.relative_to(project_dir)
+        except (OSError, ValueError):
+            return
+
+        if resolved_target == project_dir:
+            return
+
+        try:
+            if resolved_target.is_dir():
+                shutil.rmtree(resolved_target)
+            else:
+                resolved_target.unlink(missing_ok=True)
+        except OSError as exc:
+            raise StorageError(
+                message=f"Failed to delete project asset storage: {exc}",
+                details={'asset_id': asset.id, 'storage_path': str(target_path)},
+            ) from exc
 
 
 _project_asset_service: Optional[ProjectAssetService] = None

@@ -416,7 +416,7 @@
         <div class="pc-loading-log" id="pcLoadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script><script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-4"></script><script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined' || typeof PipelineComparisonPage === 'undefined') return;
     window._pcBrowser = DirectoryBrowser.init({
@@ -434,5 +434,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/pipeline_comparison.js') }}?v=20260602-3"></script>
+<script src="{{ url_for('static', filename='js/pipeline_comparison.js') }}?v=20260602-4"></script>
 {% endblock %}

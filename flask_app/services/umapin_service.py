@@ -17,8 +17,30 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
-plt.rcParams["axes.unicode_minus"] = False
+from flask_app.services.figure_style import category_palette, apply_publication_style, soften_axes
+
+# Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
+_CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+
+def _try_read_csv(filepath, **kwargs):
+    """Read CSV/TSV with encoding fallback."""
+    suffix = str(filepath).lower()
+    if suffix.endswith(".xlsx"):
+        import pandas as pd
+        return pd.read_excel(filepath, sheet_name=kwargs.pop("sheet_name", 0), **kwargs)
+    import pandas as pd
+    sep = kwargs.pop("sep", ",")
+    if suffix.endswith((".tsv", ".tsv.gz")):
+        sep = "\t"
+    for enc in _CSV_ENCODINGS:
+        try:
+            return pd.read_csv(filepath, encoding=enc, sep=sep, **kwargs)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return pd.read_csv(filepath, sep=sep, **kwargs)
+
+
+apply_publication_style(font_size=10, axes_linewidth=0.9)
 
 
 @dataclass
@@ -50,10 +72,15 @@ class UmapinService:
         progress_callback=None,
     ) -> UmapinReport:
         dp = Path(data_path)
-        if not dp.exists() or not dp.is_file():
-            raise FileNotFoundError(f"Data file not found: {data_path}")
+        if not dp.exists():
+            raise FileNotFoundError(f"Data path not found: {data_path}")
 
-        df = pd.read_csv(dp, low_memory=False)
+        self.output_parent.mkdir(parents=True, exist_ok=True)
+        job_id = self._allocate_job_id()
+        output_base = self.output_parent / job_id
+        output_base.mkdir(parents=True, exist_ok=True)
+
+        source_path, df = self._load_or_concat_usage(dp, output_base)
 
         # Find or set category column
         if category_col not in df.columns:
@@ -71,14 +98,11 @@ class UmapinService:
             raise ValueError(f"Column not found: {exc}")
 
         feature_cols = [c for c in columns[begin_idx:over_idx] if c != category_col]
+        if not feature_cols:
+            raise ValueError("No feature columns found for UMAPin")
 
         if progress_callback:
             progress_callback(10, "UMAPin", f"标准化 {len(feature_cols)} 个特征")
-
-        self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id()
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
 
         # Extract data
         X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
@@ -94,7 +118,8 @@ class UmapinService:
         # UMAP
         try:
             import umap
-            reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_epochs=n_epochs, random_state=8)
+            local_neighbors = min(max(2, n_neighbors), max(2, len(df) - 1))
+            reducer = umap.UMAP(n_neighbors=local_neighbors, min_dist=min_dist, n_epochs=n_epochs, random_state=8)
             embedding = reducer.fit_transform(X_scaled)
         except ImportError:
             raise ImportError("umap-learn package is required. Install with: pip install umap-learn")
@@ -105,21 +130,29 @@ class UmapinService:
         png_paths: List[str] = []
         csv_paths: List[str] = []
 
-        # Scatter plot
+        # Scatter plot, matching the reference UMAPin notebook style.
         unique_cats = sorted(set(str(c) for c in categories))
-        fig, ax = plt.subplots(figsize=(8, 6))
-        colors = plt.cm.tab10(np.linspace(0, 1, max(len(unique_cats), 1)))
-        for i, cat in enumerate(unique_cats):
-            mask = np.array([str(c) == cat for c in categories])
-            ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                       c=[colors[i]], label=cat, alpha=0.7, s=15)
-        ax.set_xlabel("UMAP 1")
-        ax.set_ylabel("UMAP 2")
-        ax.set_title(f"UMAP (n_neighbors={n_neighbors}, min_dist={min_dist})")
-        ax.legend(fontsize=7, loc="best")
-        fig.tight_layout()
-        png_path = output_base / "umapin_scatter.png"
-        fig.savefig(png_path, dpi=150, bbox_inches="tight")
+        palette = category_palette(unique_cats)
+        fig, ax = plt.subplots(figsize=(5.4, 4.8))
+        for cat in unique_cats:
+            mask = np.array([str(item) == cat for item in categories])
+            ax.scatter(
+                embedding[mask, 0],
+                embedding[mask, 1],
+                c=palette[cat],
+                label=cat,
+                s=36,
+                alpha=0.88,
+                edgecolors="white",
+                linewidths=0.55,
+            )
+        ax.legend(title=category_col, loc="best", markerscale=1.1)
+        ax.set_xlabel("UMAP1")
+        ax.set_ylabel("UMAP2")
+        ax.set_aspect("equal", "datalim")
+        soften_axes(ax, grid_axis="both")
+        png_path = output_base / self._reference_plot_name(source_path)
+        fig.savefig(png_path, bbox_inches="tight", dpi=300, facecolor="white")
         plt.close(fig)
         png_paths.append(str(png_path))
 
@@ -149,6 +182,7 @@ class UmapinService:
 
         metadata = {
             "data_path": data_path,
+            "resolved_data_path": str(source_path),
             "feature_count": len(feature_cols),
             "category_col": category_col,
             "n_neighbors": n_neighbors,
@@ -164,6 +198,74 @@ class UmapinService:
             csv_paths=csv_paths,
             metadata=metadata,
         )
+
+    def _load_or_concat_usage(self, data_path: Path, output_base: Path) -> tuple[Path, pd.DataFrame]:
+        if data_path.is_file():
+            return data_path, _try_read_csv(data_path, low_memory=False)
+
+        resolved_dir = self._resolve_usage_dir(data_path)
+        for candidate_name in ("df_VJ_all.csv", "df_1VJusage_all.csv", "df_VJ.csv", "df_all.csv"):
+            candidate = resolved_dir / candidate_name
+            if candidate.exists() and candidate.is_file():
+                return candidate, _try_read_csv(candidate, low_memory=False)
+
+        chain_files = [
+            path for path in sorted(resolved_dir.glob("*.csv"))
+            if path.is_file() and not path.name.lower().startswith("df")
+        ]
+        usable = []
+        for path in chain_files:
+            cols = _try_read_csv(path, nrows=0).columns.tolist()
+            if "Category" in cols and len(cols) > cols.index("Category") + 1:
+                usable.append(path)
+        if not usable:
+            raise FileNotFoundError(f"No usage CSV files found under {data_path}")
+
+        merged = self._concat_usage_files(usable)
+        output_path = output_base / "df_VJ_all.csv"
+        merged.to_csv(output_path, index=False, encoding="utf-8-sig")
+        return output_path, merged
+
+    @staticmethod
+    def _resolve_usage_dir(data_path: Path) -> Path:
+        for candidate in (
+            data_path / "1VJusage",
+            data_path / "usage" / "1VJusage",
+            data_path / "0VJusage",
+            data_path / "usage" / "0VJusage",
+            data_path / "1Vusage",
+        ):
+            if candidate.exists() and candidate.is_dir():
+                return candidate
+        return data_path
+
+    @staticmethod
+    def _reference_plot_name(source_path: Path) -> str:
+        lower = source_path.stem.lower()
+        if "vj" in lower:
+            prefix = "VJ"
+        elif "j" in lower and "usage" in lower:
+            prefix = "J"
+        elif "v" in lower and "usage" in lower:
+            prefix = "V"
+        else:
+            prefix = "UMAPin"
+        return f"{prefix}_p005.png"
+
+    @staticmethod
+    def _concat_usage_files(files: List[Path]) -> pd.DataFrame:
+        df_all = pd.DataFrame(columns=["sample", "Category"])
+        for file_path in files:
+            df = _try_read_csv(file_path, low_memory=False)
+            if df.empty or "Category" not in df.columns:
+                continue
+            first_col = df.columns[0]
+            if first_col != "sample":
+                df = df.rename(columns={first_col: "sample"})
+            feature_cols = [c for c in df.columns if c not in ("sample", "Category")]
+            df = df[["sample", "Category"] + feature_cols]
+            df_all = pd.merge(df_all, df, how="outer", on=["sample", "Category"])
+        return df_all.fillna(0)
 
     def _run_fdr(self, df, feature_cols, output_base, csv_paths):
         """Apply Benjamini-Hochberg FDR correction on p-values stored in the dataframe."""

@@ -272,6 +272,7 @@ class Project(db.Model):
             'group_spec_count': len(self.group_specs),
             'result_count': asset_counts.get('processed_result', 0),
             'has_datapoint': asset_counts.get('datapoint', 0) > 0,
+            'has_profile': asset_counts.get('profile', 0) > 0,
             'has_pep': asset_counts.get('pep', 0) > 0,
             'has_sample_summary': asset_counts.get('sample_summary', 0) > 0,
             'has_group_spec': asset_counts.get('group_spec', 0) > 0,

@@ -1,0 +1,10 @@
+input: /data/scAnalyis/260416/Data/Datapoint/profile.csv
+filter: group_type=control
+label_col: timepoint
+samples: 57
+raw_feature_number: 37
+selected_feature_number: 37
+best_params: {'max_depth': None, 'min_samples_split': 2, 'n_estimators': 200}
+best_cv_accuracy: 0.7017543859649124
+mean_cv_accuracy: 0.7017543859649124
+std_cv_accuracy: 0.12405382126079782

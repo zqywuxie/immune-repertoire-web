@@ -1,0 +1,13 @@
+datapoint: profile
+profile_path: /data/scAnalyis/260416/Data/Datapoint/profile.csv
+usage_dir: ../Pep_260416/usage_cate
+label_col: timepoint
+subdir: group_type=experiment
+profile_samples: 136
+merged_samples: 136
+raw_feature_number: 3175
+selected_feature_number: 39
+best_params: {'max_depth': None, 'min_samples_split': 10, 'n_estimators': 200}
+best_cv_accuracy: 0.5371980676328502
+mean_cv_accuracy: 0.5371980676328502
+std_cv_accuracy: 0.09167040593723993

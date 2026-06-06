@@ -16,27 +16,13 @@ class ProjectAnalysisBridge:
     """Resolve project analysis readiness and target page URLs."""
 
     PAGE_PATHS = {
-        'similarity-heatmap': '/analysis/script-hub',
-        'treemap': '/analysis/script-hub',
-        'chord': '/analysis/script-hub',
-        'combined-report': '/analysis/script-hub',
         'pipeline-comparison': '/analysis/pipeline-comparison',
         'db-alignment': '/analysis/script-hub',
         'script-hub': '/analysis/script-hub',
     }
     MODULE_HINTS = {
-        'similarity-heatmap': 'charts',
-        'treemap': 'charts',
-        'chord': 'charts',
-        'combined-report': 'charts',
         'pipeline-comparison': 'pipeline-comparison',
         'db-alignment': 'db-alignment',
-    }
-    CHART_MODULE_HINTS = {
-        'similarity-heatmap': 'heatmap',
-        'treemap': 'treemap',
-        'chord': 'chord',
-        'combined-report': 'combined',
     }
 
     def prepare(self, project: Project, analysis_type: str) -> Dict[str, Any]:
@@ -55,8 +41,6 @@ class ProjectAnalysisBridge:
             params['base_path'] = source_context['base_path']
         if analysis_key in self.MODULE_HINTS:
             params['active_module'] = self.MODULE_HINTS[analysis_key]
-        if analysis_key in self.CHART_MODULE_HINTS:
-            params['chart_module'] = self.CHART_MODULE_HINTS[analysis_key]
         page_url = f"{self.PAGE_PATHS[analysis_key]}?{urlencode(params)}"
         return {
             'analysis_type': analysis_key,
@@ -67,7 +51,7 @@ class ProjectAnalysisBridge:
         }
 
     def _resolve_analysis_source(self, project: Project, analysis_type: str) -> Dict[str, Any]:
-        if analysis_type in {'similarity-heatmap', 'treemap', 'chord', 'combined-report', 'db-alignment', 'script-hub'}:
+        if analysis_type in {'db-alignment', 'script-hub'}:
             source = self._asset_source(project, {'pep'})
             if not source['has_any']:
                 source = self._asset_source(project, {'raw_archive'})

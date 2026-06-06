@@ -3,7 +3,6 @@ Page routes for rendering HTML templates.
 Requirements: 9.1
 """
 from urllib.parse import urlencode
-
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 
 pages_bp = Blueprint('pages', __name__)
@@ -25,14 +24,6 @@ def resolve_workspace(default=ANALYSIS_WORKSPACE):
     if workspace not in VALID_WORKSPACES:
         return default
     return workspace
-
-
-def redirect_to_combined_module(active_module: str):
-    query_params = request.args.to_dict(flat=True)
-    query_params['active_module'] = 'charts'
-    query_params['chart_module'] = active_module
-    base_url = url_for('pages.script_hub_page')
-    return redirect(f"{base_url}?{urlencode(query_params)}" if query_params else base_url)
 
 
 @pages_bp.route('/')
@@ -236,20 +227,23 @@ def statistical_comparison_page():
 
 @pages_bp.route('/analysis/similarity-heatmap')
 def similarity_heatmap_page():
-    """Legacy heatmap entry. Redirect to the unified chart workspace."""
-    return redirect_to_combined_module('heatmap')
+    """Legacy heatmap entry removed with the combined report module."""
+    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
+    return redirect(url_for('pages.script_hub_page'))
 
 
 @pages_bp.route('/analysis/treemap')
 def treemap_page():
-    """Legacy treemap entry. Redirect to the unified chart workspace."""
-    return redirect_to_combined_module('treemap')
+    """Legacy treemap entry removed with the combined report module."""
+    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
+    return redirect(url_for('pages.script_hub_page'))
 
 
 @pages_bp.route('/analysis/chord-diagram')
 def chord_diagram_page():
-    """Legacy chord entry. Redirect to the unified chart workspace."""
-    return redirect_to_combined_module('chord')
+    """Legacy chord entry removed with the combined report module."""
+    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
+    return redirect(url_for('pages.script_hub_page'))
 
 
 @pages_bp.route('/analysis/advanced-analysis')
@@ -260,21 +254,6 @@ def advanced_analysis_page():
     query_params = request.args.to_dict(flat=True)
     target_url = url_for(target_endpoint)
     return redirect(f"{target_url}?{urlencode(query_params)}" if query_params else target_url)
-
-
-@pages_bp.route('/analysis/combined-report')
-def combined_report_page():
-    """Legacy chart analysis page.
-
-    The normal entry is now Script Hub's shared project/data workflow. The
-    legacy page remains available for embedded/downstream chart configuration.
-    """
-    if request.args.get('legacy') not in {'1', 'true', 'yes'} and request.args.get('embedded') not in {'1', 'true', 'yes'}:
-        query_params = request.args.to_dict(flat=True)
-        query_params['active_module'] = 'charts'
-        target_url = url_for('pages.script_hub_page')
-        return redirect(f"{target_url}?{urlencode(query_params)}" if query_params else target_url)
-    return render_page('analysis/combined_analysis.html', workspace=ANALYSIS_WORKSPACE)
 
 
 @pages_bp.route('/analysis/pipeline-comparison')

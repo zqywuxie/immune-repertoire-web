@@ -294,11 +294,11 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .tab-content {
+  .project-tab-panel {
     display: none;
   }
 
-  .tab-content.active {
+  .project-tab-panel.active {
     display: block;
   }
 
@@ -344,7 +344,7 @@
   </div>
 
   <!-- Tab Content -->
-  <div class="tab-content active" id="overview-tab">
+  <div class="project-tab-panel active" id="overview-tab">
     <div class="row g-4">
       <div class="col-lg-8">
         <div class="card detail-card">
@@ -365,7 +365,7 @@
               </div>
               <div class="summary-item">
                 <div class="summary-value" id="overviewDatapointCount">0</div>
-                <div class="summary-label">Datapoint</div>
+                <div class="summary-label">Profile</div>
               </div>
             </div>
             <dl class="row">
@@ -407,7 +407,7 @@
     </div>
   </div>
 
-  <div class="tab-content" id="assets-tab">
+  <div class="project-tab-panel" id="assets-tab">
     <div class="row">
       <div class="col">
         <div class="card detail-card">
@@ -455,17 +455,8 @@
     </div>
   </div>
 
-  <div class="tab-content" id="analysis-tab">
+  <div class="project-tab-panel" id="analysis-tab">
     <div class="row g-3">
-      <div class="col-md-6 col-lg-4">
-        <div class="analysis-module">
-          <h6 class="text-primary">自动热图分析</h6>
-          <p class="text-muted small mb-3">生成相似度热图和统计图表</p>
-          <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="combined-report">
-            <i class="bi bi-heatmap me-1"></i>开始分析
-          </button>
-        </div>
-      </div>
       <div class="col-md-6 col-lg-4">
         <div class="analysis-module">
           <h6 class="text-primary">Pipeline 比较</h6>
@@ -487,7 +478,7 @@
     </div>
   </div>
 
-  <div class="tab-content" id="samples-tab">
+  <div class="project-tab-panel" id="samples-tab">
     <div class="row">
       <div class="col">
         <div class="card detail-card">
@@ -529,7 +520,7 @@
     </div>
   </div>
 
-  <div class="tab-content" id="settings-tab">
+  <div class="project-tab-panel" id="settings-tab">
     <div class="row g-3">
       <div class="col-md-6">
         <div class="card detail-card">
@@ -604,7 +595,7 @@
           <label class="form-label">资产类型</label>
           <select class="form-select" id="assetTypeSelect">
             <option value="pep">pep 数据</option>
-            <option value="datapoint">datapoint</option>
+            <option value="profile">Profile 文件</option>
             <option value="sample_summary">sample summary</option>
             <option value="raw_archive">raw archive / pipeline root</option>
           </select>

@@ -30,6 +30,13 @@
                 <span class="nav-text ms-2">样本库</span>
             </a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.upload_page' %}active{% endif %}"
+                href="{{ url_for('pages.upload_page') }}" data-nav-key="upload">
+                <i class="bi bi-upload"></i>
+                <span class="nav-text ms-2">数据上传</span>
+            </a>
+        </li>
         <hr class="my-3">
         <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.settings_page' %}active{% endif %}"
@@ -57,7 +64,7 @@
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link {% if request.endpoint in ['pages.script_hub_page', 'pages.combined_report_page'] %}active{% endif %}"
+            <a class="nav-link {% if request.endpoint == 'pages.script_hub_page' %}active{% endif %}"
                 href="{{ url_for('pages.script_hub_page') }}" data-nav-key="script-hub">
                 <i class="bi bi-terminal"></i>
                 <span class="nav-text ms-2">项目综合分析</span>

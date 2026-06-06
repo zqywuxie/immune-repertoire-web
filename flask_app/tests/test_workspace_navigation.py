@@ -51,7 +51,7 @@ def test_analysis_workspace_uses_analysis_navigation_only(client):
     assert 'data-workspace="analysis"' in html
     assert 'data-target-workspace="management"' in html
     assert 'data-nav-scope="analysis"' in html
-    assert 'data-nav-key="combined-report"' in html
+    assert 'data-nav-key="combined-report"' not in html
     assert 'data-nav-key="pipeline-comparison"' in html
     assert 'data-nav-key="script-hub"' in html
     assert 'data-nav-key="upload"' not in html

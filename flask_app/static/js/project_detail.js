@@ -89,7 +89,7 @@ const ProjectDetailPage = {
                 btn.classList.add('active');
                 
                 // Update content visibility
-                document.querySelectorAll('.tab-content').forEach(content => {
+                document.querySelectorAll('.project-tab-panel').forEach(content => {
                     content.classList.remove('active');
                 });
                 const targetTab = document.getElementById(`${tabName}-tab`);
@@ -146,7 +146,7 @@ const ProjectDetailPage = {
         document.getElementById('overviewSampleCount').textContent = String(project.sample_count || 0);
         document.getElementById('overviewResultCount').textContent = String(project.result_count || 0);
         document.getElementById('overviewPepCount').textContent = String(counts.pep || 0);
-        document.getElementById('overviewDatapointCount').textContent = String(counts.datapoint || 0);
+        document.getElementById('overviewDatapointCount').textContent = String(counts.profile || 0);
         
         // Update asset statistics
         this.renderAssetStatistics(counts);
@@ -259,7 +259,7 @@ const ProjectDetailPage = {
         });
         
         const typeLabels = {
-            'datapoint': 'Profile Data',
+            'profile': 'Profile Data',
             'pep': 'Pep Files',
             'sample_summary': 'Sample Summary',
             'group_spec': 'Group Spec',
@@ -279,7 +279,10 @@ const ProjectDetailPage = {
                 const metadata = asset.metadata_json || asset.metadata || {};
                 const openUrl = metadata.report_url || metadata.viewer_url || metadata.metadata_url || '';
                 const zipUrl = metadata.zip_url || '';
-                const relativePath = metadata.relative_path || metadata.report_path || '-';
+                const signature = metadata.analysis_signature || '';
+                const relativePath = asset.asset_type === 'processed_result'
+                    ? (metadata.output_base || metadata.report_path || asset.storage_path || '-')
+                    : (metadata.relative_path || metadata.report_path || '-');
                 const canDirectDownload = asset.asset_type !== 'processed_result'
                     && asset.asset_type !== 'cached_usage'
                     || (metadata.report_path && !String(metadata.report_path).startsWith('/api/'));
@@ -292,8 +295,12 @@ const ProjectDetailPage = {
                 }
                 if (asset.asset_type === 'processed_result') {
                     const analysisType = metadata.analysis_type || '';
-                    extraMeta = `<div class="small text-muted">Type: ${escapeHtml(analysisType || '-')}</div>`;
+                    const inputCount = Array.isArray(metadata.input_assets) ? metadata.input_assets.length : 0;
+                    extraMeta = `<div class="small text-muted">Type: ${escapeHtml(analysisType || '-')} | Signature: ${escapeHtml(signature ? signature.slice(0, 12) : '-')} | Inputs: ${escapeHtml(String(inputCount))}</div>`;
                 }
+                const deleteButton = metadata.source === 'mongodb'
+                    ? ''
+                    : `<button class="btn btn-sm btn-outline-danger" data-asset-delete="${escapeHtml(asset.id)}">删除</button>`;
                 
                 return `
                     <tr>
@@ -305,10 +312,10 @@ const ProjectDetailPage = {
                         <td class="text-break">${escapeHtml(relativePath)}</td>
                         <td>${escapeHtml(formatDateTime(asset.uploaded_at))}</td>
                         <td class="text-end">
-                            ${openUrl ? `<a class="btn btn-sm btn-outline-primary" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">打开</a>` : ''}
-                            ${zipUrl ? `<a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener">ZIP</a>` : ''}
+                            ${openUrl ? `<a class="btn btn-sm btn-outline-primary" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">打开 Viewer</a>` : ''}
+                            ${zipUrl ? `<a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener">下载 ZIP</a>` : ''}
                             ${canDirectDownload ? `<a class="btn btn-sm btn-outline-secondary" href="/api/projects/${encodeURIComponent(this.projectId)}/assets/${encodeURIComponent(asset.id)}/download">下载</a>` : ''}
-                            <button class="btn btn-sm btn-outline-danger" data-asset-delete="${escapeHtml(asset.id)}">删除</button>
+                            ${deleteButton}
                         </td>
                     </tr>
                 `;
@@ -525,9 +532,6 @@ const ProjectDetailPage = {
     launchAnalysis(type) {
         let url = '';
         switch (type) {
-            case 'combined-report':
-                url = `/api/combined-analysis/project/${this.projectId}`;
-                break;
             case 'pipeline-comparison':
                 url = `/api/pipeline-comparison/project/${this.projectId}`;
                 break;
@@ -568,3 +572,7 @@ function deleteGroupSpec(index) {
         alert('删除失败: ' + error.message);
     });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    ProjectDetailPage.init();
+});

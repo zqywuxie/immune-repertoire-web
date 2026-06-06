@@ -233,7 +233,7 @@
         <div class="progress-log" id="loadingProgressLog"></div>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script><script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-4"></script><script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined' || typeof TreemapAnalysis === 'undefined') return;
     window._treemapBrowser = DirectoryBrowser.init({
@@ -251,7 +251,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/treemap_analysis.js') }}?v=20260602-3"></script>
+<script src="{{ url_for('static', filename='js/treemap_analysis.js') }}?v=20260602-4"></script>
 <script src="{{ url_for('static', filename='js/analysis_workspace.js') }}"></script>
 <script>
 window.AnalysisWorkspace?.enhance(window.TreemapAnalysis, {

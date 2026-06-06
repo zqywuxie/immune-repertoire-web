@@ -14,4 +14,9 @@ db.results.createIndex({ job_id: 1 }, { unique: true });
 
 db.createCollection('analysis_cache');
 db.analysis_cache.createIndex({ project_id: 1 });
-db.analysis_cache.createIndex({ source_job_id: 1 }, { unique: true, sparse: true });
+db.analysis_cache.createIndex({ source_job_id: 1 });
+db.analysis_cache.createIndex({ source_result_signature: 1 });
+db.analysis_cache.createIndex(
+  { project_id: 1, source_job_id: 1, usage_scope: 1, group_field: 1, storage_path: 1 },
+  { unique: true }
+);

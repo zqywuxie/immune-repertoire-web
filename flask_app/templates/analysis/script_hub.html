@@ -245,11 +245,27 @@
         gap: .85rem;
     }
 
+    .sh-metrics.sh-metrics-compact {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: .45rem;
+    }
+
     .sh-metric {
         padding: .95rem 1rem;
         border-radius: 18px;
         border: 1px solid #d9e5ed;
         background: linear-gradient(180deg, #fbfdfe 0%, #f4f9fb 100%);
+    }
+
+    .sh-metrics-compact .sh-metric {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: .45rem;
+        align-items: baseline;
+        min-height: 0;
+        padding: .42rem .55rem;
+        border-radius: 8px;
+        background: #fbfdfe;
     }
 
     .sh-metric-label {
@@ -261,11 +277,76 @@
         margin-bottom: .32rem;
     }
 
+    .sh-metrics-compact .sh-metric-label {
+        margin: 0;
+        font-size: .68rem;
+        letter-spacing: .03em;
+    }
+
     .sh-metric-value {
         font-size: 1.08rem;
         line-height: 1.4;
         font-weight: 760;
         word-break: break-word;
+    }
+
+    .sh-metrics-compact .sh-metric-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: .86rem;
+        line-height: 1.2;
+        text-align: right;
+        word-break: normal;
+    }
+
+    .sh-script-config {
+        display: grid;
+        gap: .85rem;
+    }
+
+    .sh-script-section {
+        border: 1px solid #dce7ee;
+        border-radius: 10px;
+        background: #fbfdfe;
+        padding: .85rem;
+    }
+
+    .sh-enterprise-module {
+        border-color: #cfdce7;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+        box-shadow: inset 4px 0 0 rgba(17, 89, 124, .16);
+    }
+
+    .sh-script-section-head {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        margin-bottom: .75rem;
+        color: var(--sh-ink);
+    }
+
+    .sh-script-step {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.55rem;
+        height: 1.55rem;
+        border-radius: 999px;
+        background: var(--sh-accent-soft);
+        color: var(--sh-accent);
+        font-size: .72rem;
+        font-weight: 800;
+    }
+
+    .sh-script-section-head strong {
+        font-size: .92rem;
+    }
+
+    .sh-script-section-head span:last-child {
+        color: var(--sh-muted);
+        font-size: .78rem;
     }
 
     .sh-subpanel {
@@ -321,6 +402,29 @@
         background: #d8ecfa;
         box-shadow: 0 0 0 1px #11597c;
         font-weight: 600;
+    }
+
+    .sh-chip-list-strong .sh-chip {
+        min-width: 4.25rem;
+        justify-content: center;
+        font-weight: 700;
+    }
+
+    .sh-chip.is-disabled,
+    .sh-chip-selectable.is-disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        color: #6e7c89;
+        background: #f1f4f6;
+        border-style: dashed;
+        box-shadow: none;
+    }
+
+    .script-hub-page input[readonly],
+    .script-hub-page textarea[readonly] {
+        background-color: #f7fafc;
+        color: #405268;
+        border-color: #d5e1ea;
     }
 
     .sh-field-order-group {
@@ -388,9 +492,157 @@
     }
 
     .sh-col-12 { grid-column: span 12; }
+    .sh-col-8 { grid-column: span 8; }
     .sh-col-7 { grid-column: span 7; }
     .sh-col-6 { grid-column: span 6; }
     .sh-col-5 { grid-column: span 5; }
+    .sh-col-4 { grid-column: span 4; }
+    .sh-col-3 { grid-column: span 3; }
+
+    .sh-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .7rem;
+    }
+
+    .sh-mode-option {
+        position: relative;
+        display: flex;
+        gap: .65rem;
+        min-height: 76px;
+        padding: .75rem .85rem;
+        border: 1px solid #d7e3eb;
+        border-radius: 10px;
+        background: #fff;
+        cursor: pointer;
+        transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+
+    .sh-mode-option.is-selected {
+        border-color: #0f766e;
+        background: #f1fbf8;
+        box-shadow: inset 0 0 0 1px rgba(15, 118, 110, .12);
+    }
+
+    .sh-mode-option input {
+        margin-top: .18rem;
+        flex: 0 0 auto;
+    }
+
+    .sh-mode-option strong {
+        display: block;
+        margin-bottom: .18rem;
+        font-size: .88rem;
+    }
+
+    .sh-mode-option span {
+        display: block;
+        color: var(--sh-muted);
+        font-size: .78rem;
+        line-height: 1.45;
+    }
+
+    .sh-profile-sheet-wrap.is-disabled {
+        opacity: .62;
+    }
+
+    .sh-category-picker {
+        display: grid;
+        grid-template-columns: minmax(180px, .95fr) minmax(0, 1.55fr);
+        gap: .75rem;
+        align-items: stretch;
+    }
+
+    .sh-category-field-list,
+    .sh-category-preview {
+        min-height: 168px;
+        max-height: 248px;
+        overflow: auto;
+        border: 1px solid #d8e4ec;
+        border-radius: 10px;
+        background: #fff;
+        padding: .45rem;
+    }
+
+    .sh-category-field {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .55rem;
+        width: 100%;
+        margin: 0 0 .38rem;
+        padding: .48rem .6rem;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: #f8fbfd;
+        color: var(--sh-ink);
+        font-size: .84rem;
+        text-align: left;
+    }
+
+    .sh-category-field:hover {
+        border-color: #b9ccd8;
+    }
+
+    .sh-category-field.is-selected {
+        border-color: #0f766e;
+        background: #edf9f6;
+        color: #0f5f5a;
+        font-weight: 700;
+    }
+
+    .sh-category-field-count {
+        color: var(--sh-muted);
+        font-size: .72rem;
+        font-weight: 600;
+    }
+
+    .sh-category-preview-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 130px;
+        color: var(--sh-muted);
+        font-size: .84rem;
+        text-align: center;
+    }
+
+    .sh-category-preview-item {
+        padding: .55rem .6rem;
+        border-bottom: 1px solid #edf2f5;
+    }
+
+    .sh-category-preview-item:last-child {
+        border-bottom: 0;
+    }
+
+    .sh-category-preview-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .6rem;
+        margin-bottom: .42rem;
+        font-size: .82rem;
+        font-weight: 760;
+    }
+
+    .sh-category-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .36rem;
+    }
+
+    .sh-category-value {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        padding: .22rem .48rem;
+        border-radius: 999px;
+        background: #eef5f8;
+        color: #335366;
+        font-size: .74rem;
+        line-height: 1.25;
+    }
 
     .sh-config-banner {
         display: flex;
@@ -987,10 +1239,125 @@
         }
 
         .sh-col-12,
+        .sh-col-8,
+        .sh-col-7,
+        .sh-col-6,
+        .sh-col-5,
+        .sh-col-4,
+        .sh-col-3 {
+            grid-column: span 1;
+        }
+
+        .sh-mode-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .sh-category-picker {
+            grid-template-columns: 1fr;
+        }
+
+        .sh-metrics.sh-metrics-compact {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .sh-col-12,
         .sh-col-7,
         .sh-col-6,
         .sh-col-5 {
             grid-column: auto;
+        }
+    }
+
+    /* ---- Pipeline Steps ---- */
+    .sh-pipeline-section {
+        border: 1px solid #dde7ee;
+        border-radius: 12px;
+        background: #fbfdfe;
+        padding: 1rem;
+    }
+
+    .sh-pipeline-steps {
+        display: grid;
+        gap: .55rem;
+    }
+
+    .sh-pipeline-step {
+        display: grid;
+        grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+        gap: .7rem;
+        align-items: center;
+        padding: .7rem .85rem;
+        border: 1px solid #dde7ee;
+        border-radius: 10px;
+        background: #fff;
+        transition: border-color .15s, background .15s;
+    }
+
+    .sh-pipeline-step-mandatory {
+        border-left: 4px solid #dc3545;
+        background: #fef9fa;
+    }
+
+    .sh-pipeline-step-optional {
+        border-left: 4px solid #198754;
+    }
+
+    .sh-pipeline-step-optional.is-deselected {
+        border-left-color: #adb5bd;
+        background: #f8f9fa;
+        opacity: .55;
+    }
+
+    .sh-pipeline-step-marker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        background: linear-gradient(180deg, #eff7fd 0%, #dceef7 100%);
+        color: #11597c;
+        font-weight: 800;
+        font-size: .82rem;
+        flex: 0 0 auto;
+    }
+
+    .sh-pipeline-step-mandatory .sh-pipeline-step-marker {
+        background: linear-gradient(180deg, #fde8ec 0%, #f8d4da 100%);
+        color: #9a1a2e;
+    }
+
+    .sh-pipeline-step-optional.is-deselected .sh-pipeline-step-marker {
+        background: linear-gradient(180deg, #e9ecef 0%, #dee2e6 100%);
+        color: #6c757d;
+    }
+
+    .sh-pipeline-step-title {
+        font-size: .88rem;
+        font-weight: 700;
+        margin-bottom: .12rem;
+    }
+
+    .sh-pipeline-step-desc {
+        font-size: .76rem;
+        color: var(--sh-muted);
+        line-height: 1.45;
+    }
+
+    .sh-pipeline-step-status {
+        color: #dc3545;
+        font-size: .9rem;
+    }
+
+    .sh-pipeline-step-toggle input {
+        width: 1.1rem;
+        height: 1.1rem;
+        cursor: pointer;
+    }
+
+    @media (max-width: 576px) {
+        .sh-metrics.sh-metrics-compact {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -1109,14 +1476,68 @@
             </div>
         </section>
 
-        <!-- Stage 03: Configure & Run -->
-        <section class="sh-stage sh-hidden" id="scriptHubModuleStage">
+        <!-- Stage 03: Detection result -->
+        <section class="sh-stage sh-hidden" id="scriptHubAssetsStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
                     <div class="sh-stage-index">03</div>
                     <div>
-                        <div class="sh-stage-title">配置与运行</div>
-                        <div class="sh-stage-meta">确认模块参数，点击运行开始分析。</div>
+                        <div class="sh-stage-title">检测结果</div>
+                        <div class="sh-stage-meta">数据目录检测详情，选择模块后自动检测并填充配置。</div>
+                    </div>
+                </div>
+                <div class="sh-stage-status" id="scriptHubAssetsState">未激活</div>
+            </div>
+            <div class="sh-stage-body">
+                <div class="alert alert-info mb-3" id="scriptHubInspectSummary">等待检测目录。</div>
+                <div class="sh-metrics sh-metrics-compact mb-0" id="scriptHubSummaryGrid">
+                    <div class="sh-metric"><span class="sh-metric-label">Samples</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Chains</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Pep Files</span><div class="sh-metric-value">-</div></div>
+                    <div class="sh-metric"><span class="sh-metric-label">Profile</span><div class="sh-metric-value">-</div></div>
+                </div>
+                <div class="d-none" aria-hidden="true">
+                    <span id="scriptHubColumnCount">0</span>
+                    <div id="scriptHubColumnChips"><span class="sh-chip">No columns detected</span></div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <div class="sh-subpanel">
+                            <h3 class="sh-subpanel-title">Profile 格式预览</h3>
+                            <p class="sh-preview-meta" id="scriptHubBpPreviewMeta">等待检测 Profile 文件。</p>
+                            <div class="sh-table-shell" style="max-height:220px;overflow:auto;max-width:100%;">
+                                <table class="table table-sm sh-preview-table" id="scriptHubBpPreviewTable" style="min-width:max-content;white-space:nowrap;">
+                                    <thead></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <div id="scriptHubBpSuggestions" class="sh-hidden mt-2"><div class="fw-semibold mb-1">Parameter Range</div><p class="sh-muted small mb-0">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p></div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="sh-subpanel">
+                            <h3 class="sh-subpanel-title">PEP 格式预览</h3>
+                            <p class="sh-preview-meta" id="scriptHubPepPreviewMeta">等待检测 PEP 文件。</p>
+                            <div class="sh-table-shell" style="max-height:220px;overflow:auto;max-width:100%;">
+                                <table class="table table-sm sh-preview-table" id="scriptHubPepPreviewTable" style="min-width:max-content;white-space:nowrap;">
+                                    <thead></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stage 04: Analysis module selection -->
+        <section class="sh-stage sh-hidden" id="scriptHubModuleStage">
+            <div class="sh-stage-header">
+                <div class="sh-stage-left">
+                    <div class="sh-stage-index">04</div>
+                    <div>
+                        <div class="sh-stage-title">选择分析模块</div>
+                        <div class="sh-stage-meta">选择分析类型后自动检测数据并填充配置。</div>
                     </div>
                 </div>
                 <div class="sh-stage-status" id="scriptHubModuleState">等待数据</div>
@@ -1135,58 +1556,10 @@
             </div>
         </section>
 
-        <!-- Helper: preserve old detected data panel for inspect results -->
-        <section class="sh-stage sh-hidden" id="scriptHubAssetsStage">
-            <div class="sh-stage-header">
-                <div class="sh-stage-left">
-                    <div class="sh-stage-index"><i class="bi bi-info-circle"></i></div>
-                    <div>
-                        <div class="sh-stage-title">检测结果</div>
-                        <div class="sh-stage-meta">数据目录检测详情，选择模块后自动检测并填充配置。</div>
-                    </div>
-                </div>
-                <div class="sh-stage-status" id="scriptHubAssetsState">未激活</div>
-            </div>
-            <div class="sh-stage-body">
-                <div class="alert alert-info mb-3" id="scriptHubInspectSummary">等待检测目录。</div>
-                <div class="sh-metrics mb-3" id="scriptHubSummaryGrid">
-                    <div class="sh-metric"><span class="sh-metric-label">Samples</span><div class="sh-metric-value">-</div></div>
-                    <div class="sh-metric"><span class="sh-metric-label">Chains</span><div class="sh-metric-value">-</div></div>
-                    <div class="sh-metric"><span class="sh-metric-label">Pep Files</span><div class="sh-metric-value">-</div></div>
-                    <div class="sh-metric"><span class="sh-metric-label">Profile</span><div class="sh-metric-value">-</div></div>
-                </div>
-                <div class="row g-3">
-                    <div class="col-xl-6" data-module="db-alignment">
-                        <div class="sh-subpanel h-100">
-                            <h3 class="sh-subpanel-title">Sample Preview</h3>
-                            <p class="sh-subpanel-copy">展示即将纳入本次 DB alignment 的样本与检测到的链类型。</p>
-                            <div class="sh-chip-list" id="scriptHubSamplePreview"><span class="sh-chip">No sample detected</span></div>
-                        </div>
-                    </div>
-                    <div class="col-xl-6" data-module="db-alignment">
-                        <div class="sh-subpanel h-100">
-                            <h3 class="sh-subpanel-title">Detected Context</h3>
-                            <p class="sh-subpanel-copy">识别到的 Profile 分类字段与 Datapoint 线索会用于自动填充后续运行配置。</p>
-                            <div class="mb-3"><div class="fw-semibold mb-2">Profile Categories</div><div class="sh-chip-list" id="scriptHubCategoryChips"><span class="sh-chip">No profile columns</span></div></div>
-                            <div><div class="fw-semibold mb-2">Datapoint Hints</div><div class="sh-chip-list" id="scriptHubDatapointChips"><span class="sh-chip">No datapoint file detected</span></div></div>
-                        </div>
-                    </div>
-                    <div class="col-12" data-module="boxplot">
-                        <div class="sh-subpanel">
-                            <h3 class="sh-subpanel-title">Datapoint Columns</h3>
-                            <p class="sh-subpanel-copy">Detected columns from the Datapoint CSV. Select parameter range in the next step.</p>
-                            <div class="mb-3"><div class="fw-semibold mb-2">Available Columns (<span id="scriptHubColumnCount">0</span>)</div><div class="sh-chip-list" id="scriptHubColumnChips"><span class="sh-chip">No columns detected</span></div></div>
-                            <div id="scriptHubBpSuggestions" class="sh-hidden"><div class="fw-semibold mb-2">Suggested Ranges</div><p class="sh-muted small">Parameters: <span id="scriptHubBpParamSuggestion">-</span></p></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <section class="sh-stage sh-hidden" id="scriptHubConfigStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
-                    <div class="sh-stage-index">04</div>
+                    <div class="sh-stage-index">05</div>
                     <div>
                         <div class="sh-stage-title">运行配置</div>
                         <div class="sh-stage-meta">检测成功后自动带入推荐字段和默认参数，可直接使用或在运行前手动修改。</div>
@@ -1197,10 +1570,14 @@
             <div class="sh-stage-body">
                 <div class="sh-config-banner">
                     <div>
-                        <strong>自动填充，仍可编辑</strong>
-                        <p id="scriptHubConfigHint">字段与 Profile 设置会基于检测结果自动填充，之后可逐项修改。</p>
+                        <strong>手动检测，按需填充</strong>
+                        <p id="scriptHubConfigHint">路径已从数据选择阶段带入。点击 <b>检测数据</b> 按钮扫描文件并自动填充字段配置。</p>
                     </div>
-                    <span class="sh-auto-pill"><i class="bi bi-stars"></i> 智能识别已启用</span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <button class="btn btn-primary btn-sm" type="button" id="scriptHubInspectBtn">
+                            <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">检测数据</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="sh-config-grid">
@@ -1209,232 +1586,124 @@
                         <input type="text" class="form-control" id="scriptHubOutputName" placeholder="例如: project_db_alignment">
                     </div>
 
-                    <div class="sh-col-12" data-module="charts">
-                        <div class="sh-chart-flow" id="scriptHubChartFlow">
-                            <div class="alert alert-info mb-0" id="scriptHubChartSummary">选择 Charts 后会使用第一个 PEP 路径扫描链和样本。</div>
-
-                            <div class="sh-chart-step sh-chart-chain-step">
-                                <div class="sh-chart-step-head">
-                                    <div>
-                                        <h3 class="sh-chart-step-title">链选择</h3>
-                                        <p class="sh-chart-step-copy" id="scriptHubChartChainSummary">尚未扫描到链。</p>
-                                    </div>
-                                    <div class="sh-chart-toolbar">
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartSelectAllChains">全选链</button>
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartInvertChains">反选链</button>
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartClearChains">清空链</button>
-                                    </div>
+                    <div class="sh-col-12" data-module="db-alignment">
+                        <div class="sh-script-config">
+                            <section class="sh-script-section">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">01</span>
+                                    <strong>PEP 字段映射</strong>
+                                    <span>对应输入 pep 文件中的 CDR3 与 copy 列。</span>
                                 </div>
-                                <div class="sh-chart-grid" id="scriptHubChartChainList">
-                                    <div class="sh-selection-empty">等待扫描 PEP 路径。</div>
-                                </div>
-                            </div>
-
-                            <div class="sh-chart-step sh-chart-sample-step">
-                                <div class="sh-chart-step-head">
-                                    <div>
-                                        <h3 class="sh-chart-step-title">样本选择</h3>
-                                        <p class="sh-chart-step-copy" id="scriptHubChartSampleSummary">请先选择链。</p>
-                                    </div>
-                                    <div class="sh-chart-toolbar">
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartSelectAllSamples">全选样本</button>
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartInvertSamples">反选样本</button>
-                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartClearSamples">清空样本</button>
-                                        <button class="btn btn-primary btn-sm" type="button" id="scriptHubChartConfirmSamples">确认样本</button>
-                                    </div>
-                                </div>
-                                <div class="sh-chart-grid" id="scriptHubChartSampleList">
-                                    <div class="sh-selection-empty">等待扫描 PEP 路径。</div>
-                                </div>
-                            </div>
-
-                            <div class="sh-chart-confirmed-bar" id="scriptHubChartConfirmedBar">
-                                <div>
-                                    <strong>样本选择已确认</strong>
-                                    <span id="scriptHubChartConfirmedSummary">等待确认样本。</span>
-                                </div>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartEditSamples">修改选择</button>
-                            </div>
-
-                            <div class="sh-chart-step" id="scriptHubChartFieldStep" style="display:none;">
-                                <div class="sh-chart-step-head">
-                                    <div>
-                                        <h3 class="sh-chart-step-title">字段映射</h3>
-                                        <p class="sh-chart-step-copy">自动建议 CDR3、copy、V、J 字段，可在运行前调整。</p>
-                                    </div>
-                                    <button class="btn btn-primary btn-sm" type="button" id="scriptHubChartConfirmFields">确认字段</button>
-                                </div>
-                                <div class="sh-config-grid mb-3">
+                                <div class="sh-config-grid">
                                     <div class="sh-col-6">
-                                        <label for="scriptHubChartCdr3Column" class="form-label">CDR3 列</label>
-                                        <select class="form-select" id="scriptHubChartCdr3Column"></select>
+                                        <label for="scriptHubCdr3Column" class="form-label">CDR3 列</label>
+                                        <select class="form-select" id="scriptHubCdr3Column"></select>
                                     </div>
                                     <div class="sh-col-6">
-                                        <label for="scriptHubChartCopyColumn" class="form-label">Copy 列</label>
-                                        <select class="form-select" id="scriptHubChartCopyColumn"></select>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartVColumn" class="form-label">V 列</label>
-                                        <select class="form-select" id="scriptHubChartVColumn"></select>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartJColumn" class="form-label">J 列</label>
-                                        <select class="form-select" id="scriptHubChartJColumn"></select>
+                                        <label for="scriptHubCopyColumn" class="form-label">Copy 列</label>
+                                        <select class="form-select" id="scriptHubCopyColumn"></select>
                                     </div>
                                 </div>
-                                <div class="sh-chart-preview">
-                                    <table class="table table-sm table-striped align-middle" id="scriptHubChartPreviewTable">
-                                        <thead></thead>
-                                        <tbody></tbody>
-                                    </table>
-                                </div>
-                            </div>
+                            </section>
 
-                            <div class="sh-chart-step" id="scriptHubChartRunStep" style="display:none;">
-                                <div class="sh-chart-step-head">
-                                    <div>
-                                        <h3 class="sh-chart-step-title">图表配置</h3>
-                                        <p class="sh-chart-step-copy">选择需要生成的报告内容，然后直接在 Script Hub 内运行。</p>
+                            <section class="sh-script-section">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">02</span>
+                                    <strong>Profile 分类</strong>
+                                    <span>从当前选择的 Profile 文件中选择分类字段；Excel 可指定 sheet。</span>
+                                </div>
+                                <div class="sh-config-grid">
+                                    <div class="sh-col-8">
+                                        <label for="scriptHubProfilePath" class="form-label">Profile 路径</label>
+                                        <input type="text" class="form-control" id="scriptHubProfilePath" placeholder="使用数据选择中的 Profile 文件；留空时才自动搜索 Profile*.csv/xlsx">
                                     </div>
+                                    <div class="sh-col-4 sh-profile-sheet-wrap is-disabled" id="scriptHubProfileSheetWrap">
+                                        <label for="scriptHubProfileSheetSelect" class="form-label">Excel Sheet</label>
+                                        <select class="form-select" id="scriptHubProfileSheetSelect" disabled>
+                                            <option value="">CSV/TSV 无需选择</option>
+                                        </select>
+                                    </div>
+                                    <div class="sh-col-4">
+                                        <label for="scriptHubCategoryMode" class="form-label">分类方式</label>
+                                        <select class="form-select" id="scriptHubCategoryMode">
+                                            <option value="single">Single：字段独立输出</option>
+                                            <option value="cross">Cross：字段交叉组合</option>
+                                        </select>
+                                    </div>
+                                    <div class="sh-col-8">
+                                        <label for="scriptHubCategories" class="form-label">分类字段</label>
+                                        <select class="form-select d-none" id="scriptHubCategories" multiple size="5">
+                                            <option value="">等待检测 Profile 字段</option>
+                                        </select>
+                                        <div class="sh-category-picker">
+                                            <div>
+                                                <div class="form-text mt-0 mb-1">点击字段选择；可多选。</div>
+                                                <div class="sh-category-field-list" id="scriptHubCategoryFieldList">
+                                                    <div class="sh-category-preview-empty">等待检测 Profile 字段</div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div class="form-text mt-0 mb-1">已选字段的分类值预览。</div>
+                                                <div class="sh-category-preview" id="scriptHubCategoryValuePreview">
+                                                    <div class="sh-category-preview-empty">选择字段后展示分类值</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-text">Cross 会生成一个 cross_category 交叉分组列。</div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="sh-script-section">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">03</span>
+                                    <strong>Pathology 输出</strong>
+                                    <span>默认导出全部匹配到的 Pathology；仅需要限制时使用白名单。</span>
                                 </div>
                                 <div class="sh-config-grid">
                                     <div class="sh-col-12">
-                                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                                            <div>
-                                                <label class="form-label mb-0 fw-semibold">生成模块</label>
-                                                <div class="text-muted small" id="scriptHubChartModuleSummary">已选 3 / 3 个图表模块</div>
-                                            </div>
-                                            <div class="sh-chart-toolbar">
-                                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartSelectAllModules">全选模块</button>
-                                                <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartClearModules">清空模块</button>
-                                            </div>
-                                        </div>
-                                        <div class="module-option-grid">
-                                            <label class="module-option">
-                                                <input class="form-check-input mt-1" type="checkbox" id="scriptHubChartHeatmap" value="heatmap" checked>
-                                                <div>
-                                                    <div class="fw-semibold">Heatmap</div>
-                                                    <div class="text-muted small">生成相似性热图查看页和 ZIP。</div>
-                                                </div>
-                                                <span class="sh-chart-check" aria-hidden="true">✓</span>
+                                        <div class="sh-mode-grid" id="scriptHubPathologyModeGrid">
+                                            <label class="sh-mode-option is-selected" data-pathology-mode-card="all">
+                                                <input class="form-check-input" type="radio" name="scriptHubPathologyMode" id="scriptHubPathologyModeAll" value="all" checked>
+                                                <span>
+                                                    <strong>全部 Pathology</strong>
+                                                    <span>不填写白名单，按 VDJdb / McPAS-TCR 匹配结果中的所有 Pathology 分类导出。</span>
+                                                </span>
                                             </label>
-                                            <label class="module-option">
-                                                <input class="form-check-input mt-1" type="checkbox" id="scriptHubChartTreemap" value="treemap" checked>
-                                                <div>
-                                                    <div class="fw-semibold">Treemap</div>
-                                                    <div class="text-muted small">生成 treemap 结果，或仅导出 TopClone CSV。</div>
-                                                </div>
-                                                <span class="sh-chart-check" aria-hidden="true">✓</span>
-                                            </label>
-                                            <label class="module-option">
-                                                <input class="form-check-input mt-1" type="checkbox" id="scriptHubChartChord" value="chord" checked>
-                                                <div>
-                                                    <div class="fw-semibold">Chord</div>
-                                                    <div class="text-muted small">生成 chord 查看页和 ZIP。</div>
-                                                </div>
-                                                <span class="sh-chart-check" aria-hidden="true">✓</span>
+                                            <label class="sh-mode-option" data-pathology-mode-card="allowlist">
+                                                <input class="form-check-input" type="radio" name="scriptHubPathologyMode" id="scriptHubPathologyModeAllowlist" value="allowlist">
+                                                <span>
+                                                    <strong>白名单</strong>
+                                                    <span>只导出下方列出的 Pathology；每行一个值，也支持逗号分隔。</span>
+                                                </span>
                                             </label>
                                         </div>
-                                        <div class="text-muted small mt-2">
-                                            只会运行当前勾选的图表模块，未勾选模块不会提交到任务中。
-                                        </div>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartHeatmapColorScheme" class="form-label">Heatmap 配色</label>
-                                        <select class="form-select" id="scriptHubChartHeatmapColorScheme">
-                                            <option value="viridis">Viridis</option>
-                                            <option value="coolwarm">Coolwarm</option>
-                                            <option value="RdYlBu">RdYlBu</option>
-                                            <option value="Blues">Blues</option>
-                                            <option value="Greens">Greens</option>
-                                        </select>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <div class="form-check form-switch mt-4">
-                                            <input class="form-check-input" type="checkbox" id="scriptHubChartHeatmapAnnotation" checked>
-                                            <label class="form-check-label" for="scriptHubChartHeatmapAnnotation">Heatmap 显示数值</label>
-                                        </div>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartTreemapMinCopyDefault" class="form-label">Treemap 默认最小 copy</label>
-                                        <input type="number" class="form-control" id="scriptHubChartTreemapMinCopyDefault" value="30" min="0">
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartTreemapTopN" class="form-label">Treemap Top N</label>
-                                        <input type="number" class="form-control" id="scriptHubChartTreemapTopN" value="100" min="1">
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartTreemapLayoutMode" class="form-label">Treemap 布局</label>
-                                        <select class="form-select" id="scriptHubChartTreemapLayoutMode">
-                                            <option value="tetris">Tetris</option>
-                                            <option value="qr">QR</option>
-                                        </select>
-                                    </div>
-                                    <div class="sh-col-6">
-                                        <label for="scriptHubChartTreemapCanvasShape" class="form-label">Canvas Shape</label>
-                                        <select class="form-select" id="scriptHubChartTreemapCanvasShape">
-                                            <option value="square">square</option>
-                                            <option value="portrait">portrait</option>
-                                        </select>
                                     </div>
                                     <div class="sh-col-12">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" id="scriptHubChartTreemapTopcloneOnly">
-                                            <label class="form-check-label" for="scriptHubChartTreemapTopcloneOnly">Treemap 仅导出 TopClone CSV</label>
-                                        </div>
+                                        <label for="scriptHubPathologyValues" class="form-label">Pathology 白名单</label>
+                                        <textarea class="form-control" id="scriptHubPathologyValues" rows="3" placeholder="选择“白名单”后填写；默认留空导出全部 Pathology" disabled></textarea>
+                                        <div class="form-text">全部模式会生成 alignment/&lt;Pathology&gt;/ 和 specify_ratio__&lt;Pathology&gt;.csv。</div>
                                     </div>
                                 </div>
-                            </div>
+                            </section>
                         </div>
                     </div>
 
-                    <div class="sh-col-6" data-module="db-alignment">
-                        <label for="scriptHubCdr3Column" class="form-label">CDR3 列</label>
-                        <select class="form-select" id="scriptHubCdr3Column"></select>
-                    </div>
-
-                    <div class="sh-col-6" data-module="db-alignment">
-                        <label for="scriptHubCopyColumn" class="form-label">Copy 列</label>
-                        <select class="form-select" id="scriptHubCopyColumn"></select>
-                    </div>
-
-                    <div class="sh-col-12" data-module="db-alignment">
-                        <label for="scriptHubProfilePath" class="form-label">Profile 路径（可选）</label>
-                        <input type="text" class="form-control" id="scriptHubProfilePath" placeholder="留空时优先自动搜索 Profile*.csv">
-                    </div>
-
-                    <div class="sh-col-12" data-module="db-alignment">
-                        <label for="scriptHubCategories" class="form-label">合并分类列（逗号分隔）</label>
-                        <input type="text" class="form-control" id="scriptHubCategories" placeholder="therapy,disease">
-                    </div>
-
-                    <div class="sh-col-5" data-module="db-alignment">
-                        <div class="form-check form-switch mt-4">
-                            <input class="form-check-input" type="checkbox" id="scriptHubPathologyFilter">
-                            <label class="form-check-label" for="scriptHubPathologyFilter">启用 Pathology 过滤</label>
-                        </div>
-                    </div>
-
-                    <div class="sh-col-7" data-module="db-alignment">
-                        <label for="scriptHubPathologyValues" class="form-label">Pathology 白名单</label>
-                        <textarea class="form-control" id="scriptHubPathologyValues" rows="3" placeholder="每行一个值，或逗号分隔"></textarea>
-                    </div>
-
-                    <div class="sh-col-12" data-module="boxplot">
+                    <div class="sh-col-12" data-module="profile">
                         <label class="form-label">Datapoint 文件</label>
                         <select class="form-select" id="scriptHubBpDatapointPath">
                             <option value="">-- Select a datapoint file --</option>
                         </select>
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot">
+                    <div class="sh-col-12" data-module="profile">
                         <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" id="scriptHubBoxplotGroupToggle" checked>
                             <label class="form-check-label" for="scriptHubBoxplotGroupToggle">Group by fields</label>
                         </div>
                         <div id="scriptHubBoxplotGroupContainer">
-                            <label class="form-label small">Group Fields <span class="text-muted">(click to select)</span></label>
-                            <div class="sh-chip-list" id="scriptHubBoxplotGroupChips"></div>
+                            <label for="scriptHubProfileGroupFields" class="form-label small">Group Fields <span class="text-muted">(Ctrl/Cmd+Click to select multiple)</span></label>
+                            <select class="form-select" id="scriptHubProfileGroupFields" multiple size="6"></select>
                             <div id="scriptHubBoxplotFieldOrderGroups" class="mt-2"></div>
                         </div>
                     </div>
@@ -1459,8 +1728,22 @@
                     </div>
 
                     <div class="sh-col-12" data-module="pep-analysis">
-                        <label for="scriptHubPepGroupFields" class="form-label small">Group Fields <span class="text-muted">(Ctrl/Cmd+Click to select multiple, each analyzed independently)</span></label>
-                        <select class="form-select" id="scriptHubPepGroupFields" multiple size="3"></select>
+                        <label for="scriptHubPepGroupFields" class="form-label small">Group Fields <span class="text-muted">(点击字段选择；可多选。右侧展示每个字段的分类值。)</span></label>
+                        <select class="form-select d-none" id="scriptHubPepGroupFields" multiple size="3"></select>
+                        <div class="sh-category-picker">
+                            <div>
+                                <div class="form-text mt-0 mb-1">点击字段选择；可多选。</div>
+                                <div class="sh-category-field-list" id="scriptHubPepGroupFieldList">
+                                    <div class="sh-category-preview-empty">等待 Profile 检测</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="form-text mt-0 mb-1">已选字段的分类值预览。</div>
+                                <div class="sh-category-preview" id="scriptHubPepGroupValuePreview">
+                                    <div class="sh-category-preview-empty">选择字段后展示分类值</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="sh-col-6" data-module="pep-analysis">
@@ -1473,7 +1756,138 @@
                         <input type="number" class="form-control" id="scriptHubPepMinSample" value="3" step="1" min="1" max="100">
                     </div>
 
-                    <div class="sh-col-12" data-module="boxplot">
+                    <!-- PEP共享分析 Pipeline 步骤选择 -->
+                    <div class="sh-col-12" data-module="pep-analysis">
+                        <div class="sh-pipeline-section" id="scriptHubPepPipelineSection">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <div class="fw-semibold">PEP共享分析 — Pipeline 步骤</div>
+                                    <div class="text-muted small">步骤 2–4 为必须执行。步骤 5–8 为可选，支持并行执行。</div>
+                                </div>
+                                <div class="sh-chart-toolbar">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubPepSelectAllOptional">全选可选步骤</button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubPepClearOptional">清空可选步骤</button>
+                                </div>
+                            </div>
+                            <div class="sh-pipeline-steps">
+                                <!-- Step 2: PEP Shared Analysis -->
+                                <div class="sh-pipeline-step sh-pipeline-step-mandatory">
+                                    <div class="sh-pipeline-step-marker">2</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">PEP共享分析 <span class="badge bg-danger ms-1" style="font-size:.64rem;">必须</span></div>
+                                        <div class="sh-pipeline-step-desc">PEP 共享矩阵 + V/J/VJ usage 矩阵生成（步骤 2 → 步骤 3+4 并行前必须完成）</div>
+                                    </div>
+                                    <div class="sh-pipeline-step-status"><i class="bi bi-lock-fill"></i></div>
+                                </div>
+
+                                <!-- Step 3+4: Category Annotation (parallel) -->
+                                <div class="sh-pipeline-step sh-pipeline-step-mandatory">
+                                    <div class="sh-pipeline-step-marker">3+4</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">分类标注 <span class="badge bg-danger ms-1" style="font-size:.64rem;">必须</span> <span class="badge bg-info ms-1" style="font-size:.64rem;">并行</span></div>
+                                        <div class="sh-pipeline-step-desc">将 Profile 分类信息标注到共享矩阵和 usage 矩阵（并行执行，结果缓存到项目）</div>
+                                    </div>
+                                    <div class="sh-pipeline-step-status"><i class="bi bi-lock-fill"></i></div>
+                                </div>
+
+                                <!-- Step 5: Usage Heatmap -->
+                                <div class="sh-pipeline-step sh-pipeline-step-optional" data-pipeline-step="5">
+                                    <div class="sh-pipeline-step-marker">5</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">使用频率热图 <span class="badge bg-success ms-1" style="font-size:.64rem;">可选</span></div>
+                                        <div class="sh-pipeline-step-desc">Mann-Whitney U 检验 + V/J/VJ usage 差异热图（步骤 3+4 完成后并行执行）</div>
+                                    </div>
+                                    <label class="sh-pipeline-step-toggle">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubPepStep5" value="5" checked>
+                                    </label>
+                                </div>
+
+                                <!-- Step 6: CDR3 Classification -->
+                                <div class="sh-pipeline-step sh-pipeline-step-optional" data-pipeline-step="6">
+                                    <div class="sh-pipeline-step-marker">6</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">CDR3分类统计 <span class="badge bg-success ms-1" style="font-size:.64rem;">可选</span></div>
+                                        <div class="sh-pipeline-step-desc">CDR3 分类与比例统计（步骤 3+4 完成后并行执行）</div>
+                                    </div>
+                                    <label class="sh-pipeline-step-toggle">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubPepStep6" value="6" checked>
+                                    </label>
+                                </div>
+
+                                <!-- Step 7: Arrange Heatmap -->
+                                <div class="sh-pipeline-step sh-pipeline-step-optional" data-pipeline-step="7">
+                                    <div class="sh-pipeline-step-marker">7</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">排列热图 <span class="badge bg-success ms-1" style="font-size:.64rem;">可选</span></div>
+                                        <div class="sh-pipeline-step-desc">CDR3 排列热图可视化（步骤 3+4 完成后并行执行）</div>
+                                    </div>
+                                    <label class="sh-pipeline-step-toggle">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubPepStep7" value="7" checked>
+                                    </label>
+                                </div>
+
+                                <!-- Step 8: Plot Heatmap -->
+                                <div class="sh-pipeline-step sh-pipeline-step-optional" data-pipeline-step="8">
+                                    <div class="sh-pipeline-step-marker">8</div>
+                                    <div class="sh-pipeline-step-body">
+                                        <div class="sh-pipeline-step-title">可视化热图 <span class="badge bg-success ms-1" style="font-size:.64rem;">可选</span> <span class="badge bg-warning text-dark ms-1" style="font-size:.64rem;">新增</span></div>
+                                        <div class="sh-pipeline-step-desc">按链唯一 CDR3 热图 + 综合摘要热图（步骤 3+4 完成后并行执行）</div>
+                                    </div>
+                                    <label class="sh-pipeline-step-toggle">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubPepStep8" value="8" checked>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-12" data-module="pgen-analysis">
+                        <div class="sh-script-section sh-enterprise-module">
+                            <div class="sh-script-section-head">
+                                <span class="sh-script-step">PG</span>
+                                <strong>Pgen / SoNNia 分析</strong>
+                                <span>参考 Pgen_260213：按样本和链计算 CDR3 Pgen、Q、Ppost，并输出 Pgen_mean.csv。</span>
+                            </div>
+                            <div class="sh-config-grid">
+                                <div class="sh-col-6">
+                                    <label for="scriptHubPgenDataDir" class="form-label fw-semibold">PEP 数据目录</label>
+                                    <input type="text" class="form-control" id="scriptHubPgenDataDir" readonly placeholder="从项目注册 PEP 资产自动获取">
+                                </div>
+                                <div class="sh-col-6">
+                                    <label for="scriptHubPgenProfilePath" class="form-label fw-semibold">Profile 文件</label>
+                                    <input type="text" class="form-control" id="scriptHubPgenProfilePath" readonly placeholder="从项目注册 Profile 资产自动获取">
+                                </div>
+                                <div class="sh-col-12">
+                                    <label class="form-label fw-semibold">可运行链</label>
+                                    <div class="sh-chip-list sh-chip-list-strong" id="scriptHubPgenChains">
+                                        <span class="sh-chip">等待检测 PEP 文件</span>
+                                    </div>
+                                    <div class="form-text">TRD / TRG 与参考脚本保持一致，默认跳过；其余链可点击启用或取消。</div>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubPgenSampleCol" class="form-label">Profile 样本列</label>
+                                    <select class="form-select" id="scriptHubPgenSampleCol">
+                                        <option value="sample">sample</option>
+                                    </select>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubPgenSpecies" class="form-label">Species / 模型前缀</label>
+                                    <select class="form-select" id="scriptHubPgenSpecies">
+                                        <option value="human">human</option>
+                                        <option value="mouse">mouse</option>
+                                    </select>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label class="form-label">运行环境</label>
+                                    <div class="alert alert-secondary mb-0 py-2" id="scriptHubPgenDependency" style="display:none;">
+                                        等待检测 SoNNia 环境。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-12" data-module="profile umap volcano umapin">
                         <label class="form-label fw-semibold">Parameter Range</label>
                         <div class="row g-2">
                             <div class="col-6">
@@ -1487,7 +1901,7 @@
                         </div>
                     </div>
 
-                    <div class="sh-col-6" data-module="boxplot">
+                    <div class="sh-col-6" data-module="profile umap volcano">
                         <label for="scriptHubPvalueThreshold" class="form-label">P-value Threshold</label>
                         <input type="number" class="form-control" id="scriptHubPvalueThreshold" value="0.05" step="0.01" min="0" max="1">
                     </div>
@@ -1495,17 +1909,11 @@
                     <!-- TopClone config -->
                     <div class="sh-col-6" data-module="topclone">
                         <label for="scriptHubTcPepDataPath" class="form-label">Pep Data Path</label>
-                        <input type="text" class="form-control" id="scriptHubTcPepDataPath" placeholder="e.g. /data/pep_data">
+                        <input type="text" class="form-control" id="scriptHubTcPepDataPath" readonly placeholder="从数据选择阶段获取">
                     </div>
                     <div class="sh-col-6" data-module="topclone">
-                        <div class="form-check form-switch mt-4">
-                            <input class="form-check-input" type="checkbox" id="scriptHubTcSameDirToggle" checked>
-                            <label class="form-check-label" for="scriptHubTcSameDirToggle">Profile file in same directory</label>
-                        </div>
-                    </div>
-                    <div class="sh-col-6" data-module="topclone" id="scriptHubTcDatapointContainer" style="display:none;">
-                        <label for="scriptHubTcDatapointPath" class="form-label">Datapoint Path (Profile_All.csv)</label>
-                        <input type="text" class="form-control" id="scriptHubTcDatapointPath" placeholder="e.g. /data/Profile_All.csv">
+                        <label for="scriptHubTcDatapointPath" class="form-label">Profile File</label>
+                        <input type="text" class="form-control" id="scriptHubTcDatapointPath" readonly placeholder="从数据选择阶段获取">
                     </div>
                     <div class="sh-col-6" data-module="topclone">
                         <div class="form-check form-switch mt-4">
@@ -1521,6 +1929,7 @@
                         <label for="scriptHubTcGroupField" class="form-label">Group Field (for BoxPlot)</label>
                         <select class="form-select" id="scriptHubTcGroupField"></select>
                     </div>
+                    <div class="sh-col-12" data-module="topclone" id="scriptHubTcGroupValuesPreview" style="display:none;"></div>
 
                     <!-- UMAP config -->
                     <div class="sh-col-6" data-module="umap">
@@ -1530,6 +1939,24 @@
                     <div class="sh-col-6" data-module="umap">
                         <label for="scriptHubUmapMinDist" class="form-label">min_dist</label>
                         <input type="number" class="form-control" id="scriptHubUmapMinDist" value="0.01" step="0.01" min="0" max="1">
+                    </div>
+
+                    <!-- PEP共享分析缓存数据（火山图 / UMAPin 共用） -->
+                    <div class="sh-col-12 sh-cached-usage-config-section" data-module="volcano umapin ml-analysis" id="scriptHubCachedUsageConfigSection" style="display:none;">
+                        <div class="sh-data-source-section">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <div class="fw-semibold">PEP共享分析 — VJ Usage 缓存数据</div>
+                                    <div class="text-muted small">从项目 PEP共享分析 结果中选择 VJ usage 数据源。</div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" id="scriptHubRefreshCachedUsageBtn" title="刷新缓存数据列表">
+                                    <i class="bi bi-arrow-repeat me-1"></i>刷新
+                                </button>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2" id="scriptHubCachedUsageConfigCards">
+                                <span class="text-muted small">点击上方分析模块后加载缓存数据列表。</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Volcano config -->
@@ -1565,9 +1992,73 @@
                         <label for="scriptHubUmapinMinDist" class="form-label">min_dist</label>
                         <input type="number" class="form-control" id="scriptHubUmapinMinDist" value="0.01" step="0.01" min="0" max="1">
                     </div>
+
+                    <!-- Machine learning config -->
+                    <div class="sh-col-12" data-module="ml-analysis">
+                        <div class="sh-script-section">
+                            <div class="sh-script-section-head">
+                                <span class="sh-script-step">ML</span>
+                                <strong>随机森林机器学习分析</strong>
+                                <span>参考 ML_260526：特征筛选、交叉验证、混淆矩阵、重要性和 ROC。</span>
+                            </div>
+                            <div class="sh-config-grid">
+                                <div class="sh-col-6">
+                                    <label for="scriptHubMlMode" class="form-label">特征来源</label>
+                                    <select class="form-select" id="scriptHubMlMode">
+                                        <option value="profile">Profile 特征区间</option>
+                                        <option value="vj-usage">VJ usage 特征区间</option>
+                                    </select>
+                                </div>
+                                <div class="sh-col-6" id="scriptHubMlProfilePathBlock">
+                                    <label for="scriptHubMlProfilePath" class="form-label">Profile 文件</label>
+                                    <input type="text" class="form-control" id="scriptHubMlProfilePath" readonly>
+                                </div>
+                                <div class="sh-col-12">
+                                    <label for="scriptHubMlUsagePath" class="form-label">VJ usage 数据路径</label>
+                                    <input type="text" class="form-control" id="scriptHubMlUsagePath" readonly placeholder="选择 VJ usage 缓存后自动填充；Profile 模式可留空">
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlSampleCol" class="form-label">样本列</label>
+                                    <select class="form-select" id="scriptHubMlSampleCol"></select>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlLabelCol" class="form-label">分类标签列</label>
+                                    <select class="form-select" id="scriptHubMlLabelCol"></select>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlFilterCol" class="form-label">过滤字段（可选）</label>
+                                    <select class="form-select" id="scriptHubMlFilterCol"></select>
+                                </div>
+                                <div class="sh-col-6">
+                                    <label for="scriptHubMlFilterValue" class="form-label">过滤值（可选）</label>
+                                    <input type="text" class="form-control" id="scriptHubMlFilterValue" placeholder="例如: control / before">
+                                </div>
+                                <div class="sh-col-3" id="scriptHubMlParamBeginBlock">
+                                    <label for="scriptHubMlParamBegin" class="form-label">参数起始列</label>
+                                    <select class="form-select" id="scriptHubMlParamBegin"></select>
+                                </div>
+                                <div class="sh-col-3" id="scriptHubMlParamOverBlock">
+                                    <label for="scriptHubMlParamOver" class="form-label">参数结束列</label>
+                                    <select class="form-select" id="scriptHubMlParamOver"></select>
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlThreshold" class="form-label">特征筛选阈值</label>
+                                    <input type="number" class="form-control" id="scriptHubMlThreshold" value="0.003" min="0" step="0.001">
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlCvSplits" class="form-label">CV folds</label>
+                                    <input type="number" class="form-control" id="scriptHubMlCvSplits" value="3" min="2" max="10">
+                                </div>
+                                <div class="sh-col-4">
+                                    <label for="scriptHubMlRocCvSplits" class="form-label">ROC CV folds</label>
+                                    <input type="number" class="form-control" id="scriptHubMlRocCvSplits" value="7" min="2" max="20">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="sh-subpanel mb-3" data-module="db-alignment">
+                <div class="sh-subpanel mb-3 d-none" data-module="db-alignment" aria-hidden="true">
                     <h3 class="sh-subpanel-title">Preview & Recognition Check</h3>
                     <p class="sh-preview-meta" id="scriptHubPreviewFileMeta">等待检测 preview 文件。</p>
                     <div class="sh-table-shell">
@@ -1589,7 +2080,7 @@
         <section class="sh-stage sh-hidden" id="scriptHubResultStage">
             <div class="sh-stage-header">
                 <div class="sh-stage-left">
-                    <div class="sh-stage-index">05</div>
+                    <div class="sh-stage-index">06</div>
                     <div>
                         <div class="sh-stage-title">分析结果</div>
                         <div class="sh-stage-meta" id="scriptHubResultMeta">任务完成后在这里查看输出、下载结果。</div>
@@ -1598,107 +2089,13 @@
                 <div class="sh-stage-status" id="scriptHubResultState">等待中</div>
             </div>
             <div class="sh-stage-body">
-                <div class="alert alert-success mb-3" id="scriptHubResultSummary">DB alignment completed.</div>
-                <div class="sh-result-actions mb-3" data-module="db-alignment">
-                    <button class="btn btn-primary" type="button" id="scriptHubOpenViewerBtn">打开 Viewer</button>
-                    <button class="btn btn-outline-primary" type="button" id="scriptHubOpenZipBtn">下载 ZIP</button>
-                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenMetadataBtn">Metadata</button>
-                    <button class="btn btn-outline-success" type="button" id="scriptHubSaveDbResultBtn" style="display:none;">
-                        <i class="bi bi-folder-symlink me-1"></i>Save to Project
-                    </button>
+                <div class="alert alert-success mb-3" id="scriptHubResultSummary">分析完成。</div>
+                <div class="sh-result-actions mb-3" id="scriptHubResultActions">
+                    <button class="btn btn-primary" type="button" id="scriptHubOpenViewerBtn" style="display:none;">打开 Viewer</button>
+                    <button class="btn btn-outline-primary" type="button" id="scriptHubOpenZipBtn" style="display:none;">下载 ZIP</button>
+                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenMetadataBtn" style="display:none;">Metadata</button>
                 </div>
-                <div class="sh-result-actions mb-3" data-module="pep-analysis">
-                    <button class="btn btn-outline-primary" type="button" id="scriptHubOpenPepZipBtn">下载 ZIP</button>
-                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenPepMetadataBtn">Metadata</button>
-                    <button class="btn btn-outline-success" type="button" id="scriptHubSaveToProjectBtn" style="display:none;">
-                        <i class="bi bi-folder-symlink me-1"></i>Save to Project
-                    </button>
-                </div>
-                <div data-module="charts" class="mb-3">
-                    <div class="sh-result-actions mb-3">
-                        <button class="btn btn-primary" type="button" id="scriptHubOpenChartViewerBtn">打开总览页</button>
-                        <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenChartMetadataBtn">Metadata</button>
-                    </div>
-                    <div class="sh-chart-results" id="scriptHubChartResults"></div>
-                </div>
-                <div data-module="pep-analysis" id="scriptHubPepGallery" class="mb-3">
-                    <div class="fw-semibold mb-2">Results</div>
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-auto">
-                            <label for="scriptHubPepGroupSelect" class="form-label small">Group Field</label>
-                            <select class="form-select" id="scriptHubPepGroupSelect">
-                                <option value="">-- Select --</option>
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <label for="scriptHubPepChainSelect" class="form-label small">Chain</label>
-                            <select class="form-select" id="scriptHubPepChainSelect">
-                                <option value="">-- Select --</option>
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <label for="scriptHubPepResultType" class="form-label small">Result Type</label>
-                            <select class="form-select" id="scriptHubPepResultType">
-                                <option value="">-- Select --</option>
-                                <option value="shared">Shared CDR3 Matrix</option>
-                                <option value="usage">V/J/VJ Usage</option>
-                                <option value="heatmap">Usage Heatmaps</option>
-                                <option value="classification">CDR3 Classification</option>
-                                <option value="arrange">Arrange Heatmap</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2" id="scriptHubPepResultLinks"></div>
-                    <div id="scriptHubPepResultImage" class="mt-2">
-                        <p class="text-muted small">Select result type and chain above to view.</p>
-                    </div>
-                </div>
-                <div class="sh-result-actions mb-3" data-module="boxplot">
-                    <button class="btn btn-outline-secondary" type="button" id="scriptHubOpenBpMetadataBtn">Metadata</button>
-                </div>
-                <div data-module="boxplot" id="scriptHubBoxPlotGallery" class="mb-3">
-                    <div class="fw-semibold mb-2">BoxPlots</div>
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-auto">
-                            <label for="scriptHubBoxPlotGroupSelect" class="form-label small">Group Type</label>
-                            <select class="form-select" id="scriptHubBoxPlotGroupSelect"></select>
-                        </div>
-                        <div class="col-auto">
-                            <label for="scriptHubBoxPlotParamSelect" class="form-label small">Parameter</label>
-                            <select class="form-select" id="scriptHubBoxPlotParamSelect"></select>
-                        </div>
-                    </div>
-                    <div id="scriptHubBoxPlotSingleImage">
-                        <p class="text-muted small">Select a parameter above to view its boxplot.</p>
-                    </div>
-                </div>
-                <div data-module="boxplot" class="mb-3">
-                    <a class="btn btn-primary" type="button" id="scriptHubOpenBpZipBtn" style="display:none;">
-                        <i class="bi bi-file-earmark-zip me-1"></i>Download ZIP (all results)
-                    </a>
-                </div>
-                <div data-module="topclone" class="mb-3">
-                    <div class="fw-semibold mb-2">TopClone Output</div>
-                    <div id="scriptHubTcTopcloneCsv"></div>
-                    <div class="small text-muted mt-1" id="scriptHubTcPerSampleCount"></div>
-                </div>
-                <div data-module="umap" class="mb-3">
-                    <a class="btn btn-primary" type="button" id="scriptHubOpenUmapZipBtn" style="display:none;">
-                        <i class="bi bi-file-earmark-zip me-1"></i>Download ZIP (all UMAP results)
-                    </a>
-                    <div class="mt-3" id="scriptHubUmapImages"></div>
-                </div>
-                <div data-module="volcano" class="mb-3">
-                    <div class="fw-semibold mb-2">火山图结果</div>
-                    <div id="scriptHubVolcanoGallery" class="row g-2"></div>
-                    <div id="scriptHubVolcanoCsvLinks" class="d-flex flex-wrap gap-2 mt-2"></div>
-                </div>
-                <div data-module="umapin" class="mb-3">
-                    <div class="fw-semibold mb-2">UMAPin 结果</div>
-                    <div id="scriptHubUmapinImages" class="row g-2"></div>
-                    <div id="scriptHubUmapinCsvLinks" class="d-flex flex-wrap gap-2 mt-2"></div>
-                </div>
-                <div class="sh-log" id="scriptHubResultLog" data-module="db-alignment pep-analysis boxplot topclone umap volcano umapin">等待结果。</div>
+                <div class="sh-log" id="scriptHubResultLog">等待结果。</div>
             </div>
         </section>
     </div>
@@ -1722,11 +2119,11 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-3"></script>
+<script src="{{ url_for('static', filename='js/directory_browser.js') }}?v=20260602-4"></script>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260602-3"></script>
+<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260605-14"></script>
 <script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined') { console.error('DirectoryBrowser not loaded'); return; }
