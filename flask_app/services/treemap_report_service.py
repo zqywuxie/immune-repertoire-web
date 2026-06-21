@@ -1,31 +1,24 @@
 """
 Treemap report service.
 
-Generates HTML and PNG outputs per sample under:
+Generates PNG outputs per sample under:
 <results_root>/treemap_report/<job_id>/<sample>/
   individual_treemaps/
-    HTML/
     PNG/
   7chain_treemaps/
-    HTML/
     PNG/
 """
 
 from __future__ import annotations
 
 import csv
-import html
 import io
 import json
 import logging
-import math
 import os
 import re
-import subprocess
-import tempfile
 import uuid
 import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -35,13 +28,10 @@ from PIL import Image
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.auto_heatmap_service import get_auto_heatmap_service
+from flask_app.services.treemap_plotter import generate_treemap
 from flask_app.services.treemap_renderer import (
     detect_columns,
     detect_dialect,
-    escape_html_text,
-    HTML_TEMPLATE,
-    load_d3_script_tag,
-    make_title,
     open_text_file,
     read_repertoire,
     read_repertoire_rows,
@@ -66,94 +56,6 @@ CHAIN_CELL_MAP = {
     "TRD": "T cell",
     "TRG": "T cell",
 }
-OVERVIEW_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>__TITLE__</title>
-  <style>
-    :root{
-      --bg:#080808;
-      --line:#000000;
-      --label-bg:rgba(0,0,0,.72);
-      --label-text:#ffffff;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      background:var(--bg);
-      color:#fff;
-      font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    }
-    .page{
-      min-height:100vh;
-      padding:12px;
-      background:#000;
-    }
-    .rows{
-      display:grid;
-      gap:10px;
-      align-content:start;
-      background:#000;
-    }
-    .row{
-      display:grid;
-      gap:10px;
-    }
-    .row.top{grid-template-columns:__TOP_GRID__;}
-    .row.bottom{grid-template-columns:__BOTTOM_GRID__;}
-    .panel{
-      position:relative;
-      aspect-ratio:1 / 1;
-      background:#fff;
-      overflow:hidden;
-      border:1px solid #000;
-    }
-    .panel iframe{
-      width:100%;
-      height:100%;
-      border:0;
-      display:block;
-      background:#fff;
-    }
-    .panel .label{
-      position:absolute;
-      top:8px;
-      left:8px;
-      z-index:2;
-      padding:4px 8px;
-      border-radius:999px;
-      background:var(--label-bg);
-      color:var(--label-text);
-      font-size:12px;
-      font-weight:700;
-      letter-spacing:.02em;
-    }
-    @media (max-width:1100px){
-      .row.top,.row.bottom{grid-template-columns:repeat(2, minmax(0, 1fr));}
-    }
-    @media (max-width:700px){
-      .row.top,.row.bottom{grid-template-columns:1fr;}
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="rows">
-      <div class="row top">
-        __TOP_PANELS__
-      </div>
-      <div class="row bottom">
-        __BOTTOM_PANELS__
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-
 @dataclass
 class TreemapReportResult:
     job_id: str
@@ -171,8 +73,6 @@ class TreemapReportService:
         self.results_root = Path(results_root).resolve()
         self.results_root.mkdir(parents=True, exist_ok=True)
         self.auto_heatmap_service = get_auto_heatmap_service()
-        self._browser_path: Optional[Path] = None
-        self._d3_script_tag: Optional[str] = None
 
     @staticmethod
     def _sanitize_job_id(raw_name: Optional[str]) -> str:
@@ -265,100 +165,12 @@ class TreemapReportService:
             current = next_pos
         return boxes
 
-    @staticmethod
-    def _build_overview_html(
-        sample_name: str,
-        chain_html_paths: Dict[str, Path],
-        overview_html_dir: Path,
-    ) -> str:
-        safe_sample_name = html.escape(sample_name)
-        top_items: List[str] = []
-        bottom_items: List[str] = []
-        for chain in OVERVIEW_ORDER_TCR:
-            html_path = chain_html_paths.get(chain)
-            if not html_path:
-                continue
-            relative_ref = Path(os.path.relpath(html_path, start=overview_html_dir)).as_posix()
-            top_items.append(
-                f'''<section class="panel {chain.lower()}">
-  <div class="label">{chain}</div>
-  <iframe src="{relative_ref}?mode=panel" loading="lazy" title="{safe_sample_name} {chain}"></iframe>
-</section>'''
-            )
-        for chain in OVERVIEW_ORDER_BCR:
-            html_path = chain_html_paths.get(chain)
-            if not html_path:
-                continue
-            relative_ref = Path(os.path.relpath(html_path, start=overview_html_dir)).as_posix()
-            bottom_items.append(
-                f'''<section class="panel {chain.lower()}">
-  <div class="label">{chain}</div>
-  <iframe src="{relative_ref}?mode=panel" loading="lazy" title="{safe_sample_name} {chain}"></iframe>
-</section>'''
-            )
-
-        return (
-            OVERVIEW_TEMPLATE
-            .replace("__TITLE__", f"{safe_sample_name} All Chains Treemap")
-            .replace("__TOP_GRID__", TreemapReportService._weights_to_grid_template(OVERVIEW_ORDER_TCR, TOP_CHAIN_WEIGHTS))
-            .replace("__BOTTOM_GRID__", TreemapReportService._weights_to_grid_template(OVERVIEW_ORDER_BCR, BOTTOM_CHAIN_WEIGHTS))
-            .replace("__TOP_PANELS__", "\n".join(top_items))
-            .replace("__BOTTOM_PANELS__", "\n".join(bottom_items))
-        )
-
-    @staticmethod
-    def _build_overview_export_html(chain_html_paths: Dict[str, Path], export_html_dir: Path) -> str:
-        blocks: List[str] = []
-        for chain in OVERVIEW_ORDER_TCR:
-            html_path = chain_html_paths.get(chain)
-            if not html_path:
-                continue
-            ref = Path(os.path.relpath(html_path, start=export_html_dir)).as_posix()
-            blocks.append(f'<section class="panel tcr"><iframe src="{ref}?mode=panel-fill" title="{chain}"></iframe></section>')
-        top_row = "\n".join(blocks)
-
-        blocks = []
-        for chain in OVERVIEW_ORDER_BCR:
-            html_path = chain_html_paths.get(chain)
-            if not html_path:
-                continue
-            ref = Path(os.path.relpath(html_path, start=export_html_dir)).as_posix()
-            blocks.append(f'<section class="panel bcr"><iframe src="{ref}?mode=panel-fill" title="{chain}"></iframe></section>')
-        bottom_row = "\n".join(blocks)
-
-        return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Treemap PNG Export</title>
-  <style>
-    *{{box-sizing:border-box}}
-    html,body{{margin:0;width:1440px;height:1440px;overflow:hidden;background:#ffffff}}
-    .page{{width:100%;height:100%;background:#ffffff;display:grid;grid-template-rows:320px minmax(0,1fr)}}
-    .row{{display:grid;gap:0;height:100%;align-items:stretch}}
-    .row.top{{grid-template-columns:{TreemapReportService._weights_to_grid_template(OVERVIEW_ORDER_TCR, TOP_CHAIN_WEIGHTS)}}}
-    .row.bottom{{grid-template-columns:{TreemapReportService._weights_to_grid_template(OVERVIEW_ORDER_BCR, BOTTOM_CHAIN_WEIGHTS)}}}
-    .panel{{height:100%;min-height:0;border:2px solid #000;background:#fff;overflow:hidden}}
-    .panel iframe{{width:100%;height:100%;border:0;display:block;background:#fff}}
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="row top">{top_row}</div>
-    <div class="row bottom">{bottom_row}</div>
-  </div>
-</body>
-</html>"""
-
     def _sample_dirs(self, output_base: Path, sample_safe_name: str) -> Dict[str, Path]:
         sample_root = output_base / sample_safe_name
         paths = {
             "sample_root": sample_root,
-            "individual_html": sample_root / "individual_treemaps" / "HTML",
             "individual_png": sample_root / "individual_treemaps" / "PNG",
             "topclone_csv": sample_root / "topclone" / "CSV",
-            "overview_html": sample_root / "7chain_treemaps" / "HTML",
             "overview_png": sample_root / "7chain_treemaps" / "PNG",
         }
         for path in paths.values():
@@ -388,121 +200,6 @@ class TreemapReportService:
                         "copy": clone.get("copy", ""),
                     }
                 )
-
-    def _get_browser_path(self) -> Path:
-        if self._browser_path and self._browser_path.exists():
-            return self._browser_path
-
-        candidates = [
-            Path(os.environ.get("ProgramFiles(x86)", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
-            Path(os.environ.get("ProgramFiles", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
-            Path(os.environ.get("ProgramFiles", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
-            Path(os.environ.get("ProgramFiles(x86)", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                self._browser_path = candidate
-                return candidate
-        raise ValidationError(message="未找到可用的 Edge/Chrome 浏览器，无法生成 treemap PNG。")
-
-    def _get_d3_script_tag(self) -> str:
-        if self._d3_script_tag is None:
-            self._d3_script_tag = load_d3_script_tag()
-        return self._d3_script_tag
-
-    def _build_html_cached(
-        self,
-        clones: list[dict[str, Any]],
-        summary: dict[str, Any],
-        title: str,
-        source_name: str,
-        columns: dict[str, str | None],
-        default_min_copy: int,
-        top_n: int,
-        style: str = "classic",
-        layout_mode: str = "tetris",
-        canvas_shape: str = "square",
-    ) -> str:
-        max_copy = int(max((float(item["copy"]) for item in clones), default=0))
-        settings = {
-            "title": title,
-            "sourceName": source_name,
-            "columns": columns,
-            "summary": {
-                **summary,
-                "total_copy": int(summary["total_copy"]) if math.isclose(summary["total_copy"], round(summary["total_copy"])) else round(summary["total_copy"], 4),
-            },
-            "defaultMinCopy": min(default_min_copy, max_copy),
-            "topN": top_n,
-            "maxCopy": max_copy,
-            "style": style,
-            "layoutMode": layout_mode,
-            "canvasShape": canvas_shape,
-        }
-        html_text = HTML_TEMPLATE.replace("__PAGE_TITLE__", escape_html_text(title))
-        html_text = html_text.replace("__D3_SCRIPT__", self._get_d3_script_tag())
-        html_text = html_text.replace("__DATA_JSON__", json.dumps(clones, ensure_ascii=False))
-        html_text = html_text.replace("__SETTINGS_JSON__", json.dumps(settings, ensure_ascii=False))
-        return html_text
-
-    def _render_html_to_png(
-        self,
-        html_path: Path,
-        png_path: Path,
-        width: int,
-        height: int,
-        panel_mode: bool = False,
-        scale_factor: int = 3,
-    ) -> None:
-        browser_path = self._get_browser_path()
-        url = html_path.resolve().as_uri()
-        if panel_mode:
-            url = f"{url}?mode=panel"
-
-        command = [
-            str(browser_path),
-            "--headless=new",
-            "--disable-gpu",
-            "--hide-scrollbars",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=1500",
-            f"--force-device-scale-factor={scale_factor}",
-            f"--window-size={width},{height}",
-            f"--screenshot={png_path}",
-            url,
-        ]
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    @staticmethod
-    def _trim_white_border(png_path: Path, bg_threshold: int = 248, output_size: Optional[tuple[int, int]] = None) -> None:
-        image = Image.open(png_path).convert("RGBA")
-        width, height = image.size
-        pixels = image.load()
-
-        left, top = width, height
-        right, bottom = -1, -1
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = pixels[x, y]
-                if a == 0:
-                    continue
-                if r < bg_threshold or g < bg_threshold or b < bg_threshold:
-                    if x < left:
-                        left = x
-                    if y < top:
-                        top = y
-                    if x > right:
-                        right = x
-                    if y > bottom:
-                        bottom = y
-
-        if right >= left and bottom >= top:
-            image = image.crop((left, top, right + 1, bottom + 1))
-
-        if output_size:
-            image = image.resize(output_size, Image.Resampling.LANCZOS)
-
-        image.save(png_path)
 
     @staticmethod
     def _compose_overview_png_from_individuals(
@@ -906,9 +603,8 @@ class TreemapReportService:
             chain_count = len(item["chain_files"])
             total_units += chain_count  # topclone csv
             if not topclone_only:
-                total_units += chain_count  # html
-                total_units += chain_count  # png
-                total_units += 2  # overview html + png
+                total_units += chain_count  # individual PNG
+                total_units += 1  # overview PNG
 
         completed_units = 0
         total_samples = len(sample_work_items)
@@ -997,7 +693,6 @@ class TreemapReportService:
 
             generated_chains: List[str] = []
             chain_outputs: Dict[str, Dict[str, str]] = {}
-            overview_source_paths: Dict[str, Path] = {}
 
             for chain_index, chain in enumerate(ordered_sample_chains, start=1):
                 filepath = chain_files[chain]
@@ -1062,39 +757,33 @@ class TreemapReportService:
                         clone["chain"] = chain
                         clone["cell_type"] = derived_cell_type
 
-                    html_filename = f"{sample_safe_name}__{chain}_treemap.html"
                     png_filename = f"{sample_safe_name}__{chain}_treemap.png"
-                    html_path = sample_dirs["individual_html"] / html_filename
                     png_path = sample_dirs["individual_png"] / png_filename
 
-                    html_content = self._build_html_cached(
-                        clones=clones,
-                        summary=summary,
-                        title=make_title(input_path, f"{display_name} {chain} clonotype tetris map"),
-                        source_name=input_path.name,
-                        columns=columns,
-                        default_min_copy=max(0, int(min_copy_default)),
-                        top_n=max(1, int(top_n)),
-                        style=style,
-                        layout_mode=layout_mode,
-                        canvas_shape=canvas_shape,
-                    )
-                    html_path.write_text(html_content, encoding="utf-8")
                     advance(
-                        "生成单链 HTML",
+                        "生成单链 PNG",
                         f"{display_name} | {chain} ({chain_index}/{len(ordered_sample_chains)})",
-                        phase="individual_html",
+                        phase="individual_png",
                         sample_name=display_name,
                         sample_index=sample_index,
                         chain_name=chain,
                         chain_index=chain_index,
                         chain_total=len(ordered_sample_chains),
                         input_file=input_path.name,
-                        output_file=html_filename,
+                        output_file=png_filename,
                     )
 
-                    overview_source_paths[chain] = html_path
-                    chain_output["html"] = str(html_path.relative_to(output_base)).replace("\\", "/")
+                    generate_treemap(
+                        csv_path=input_path,
+                        output_path=png_path,
+                        mode=layout_mode,
+                        cdr3_col=columns.get("cdr3", "CDR3(pep)"),
+                        copy_col=columns.get("copy", "copy"),
+                        v_col=columns.get("v", "V"),
+                        j_col=columns.get("j", "J"),
+                    )
+
+                    chain_output["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
 
                 chain_outputs[chain] = chain_output
 
@@ -1103,75 +792,17 @@ class TreemapReportService:
 
             overview_treemaps: Dict[str, str] = {}
             if not topclone_only:
-                overview_html_filename = f"{sample_safe_name}__ALL_treemap.html"
                 overview_png_filename = f"{sample_safe_name}__ALL_treemap.png"
-                overview_html_path = sample_dirs["overview_html"] / overview_html_filename
                 overview_png_path = sample_dirs["overview_png"] / overview_png_filename
 
-                overview_html_path.write_text(
-                    self._build_overview_html(display_name, overview_source_paths, sample_dirs["overview_html"]),
-                    encoding="utf-8",
-                )
-                advance(
-                    "生成七链 HTML",
-                    f"{display_name} | overview",
-                    phase="overview_html",
-                    sample_name=display_name,
-                    sample_index=sample_index,
-                    output_file=overview_html_filename,
-                )
-
-                png_tasks: List[tuple[Path, Path, int, int, bool]] = []
-                for chain in generated_chains:
-                    html_path = sample_dirs["individual_html"] / f"{sample_safe_name}__{chain}_treemap.html"
-                    png_path = sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
-                    png_width, png_height = (700, 1500) if canvas_shape == "portrait" else (1200, 1200)
-                    png_tasks.append((html_path, png_path, png_width, png_height, True))
-
+                # Collect already-generated individual chain PNGs
                 rendered_png_paths: Dict[str, Path] = {}
-                with ThreadPoolExecutor(max_workers=min(6, max(1, len(png_tasks)))) as executor:
-                    future_map = {
-                        executor.submit(self._render_html_to_png, html_path, png_path, width, height, panel_mode): (html_path, png_path)
-                        for html_path, png_path, width, height, panel_mode in png_tasks
-                    }
-                    for future in as_completed(future_map):
-                        html_path, png_path = future_map[future]
-                        chain_name = html_path.stem.split("__")[-1].replace("_treemap", "")
-                        try:
-                            future.result()
-                        except Exception as exc:
-                            warning = f"{display_name} | {chain_name} PNG 导出失败: {exc}"
-                            warnings.append(warning)
-                            logger.warning(warning, exc_info=True)
-                            continue
-                        if not png_path.exists() or not png_path.is_file():
-                            warning = f"{display_name} | {chain_name} PNG 导出失败: 未生成文件 {png_path.name}"
-                            warnings.append(warning)
-                            logger.warning(warning)
-                            continue
-                        rendered_png_paths[chain_name] = png_path
-                        if chain_name in chain_outputs:
-                            chain_outputs[chain_name]["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
-                        advance(
-                            "导出单链 PNG",
-                            f"{display_name} | {chain_name}",
-                            phase="individual_png",
-                            sample_name=display_name,
-                            sample_index=sample_index,
-                            chain_name=chain_name,
-                            chain_total=len(generated_chains),
-                            input_file=html_path.name,
-                            output_file=png_path.name,
-                        )
-
-                trim_size = (1260, 2700) if canvas_shape == "portrait" else (1800, 1800)
-                for chain_name, png_path in list(rendered_png_paths.items()):
-                    try:
-                        self._trim_white_border(png_path, output_size=trim_size)
-                    except Exception as exc:
-                        warning = f"{display_name} | {chain_name} PNG 裁剪失败: {exc}"
-                        warnings.append(warning)
-                        logger.warning(warning, exc_info=True)
+                for chain in generated_chains:
+                    png_path = sample_dirs["individual_png"] / f"{sample_safe_name}__{chain}_treemap.png"
+                    if png_path.exists() and png_path.is_file():
+                        rendered_png_paths[chain] = png_path
+                        if chain in chain_outputs:
+                            chain_outputs[chain]["png"] = str(png_path.relative_to(output_base)).replace("\\", "/")
 
                 if rendered_png_paths:
                     self._compose_overview_png_from_individuals(rendered_png_paths, overview_png_path)
@@ -1184,13 +815,11 @@ class TreemapReportService:
                         output_file=overview_png_filename,
                     )
                 else:
-                    warning = f"{display_name} 未生成可用于汇总的 treemap PNG，已保留 HTML/CSV 输出。"
+                    warning = f"{display_name} 未生成可用于汇总的 treemap PNG，已保留 CSV 输出。"
                     warnings.append(warning)
                     logger.warning(warning)
 
-                overview_treemaps = {
-                    "html": str(overview_html_path.relative_to(output_base)).replace("\\", "/"),
-                }
+                overview_treemaps = {}
                 if overview_png_path.exists() and overview_png_path.is_file():
                     overview_treemaps["png"] = str(overview_png_path.relative_to(output_base)).replace("\\", "/")
 
