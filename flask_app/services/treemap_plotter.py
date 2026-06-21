@@ -9,7 +9,6 @@ Canvas: square 1000×1000, figure 10×10 inches, 300 DPI → 3000×3000 px outpu
 """
 from __future__ import annotations
 
-import colorsys
 import hashlib
 import math
 import random
