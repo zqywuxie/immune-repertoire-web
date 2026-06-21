@@ -124,16 +124,11 @@ const TreemapAnalysis = {
         const disableVisuals = Boolean(topcloneOnly?.checked);
         const minCopyDefault = document.getElementById('minCopyDefault');
         const layoutModeSelect = document.getElementById('layoutModeSelect');
-        const canvasShapeSelect = document.getElementById('canvasShapeSelect');
-
         if (minCopyDefault) {
             minCopyDefault.disabled = disableVisuals;
         }
         if (layoutModeSelect) {
             layoutModeSelect.disabled = disableVisuals;
-        }
-        if (canvasShapeSelect) {
-            canvasShapeSelect.disabled = disableVisuals;
         }
     },
 
@@ -801,7 +796,7 @@ const TreemapAnalysis = {
                 min_copy_default: Number(document.getElementById('minCopyDefault').value || 30),
                 top_n: Number(document.getElementById('topN').value || 100),
                 layout_mode: document.getElementById('layoutModeSelect')?.value || 'tetris',
-                canvas_shape: document.getElementById('canvasShapeSelect')?.value || 'square',
+                canvas_shape: 'square',
                 topclone_only: Boolean(document.getElementById('topcloneOnly')?.checked)
             }
         };
