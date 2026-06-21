@@ -614,11 +614,12 @@ def _place_tetromino(
     rows: int,
     rotations: List[List[Tuple[int, int]]],
     desired_scale: int,
+    seed: int = RANDOM_SEED,
 ) -> Optional[Tuple[List[Tuple[int, int]], int, int, int]]:
     """Try to place a tetromino. Returns (cells, scale, x, y) or None."""
     for scale in range(desired_scale, 0, -1):
         # Try each rotation
-        rng = random.Random(RANDOM_SEED)
+        rng = random.Random(seed)
         rot_indices = list(range(len(rotations)))
         rng.shuffle(rot_indices)
         for ri in rot_indices:
@@ -700,7 +701,8 @@ def _pack_tetrominos(
             copy_val = item["_copy_val"]
             desired_scale = max(1, min(4, int(1 + 3 * (copy_val - min_copy) / copy_range)))
 
-            result = _place_tetromino(occupancy, cols, rows, rotations, desired_scale)
+            item_seed = abs(hash(item.get(cdr3_col, ""))) ^ RANDOM_SEED
+            result = _place_tetromino(occupancy, cols, rows, rotations, desired_scale, seed=item_seed)
             if result is None:
                 continue
 

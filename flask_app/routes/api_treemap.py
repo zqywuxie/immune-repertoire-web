@@ -16,6 +16,9 @@ from typing import Any, Dict, List
 from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.background_job_service import get_background_job_service
+from flask_app.services.user_scope import current_user_id
 from flask_app.services.treemap_report_service import get_treemap_report_service
 
 logger = logging.getLogger(__name__)
@@ -30,13 +33,41 @@ def _get_service():
     results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
     if not results_root.is_absolute():
         results_root = Path(current_app.root_path) / results_root
-    return get_treemap_report_service(results_root=results_root)
+    return get_treemap_report_service(results_root=PathAccessService.results_root_for_user(results_root.resolve()))
+
+
+def _validate_sample_paths(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    validated = []
+    for sample in samples:
+        item = dict(sample)
+        data_files = []
+        for file_info in item.get("data_files") or []:
+            file_item = dict(file_info)
+            if file_item.get("filepath"):
+                file_item["filepath"] = str(PathAccessService.validate_read_path(file_item["filepath"]))
+            data_files.append(file_item)
+        item["data_files"] = data_files
+        if item.get("folder_path"):
+            item["folder_path"] = str(PathAccessService.validate_read_path(item["folder_path"]))
+        validated.append(item)
+    return validated
 
 
 def _set_task_state(task_id: str, **updates: Any) -> None:
     with _treemap_task_lock:
         task = _treemap_tasks.setdefault(task_id, {})
+        updates.setdefault("user_id", task.get("user_id") or current_user_id())
         task.update(updates)
+        snapshot = dict(task)
+    try:
+        get_background_job_service().upsert_job(task_id, {
+            "job_type": "treemap",
+            "module": "treemap",
+            "task_id": task_id,
+            **snapshot,
+        })
+    except Exception:
+        logger.warning("Failed to sync treemap task %s to global job store", task_id, exc_info=True)
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
@@ -277,6 +308,7 @@ def generate_treemap():
         samples = data.get("samples") or []
         if not samples:
             raise ValidationError(message="请先扫描并提供样本列表。", details={"field": "samples"})
+        samples = _validate_sample_paths(samples)
 
         selected_chains = data.get("selected_chains") or []
         if not selected_chains:
@@ -297,19 +329,14 @@ def generate_treemap():
         min_copy_default = config.get("min_copy_default", 30)
         top_n = config.get("top_n", 100)
         topclone_only = bool(config.get("topclone_only"))
-        style = str(config.get("style") or "classic").strip().lower()
-        if style not in {"classic", "minimal"}:
-            style = "classic"
         layout_mode = str(config.get("layout_mode") or "tetris").strip().lower()
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
-        canvas_shape = str(config.get("canvas_shape") or "square").strip().lower()
-        if canvas_shape not in {"square", "portrait"}:
-            canvas_shape = "square"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
             results_root = Path(current_app.root_path) / results_root
+        results_root = PathAccessService.results_root_for_user(results_root.resolve())
 
         task_id = f"treemap_task_{uuid.uuid4().hex[:12]}"
         _set_task_state(

@@ -274,14 +274,15 @@ class TreemapReportService:
     .sidebar button{{cursor:pointer;background:#111827;color:#fff;border-color:#111827}}
     .sidebar button.secondary{{background:#fff;color:#111827}}
     .content{{padding:0;background:#ffffff}}
-    iframe{{width:100%;height:100vh;border:0;display:block;background:#fff}}
+    .img-container{{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff}}
+    #viewerImage{{max-width:100%;max-height:100vh;object-fit:contain}}
     .meta{{margin-top:14px;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;font-size:13px;color:#4b5563}}
     .empty-state{{display:flex;align-items:center;justify-content:center;height:100vh;padding:32px;text-align:center;color:#4b5563;background:#f8fafc}}
     .empty-card{{max-width:460px;padding:24px;border-radius:16px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.06)}}
     .empty-card h2{{margin:0 0 12px;font-size:22px;color:#111827}}
     .empty-card p{{margin:0 0 12px;line-height:1.6}}
     .empty-card a{{color:#111827;font-weight:600}}
-    @media (max-width: 1080px){{.app{{grid-template-columns:1fr}} iframe{{height:78vh}}}}
+    @media (max-width: 1080px){{.app{{grid-template-columns:1fr}}}}
   </style>
 </head>
 <body>
@@ -300,7 +301,6 @@ class TreemapReportService:
         </div>
       </div>
       <div class="actions">
-        <button id="openHtmlBtn" type="button">新窗口打开当前 HTML</button>
         <button id="openPngBtn" class="secondary" type="button">新窗口打开当前 PNG</button>
         <button id="openTopcloneBtn" class="secondary" type="button">打开当前 TopClone CSV</button>
         <button id="downloadZipBtn" class="secondary" type="button">下载 ZIP</button>
@@ -308,7 +308,9 @@ class TreemapReportService:
       <div class="meta" id="summary"></div>
     </aside>
     <main class="content">
-      <iframe id="viewerFrame" title="treemap viewer"></iframe>
+      <div class="img-container">
+        <img id="viewerImage" alt="treemap" />
+      </div>
       <div class="empty-state" id="viewerEmptyState" hidden>
         <div class="empty-card" id="viewerEmptyStateCard"></div>
       </div>
@@ -318,11 +320,11 @@ class TreemapReportService:
     const DATA = {json.dumps(viewer_payload, ensure_ascii=False)};
     const sampleSelect = document.getElementById('sampleSelect');
     const chainSelect = document.getElementById('chainSelect');
-    const frame = document.getElementById('viewerFrame');
+    const image = document.getElementById('viewerImage');
+    const imgContainer = image.parentElement;
     const summary = document.getElementById('summary');
     const emptyState = document.getElementById('viewerEmptyState');
     const emptyStateCard = document.getElementById('viewerEmptyStateCard');
-    const openHtmlBtn = document.getElementById('openHtmlBtn');
     const openPngBtn = document.getElementById('openPngBtn');
     const openTopcloneBtn = document.getElementById('openTopcloneBtn');
     const TOPCLONE_ONLY = Boolean(DATA.topclone_only);
@@ -339,7 +341,6 @@ class TreemapReportService:
 
     function updateActionButtons() {{
       const entry = currentChainEntry();
-      openHtmlBtn.style.display = entry && entry.html ? '' : 'none';
       openPngBtn.style.display = entry && entry.png ? '' : 'none';
       openTopcloneBtn.style.display = entry && entry.topclone_csv ? '' : 'none';
     }}
@@ -354,22 +355,22 @@ class TreemapReportService:
       summary.textContent = `当前样本: ${{sample.display_name || sample.sample_name}} | 可选链: ${{(sample.chains || []).join(', ')}}${{modeText}}`;
     }}
 
-    function updateFrame() {{
+    function updateImage() {{
       const sample = currentSample();
       const chain = chainSelect.value;
       const entry = currentChainEntry();
       if (!sample || !entry) {{
-        frame.src = 'about:blank';
-        frame.style.display = 'block';
+        image.src = '';
+        imgContainer.style.display = 'flex';
         emptyState.hidden = true;
         updateActionButtons();
         updateSummary();
         return;
       }}
 
-      if (TOPCLONE_ONLY || !entry.html) {{
-        frame.src = 'about:blank';
-        frame.style.display = 'none';
+      if (TOPCLONE_ONLY || !entry.png) {{
+        image.src = '';
+        imgContainer.style.display = 'none';
         emptyState.hidden = false;
         const sampleLabel = sample.display_name || sample.sample_name || '';
         const downloadLink = entry.topclone_csv
@@ -378,83 +379,19 @@ class TreemapReportService:
         emptyStateCard.innerHTML = `<h2>TopClone-only</h2><p>这次 treemap 任务未生成图，只导出 TopClone 表格。</p>${{downloadLink}}`;
       }} else {{
         emptyState.hidden = true;
-        frame.style.display = 'block';
-        frame.src = entry.html;
+        imgContainer.style.display = 'flex';
+        image.src = entry.png;
       }}
 
       updateActionButtons();
       updateSummary();
     }}
 
-    function currentFrameHtmlUrl() {{
-      try {{
-        if (frame.contentWindow && frame.contentWindow.location && frame.contentWindow.location.href && frame.contentWindow.location.href !== 'about:blank') {{
-          return frame.contentWindow.location.href;
-        }}
-      }} catch (error) {{
-        console.warn('Failed to read iframe URL, falling back to stored HTML URL.', error);
-      }}
-
-      const entry = currentChainEntry();
-      return entry && entry.html ? entry.html : '';
-    }}
-
-    async function exportCurrentFramePngUrl() {{
-      const frameDocument = frame.contentDocument;
-      if (!frameDocument) {{
-        throw new Error('Treemap iframe is not ready yet');
-      }}
-
-      const svg = frameDocument.getElementById('treemap');
-      if (!svg) {{
-        throw new Error('Treemap SVG was not found');
-      }}
-
-      const svgClone = svg.cloneNode(true);
-      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-
-      const viewBox = (svgClone.getAttribute('viewBox') || '0 0 960 960').split(/\\s+/).map(Number);
-      const exportWidth = Number.isFinite(viewBox[2]) && viewBox[2] > 0 ? Math.round(viewBox[2]) : 960;
-      const exportHeight = Number.isFinite(viewBox[3]) && viewBox[3] > 0 ? Math.round(viewBox[3]) : 960;
-      const serialized = new XMLSerializer().serializeToString(svgClone);
-      const blob = new Blob([serialized], {{ type: 'image/svg+xml;charset=utf-8' }});
-      const svgUrl = URL.createObjectURL(blob);
-
-      try {{
-        const image = await new Promise((resolve, reject) => {{
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => reject(new Error('Failed to render treemap SVG'));
-          img.src = svgUrl;
-        }});
-
-        const canvas = document.createElement('canvas');
-        canvas.width = exportWidth * 2;
-        canvas.height = exportHeight * 2;
-        const context = canvas.getContext('2d');
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-        const pngBlob = await new Promise((resolve, reject) => {{
-          canvas.toBlob((value) => {{
-            if (value) resolve(value);
-            else reject(new Error('Failed to encode treemap PNG'));
-          }}, 'image/png');
-        }});
-
-        return URL.createObjectURL(pngBlob);
-      }} finally {{
-        URL.revokeObjectURL(svgUrl);
-      }}
-    }}
-
     function onSampleChange() {{
       const sample = currentSample();
       chainSelect.innerHTML = '';
       if (!sample) {{
-        updateFrame();
+        updateImage();
         return;
       }}
       (sample.chains || []).forEach(chain => {{
@@ -466,30 +403,15 @@ class TreemapReportService:
       if (sample.chains && sample.chains.length > 0) {{
         chainSelect.value = sample.chains[0];
       }}
-      updateFrame();
+      updateImage();
     }}
 
     sampleSelect.addEventListener('change', onSampleChange);
-    chainSelect.addEventListener('change', updateFrame);
-    openHtmlBtn.addEventListener('click', () => {{
-      const url = currentFrameHtmlUrl();
-      if (url) window.open(url, '_blank', 'noopener');
-    }});
-    openPngBtn.addEventListener('click', async () => {{
-      const popup = window.open('', '_blank', 'noopener');
-      try {{
-        const url = await exportCurrentFramePngUrl();
-        if (popup) popup.location.href = url;
-        else window.open(url, '_blank', 'noopener');
-      }} catch (error) {{
-        console.warn('Failed to export current treemap PNG, falling back to static PNG.', error);
-        if (popup) popup.close();
-        const sample = currentSample();
-        const chain = chainSelect.value;
-        const fallbackUrl = sample && sample.individual_treemaps && sample.individual_treemaps[chain]
-          ? sample.individual_treemaps[chain].png
-          : '';
-        if (fallbackUrl) window.open(fallbackUrl, '_blank', 'noopener');
+    chainSelect.addEventListener('change', updateImage);
+    openPngBtn.addEventListener('click', () => {{
+      const entry = currentChainEntry();
+      if (entry && entry.png) {{
+        window.open(entry.png, '_blank', 'noopener');
       }}
     }});
     openTopcloneBtn.addEventListener('click', () => {{
@@ -549,15 +471,9 @@ class TreemapReportService:
         if not normalized_chains:
             raise ValidationError(message="至少需要选择一条链。")
 
-        style = str(style or "classic").strip().lower()
-        if style not in {"classic", "minimal"}:
-            style = "classic"
         layout_mode = str(layout_mode or "tetris").strip().lower()
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
-        canvas_shape = str(canvas_shape or "square").strip().lower()
-        if canvas_shape not in {"square", "portrait"}:
-            canvas_shape = "square"
         topclone_only = bool(topclone_only)
 
         overrides = {
