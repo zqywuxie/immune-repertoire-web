@@ -332,6 +332,8 @@ def generate_treemap():
         layout_mode = str(config.get("layout_mode") or "tetris").strip().lower()
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
+        style = "classic"
+        canvas_shape = "square"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
