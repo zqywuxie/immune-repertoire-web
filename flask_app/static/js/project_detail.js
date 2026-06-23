@@ -27,11 +27,30 @@ function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
+function showManagementToast(message, type = 'info') {
+    let stack = document.querySelector('.mg-toast-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.className = 'mg-toast-stack';
+        document.body.appendChild(stack);
+    }
+    const toast = document.createElement('div');
+    toast.className = `mg-toast mg-toast-${type}`;
+    toast.textContent = message;
+    stack.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 3200);
+}
+
 const ProjectDetailPage = {
     projectId: '',
     projectData: null,
     selectedUploads: [],
     uploadModal: null,
+    assetFilters: {
+        query: '',
+        type: '',
+    },
+    settingsSnapshot: null,
 
     init() {
         if (!window.PROJECT_DETAIL_CONTEXT) return;
@@ -60,6 +79,16 @@ const ProjectDetailPage = {
         document.getElementById('addGroupRowBtn')?.addEventListener('click', () => this.appendGroupRow());
         document.getElementById('saveGroupSpecBtn')?.addEventListener('click', () => this.saveGroupSpec());
         document.getElementById('clearGroupSpecBtn')?.addEventListener('click', () => this.clearGroupSpecs());
+        document.getElementById('assetSearchInput')?.addEventListener('input', (event) => {
+            this.assetFilters.query = event.target.value.trim().toLowerCase();
+            this.renderAssets(this.projectData?.assets || []);
+        });
+        document.getElementById('assetTypeFilter')?.addEventListener('change', (event) => {
+            this.assetFilters.type = event.target.value;
+            this.renderAssets(this.projectData?.assets || []);
+        });
+        document.getElementById('clearAssetFiltersBtn')?.addEventListener('click', () => this.clearAssetFilters());
+        document.getElementById('resetProjectSettingsBtn')?.addEventListener('click', () => this.resetProjectSettingsForm());
         
         // Project settings form
         const settingsForm = document.getElementById('projectSettingsForm');
@@ -67,6 +96,10 @@ const ProjectDetailPage = {
             settingsForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 this.updateProjectSettings();
+            });
+            settingsForm.querySelectorAll('input, textarea, select').forEach(input => {
+                input.addEventListener('input', () => this.updateSettingsDirtyState());
+                input.addEventListener('change', () => this.updateSettingsDirtyState());
             });
         }
         
@@ -156,6 +189,7 @@ const ProjectDetailPage = {
         
         // Update project settings form
         this.updateProjectSettingsForm();
+        this.updateAssetTypeFilter(project.assets || []);
         
         // Load detailed data
         this.renderAssets(project.assets || []);
@@ -204,118 +238,277 @@ const ProjectDetailPage = {
         document.getElementById('projectInstitutionInput').value = project.institution || '';
         document.getElementById('projectCooperationInput').value = project.cooperation_level || '';
         document.getElementById('projectStatusInput').value = project.status || 'active';
+        document.getElementById('settingsProjectIdValue').textContent = this.projectId || '-';
+        document.getElementById('settingsCreatedAtValue').textContent = formatDateTime(project.created_at);
+        document.getElementById('settingsUpdatedAtValue').textContent = formatDateTime(project.updated_at || project.created_at);
+        document.getElementById('projectNameInput')?.classList.remove('is-invalid');
+        this.settingsSnapshot = this.collectProjectSettingsPayload();
+        this.setSettingsDirty(false);
+    },
+
+    collectProjectSettingsPayload() {
+        return {
+            name: document.getElementById('projectNameInput')?.value.trim() || '',
+            description: document.getElementById('projectDescInput')?.value || '',
+            institution: document.getElementById('projectInstitutionInput')?.value || '',
+            cooperation_level: document.getElementById('projectCooperationInput')?.value || '',
+            status: document.getElementById('projectStatusInput')?.value || 'active',
+        };
+    },
+
+    updateSettingsDirtyState() {
+        const current = this.collectProjectSettingsPayload();
+        const dirty = JSON.stringify(current) !== JSON.stringify(this.settingsSnapshot || {});
+        this.setSettingsDirty(dirty);
+        if (current.name) {
+            document.getElementById('projectNameInput')?.classList.remove('is-invalid');
+        }
+    },
+
+    setSettingsDirty(isDirty) {
+        document.getElementById('settingsDirtyBadge')?.classList.toggle('d-none', !isDirty);
+        const saveButton = document.getElementById('saveProjectSettingsBtn');
+        const resetButton = document.getElementById('resetProjectSettingsBtn');
+        if (saveButton) saveButton.disabled = !isDirty;
+        if (resetButton) resetButton.disabled = !isDirty;
+    },
+
+    resetProjectSettingsForm() {
+        if (!this.projectData) return;
+        this.updateProjectSettingsForm();
+        showManagementToast('已恢复为当前项目设置。', 'info');
     },
 
     async updateProjectSettings() {
+        const payload = this.collectProjectSettingsPayload();
+        const nameInput = document.getElementById('projectNameInput');
+        if (!payload.name) {
+            nameInput?.classList.add('is-invalid');
+            nameInput?.focus();
+            showManagementToast('项目名称不能为空。', 'info');
+            return;
+        }
+
+        const saveButton = document.getElementById('saveProjectSettingsBtn');
+        const originalLabel = saveButton?.innerHTML;
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>保存中';
+        }
+
         try {
             const response = await fetch(`/api/projects/${encodeURIComponent(this.projectId)}`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    name: document.getElementById('projectNameInput').value,
-                    description: document.getElementById('projectDescInput').value,
-                    institution: document.getElementById('projectInstitutionInput').value,
-                    cooperation_level: document.getElementById('projectCooperationInput').value,
-                    status: document.getElementById('projectStatusInput').value,
-                }),
+                body: JSON.stringify(payload),
             });
             
             if (!response.ok) throw new Error('更新失败');
             
-            // Show success message
-            const alert = document.createElement('div');
-            alert.className = 'alert alert-success alert-dismissible fade show';
-            alert.innerHTML = '<i class="bi bi-check-circle me-2"></i>项目设置已更新';
-            document.querySelector('#settings-tab .card-body').prepend(alert);
-            
-            setTimeout(() => {
-                alert.remove();
-                this.loadProject(); // Refresh the project data
-            }, 2000);
+            this.settingsSnapshot = payload;
+            this.setSettingsDirty(false);
+            showManagementToast('项目设置已更新。', 'success');
+            window.setTimeout(() => this.loadProject(), 600);
             
         } catch (error) {
             console.error('Error updating project settings:', error);
+            showManagementToast(error.message || '项目设置更新失败。', 'danger');
+            this.updateSettingsDirtyState();
+        } finally {
+            if (saveButton) {
+                saveButton.innerHTML = originalLabel || '<i class="bi bi-check2-circle me-1"></i>保存设置';
+            }
         }
+    },
+
+    getAssetTypeConfig(type) {
+        const configs = {
+            profile: { label: 'Profile Data', icon: 'bi-table', tone: 'blue' },
+            pep: { label: 'Pep Files', icon: 'bi-filetype-csv', tone: 'green' },
+            sample_summary: { label: 'Sample Summary', icon: 'bi-clipboard-data', tone: 'amber' },
+            group_spec: { label: 'Group Spec', icon: 'bi-diagram-2', tone: 'gray' },
+            processed_result: { label: 'Analysis Result', icon: 'bi-graph-up-arrow', tone: 'blue' },
+            raw_archive: { label: 'Raw Archive', icon: 'bi-archive', tone: 'gray' },
+            cached_usage: { label: 'Pep Usage Cache', icon: 'bi-database-check', tone: 'green' },
+        };
+        return configs[type] || { label: type || 'Unknown', icon: 'bi-file-earmark', tone: 'gray' };
+    },
+
+    getAssetRelativePath(asset) {
+        const metadata = asset.metadata_json || asset.metadata || {};
+        if (asset.asset_type === 'processed_result') {
+            return metadata.output_base || metadata.report_path || asset.storage_path || '-';
+        }
+        return metadata.relative_path || metadata.report_path || asset.storage_path || '-';
+    },
+
+    getAssetSearchText(asset) {
+        const metadata = asset.metadata_json || asset.metadata || {};
+        const typeConfig = this.getAssetTypeConfig(asset.asset_type);
+        return [
+            asset.original_name,
+            asset.asset_type,
+            typeConfig.label,
+            this.getAssetRelativePath(asset),
+            metadata.analysis_type,
+            metadata.analysis_signature,
+            metadata.source,
+            Array.isArray(metadata.chains) ? metadata.chains.join(' ') : '',
+            Array.isArray(metadata.group_fields) ? metadata.group_fields.join(' ') : '',
+        ].filter(Boolean).join(' ').toLowerCase();
+    },
+
+    updateAssetTypeFilter(assets) {
+        const select = document.getElementById('assetTypeFilter');
+        if (!select) return;
+
+        const previous = select.value;
+        const types = Array.from(new Set(assets.map(asset => asset.asset_type).filter(Boolean))).sort();
+        select.innerHTML = '<option value="">全部类型</option>' + types.map(type => {
+            const config = this.getAssetTypeConfig(type);
+            return `<option value="${escapeHtml(type)}">${escapeHtml(config.label)}</option>`;
+        }).join('');
+        if (types.includes(previous)) {
+            select.value = previous;
+        } else {
+            select.value = '';
+            this.assetFilters.type = '';
+        }
+    },
+
+    clearAssetFilters() {
+        this.assetFilters = { query: '', type: '' };
+        const searchInput = document.getElementById('assetSearchInput');
+        const typeFilter = document.getElementById('assetTypeFilter');
+        if (searchInput) searchInput.value = '';
+        if (typeFilter) typeFilter.value = '';
+        this.renderAssets(this.projectData?.assets || []);
+    },
+
+    getFilteredAssets(assets) {
+        return assets.filter(asset => {
+            const matchesType = !this.assetFilters.type || asset.asset_type === this.assetFilters.type;
+            const matchesQuery = !this.assetFilters.query || this.getAssetSearchText(asset).includes(this.assetFilters.query);
+            return matchesType && matchesQuery;
+        });
+    },
+
+    renderAssetMetadata(asset) {
+        const metadata = asset.metadata_json || asset.metadata || {};
+        const chips = [];
+        if (metadata.source) chips.push(`Source: ${metadata.source}`);
+        if (asset.asset_type === 'cached_usage') {
+            const chains = Array.isArray(metadata.chains) ? metadata.chains.join(', ') : '';
+            const groups = Array.isArray(metadata.group_fields) ? metadata.group_fields.join(', ') : '';
+            if (chains) chips.push(`Chains: ${chains}`);
+            if (groups) chips.push(`Groups: ${groups}`);
+        }
+        if (asset.asset_type === 'processed_result') {
+            if (metadata.analysis_type) chips.push(`Type: ${metadata.analysis_type}`);
+            if (metadata.analysis_signature) chips.push(`Signature: ${String(metadata.analysis_signature).slice(0, 12)}`);
+            const inputCount = Array.isArray(metadata.input_assets) ? metadata.input_assets.length : 0;
+            if (inputCount) chips.push(`Inputs: ${inputCount}`);
+        }
+        if (!chips.length) return '';
+        return `<div class="asset-meta-chips">${chips.map(chip => `<span>${escapeHtml(chip)}</span>`).join('')}</div>`;
+    },
+
+    renderAssetActions(asset) {
+        const metadata = asset.metadata_json || asset.metadata || {};
+        const openUrl = metadata.report_url || metadata.viewer_url || metadata.metadata_url || '';
+        const zipUrl = metadata.zip_url || '';
+        const canDirectDownload = (asset.asset_type !== 'processed_result' && asset.asset_type !== 'cached_usage')
+            || (metadata.report_path && !String(metadata.report_path).startsWith('/api/'));
+        const deleteButton = metadata.source === 'mongodb'
+            ? ''
+            : `<button class="btn btn-sm btn-outline-danger asset-icon-btn" data-asset-delete="${escapeHtml(asset.id)}" title="删除资产" aria-label="删除资产"><i class="bi bi-trash3"></i></button>`;
+
+        return `
+            <div class="asset-action-group">
+                ${openUrl ? `<a class="btn btn-sm btn-outline-primary asset-icon-btn" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener" title="打开 Viewer" aria-label="打开 Viewer"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+                ${zipUrl ? `<a class="btn btn-sm btn-outline-secondary asset-icon-btn" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener" title="下载 ZIP" aria-label="下载 ZIP"><i class="bi bi-file-earmark-zip"></i></a>` : ''}
+                ${canDirectDownload ? `<a class="btn btn-sm btn-outline-secondary asset-icon-btn" href="/api/projects/${encodeURIComponent(this.projectId)}/assets/${encodeURIComponent(asset.id)}/download" title="下载文件" aria-label="下载文件"><i class="bi bi-download"></i></a>` : ''}
+                ${deleteButton}
+            </div>
+        `;
     },
 
     renderAssets(assets) {
         const tableBody = document.getElementById('projectAssetsTableBody');
         if (!tableBody) return;
-        
+
+        const meta = document.getElementById('projectAssetsMeta');
+        const filteredAssets = this.getFilteredAssets(assets);
+        const filterActive = Boolean(this.assetFilters.query || this.assetFilters.type);
+        if (meta) {
+            meta.textContent = filterActive
+                ? `显示 ${filteredAssets.length} / ${assets.length} 个资产`
+                : `${assets.length} 个资产`;
+        }
+
         if (!assets.length) {
-            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">该项目暂无资产。</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5"><div class="mg-empty"><i class="bi bi-folder2-open"></i>该项目暂无资产。</div></td></tr>';
+            return;
+        }
+
+        if (!filteredAssets.length) {
+            tableBody.innerHTML = '<tr><td colspan="5"><div class="mg-empty"><i class="bi bi-funnel"></i>没有匹配当前筛选条件的资产。</div></td></tr>';
             return;
         }
         
         // Group assets by type for summary
         const assetsByType = {};
-        assets.forEach(asset => {
+        filteredAssets.forEach(asset => {
             if (!assetsByType[asset.asset_type]) {
                 assetsByType[asset.asset_type] = [];
             }
             assetsByType[asset.asset_type].push(asset);
         });
-        
-        const typeLabels = {
-            'profile': 'Profile Data',
-            'pep': 'Pep Files',
-            'sample_summary': 'Sample Summary',
-            'group_spec': 'Group Spec',
-            'processed_result': 'Analysis Result',
-            'raw_archive': 'Raw Archive',
-            'cached_usage': 'Pep Usage Cache',
-        };
 
         tableBody.innerHTML = Object.entries(assetsByType).map(([type, typeAssets]) => `
-            <tr>
-                <td colspan="4">
-                    <div class="file-type-badge">${typeLabels[type] || type}</div>
-                    <strong>${typeAssets.length} 个文件</strong>
+            <tr class="asset-group-row">
+                <td colspan="5">
+                    <div class="asset-group-title">
+                        <span class="file-type-badge asset-type-${escapeHtml(this.getAssetTypeConfig(type).tone)}">
+                            <i class="bi ${escapeHtml(this.getAssetTypeConfig(type).icon)}"></i>
+                            ${escapeHtml(this.getAssetTypeConfig(type).label)}
+                        </span>
+                        <strong>${typeAssets.length} 个资产</strong>
+                    </div>
                 </td>
             </tr>
             ${typeAssets.map(asset => {
                 const metadata = asset.metadata_json || asset.metadata || {};
-                const openUrl = metadata.report_url || metadata.viewer_url || metadata.metadata_url || '';
-                const zipUrl = metadata.zip_url || '';
-                const signature = metadata.analysis_signature || '';
-                const relativePath = asset.asset_type === 'processed_result'
-                    ? (metadata.output_base || metadata.report_path || asset.storage_path || '-')
-                    : (metadata.relative_path || metadata.report_path || '-');
-                const canDirectDownload = asset.asset_type !== 'processed_result'
-                    && asset.asset_type !== 'cached_usage'
-                    || (metadata.report_path && !String(metadata.report_path).startsWith('/api/'));
-
-                let extraMeta = '';
-                if (asset.asset_type === 'cached_usage') {
-                    const chains = (metadata.chains || []).join(', ');
-                    const groups = (metadata.group_fields || []).join(', ');
-                    extraMeta = `<div class="small text-muted">Chains: ${escapeHtml(chains || '-')} | Groups: ${escapeHtml(groups || '-')}</div>`;
-                }
-                if (asset.asset_type === 'processed_result') {
-                    const analysisType = metadata.analysis_type || '';
-                    const inputCount = Array.isArray(metadata.input_assets) ? metadata.input_assets.length : 0;
-                    extraMeta = `<div class="small text-muted">Type: ${escapeHtml(analysisType || '-')} | Signature: ${escapeHtml(signature ? signature.slice(0, 12) : '-')} | Inputs: ${escapeHtml(String(inputCount))}</div>`;
-                }
-                const deleteButton = metadata.source === 'mongodb'
-                    ? ''
-                    : `<button class="btn btn-sm btn-outline-danger" data-asset-delete="${escapeHtml(asset.id)}">删除</button>`;
+                const typeConfig = this.getAssetTypeConfig(asset.asset_type);
+                const relativePath = this.getAssetRelativePath(asset);
+                const sourceLabel = metadata.source === 'mongodb' ? 'MongoDB 缓存' : '项目资产';
                 
                 return `
-                    <tr>
+                    <tr class="asset-data-row">
                         <td>
-                            <div class="fw-semibold">${escapeHtml(asset.original_name || '-')}</div>
-                            <div class="asset-row-meta">${escapeHtml(formatFileSize(asset.size || 0))}</div>
-                            ${extraMeta}
+                            <div class="asset-name-cell">
+                                <span class="asset-file-icon asset-type-${escapeHtml(typeConfig.tone)}"><i class="bi ${escapeHtml(typeConfig.icon)}"></i></span>
+                                <div>
+                                    <div class="fw-semibold">${escapeHtml(asset.original_name || '-')}</div>
+                                    <div class="asset-row-meta">${escapeHtml(sourceLabel)}</div>
+                                    ${this.renderAssetMetadata(asset)}
+                                </div>
+                            </div>
                         </td>
-                        <td class="text-break">${escapeHtml(relativePath)}</td>
+                        <td>
+                            <div class="asset-path-cell">
+                                <code title="${escapeHtml(relativePath)}">${escapeHtml(relativePath)}</code>
+                                <button class="btn btn-sm btn-light asset-copy-btn" data-copy-path="${escapeHtml(relativePath)}" title="复制路径" aria-label="复制路径">
+                                    <i class="bi bi-copy"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td>${escapeHtml(formatFileSize(asset.size || 0))}</td>
                         <td>${escapeHtml(formatDateTime(asset.uploaded_at))}</td>
                         <td class="text-end">
-                            ${openUrl ? `<a class="btn btn-sm btn-outline-primary" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">打开 Viewer</a>` : ''}
-                            ${zipUrl ? `<a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(zipUrl)}" target="_blank" rel="noopener">下载 ZIP</a>` : ''}
-                            ${canDirectDownload ? `<a class="btn btn-sm btn-outline-secondary" href="/api/projects/${encodeURIComponent(this.projectId)}/assets/${encodeURIComponent(asset.id)}/download">下载</a>` : ''}
-                            ${deleteButton}
+                            ${this.renderAssetActions(asset)}
                         </td>
                     </tr>
                 `;
@@ -326,6 +519,34 @@ const ProjectDetailPage = {
         tableBody.querySelectorAll('[data-asset-delete]').forEach(button => {
             button.addEventListener('click', () => this.deleteAsset(button.dataset.assetDelete));
         });
+        tableBody.querySelectorAll('[data-copy-path]').forEach(button => {
+            button.addEventListener('click', () => this.copyAssetPath(button.dataset.copyPath));
+        });
+    },
+
+    async copyAssetPath(path) {
+        if (!path || path === '-') {
+            showManagementToast('没有可复制的路径。', 'info');
+            return;
+        }
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(path);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = path;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+            }
+            showManagementToast('资产路径已复制。', 'success');
+        } catch (error) {
+            showManagementToast('复制失败，请手动复制路径。', 'danger');
+        }
     },
 
     renderSamplesPreview(samples) {
@@ -333,7 +554,7 @@ const ProjectDetailPage = {
         if (!tbody) return;
         
         if (!samples.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">该项目暂无样本。</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4"><div class="mg-empty"><i class="bi bi-collection"></i>该项目暂无样本。</div></td></tr>';
             return;
         }
         
@@ -373,7 +594,7 @@ const ProjectDetailPage = {
         existing.innerHTML = '';
         
         if (!groupSpecs || groupSpecs.length === 0) {
-            existing.innerHTML = '<div class="text-muted small">暂无保存的 group 规格</div>';
+            existing.innerHTML = '<div class="mg-empty"><i class="bi bi-diagram-2"></i>暂无保存的 group 规格。</div>';
             return;
         }
         
@@ -418,7 +639,7 @@ const ProjectDetailPage = {
 
     async uploadAssets() {
         if (!this.selectedUploads.length) {
-            alert('请先选择要上传的文件');
+            showManagementToast('请先选择要上传的文件。', 'info');
             return;
         }
         
@@ -444,6 +665,7 @@ const ProjectDetailPage = {
             // Close modal and refresh
             this.uploadModal.hide();
             this.loadProject();
+            showManagementToast('项目资产已上传。', 'success');
             
             // Clear selections
             this.selectedUploads = [];
@@ -452,7 +674,7 @@ const ProjectDetailPage = {
             document.getElementById('assetFolderInput').value = '';
             
         } catch (error) {
-            alert('上传失败: ' + error.message);
+            showManagementToast('上传失败: ' + error.message, 'danger');
         }
     },
 
@@ -467,9 +689,10 @@ const ProjectDetailPage = {
             if (!response.ok) throw new Error('删除失败');
             
             this.loadProject();
+            showManagementToast('资产已删除。', 'success');
             
         } catch (error) {
-            alert('删除失败: ' + error.message);
+            showManagementToast('删除失败: ' + error.message, 'danger');
         }
     },
 
@@ -495,7 +718,7 @@ const ProjectDetailPage = {
         }).filter(spec => spec);
         
         if (specs.length === 0) {
-            alert('请至少输入一个 group 规格');
+            showManagementToast('请至少输入一个 group 规格。', 'info');
             return;
         }
         
@@ -514,9 +737,10 @@ const ProjectDetailPage = {
             if (!response.ok) throw new Error('保存失败');
             
             this.loadProject();
+            showManagementToast('Group 规格已保存。', 'success');
             
         } catch (error) {
-            alert('保存失败: ' + error.message);
+            showManagementToast('保存失败: ' + error.message, 'danger');
         }
     },
 
@@ -526,6 +750,7 @@ const ProjectDetailPage = {
         
         if (confirm('确定要清空所有输入的 group 规格吗？')) {
             editor.innerHTML = '';
+            showManagementToast('已清空未保存的 group 输入。', 'info');
         }
     },
 
@@ -567,9 +792,10 @@ function deleteGroupSpec(index) {
     .then(response => {
         if (!response.ok) throw new Error('删除失败');
         ProjectDetailPage.loadProject();
+        showManagementToast('Group 规格已删除。', 'success');
     })
     .catch(error => {
-        alert('删除失败: ' + error.message);
+        showManagementToast('删除失败: ' + error.message, 'danger');
     });
 }
 

@@ -420,6 +420,188 @@
         box-shadow: none;
     }
 
+    .sh-module-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: .85rem;
+    }
+
+    .sh-module-empty {
+        grid-column: 1 / -1;
+        padding: .85rem 1rem;
+        border: 1px dashed #cbd8e3;
+        border-radius: 8px;
+        background: #f7fafc;
+        color: var(--sh-muted);
+        font-size: .9rem;
+    }
+
+    .sh-module-card {
+        display: flex;
+        flex-direction: column;
+        gap: .75rem;
+        width: 100%;
+        min-height: 12.5rem;
+        padding: .95rem;
+        text-align: left;
+        border: 1px solid #d7e3ec;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #fff 0%, #f9fbfc 100%);
+        color: #172236;
+        cursor: pointer;
+        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+    }
+
+    .sh-module-card:hover {
+        transform: translateY(-2px);
+        border-color: #8bb6ce;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(25, 73, 104, .1);
+    }
+
+    .sh-module-card-selected {
+        border-color: #11597c;
+        background: #eef8fc;
+        box-shadow: 0 0 0 2px rgba(17, 89, 124, .18), 0 14px 30px rgba(17, 89, 124, .12);
+    }
+
+    .sh-module-card.is-disabled {
+        cursor: not-allowed;
+        opacity: .58;
+        transform: none;
+        border-style: dashed;
+        background: #f5f7f9;
+        box-shadow: none;
+    }
+
+    .sh-module-card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .75rem;
+    }
+
+    .sh-module-card-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.55rem;
+        height: 2.55rem;
+        border-radius: 8px;
+        background: #e8f4f9;
+        color: #11597c;
+        font-size: 1.15rem;
+    }
+
+    .sh-module-card-body,
+    .sh-module-card-tags,
+    .sh-module-card-meta {
+        min-width: 0;
+        display: flex;
+    }
+
+    .sh-module-card-body {
+        flex-direction: column;
+        gap: .42rem;
+    }
+
+    .sh-module-card-title {
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1.25;
+    }
+
+    .sh-module-card-desc {
+        min-height: 2.7rem;
+        color: #657286;
+        font-size: .8rem;
+        line-height: 1.45;
+        overflow: hidden;
+    }
+
+    .sh-module-card-meta {
+        display: grid;
+        grid-template-columns: 3rem minmax(0, 1fr);
+        gap: .55rem;
+        align-items: start;
+        padding-top: .55rem;
+        border-top: 1px solid #edf2f6;
+    }
+
+    .sh-module-card-meta-label {
+        color: #748294;
+        font-size: .7rem;
+        font-weight: 800;
+    }
+
+    .sh-module-card-tags {
+        flex-wrap: wrap;
+        gap: .28rem;
+    }
+
+    .sh-module-card-tags span {
+        padding: .18rem .42rem;
+        border-radius: 999px;
+        background: #edf3f6;
+        color: #40566b;
+        font-size: .68rem;
+        font-weight: 700;
+    }
+
+    .sh-module-card-status {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        max-width: 11rem;
+        padding: .24rem .55rem;
+        border: 1px solid #cfe2f0;
+        border-radius: 999px;
+        background: #eef7fc;
+        color: #11597c;
+        font-size: .72rem;
+        font-weight: 760;
+        line-height: 1.25;
+        white-space: normal;
+        text-align: right;
+    }
+
+    .sh-module-card-status.is-recommended {
+        border-color: #b9e1d5;
+        background: #e9f7f4;
+        color: #0f766e;
+    }
+
+    .sh-module-card-status.is-ready {
+        border-color: #cfe2f0;
+        background: #eef7fc;
+        color: #28546f;
+    }
+
+    .sh-module-card-status.is-cached {
+        border-color: #fde68a;
+        background: #fff8dc;
+        color: #8a5a0a;
+    }
+
+    .sh-module-card-status.is-blocked {
+        border-color: #f3d6bd;
+        background: #fff5e8;
+        color: #8a4f16;
+    }
+
+    .sh-module-card-output {
+        color: #40566b;
+        font-size: .76rem;
+        font-weight: 700;
+        line-height: 1.4;
+    }
+
+    .sh-module-card.is-disabled .sh-module-card-status {
+        color: #8a4f16;
+        white-space: normal;
+        text-align: right;
+    }
+
     .script-hub-page input[readonly],
     .script-hub-page textarea[readonly] {
         background-color: #f7fafc;
@@ -667,6 +849,86 @@
         margin: 0;
         color: var(--sh-muted);
         font-size: .9rem;
+    }
+
+    .sh-control {
+        min-height: 2.45rem;
+        border-color: #d7e3eb;
+        border-radius: 8px;
+        color: var(--sh-ink);
+        transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+    }
+
+    .sh-control:focus {
+        border-color: #3b82a8;
+        box-shadow: 0 0 0 .18rem rgba(59, 130, 168, .16);
+    }
+
+    .sh-control-readonly,
+    .script-hub-page input[readonly].sh-control {
+        background: #f7fafb;
+        color: #526273;
+    }
+
+    .sh-control-help {
+        margin-top: .32rem;
+        color: #6c7b8a;
+        font-size: .74rem;
+        line-height: 1.45;
+    }
+
+    .sh-field-invalid {
+        padding: .55rem;
+        border: 1px solid #f0b9b9;
+        border-radius: 8px;
+        background: #fff7f7;
+    }
+
+    .sh-field-invalid .form-label {
+        color: #9b1c1c;
+    }
+
+    .sh-invalid-message {
+        margin-top: .38rem;
+        color: #b42318;
+        font-size: .76rem;
+        font-weight: 700;
+    }
+
+    .sh-run-digest {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+        margin: -.35rem 0 1rem;
+        padding: .7rem .8rem;
+        border: 1px solid #e4edf3;
+        border-radius: 8px;
+        background: #fbfdff;
+    }
+
+    .sh-run-digest-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        max-width: 100%;
+        padding: .32rem .55rem;
+        border: 1px solid #d4e4ef;
+        border-radius: 999px;
+        background: #eef7fc;
+        color: #335366;
+        font-size: .75rem;
+        line-height: 1.25;
+    }
+
+    .sh-run-digest-chip strong {
+        color: #11597c;
+        font-size: .68rem;
+        letter-spacing: 0;
+    }
+
+    .sh-run-digest-muted {
+        color: #6c7b8a;
+        font-size: .78rem;
     }
 
     .sh-auto-pill {
@@ -1360,6 +1622,76 @@
             grid-template-columns: 1fr;
         }
     }
+
+    .script-hub-page {
+        --sh-page: #f5f8fb;
+        --sh-line: #e8eef4;
+        --sh-ink: #132331;
+        --sh-muted: #627383;
+        --sh-accent: #28546f;
+        --sh-accent-soft: #eaf5fc;
+        --sh-warm-soft: #fff5e8;
+        background: transparent;
+        max-width: 1500px;
+        margin: 0 auto;
+    }
+
+    .sh-stage,
+    .sh-loading-card,
+    .sh-source-intro,
+    .sh-remote-shell,
+    .sh-path-card,
+    .sh-local-drop,
+    .sh-preview-card,
+    .sh-detect-card,
+    .sh-module-card,
+    .sh-config-panel,
+    .sh-result-card,
+    .sh-chart-step,
+    .sh-chart-item,
+    .sh-chart-preview,
+    .sh-chart-result-card,
+    .module-option,
+    .sh-selection-empty,
+    .sh-pipeline-section,
+    .sh-pipeline-step {
+        border-radius: 8px;
+    }
+
+    .sh-stage,
+    .sh-loading-card {
+        border-color: var(--sh-line);
+        box-shadow: 0 8px 22px rgba(19, 35, 49, 0.04);
+    }
+
+    .sh-stage-header {
+        background: #fbfdff;
+        border-bottom-color: var(--sh-line);
+    }
+
+    .sh-stage-index {
+        border: 1px solid #cfe2f0;
+        border-radius: 8px;
+        background: #eef7fc;
+        box-shadow: none;
+    }
+
+    .sh-stage-status,
+    .sh-step-pill {
+        border-radius: 999px;
+    }
+
+    .sh-stage-title,
+    .sh-source-intro h3 {
+        font-weight: 780;
+        letter-spacing: 0;
+    }
+
+    .sh-stage-meta,
+    .sh-source-intro p {
+        line-height: 1.6;
+    }
+
 </style>
 {% endblock %}
 
@@ -1545,8 +1877,8 @@
             <div class="sh-stage-body">
                 <div class="alert alert-info mb-3" id="scriptHubModuleFeedback">选择模块后解锁配置参数。</div>
 
-                <div class="sh-chip-list mb-3" id="scriptHubModuleChips">
-                    <span class="sh-chip">等待数据确认</span>
+                <div class="sh-module-grid mb-3" id="scriptHubModuleChips">
+                    <div class="sh-module-empty">等待数据确认</div>
                 </div>
 
                 <div class="sh-subpanel mb-3" id="scriptHubDataSummaryPanel" style="display:none;">
@@ -1578,6 +1910,9 @@
                             <i class="bi bi-search me-1"></i><span id="scriptHubInspectBtnLabel">检测数据</span>
                         </button>
                     </div>
+                </div>
+                <div class="sh-run-digest" id="scriptHubRunDigest">
+                    <span class="sh-run-digest-muted">检测数据后显示本次运行会记录的关键参数。</span>
                 </div>
 
                 <div class="sh-config-grid">
@@ -1686,6 +2021,132 @@
                                     </div>
                                 </div>
                             </section>
+                        </div>
+                    </div>
+
+                    <div class="sh-col-12" data-module="charts">
+                        <div class="sh-script-config sh-chart-flow" id="scriptHubChartFlow">
+                            <section class="sh-script-section sh-chart-step">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">01</span>
+                                    <strong>扫描结果</strong>
+                                    <span>综合图表使用数据选择阶段的第一个 PEP 路径。</span>
+                                </div>
+                                <div class="alert alert-info mb-0" id="scriptHubChartSummary">请先在数据选择中加入 PEP 路径。</div>
+                            </section>
+
+                            <section class="sh-script-section sh-chart-step sh-chart-chain-step">
+                                <div class="sh-chart-step-head">
+                                    <div>
+                                        <div class="sh-chart-step-title">链类型</div>
+                                        <div class="sh-chart-step-copy" id="scriptHubChartChainSummary">等待扫描链类型。</div>
+                                    </div>
+                                    <div class="sh-chart-toolbar">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartSelectAllChains">全选</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartInvertChains">反选</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartClearChains">清空</button>
+                                    </div>
+                                </div>
+                                <div class="sh-chart-grid" id="scriptHubChartChainList">
+                                    <div class="text-muted small">等待扫描。</div>
+                                </div>
+                            </section>
+
+                            <section class="sh-script-section sh-chart-step sh-chart-sample-step">
+                                <div class="sh-chart-step-head">
+                                    <div>
+                                        <div class="sh-chart-step-title">样本</div>
+                                        <div class="sh-chart-step-copy" id="scriptHubChartSampleSummary">等待选择样本。</div>
+                                    </div>
+                                    <div class="sh-chart-toolbar">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartSelectAllSamples">全选</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartInvertSamples">反选</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartClearSamples">清空</button>
+                                        <button class="btn btn-primary btn-sm" type="button" id="scriptHubChartConfirmSamples">确认样本</button>
+                                    </div>
+                                </div>
+                                <div class="sh-chart-grid" id="scriptHubChartSampleList">
+                                    <div class="text-muted small">等待扫描。</div>
+                                </div>
+                                <div class="sh-chart-confirmed-bar">
+                                    <strong>已确认</strong>
+                                    <span id="scriptHubChartConfirmedSummary">尚未确认样本。</span>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="scriptHubChartEditSamples">重新选择</button>
+                                </div>
+                            </section>
+
+                            <section class="sh-script-section sh-chart-step" id="scriptHubChartFieldStep" style="display:none;">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">02</span>
+                                    <strong>字段映射</strong>
+                                    <span>热图需要 CDR3/copy，Treemap 和 Chord 需要 V/J。</span>
+                                </div>
+                                <div class="sh-config-grid">
+                                    <div class="sh-col-3">
+                                        <label for="scriptHubChartCdr3Column" class="form-label">CDR3 列</label>
+                                        <select class="form-select" id="scriptHubChartCdr3Column"></select>
+                                    </div>
+                                    <div class="sh-col-3">
+                                        <label for="scriptHubChartCopyColumn" class="form-label">Copy 列</label>
+                                        <select class="form-select" id="scriptHubChartCopyColumn"></select>
+                                    </div>
+                                    <div class="sh-col-3">
+                                        <label for="scriptHubChartVColumn" class="form-label">V 列</label>
+                                        <select class="form-select" id="scriptHubChartVColumn"></select>
+                                    </div>
+                                    <div class="sh-col-3">
+                                        <label for="scriptHubChartJColumn" class="form-label">J 列</label>
+                                        <select class="form-select" id="scriptHubChartJColumn"></select>
+                                    </div>
+                                    <div class="sh-col-12">
+                                        <div class="sh-chart-preview">
+                                            <table class="table table-sm sh-preview-table mb-0" id="scriptHubChartPreviewTable">
+                                                <thead></thead>
+                                                <tbody></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="sh-col-12">
+                                        <button class="btn btn-primary btn-sm" type="button" id="scriptHubChartConfirmFields">确认字段</button>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="sh-script-section sh-chart-step" id="scriptHubChartRunStep" style="display:none;">
+                                <div class="sh-script-section-head">
+                                    <span class="sh-script-step">03</span>
+                                    <strong>生成内容</strong>
+                                    <span>可一次生成多个图表报告。</span>
+                                </div>
+                                <div class="module-option-grid" id="scriptHubChartModuleCards">
+                                    <label class="module-option is-selected" data-chart-module-card="heatmap">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubChartHeatmap" value="heatmap" checked>
+                                        <span>
+                                            <strong>相似性热图</strong>
+                                            <span>生成按链的多指标相似性热图，并输出网页报告。</span>
+                                        </span>
+                                        <span class="sh-chart-check" aria-hidden="true">✓</span>
+                                    </label>
+                                    <label class="module-option is-selected" data-chart-module-card="treemap">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubChartTreemap" value="treemap" checked>
+                                        <span>
+                                            <strong>Treemap</strong>
+                                            <span>生成每个样本/链的 CDR3 丰度树图和 ZIP。</span>
+                                        </span>
+                                        <span class="sh-chart-check" aria-hidden="true">✓</span>
+                                    </label>
+                                    <label class="module-option is-selected" data-chart-module-card="chord">
+                                        <input class="form-check-input" type="checkbox" id="scriptHubChartChord" value="chord" checked>
+                                        <span>
+                                            <strong>Chord</strong>
+                                            <span>生成 V/J 基因使用连接图和 ZIP。</span>
+                                        </span>
+                                        <span class="sh-chart-check" aria-hidden="true">✓</span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <div class="sh-chart-results" id="scriptHubChartResults"></div>
                         </div>
                     </div>
 
@@ -1929,7 +2390,7 @@
                         <label for="scriptHubTcGroupField" class="form-label">Group Field (for BoxPlot)</label>
                         <select class="form-select" id="scriptHubTcGroupField"></select>
                     </div>
-                    <div class="sh-col-12" data-module="topclone" id="scriptHubTcGroupValuesPreview" style="display:none;"></div>
+                    <div class="sh-col-12 sh-category-preview" data-module="topclone" id="scriptHubTcGroupValuesPreview" style="display:none;"></div>
 
                     <!-- UMAP config -->
                     <div class="sh-col-6" data-module="umap">
@@ -2030,6 +2491,16 @@
                                     <select class="form-select" id="scriptHubMlFilterCol"></select>
                                 </div>
                                 <div class="sh-col-6">
+                                    <div class="form-text mt-0 mb-1">分类标签值预览</div>
+                                    <div class="sh-category-preview" id="scriptHubMlGroupValuesPreview">
+                                        <div class="sh-category-preview-empty">选择分类标签列后展示分类值。</div>
+                                    </div>
+                                </div>
+                                <div class="sh-col-6">
+                                    <div class="form-text mt-0 mb-1">过滤字段值预览</div>
+                                    <div class="sh-category-preview" id="scriptHubMlFilterValuesPreview" style="display:none;"></div>
+                                </div>
+                                <div class="sh-col-6">
                                     <label for="scriptHubMlFilterValue" class="form-label">过滤值（可选）</label>
                                     <input type="text" class="form-control" id="scriptHubMlFilterValue" placeholder="例如: control / before">
                                 </div>
@@ -2058,6 +2529,50 @@
                     </div>
                 </div>
 
+                    <div class="sh-col-12" data-module="mait-nkt">
+                        <div class="sh-script-section">
+                            <div class="sh-script-section-head">
+                                <span class="sh-script-step">MAIT</span>
+                                <strong>MAIT/NKT 分析</strong>
+                                <span>基于 TRA CDR3 宽表与参考 MAIT/iNKT 序列比对，计算丰度分数。</span>
+                            </div>
+                            <div class="sh-config-grid">
+                                <div class="sh-col-6">
+                                    <label for="scriptHubMaitNktTraSource" class="form-label">TRA 数据来源</label>
+                                    <select class="form-select" id="scriptHubMaitNktTraSource" onchange="document.getElementById('scriptHubMaitNktTraPathBlock').style.display=this.value==='upload'?'':'none';document.getElementById('scriptHubMaitNktSourceJobBlock').style.display=this.value==='pep_analysis'?'':'none';">
+                                        <option value="upload">上传 TRA 文件</option>
+                                        <option value="pep_analysis">PEP 共享分析结果</option>
+                                    </select>
+                                </div>
+                                <div class="sh-col-6" id="scriptHubMaitNktTraPathBlock">
+                                    <label for="scriptHubMaitNktTraPath" class="form-label">TRA CSV 文件路径</label>
+                                    <input type="text" class="form-control" id="scriptHubMaitNktTraPath" readonly placeholder="从项目浏览器选择 TRA CSV">
+                                </div>
+                                <div class="sh-col-12" id="scriptHubMaitNktSourceJobBlock" style="display:none">
+                                    <label for="scriptHubMaitNktSourceJobId" class="form-label">PEP 共享分析 Job ID</label>
+                                    <input type="text" class="form-control" id="scriptHubMaitNktSourceJobId" placeholder="输入已完成的 PEP 共享分析 Job ID">
+                                </div>
+                                <div class="sh-col-6">
+                                    <label for="scriptHubMaitNktGroupField" class="form-label">分组字段</label>
+                                    <select class="form-select" id="scriptHubMaitNktGroupField">
+                                        <option value="">检测后自动填充</option>
+                                    </select>
+                                </div>
+                                <div class="sh-col-6">
+                                    <label for="scriptHubBoxplotGroupOrder" class="form-label">分组排序（逗号分隔，可选）</label>
+                                    <input type="text" class="form-control" id="scriptHubBoxplotGroupOrder" placeholder="例如: Control,Treatment,Recovery">
+                                </div>
+                                <div class="sh-col-12">
+                                    <div class="form-text mt-0 mb-1">已选分组字段的分类值预览。</div>
+                                    <div class="sh-category-preview" id="scriptHubMaitNktGroupValuesPreview">
+                                        <div class="sh-category-preview-empty">选择分组字段后展示分类值。</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="sh-subpanel mb-3 d-none" data-module="db-alignment" aria-hidden="true">
                     <h3 class="sh-subpanel-title">Preview & Recognition Check</h3>
                     <p class="sh-preview-meta" id="scriptHubPreviewFileMeta">等待检测 preview 文件。</p>
@@ -2069,10 +2584,13 @@
                     </div>
                 </div>
 
-                <div class="d-grid">
+                <div class="d-grid gap-2">
                     <button class="btn btn-success btn-lg" type="button" id="scriptHubRunBtn">
                         <i class="bi bi-play-circle me-1"></i><span id="scriptHubRunBtnLabel">Run DB Alignment</span>
                     </button>
+                    <a class="btn btn-outline-secondary" href="{{ url_for('pages.script_hub_jobs_page') }}">
+                        <i class="bi bi-list-check me-1"></i>查看后台任务
+                    </a>
                 </div>
             </div>
         </section>
@@ -2123,7 +2641,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260605-14"></script>
+<script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260623-02"></script>
 <script>
 (function() {
     if (typeof DirectoryBrowser === 'undefined') { console.error('DirectoryBrowser not loaded'); return; }

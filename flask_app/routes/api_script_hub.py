@@ -33,6 +33,10 @@ from flask_app.services.volcano_service import VolcanoService
 from flask_app.services.umapin_service import UmapinService
 from flask_app.services.ml_analysis_service import MLAnalysisService
 from flask_app.services.pgen_analysis_service import PgenAnalysisService
+from flask_app.services.mait_nkt_service import MaitNktService
+from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.script_hub_job_service import get_script_hub_job_service
+from flask_app.services.user_scope import assert_owned, current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +46,14 @@ _script_task_lock = threading.Lock()
 _script_tasks: Dict[str, Dict[str, Any]] = {}
 
 _RESULT_DIR = "script_hub"
-_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "umapin", "ml-analysis"}
+_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "umapin", "ml-analysis", "mait-nkt"}
 _COLUMN_HINTS = {
     "cdr3_column": ["cdr3(pep)", "cdr3_pep", "cdr3aa", "cdr3_aa", "cdr3", "aminoacid", "sequence"],
     "copy_column": ["copy", "copies", "count", "reads", "umis", "umi", "frequency"],
 }
 _SUPPORTED_CHAINS = {"TRA", "TRB"}
 _SUPPORTED_CHAINS_WIDE = {"IGH", "IGK", "IGL", "TRA", "TRB", "TRD", "TRG"}
-_RESULT_FILES = {"viewer.html", "metadata.json", "db_alignment_bundle.zip", "specify_ratio.csv", "specify_ratio_with_profile.csv", "alignment_summary.csv", "pep_analysis_metadata.json", "pep_analysis_results.zip", "pgen_analysis_metadata.json", "pgen_analysis_results.zip", "boxplot_results.zip", "topclone_results.zip", "ml_analysis_results.zip"}
+_RESULT_FILES = {"viewer.html", "metadata.json", "db_alignment_bundle.zip", "specify_ratio.csv", "specify_ratio_with_profile.csv", "alignment_summary.csv", "pep_analysis_metadata.json", "pep_analysis_results.zip", "pgen_analysis_metadata.json", "pgen_analysis_results.zip", "boxplot_results.zip", "topclone_results.zip", "ml_analysis_results.zip", "mait_nkt_results.zip"}
 
 # Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
@@ -84,7 +88,10 @@ def _history_entry(progress: float, stage: str, detail: str, meta: Optional[Dict
 def _set_task_state(task_id: str, **updates: Any) -> None:
     with _script_task_lock:
         task = _script_tasks.setdefault(task_id, {})
+        updates.setdefault("user_id", task.get("user_id") or current_user_id())
         task.update(updates)
+        snapshot = dict(task)
+    _sync_job_state(task_id, snapshot)
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
@@ -93,10 +100,28 @@ def _get_task_state(task_id: str) -> Dict[str, Any] | None:
         return dict(task) if task else None
 
 
+def _sync_job_state(task_id: str, task: Dict[str, Any]) -> None:
+    meta = task.get("meta") if isinstance(task.get("meta"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    module_name = task.get("module") or meta.get("module") or result.get("module") or ""
+    job = {
+        **task,
+        "job_id": task.get("job_id") or task_id,
+        "task_id": task_id,
+        "module": module_name,
+    }
+    try:
+        get_script_hub_job_service().upsert_job(str(job["job_id"]), job)
+    except Exception:
+        logger.warning("Failed to sync Script Hub job state for %s", task_id, exc_info=True)
+
+
 def _record_stage(task_id: str, progress: float, stage: str, detail: str, meta: Optional[Dict[str, Any]] = None) -> None:
     history_item = _history_entry(progress, stage, detail, meta)
     with _script_task_lock:
         task = _script_tasks.setdefault(task_id, {})
+        if task.get("status") == "cancelled":
+            return
         task["status"] = "running"
         task["progress"] = round(progress, 2)
         task["stage"] = stage
@@ -107,13 +132,15 @@ def _record_stage(task_id: str, progress: float, stage: str, detail: str, meta: 
             history.append(history_item)
             if len(history) > 80:
                 del history[:-80]
+        snapshot = dict(task)
+    _sync_job_state(task_id, snapshot)
 
 
 def _resolve_results_root() -> Path:
     results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
     if not results_root.is_absolute():
         results_root = Path(current_app.root_path) / results_root
-    return results_root.resolve()
+    return PathAccessService.results_root_for_user(results_root.resolve())
 
 
 def _sanitize_nan(obj: Any) -> Any:
@@ -362,11 +389,13 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
     if not str(project_id or "").strip():
         return {"pep_paths": [], "profile_path": "", "profile_paths": [], "invalid_profile_paths": []}
     try:
-        from flask_app.models.database import ProjectAsset
+        from flask_app.models.database import Project, ProjectAsset
     except Exception as exc:  # pragma: no cover - defensive import fallback
         logger.warning("ProjectAsset import failed while collecting Script Hub assets: %s", exc)
         return {"pep_paths": [], "profile_path": "", "profile_paths": [], "invalid_profile_paths": []}
 
+    project = Project.query.get(str(project_id).strip())
+    assert_owned(project, "Project")
     assets = ProjectAsset.query.filter(ProjectAsset.project_id == str(project_id).strip()).order_by(ProjectAsset.uploaded_at.desc()).all()
     pep_paths: List[str] = []
     profile_paths: List[str] = []
@@ -519,11 +548,12 @@ def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict
 
 
 def _profile_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
-    return _request_registered_assets(data, *keys)["profile_path"] or None
+    value = _request_registered_assets(data, *keys)["profile_path"] or ""
+    return str(PathAccessService.validate_read_path(value)) if value else None
 
 
 def _pep_paths_from_request(data: Dict[str, Any]) -> List[str]:
-    return _request_registered_assets(data)["pep_paths"]
+    return [str(PathAccessService.validate_read_path(path)) for path in _request_registered_assets(data)["pep_paths"]]
 
 
 def _primary_pep_path_from_request(data: Dict[str, Any], *keys: str) -> str:
@@ -533,8 +563,8 @@ def _primary_pep_path_from_request(data: Dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = str(data.get(key) or "").strip()
         if value and value not in pep_paths:
-            return value
-    return pep_paths[0] if pep_paths else ""
+            return str(PathAccessService.validate_read_path(value))
+    return str(PathAccessService.validate_read_path(pep_paths[0])) if pep_paths else ""
 
 
 def _analysis_input_descriptor(path_value: str, asset_type: str) -> Dict[str, Any]:
@@ -558,6 +588,20 @@ def _analysis_input_descriptor(path_value: str, asset_type: str) -> Dict[str, An
     return descriptor
 
 
+def _analysis_external_input_descriptor(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a stable descriptor for non-filesystem inputs such as source jobs."""
+    descriptor = {
+        "asset_type": str(item.get("asset_type") or "input").strip(),
+    }
+    for key in sorted(item.keys()):
+        if key in {"asset_type", "path"}:
+            continue
+        value = item.get(key)
+        if value is not None:
+            descriptor[key] = str(value).strip()
+    return descriptor
+
+
 def _build_script_cache_context(
     *,
     project_id: Optional[str],
@@ -568,11 +612,13 @@ def _build_script_cache_context(
     project_id = str(project_id or "").strip()
     if not project_id:
         return {"project_id": "", "analysis_signature": "", "input_assets": [], "config_json": config_json}
-    input_assets = [
-        _analysis_input_descriptor(item.get("path", ""), item.get("asset_type", "input"))
-        for item in input_paths
-        if str(item.get("path") or "").strip()
-    ]
+    input_assets = []
+    for item in input_paths:
+        path_value = str(item.get("path") or "").strip()
+        if path_value:
+            input_assets.append(_analysis_input_descriptor(path_value, item.get("asset_type", "input")))
+        elif any(key for key in item.keys() if key not in {"asset_type", "path"}):
+            input_assets.append(_analysis_external_input_descriptor(item))
     input_assets.sort(key=lambda item: (item.get("asset_type", ""), item.get("path", "")))
     try:
         from flask_app.services.mongo_service import build_analysis_signature
@@ -591,6 +637,198 @@ def _build_script_cache_context(
         "input_assets": input_assets,
         "config_json": config_json,
     }
+
+
+def _force_rerun_requested(data: Dict[str, Any]) -> bool:
+    return str(data.get("force_rerun") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -> Dict[str, Any]:
+    """Mirror run-endpoint cache inputs without creating a task."""
+    project_id = str(data.get("project_id") or "").strip() or None
+
+    if module_name == "db-alignment":
+        pep_paths = _pep_paths_from_request(data)
+        base_path = _primary_pep_path_from_request(data, "base_path")
+        profile_path = _profile_path_from_request(data, "profile_path") or ""
+        field_mapping = data.get("field_mapping") if isinstance(data.get("field_mapping"), dict) else {}
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=(
+                [{"asset_type": "pep", "path": path} for path in (pep_paths or [base_path])]
+                + ([{"asset_type": "profile", "path": profile_path}] if profile_path else [])
+            ),
+            config_json={
+                "field_mapping": {
+                    "cdr3_column": str(field_mapping.get("cdr3_column") or "").strip(),
+                    "copy_column": str(field_mapping.get("copy_column") or "").strip(),
+                },
+                "categories": [str(item).strip() for item in (data.get("categories") or []) if str(item).strip()],
+                "contained_pathology": _as_bool(data.get("contained_pathology"), False),
+                "pathology_values": [str(item).strip() for item in (data.get("pathology_values") or []) if str(item).strip()],
+            },
+        )
+
+    if module_name in {"boxplot", "profile", "umap"}:
+        datapoint_path = _profile_path_from_request(data, "datapoint_path", "profile_path") or ""
+        config_json = {
+            "param_begin": str(data.get("param_begin") or "").strip(),
+            "param_over": str(data.get("param_over") or "").strip(),
+            "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+        }
+        if module_name == "profile":
+            config_json.update({
+                "grouping_begin": str(data.get("grouping_begin") or "").strip(),
+                "grouping_over": str(data.get("grouping_over") or "").strip(),
+                "grouptype_fields": data.get("grouptype_fields") if isinstance(data.get("grouptype_fields"), list) else [],
+            })
+        elif module_name == "boxplot":
+            config_json.update({
+                "classification_begin": str(data.get("classification_begin") or "").strip(),
+                "classification_over": str(data.get("classification_over") or "").strip(),
+                "grouptype_fields": data.get("grouptype_fields") if isinstance(data.get("grouptype_fields"), list) else [],
+                "group_order": str(data.get("group_order") or "").strip() or None,
+            })
+        else:
+            config_json.update({
+                "classification_begin": str(data.get("classification_begin") or "").strip(),
+                "classification_over": str(data.get("classification_over") or "").strip(),
+                "n_neighbors": int(data.get("n_neighbors") or 6),
+                "min_dist": float(data.get("min_dist") or 0.01),
+            })
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[{"asset_type": "profile", "path": datapoint_path}],
+            config_json=config_json,
+        )
+
+    if module_name == "topclone":
+        pep_paths = _pep_paths_from_request(data)
+        pep_data_path = _primary_pep_path_from_request(data, "pep_data_path", "base_path")
+        datapoint_path = _profile_path_from_request(data, "datapoint_path", "profile_path") or ""
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=(
+                [{"asset_type": "pep", "path": path} for path in (pep_paths or [pep_data_path])]
+                + ([{"asset_type": "profile", "path": datapoint_path}] if datapoint_path else [])
+            ),
+            config_json={
+                "mode": str(data.get("mode") or "trace").strip(),
+                "top_n": int(data.get("top_n") or 10),
+                "group_field": str(data.get("group_field") or "").strip() or None,
+                "group_order": str(data.get("group_order") or "").strip() or None,
+                "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+            },
+        )
+
+    if module_name in {"pep-analysis", "pgen-analysis"}:
+        pep_paths = _pep_paths_from_request(data)
+        pep_key = "pep_data_dir" if module_name == "pep-analysis" else "pep_data_dir"
+        pep_data_dir = _primary_pep_path_from_request(data, pep_key, "base_path", "pep_data_path")
+        profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path") or ""
+        if module_name == "pep-analysis":
+            optional_steps_raw = data.get("optional_steps") if isinstance(data.get("optional_steps"), list) else None
+            optional_steps = {int(step) for step in optional_steps_raw if str(step).isdigit()} if optional_steps_raw is not None else None
+            config_json = {
+                "selected_chains": data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else [],
+                "group_fields": data.get("group_fields") if isinstance(data.get("group_fields"), list) else [],
+                "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+                "min_sample_threshold": int(data.get("min_sample_threshold") or 3),
+                "optional_steps": sorted(optional_steps) if optional_steps is not None else None,
+            }
+        else:
+            config_json = {
+                "selected_chains": data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else [],
+                "sample_col": str(data.get("sample_col") or "sample").strip() or "sample",
+                "species": str(data.get("species") or "human").strip() or "human",
+            }
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=(
+                [{"asset_type": "pep", "path": path} for path in (pep_paths or [pep_data_dir])]
+                + ([{"asset_type": "profile", "path": profile_path}] if profile_path else [])
+            ),
+            config_json=config_json,
+        )
+
+    if module_name == "volcano":
+        data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[{"asset_type": "cached_usage", "path": data_dir}],
+            config_json={"pvalue_threshold": float(data.get("pvalue_threshold") or 0.05)},
+        )
+
+    if module_name == "umapin":
+        data_path = str(data.get("data_path") or "").strip() or _resolve_project_cached_usage_path(data, preferred="umapin")
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[{"asset_type": "cached_usage", "path": data_path}],
+            config_json={
+                "param_begin": str(data.get("param_begin") or "").strip(),
+                "param_over": str(data.get("param_over") or "").strip(),
+                "category_col": str(data.get("category_col") or "Category").strip(),
+                "n_neighbors": int(data.get("n_neighbors") or 6),
+                "min_dist": float(data.get("min_dist") or 0.01),
+                "do_fdr": bool(data.get("do_fdr") or False),
+            },
+        )
+
+    if module_name == "ml-analysis":
+        profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path") or ""
+        mode = str(data.get("mode") or "profile").strip().lower()
+        usage_path = str(data.get("usage_path") or "").strip()
+        if mode == "vj-usage":
+            usage_path = usage_path or _resolve_project_cached_usage_path(data, preferred="umapin")
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[
+                {"asset_type": "profile", "path": profile_path},
+                *([{"asset_type": "cached_usage", "path": usage_path}] if usage_path else []),
+            ],
+            config_json={
+                "mode": mode,
+                "label_col": str(data.get("label_col") or "").strip(),
+                "sample_col": str(data.get("sample_col") or "Sample").strip() or "Sample",
+                "param_begin": str(data.get("param_begin") or "").strip(),
+                "param_over": str(data.get("param_over") or "").strip(),
+                "filter_col": str(data.get("filter_col") or "").strip(),
+                "filter_value": str(data.get("filter_value") or "").strip(),
+                "feature_cols": _list_payload(data.get("feature_cols")) if mode != "profile" else [],
+                "usage_feature_cols": _list_payload(data.get("usage_feature_cols")),
+                "custom_threshold": float(data.get("custom_threshold") or 0.003),
+                "cv_splits": int(data.get("cv_splits") or 3),
+                "roc_cv_splits": int(data.get("roc_cv_splits") or 7),
+            },
+        )
+
+    if module_name == "mait-nkt":
+        tra_source = str(data.get("tra_source") or "upload").strip()
+        tra_path = str(data.get("tra_path") or "").strip()
+        source_job_id = str(data.get("source_job_id") or "").strip()
+        profile_path = _profile_path_from_request(data, "profile_path") or ""
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[
+                {"asset_type": "tra", "path": tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_result", "source_job_id": source_job_id},
+                {"asset_type": "profile", "path": profile_path},
+            ],
+            config_json={
+                "group_field": str(data.get("group_field") or "").strip(),
+                "group_order": str(data.get("group_order") or "").strip() or None,
+                "tra_source": tra_source,
+            },
+        )
+
+    raise ValidationError(message="Unsupported script hub module", details={"module": module_name})
 
 
 def _result_relative_path_from_url(job_id: str, url: str) -> str:
@@ -632,7 +870,7 @@ def _mongo_result_to_script_result(doc: Dict[str, Any], module_name: str) -> Dic
     return _sanitize_nan(result)
 
 
-def _try_reuse_script_result(cache_context: Dict[str, Any], module_name: str) -> Optional[Dict[str, Any]]:
+def _find_reusable_script_result(cache_context: Dict[str, Any], module_name: str) -> Optional[Dict[str, Any]]:
     project_id = cache_context.get("project_id") or ""
     signature = cache_context.get("analysis_signature") or ""
     if not project_id or not signature:
@@ -645,7 +883,17 @@ def _try_reuse_script_result(cache_context: Dict[str, Any], module_name: str) ->
         return None
     if not doc or not _stored_script_result_available(doc):
         return None
-    result = _mongo_result_to_script_result(doc, module_name)
+    return _mongo_result_to_script_result(doc, module_name)
+
+
+def _try_reuse_script_result(cache_context: Dict[str, Any], module_name: str) -> Optional[Dict[str, Any]]:
+    project_id = cache_context.get("project_id") or ""
+    signature = cache_context.get("analysis_signature") or ""
+    if not project_id or not signature:
+        return None
+    result = _find_reusable_script_result(cache_context, module_name)
+    if not result:
+        return None
     task_id = f"script_task_{uuid.uuid4().hex[:12]}"
     history = [_history_entry(100.0, "Completed", "Reused existing project analysis result", {
         "phase": "completed",
@@ -669,11 +917,42 @@ def _try_reuse_script_result(cache_context: Dict[str, Any], module_name: str) ->
     return {
         "success": True,
         "task_id": task_id,
+        "job_id": task_id,
         "status_url": f"/api/script-hub/task/{task_id}",
         "reused_result": True,
         "analysis_signature": signature,
         "result_id": result.get("result_id", ""),
+        "result": result,
     }
+
+
+@script_hub_bp.route("/cache/check", methods=["POST"])
+def check_script_hub_cache():
+    try:
+        data = request.get_json() or {}
+        module_name = str(data.get("module") or "db-alignment").strip().lower()
+        if module_name not in _ALLOWED_MODULES:
+            raise ValidationError(message="Unsupported script hub module", details={"module": module_name})
+
+        cache_context = _cache_context_from_script_request(data, module_name)
+        result = _find_reusable_script_result(cache_context, module_name)
+        return jsonify(_sanitize_nan({
+            "success": True,
+            "hit": bool(result),
+            "reused_result": bool(result),
+            "module": module_name,
+            "analysis_signature": cache_context.get("analysis_signature", ""),
+            "result_id": result.get("result_id", "") if result else "",
+            "result": result,
+            "project_id": cache_context.get("project_id", ""),
+            "config_json": cache_context.get("config_json", {}),
+            "input_assets": cache_context.get("input_assets", []),
+        }))
+    except ValidationError as exc:
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error checking Script Hub cache: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_CACHE_CHECK_ERROR", "message": str(exc)}), 500
 
 
 def _persist_script_result(
@@ -773,6 +1052,8 @@ def _complete_script_task(
     meta: Optional[Dict[str, Any]] = None,
 ) -> None:
     task_context = _get_task_state(task_id) or {}
+    if task_context.get("status") == "cancelled":
+        return
     project_id = str(task_context.get("project_id") or "").strip()
     analysis_signature = str(task_context.get("analysis_signature") or "").strip()
     input_assets = task_context.get("input_assets") if isinstance(task_context.get("input_assets"), list) else []
@@ -1415,6 +1696,12 @@ def list_modules():
                     "description": "PEP 共享矩阵、V/J/VJ 使用频率、分组比较热图、CDR3 分类、排列热图和可视化。",
                 },
                 {
+                    "key": "charts",
+                    "label": "综合图表",
+                    "status": "available",
+                    "description": "基于 PEP 数据生成相似性热图、Treemap 和 Chord 图表报告。",
+                },
+                {
                     "key": "pgen-analysis",
                     "label": "Pgen 分析",
                     "status": "available",
@@ -1449,6 +1736,12 @@ def list_modules():
                     "label": "机器学习分析",
                     "status": "available",
                     "description": "参考 ML_260526 随机森林流程，支持 Profile 特征或 PEP共享分析缓存的 VJ usage 特征。",
+                },
+                {
+                    "key": "mait-nkt",
+                    "label": "MAIT/NKT 分析",
+                    "status": "available",
+                    "description": "基于 TRA CDR3 宽表与参考 MAIT/iNKT 序列比对，计算丰度分数并生成分组箱线图。",
                 },
             ],
         }
@@ -1562,9 +1855,10 @@ def run_db_alignment():
                 "pathology_values": pathology_values,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "base_path": base_path}
@@ -1766,9 +2060,10 @@ def run_boxplot():
                 "pvalue_threshold": pvalue_threshold,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, "boxplot")
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, "boxplot")
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "datapoint_path": datapoint_path}
@@ -2560,9 +2855,10 @@ def run_topclone():
                 "pvalue_threshold": pvalue_threshold,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "pep_data_path": pep_data_path}
@@ -2746,9 +3042,10 @@ def run_profile():
                 "pvalue_threshold": pvalue_threshold,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "datapoint_path": datapoint_path}
@@ -2870,9 +3167,10 @@ def run_pep_analysis():
                 "optional_steps": sorted(optional_steps) if optional_steps is not None else None,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "pep_data_dir": pep_data_dir}
@@ -2992,9 +3290,10 @@ def run_pgen_analysis():
                 "sample_col": sample_col,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {"phase": "queued", "module": module_name, "pep_data_dir": pep_data_dir}
@@ -3398,8 +3697,92 @@ def _run_pep_analysis_task(
 def get_script_hub_task_status(task_id: str):
     task = _get_task_state(task_id)
     if task is None:
+        task = get_script_hub_job_service().get_job(task_id)
+    else:
+        _sync_job_state(task_id, task)
+        job = get_script_hub_job_service().get_job(task_id) or {}
+        task = {**job, **task, "module": job.get("module") or task.get("module")}
+    if task is None:
         return jsonify({"success": False, "error": "TASK_NOT_FOUND", "message": "Task not found"}), 404
-    return jsonify({"success": True, **_sanitize_nan(task)})
+    job_id = str(task.get("job_id") or task_id)
+    task_id_value = str(task.get("task_id") or task_id)
+    return jsonify({"success": True, "job_id": job_id, "task_id": task_id_value, **_sanitize_nan(task)})
+
+
+@script_hub_bp.route("/jobs", methods=["GET"])
+def list_script_hub_jobs():
+    module = request.args.get("module") or None
+    project_id = request.args.get("project_id") or None
+    status = request.args.get("status") or None
+    limit = request.args.get("limit", default=100, type=int) or 100
+    jobs = get_script_hub_job_service().list_jobs(
+        module=module,
+        project_id=project_id,
+        status=status,
+        limit=limit,
+    )
+    return jsonify({"success": True, "jobs": _sanitize_nan(jobs)})
+
+
+@script_hub_bp.route("/jobs", methods=["POST"])
+def create_script_hub_job():
+    data = request.get_json() or {}
+    module_name = str(data.get("module") or "").strip().lower()
+    dispatch = {
+        "db-alignment": run_db_alignment,
+        "boxplot": run_boxplot,
+        "profile": run_profile,
+        "topclone": run_topclone,
+        "pep-analysis": run_pep_analysis,
+        "pgen-analysis": run_pgen_analysis,
+        "umap": run_umap,
+        "volcano": run_volcano,
+        "umapin": run_umapin,
+        "ml-analysis": run_ml_analysis,
+        "mait-nkt": run_mait_nkt,
+    }
+    runner = dispatch.get(module_name)
+    if runner is None:
+        return jsonify({
+            "success": False,
+            "error": "INVALID_MODULE",
+            "message": f"Unsupported Script Hub module: {module_name or '-'}",
+        }), 400
+    return runner()
+
+
+@script_hub_bp.route("/jobs/<job_id>", methods=["GET"])
+def get_script_hub_job(job_id: str):
+    job = get_script_hub_job_service().get_job(job_id)
+    if job is None:
+        job = _get_task_state(job_id)
+        if job is not None:
+            _sync_job_state(job_id, job)
+            job = get_script_hub_job_service().get_job(job_id)
+    if job is None:
+        return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+    return jsonify({"success": True, "job": _sanitize_nan(job)})
+
+
+@script_hub_bp.route("/jobs/<job_id>/cancel", methods=["POST"])
+def cancel_script_hub_job(job_id: str):
+    job = get_script_hub_job_service().cancel_job(job_id)
+    if job is None:
+        return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+
+    task_id = str(job.get("task_id") or job_id)
+    with _script_task_lock:
+        task = _script_tasks.get(task_id)
+        if task and task.get("status") not in {"completed", "failed", "cancelled"}:
+            task.update({
+                "status": "cancelled",
+                "stage": "Cancelled",
+                "detail": "Job cancelled by user.",
+                "meta": {**(task.get("meta") or {}), "phase": "cancelled"},
+            })
+            job = dict(task, job_id=job_id, task_id=task_id)
+    get_script_hub_job_service().upsert_job(job_id, job)
+    return jsonify({"success": True, "job": _sanitize_nan(job)})
 
 
 # ---------------------------------------------------------------------------
@@ -3587,9 +3970,10 @@ def run_umap():
                 "min_dist": min_dist,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         _set_task_state(task_id, status="queued", progress=0.0, stage="Queued",
@@ -3776,9 +4160,10 @@ def run_volcano():
             input_paths=[{"asset_type": "cached_usage", "path": data_dir}],
             config_json={"pvalue_threshold": pvalue_threshold},
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         _set_task_state(task_id, status="queued", progress=0.0, stage="排队中",
@@ -3979,9 +4364,10 @@ def run_umapin():
                 "do_fdr": do_fdr,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         _set_task_state(task_id, status="queued", progress=0.0, stage="排队中",
@@ -4347,9 +4733,10 @@ def run_ml_analysis():
                 "roc_cv_splits": roc_cv_splits,
             },
         )
-        reused_response = _try_reuse_script_result(cache_context, module_name)
-        if reused_response:
-            return jsonify(reused_response)
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
 
         task_id = f"script_task_{uuid.uuid4().hex[:12]}"
         _set_task_state(task_id, status="queued", progress=0.0, stage="排队中",
@@ -4486,6 +4873,302 @@ def get_script_hub_result_file(job_id: str, relative_path: str):
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error serving script hub result file: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_RESULT_ERROR", "message": str(exc)}), 500
+
+
+# ── MAIT/NKT analysis ─────────────────────────────────────────────────
+
+@script_hub_bp.route("/mait-nkt/inspect", methods=["POST"])
+def inspect_mait_nkt():
+    try:
+        data = request.get_json() or {}
+        tra_source = str(data.get("tra_source") or "upload").strip()
+        tra_path = str(data.get("tra_path") or "").strip()
+        source_job_id = str(data.get("source_job_id") or "").strip()
+        profile_path = _profile_path_from_request(data, "profile_path")
+
+        # Resolve TRA data source
+        tra_df = None
+        resolved_tra_path = ""
+        if tra_source == "pep_analysis" and source_job_id:
+            # Find the PEP analysis job output
+            pep_result = _try_find_script_task_result(source_job_id)
+            if pep_result and "output_base" in pep_result.get("result", {}):
+                pep_output = Path(pep_result["result"]["output_base"])
+                candidates = [
+                    pep_output / "Pep_shared" / "TRA.csv",
+                    pep_output / "Pep_shared_cate" / "Pep_shared" / "TRA.csv",
+                ]
+                for cand in candidates:
+                    if cand.exists():
+                        resolved_tra_path = str(cand)
+                        tra_df = _robust_read_csv(cand)
+                        break
+                if tra_df is None:
+                    raise ValidationError(
+                        message="PEP 分析结果中未找到 Pep_shared/TRA.csv",
+                        details={"source_job_id": source_job_id},
+                    )
+            else:
+                raise ValidationError(
+                    message="PEP 分析任务未找到或已完成",
+                    details={"source_job_id": source_job_id},
+                )
+        elif tra_path:
+            dp = Path(tra_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(message="TRA file not found", details={"file_path": tra_path})
+            resolved_tra_path = tra_path
+            tra_df = _robust_read_csv(dp)
+        else:
+            raise ValidationError(
+                message="请提供 TRA CSV 文件路径或选择 PEP 共享分析结果",
+                details={"tra_source": tra_source},
+            )
+
+        # Detect sample columns
+        sample_cols = []
+        has_category_row = False
+        if tra_df is not None and len(tra_df.columns) > 1:
+            sample_cols = [str(c) for c in tra_df.columns[1:]]
+            if len(tra_df) >= 1:
+                second_row = tra_df.iloc[0, 1:]
+                if _looks_like_category_row(second_row):
+                    has_category_row = True
+
+        # Load profile for group values
+        profile_groups: Dict[str, Any] = {}
+        if profile_path:
+            pp = Path(profile_path)
+            if pp.exists():
+                pf = _robust_read_csv(pp)
+                for col in pf.columns:
+                    vals = sorted(set(str(v) for v in pf[col].dropna()))
+                    profile_groups[col] = vals
+
+        return jsonify(_sanitize_nan({
+            "success": True,
+            "tra_source": tra_source,
+            "resolved_tra_path": resolved_tra_path,
+            "sample_columns": sample_cols,
+            "sample_count": len(sample_cols),
+            "has_category_row": has_category_row,
+            "profile_groups": profile_groups,
+        }))
+    except ValidationError as exc:
+        logger.warning("Validation error in inspect_mait_nkt: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error inspecting MAIT/NKT inputs: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_INSPECT_ERROR", "message": str(exc)}), 500
+
+
+@script_hub_bp.route("/mait-nkt/run", methods=["POST"])
+def run_mait_nkt():
+    try:
+        data = request.get_json() or {}
+        module_name = "mait-nkt"
+
+        tra_source = str(data.get("tra_source") or "upload").strip()
+        tra_path = str(data.get("tra_path") or "").strip()
+        source_job_id = str(data.get("source_job_id") or "").strip()
+        profile_path = _profile_path_from_request(data, "profile_path") or ""
+        group_field = str(data.get("group_field") or "").strip()
+        group_order = str(data.get("group_order") or "").strip() or None
+
+        if not profile_path:
+            raise ValidationError(message="profile_path is required", details={"field": "profile_path"})
+        if not group_field:
+            raise ValidationError(message="group_field is required", details={"field": "group_field"})
+
+        project_id = str(data.get("project_id") or "").strip() or None
+        cache_context = _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[
+                {"asset_type": "tra", "path": tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_result", "source_job_id": source_job_id},
+                {"asset_type": "profile", "path": profile_path},
+            ],
+            config_json={"group_field": group_field, "group_order": group_order, "tra_source": tra_source},
+        )
+        if not _force_rerun_requested(data):
+            cached = _try_reuse_script_result(cache_context, module_name)
+            if cached:
+                return jsonify(_sanitize_nan(cached))
+
+        task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+        _set_task_state(
+            task_id,
+            status="queued",
+            module=module_name,
+            progress=0.0,
+            stage="Queued",
+            detail="MAIT/NKT analysis task queued",
+            created_at=datetime.now().strftime("%H:%M:%S"),
+            history=[_history_entry(0, "Queued", "MAIT/NKT analysis task queued")],
+            **cache_context,
+        )
+
+        analysis_signature = cache_context.get("analysis_signature", "")
+
+        _script_executor.submit(
+            _run_mait_nkt_task,
+            task_id,
+            results_root=Path(current_app.config.get("RESULTS_FOLDER", "flask_app/data/results")),
+            tra_source=tra_source,
+            tra_path=tra_path,
+            source_job_id=source_job_id,
+            profile_path=profile_path,
+            group_field=group_field,
+            group_order=group_order,
+            app_context_app=current_app._get_current_object() if project_id else None,
+        )
+
+        return jsonify(_sanitize_nan({
+            "success": True,
+            "task_id": task_id,
+            "status": "queued",
+            "module": module_name,
+            "status_url": f"/api/script-hub/task/{task_id}",
+            "analysis_signature": analysis_signature,
+        }))
+    except ValidationError as exc:
+        logger.warning("Validation error in run_mait_nkt: %s", exc.message)
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error running MAIT/NKT analysis: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
+
+
+def _run_mait_nkt_task(
+    task_id: str,
+    *,
+    results_root: Path,
+    tra_source: str,
+    tra_path: str,
+    source_job_id: str,
+    profile_path: str,
+    group_field: str,
+    group_order: Optional[str],
+    app_context_app: Optional[Any] = None,
+) -> None:
+    try:
+        _record_stage(task_id, 2, "Loading", "Reading TRA data")
+        tra_df = None
+        resolved_tra_path = tra_path
+        if tra_source == "pep_analysis" and source_job_id:
+            pep_result = _try_find_script_task_result(source_job_id)
+            if not pep_result:
+                raise ValidationError(message="PEP analysis job not found", details={"source_job_id": source_job_id})
+            pep_output = Path(pep_result["result"]["output_base"])
+            candidates = [
+                pep_output / "Pep_shared" / "TRA.csv",
+                pep_output / "Pep_shared_cate" / "Pep_shared" / "TRA.csv",
+            ]
+            tra_df = None
+            for cand in candidates:
+                if cand.exists():
+                    tra_df = _robust_read_csv(cand)
+                    resolved_tra_path = str(cand)
+                    break
+            if tra_df is None:
+                raise ValidationError(message="PEP analysis result does not contain Pep_shared/TRA.csv")
+        else:
+            dp = Path(tra_path)
+            if not dp.exists():
+                raise ValidationError(message="TRA file not found", details={"file_path": tra_path})
+            tra_df = _robust_read_csv(dp)
+
+        _record_stage(task_id, 8, "Loading", "Reading profile data")
+        pp = Path(profile_path)
+        if not pp.exists():
+            raise ValidationError(message="Profile file not found", details={"file_path": profile_path})
+        profile_df = _robust_read_csv(pp)
+
+        group_order_list = None
+        if group_order:
+            group_order_list = [x.strip() for x in group_order.split(",") if x.strip()]
+
+        service = MaitNktService(output_parent=results_root / _RESULT_DIR)
+
+        def _progress(percent, stage, detail):
+            _record_stage(task_id, percent, stage, detail)
+
+        report = service.generate_report(
+            tra_df=tra_df,
+            profile_df=profile_df,
+            group_field=group_field,
+            group_order=group_order_list,
+            progress_callback=_progress,
+            job_id=task_id,
+            datapoint_path=resolved_tra_path or tra_path,
+        )
+
+        # Build result URLs
+        png_urls = []
+        for png in report.png_paths:
+            rel = Path(png).relative_to(report.output_base).as_posix()
+            png_urls.append(f"/api/script-hub/results/{report.job_id}/{rel}")
+
+        result = {
+            "module": "mait-nkt",
+            "job_id": report.job_id,
+            "output_base": str(report.output_base),
+            "viewer_url": f"/api/script-hub/results/{report.job_id}/viewer.html",
+            "png_urls": png_urls,
+            "zip_url": f"/api/script-hub/results/{report.job_id}/mait_nkt_results.zip",
+            "metadata": report.metadata,
+        }
+
+        normalized = _normalize_script_result(
+            result,
+            report.output_base,
+            report.metadata,
+            title="MAIT/NKT 分析",
+            subtitle=f"分组字段: {group_field}",
+            dl_extras=[],
+            zip_name="mait_nkt_results.zip",
+        )
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _complete_script_task(
+            task_id,
+            module_name="mait-nkt",
+            detail=f"MAIT/NKT 分析完成，生成 {len(png_urls)} 张图",
+            result=normalized,
+            history=history,
+            app_context_app=app_context_app,
+            stage="完成",
+        )
+    except Exception as exc:
+        logger.error("MAIT/NKT task %s failed: %s", task_id, exc, exc_info=True)
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _set_task_state(
+            task_id,
+            status="failed",
+            progress=100.0,
+            stage="失败",
+            detail=str(exc),
+            error=str(exc),
+            meta={"phase": "failed", "module": "mait-nkt"},
+            history=history[-80:],
+        )
+
+
+# ── helper: looks like category row ────────────────────────────────────
+
+def _looks_like_category_row(series) -> bool:
+    """Return True if the row appears to be category labels (mostly non-numeric)."""
+    if len(series) == 0:
+        return False
+    numeric_count = 0
+    total = 0
+    for v in series.dropna():
+        total += 1
+        try:
+            float(v)
+            numeric_count += 1
+        except (ValueError, TypeError):
+            pass
+    return total > 0 and numeric_count / total < 0.3
 
 
 @script_hub_bp.route("/read-table-preview", methods=["POST"])

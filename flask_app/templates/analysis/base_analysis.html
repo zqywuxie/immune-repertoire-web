@@ -7,32 +7,36 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/file_uploader.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/color_scheme_preview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
 {% block analysis_css %}{% endblock %}
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
+<div class="container-fluid py-4 analysis-workbench analysis-module-page">
     {# Page Header Section #}
-    <div class="row">
-        <div class="col-12">
-            <h2 class="mb-4">
-                <i class="{{ page_icon }} me-2"></i>
-                {{ page_title }}
-            </h2>
-            <p class="text-muted mb-4">
-                {{ page_description }}
-            </p>
+    <div class="analysis-page-hero">
+        <div class="analysis-page-title-row">
+            <div class="analysis-page-icon">
+                <i class="{{ page_icon }}"></i>
+            </div>
+            <div>
+                <span class="analysis-kicker">Analysis Module</span>
+                <h1>{{ page_title }}</h1>
+                <p>{{ page_description }}</p>
+            </div>
         </div>
     </div>
 
     {# Configuration Section - Two Column Layout #}
-    <div class="row mb-4">
+    <div class="row g-4 mb-4 analysis-config-grid">
         {# Left Column: File Selection and Sample Configuration #}
-        <div class="col-md-6">
-            <div class="card">
+        <div class="col-xl-6">
+            <div class="card analysis-panel">
                 <div class="card-header">
-                    <i class="bi bi-file-earmark-spreadsheet me-2"></i>
-                    选择数据文件
+                    <span>
+                        <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                        选择数据文件
+                    </span>
                 </div>
                 <div class="card-body">
                     {# File Uploader Component #}
@@ -94,10 +98,10 @@
         </div>
 
         {# Right Column: Analysis Parameters and Chart Configuration #}
-        <div class="col-md-6">
+        <div class="col-xl-6">
             {# Analysis-Specific Parameters Card #}
             {% block analysis_parameters %}
-            <div class="card mb-3">
+            <div class="card mb-3 analysis-panel">
                 <div class="card-header">
                     <i class="bi bi-sliders me-2"></i>
                     分析参数
@@ -109,7 +113,7 @@
             {% endblock %}
 
             {# Chart Configuration Card #}
-            <div class="card">
+            <div class="card analysis-panel">
                 <div class="card-header">
                     <i class="bi bi-gear me-2"></i>
                     图表配置
@@ -154,6 +158,11 @@
     {# Analyze Button Section #}
     <div class="row mb-4">
         <div class="col-12">
+            <div class="analysis-run-bar">
+            <div>
+                <div class="analysis-run-title">执行分析</div>
+                <div class="analysis-run-copy">确认文件、字段映射和图表配置后运行。</div>
+            </div>
             <button class="btn btn-primary btn-lg" id="analyzeBtn" disabled>
                 <i class="bi bi-play-fill me-2"></i>
                 运行分析
@@ -162,11 +171,12 @@
                 <span class="spinner-border spinner-border-sm" role="status"></span>
                 分析中...
             </span>
+            </div>
         </div>
     </div>
 
     {# Results Section #}
-    <div id="resultsSection" class="d-none">
+    <div id="resultsSection" class="d-none analysis-results-shell">
         {# Analysis-Specific Results #}
         {% block results_content %}
         <!-- Results content goes here -->

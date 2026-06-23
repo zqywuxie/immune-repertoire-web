@@ -117,6 +117,10 @@ function toggleSidebar() {
     const sidebarToggle = document.getElementById('sidebarToggle');
 
     if (sidebar) {
+        if (window.innerWidth >= 992) {
+            closeSidebar();
+            return;
+        }
         const isOpen = sidebar.classList.toggle('show');
 
         if (sidebarOverlay) {
@@ -138,6 +142,8 @@ function openSidebar() {
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
     const sidebarToggle = document.getElementById('sidebarToggle');
+
+    if (window.innerWidth >= 992) return;
 
     if (sidebar && !sidebar.classList.contains('show')) {
         sidebar.classList.add('show');
@@ -176,13 +182,24 @@ function initializeSidebarCollapse() {
         return;
     }
 
+    const applyCollapseState = (collapsed, { persist = false } = {}) => {
+        const shouldCollapse = Boolean(collapsed) && window.innerWidth >= 992;
+        sidebar.classList.toggle('collapsed', shouldCollapse);
+        if (mainContent) mainContent.classList.toggle('sidebar-collapsed', shouldCollapse);
+        if (collapseIcon) {
+            collapseIcon.classList.toggle('bi-chevron-left', !shouldCollapse);
+            collapseIcon.classList.toggle('bi-chevron-right', shouldCollapse);
+        }
+        collapseBtn.setAttribute('aria-expanded', String(!shouldCollapse));
+        collapseBtn.setAttribute('title', shouldCollapse ? '展开侧边栏' : '收起侧边栏');
+        const text = collapseBtn.querySelector('.nav-text');
+        if (text) text.textContent = shouldCollapse ? '展开' : '收起';
+        if (persist) localStorage.setItem('sidebarCollapsed', String(shouldCollapse));
+        if (shouldCollapse) closeSidebar();
+    };
+
     // Load saved collapse state
-    const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-    if (isCollapsed && window.innerWidth >= 992) {
-        sidebar.classList.add('collapsed');
-        if (mainContent) mainContent.classList.add('sidebar-collapsed');
-        if (collapseIcon) collapseIcon.classList.replace('bi-chevron-left', 'bi-chevron-right');
-    }
+    applyCollapseState(localStorage.getItem('sidebarCollapsed') === 'true');
     rootElement.classList.remove('sidebar-precollapsed');
 
     // Toggle collapse on button click
@@ -193,22 +210,7 @@ function initializeSidebarCollapse() {
         // Only allow collapse on desktop
         if (window.innerWidth < 992) return;
 
-        const isCurrentlyCollapsed = sidebar.classList.toggle('collapsed');
-
-        if (mainContent) {
-            mainContent.classList.toggle('sidebar-collapsed', isCurrentlyCollapsed);
-        }
-
-        if (collapseIcon) {
-            if (isCurrentlyCollapsed) {
-                collapseIcon.classList.replace('bi-chevron-left', 'bi-chevron-right');
-            } else {
-                collapseIcon.classList.replace('bi-chevron-right', 'bi-chevron-left');
-            }
-        }
-
-        // Save state
-        localStorage.setItem('sidebarCollapsed', isCurrentlyCollapsed);
+        applyCollapseState(!sidebar.classList.contains('collapsed'), { persist: true });
 
         // Trigger resize event for charts
         window.dispatchEvent(new Event('resize'));
@@ -217,9 +219,10 @@ function initializeSidebarCollapse() {
     // Reset collapse state on mobile
     window.addEventListener('resize', function () {
         if (window.innerWidth < 992) {
-            sidebar.classList.remove('collapsed');
-            if (mainContent) mainContent.classList.remove('sidebar-collapsed');
-            if (collapseIcon) collapseIcon.classList.replace('bi-chevron-right', 'bi-chevron-left');
+            applyCollapseState(false);
+        } else {
+            closeSidebar();
+            applyCollapseState(localStorage.getItem('sidebarCollapsed') === 'true');
         }
     });
 }

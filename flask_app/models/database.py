@@ -6,7 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict
 
+from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # Database instance - will be initialized by the app
 db = SQLAlchemy()
@@ -15,6 +17,59 @@ db = SQLAlchemy()
 def generate_uuid():
     """Generate a UUID string."""
     return str(uuid.uuid4())
+
+
+class User(UserMixin, db.Model):
+    """Application user for authentication, ownership, and path access."""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    email = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(30), nullable=False, default='user', index=True)
+    is_active_flag = db.Column(db.Boolean, nullable=False, default=True)
+    home_path = db.Column(db.String(500), nullable=True)
+    allowed_paths = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    projects = db.relationship("Project", back_populates="user")
+    files = db.relationship("File", back_populates="user")
+    analyses = db.relationship("Analysis", back_populates="user")
+
+    @property
+    def is_active(self) -> bool:
+        return bool(self.is_active_flag)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == 'admin'
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+    def get_allowed_paths(self) -> list[str]:
+        paths = self.allowed_paths or []
+        if isinstance(paths, str):
+            paths = [paths]
+        return [str(path).strip() for path in paths if str(path).strip()]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'role': self.role,
+            'is_active': self.is_active,
+            'home_path': self.home_path,
+            'allowed_paths': self.get_allowed_paths(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
+        }
 
 
 class File(db.Model):
@@ -31,9 +86,11 @@ class File(db.Model):
     storage_path = db.Column(db.String(500), nullable=False)
     uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     project = db.Column(db.String(255), nullable=True, default='default')  # Project/folder name for organization
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     
     # Relationships
     analyses = db.relationship("Analysis", back_populates="file", cascade="all, delete-orphan")
+    user = db.relationship("User", back_populates="files")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -47,6 +104,7 @@ class File(db.Model):
             'storage_path': self.storage_path,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'project': self.project or 'default',
+            'user_id': self.user_id,
         }
 
 
@@ -58,6 +116,7 @@ class MappingTemplate(db.Model):
     name = db.Column(db.String(255), nullable=False)
     mapping = db.Column(db.JSON, nullable=False)  # Dict[str, str]
     analysis_type = db.Column(db.String(50), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -67,6 +126,7 @@ class MappingTemplate(db.Model):
             'name': self.name,
             'mapping': self.mapping or {},
             'analysis_type': self.analysis_type,
+            'user_id': self.user_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -96,9 +156,11 @@ class Analysis(db.Model):
     scheme_id = db.Column(db.String(100), nullable=True)  # Analysis scheme ID
     scheme_name = db.Column(db.String(255), nullable=True)  # Analysis scheme name
     selected_fields = db.Column(db.JSON, nullable=True)  # List of selected fields for custom mode
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     
     # Relationships
     file = db.relationship("File", back_populates="analyses")
+    user = db.relationship("User", back_populates="analyses")
     results = db.relationship("AnalysisResult", back_populates="analysis", cascade="all, delete-orphan")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -121,6 +183,7 @@ class Analysis(db.Model):
             'scheme_id': self.scheme_id,
             'scheme_name': self.scheme_name,
             'selected_fields': self.selected_fields or [],
+            'user_id': self.user_id,
         }
 
 
@@ -155,6 +218,60 @@ class AnalysisResult(db.Model):
         }
 
 
+class AnalysisJob(db.Model):
+    """Persistent background job record shared by all analysis modules."""
+    __tablename__ = 'analysis_jobs'
+
+    id = db.Column(db.String(64), primary_key=True, default=generate_uuid)
+    job_type = db.Column(db.String(80), nullable=False, index=True)
+    module = db.Column(db.String(120), nullable=False, index=True)
+    status = db.Column(db.String(30), nullable=False, default='queued', index=True)
+    progress = db.Column(db.Float, nullable=False, default=0.0)
+    stage = db.Column(db.String(255), nullable=True)
+    detail = db.Column(db.Text, nullable=True)
+    history = db.Column(db.JSON, nullable=True)
+    payload = db.Column(db.JSON, nullable=True)
+    result = db.Column(db.JSON, nullable=True)
+    error = db.Column(db.Text, nullable=True)
+    cancel_requested = db.Column(db.Boolean, nullable=False, default=False)
+    project_id = db.Column(db.String(36), db.ForeignKey('projects.id'), nullable=True, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload = self.payload or {}
+        meta = payload.get('meta') if isinstance(payload.get('meta'), dict) else {}
+        return {
+            'id': self.id,
+            'job_id': self.id,
+            'task_id': self.id,
+            'job_type': self.job_type,
+            'module': self.module,
+            'status': self.status,
+            'progress': self.progress,
+            'stage': self.stage,
+            'detail': self.detail,
+            'history': self.history or [],
+            'payload': payload,
+            'meta': meta,
+            'parent_job_id': payload.get('parent_job_id'),
+            'child_label': payload.get('child_label'),
+            'hidden_from_default_list': bool(payload.get('hidden_from_default_list')),
+            'result': self.result or {},
+            'error': self.error,
+            'cancel_requested': self.cancel_requested,
+            'project_id': self.project_id,
+            'user_id': self.user_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
 class CustomParameter(db.Model):
     """Model for saved custom parameter templates."""
     __tablename__ = 'custom_parameters'
@@ -163,6 +280,7 @@ class CustomParameter(db.Model):
     name = db.Column(db.String(255), nullable=False)
     analysis_type = db.Column(db.String(50), nullable=False)
     parameters = db.Column(db.JSON, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -172,6 +290,7 @@ class CustomParameter(db.Model):
             'name': self.name,
             'analysis_type': self.analysis_type,
             'parameters': self.parameters or {},
+            'user_id': self.user_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -240,7 +359,8 @@ class Project(db.Model):
     __tablename__ = 'projects'
 
     id = db.Column(db.String(36), primary_key=True, default=generate_uuid)
-    name = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    name = db.Column(db.String(255), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     institution = db.Column(db.String(255), nullable=True)
     cooperation_level = db.Column(db.String(120), nullable=True)
     description = db.Column(db.Text, nullable=True)
@@ -248,6 +368,11 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index('ix_projects_user_name', 'user_id', 'name', unique=True),
+    )
+
+    user = db.relationship("User", back_populates="projects")
     assets = db.relationship("ProjectAsset", back_populates="project", cascade="all, delete-orphan")
     samples = db.relationship("SampleRecord", back_populates="project", cascade="all, delete-orphan")
     group_specs = db.relationship("ProjectGroupSpec", back_populates="project", cascade="all, delete-orphan")
@@ -261,6 +386,7 @@ class Project(db.Model):
         return {
             'id': self.id,
             'name': self.name,
+            'user_id': self.user_id,
             'institution': self.institution,
             'cooperation_level': self.cooperation_level,
             'description': self.description,

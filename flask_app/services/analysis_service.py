@@ -147,6 +147,7 @@ class AnalysisService:
         """
         from flask_app.models.database import db, Analysis, File
         from flask_app.exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
+        from flask_app.services.user_scope import assert_owned, current_user_id
         
         # Validate analysis type
         try:
@@ -178,6 +179,7 @@ class AnalysisService:
                     message=f"File not found: {file_id}",
                     details={'file_id': file_id}
                 )
+            assert_owned(file_record, "File")
         
         # Create analysis record
         analysis_id = str(uuid.uuid4())
@@ -203,11 +205,33 @@ class AnalysisService:
             status=AnalysisStatus.PENDING.value,
             progress=0.0,
             current_step='Initializing',
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            user_id=current_user_id(),
         )
         
         db.session.add(analysis)
         db.session.commit()
+
+        try:
+            from flask_app.services.background_job_service import get_background_job_service
+            get_background_job_service().upsert_job(analysis_id, {
+                "job_type": "analysis_service",
+                "module": analysis_type,
+                "status": AnalysisStatus.PENDING.value,
+                "progress": 0.0,
+                "stage": "Initializing",
+                "detail": "Analysis task created",
+                "user_id": current_user_id(),
+                "payload": {
+                    "analysis_id": analysis_id,
+                    "file_id": file_id,
+                    "field_mapping": field_mapping,
+                    "parameters": parameters or {},
+                    "chart_config": chart_config or {},
+                },
+            })
+        except Exception:
+            pass
         
         # Initialize progress cache
         with self._progress_lock:
@@ -415,6 +439,18 @@ class AnalysisService:
             analysis.progress = progress
             analysis.current_step = current_step
             db.session.commit()
+        try:
+            from flask_app.services.background_job_service import get_background_job_service
+            get_background_job_service().upsert_job(analysis_id, {
+                "job_type": "analysis_service",
+                "module": analysis.type if analysis else "analysis",
+                "status": analysis.status if analysis else "running",
+                "progress": progress,
+                "stage": current_step,
+                "detail": current_step,
+            })
+        except Exception:
+            pass
     
     def retry_analysis(self, analysis_id: str) -> bool:
         """
@@ -501,6 +537,11 @@ class AnalysisService:
         analysis.status = AnalysisStatus.CANCELLED.value
         analysis.completed_at = datetime.utcnow()
         db.session.commit()
+        try:
+            from flask_app.services.background_job_service import get_background_job_service
+            get_background_job_service().request_cancel(analysis_id)
+        except Exception:
+            pass
         
         # Clean up progress cache
         with self._progress_lock:
@@ -588,7 +629,8 @@ class AnalysisService:
                 self.update_progress(analysis_id, 15.0, 'Preparing analysis')
                 
                 # Create results directory for this analysis
-                results_dir = Path(self.results_folder) / analysis_id
+                user_segment = str(analysis.user_id) if analysis.user_id else "shared"
+                results_dir = Path(self.results_folder) / user_segment / analysis_id
                 results_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Execute analysis based on type
@@ -641,6 +683,15 @@ class AnalysisService:
                 db.session.commit()
                 
                 self.update_progress(analysis_id, 100.0, 'Completed')
+                try:
+                    from flask_app.services.background_job_service import get_background_job_service
+                    get_background_job_service().complete_job(analysis_id, {
+                        "module": analysis.type,
+                        "analysis_id": analysis_id,
+                        "results_path": str(results_dir),
+                    })
+                except Exception:
+                    pass
                 
             except Exception as e:
                 # Handle failure
@@ -655,6 +706,11 @@ class AnalysisService:
                     analysis.error_message = error_message
                     analysis.completed_at = datetime.utcnow()
                     db.session.commit()
+                try:
+                    from flask_app.services.background_job_service import get_background_job_service
+                    get_background_job_service().fail_job(analysis_id, error_message, error_traceback)
+                except Exception:
+                    pass
                 
                 # Log error with more details
                 if self.app:

@@ -53,9 +53,22 @@ class Config:
     ALLOWED_IMAGE_FORMATS = ['png', 'jpg', 'jpeg']
     
     # Directory Browser Configuration
-    # Empty list means no restrictions - can browse all directories
-    ALLOWED_BASE_PATHS = []
+    # Empty list is only unrestricted when REQUIRE_LOGIN is disabled.
+    ALLOWED_BASE_PATHS = [
+        item.strip()
+        for item in os.environ.get('ALLOWED_BASE_PATHS', '').split(os.pathsep)
+        if item.strip()
+    ]
     HIDDEN_DIRECTORIES = ['.git', '__pycache__', 'node_modules', '.hypothesis', '$RECYCLE.BIN', 'System Volume Information']
+    REQUIRE_LOGIN = os.environ.get('REQUIRE_LOGIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
+    AUTH_REGISTER_ENABLED = os.environ.get('AUTH_REGISTER_ENABLED', 'true').lower() not in {'0', 'false', 'no', 'off'}
+    AUTH_FIRST_USER_ADMIN = os.environ.get('AUTH_FIRST_USER_ADMIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
+    USER_DATA_ROOT = Path(os.environ.get('USER_DATA_ROOT', str(BASE_DIR / 'data' / 'users')))
+    DEFAULT_USER_ALLOWED_PATHS = [
+        item.strip()
+        for item in os.environ.get('DEFAULT_USER_ALLOWED_PATHS', '').split(os.pathsep)
+        if item.strip()
+    ]
 
     # Visualization defaults
     DEFAULT_COLOR_SCHEME = 'viridis'
@@ -70,6 +83,7 @@ class Config:
         cls.UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
         cls.RESULTS_FOLDER.mkdir(parents=True, exist_ok=True)
         cls.PDF_EXTRACTION_FOLDER.mkdir(parents=True, exist_ok=True)
+        cls.USER_DATA_ROOT.mkdir(parents=True, exist_ok=True)
         cls.DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -92,6 +106,7 @@ class TestingConfig(Config):
     """Testing configuration."""
     TESTING = True
     DEBUG = True
+    REQUIRE_LOGIN = False
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     WTF_CSRF_ENABLED = False
 

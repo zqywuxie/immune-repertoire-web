@@ -12,6 +12,7 @@ import pandas as pd
 
 from flask_app.exceptions import ValidationError
 from flask_app.models.database import Project, SampleRecord, db
+from flask_app.services.user_scope import current_user_id, is_admin
 
 
 def _normalize_column_name(value: str) -> str:
@@ -53,6 +54,8 @@ class SampleRegistryService:
         is_pe: str = "",
     ) -> List[SampleRecord]:
         query = SampleRecord.query.join(Project).order_by(SampleRecord.created_at.desc())
+        if not is_admin() and current_user_id() is not None:
+            query = query.filter(Project.user_id == current_user_id())
 
         if project_id:
             query = query.filter(SampleRecord.project_id == project_id)
@@ -90,6 +93,9 @@ class SampleRegistryService:
         sample = SampleRecord.query.get(sample_record_id)
         if sample is None:
             raise ValidationError(message="Sample record not found", details={'sample_id': sample_record_id})
+        if not is_admin() and current_user_id() is not None:
+            if not sample.project or sample.project.user_id != current_user_id():
+                raise ValidationError(message="Sample record not found", details={'sample_id': sample_record_id})
         return sample
 
     def replace_project_samples(self, project: Project, rows: List[Dict[str, object]]) -> List[SampleRecord]:
@@ -199,6 +205,8 @@ class SampleRegistryService:
         }
 
         base_query = SampleRecord.query.join(Project)
+        if not is_admin() and current_user_id() is not None:
+            base_query = base_query.filter(Project.user_id == current_user_id())
         if project_id:
             base_query = base_query.filter(SampleRecord.project_id == project_id)
 

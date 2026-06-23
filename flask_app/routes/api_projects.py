@@ -15,6 +15,7 @@ from flask_app.exceptions import StorageError, ValidationError
 from flask_app.models.database import ProjectAsset
 from flask_app.services.group_spec_service import get_group_spec_service
 from flask_app.services.integration_catalog_service import get_integration_catalog
+from flask_app.services.path_access_service import PathAccessService
 from flask_app.services.project_analysis_bridge import get_project_analysis_bridge
 from flask_app.services.project_asset_service import get_project_asset_service
 from flask_app.services.project_service import get_project_service
@@ -281,6 +282,7 @@ def register_project_asset_path(project_id: str):
         raise ValidationError(message="asset_type is required", details={'field': 'asset_type'})
     if not storage_path:
         raise ValidationError(message="storage_path is required", details={'field': 'storage_path'})
+    storage_path = str(PathAccessService.validate_read_path(storage_path))
 
     asset = _asset_service().register_cached_asset(
         project,

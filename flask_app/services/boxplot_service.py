@@ -263,18 +263,16 @@ class BoxPlotService:
         grouptype_fields = metadata.get("grouptype_fields", [])
         datapoint_path = metadata.get("datapoint_path", "")
 
-        # Build plot cards HTML — grouped by class_col
-        by_class: Dict[str, List[Dict[str, Any]]] = {}
+        # Build unique param / class lists for dropdowns
+        all_params: List[str] = list(dict.fromkeys(p.get("param", "") for p in plot_infos))
+        all_classes: List[str] = list(dict.fromkeys(p.get("class_col", "") for p in plot_infos))
+
+        # Build plot card HTML — each card indexed by param+class
+        cards_by_key: Dict[str, str] = {}
         for p in plot_infos:
-            by_class.setdefault(p["class_col"], []).append(p)
-
-        # Build all plots JSON for JS filtering
-        plot_infos_json = json.dumps(plot_infos, ensure_ascii=False).replace("</", "<\\/")
-
-        def _render_card(p: Dict[str, Any]) -> str:
-            class_col = html.escape(str(p.get("class_col", "")))
-            param = html.escape(str(p.get("param", "")))
-            png = html.escape(str(p.get("png", "")))
+            class_col = str(p.get("class_col", ""))
+            param = str(p.get("param", ""))
+            png = str(p.get("png", ""))
             is_sig = p.get("is_significant", False)
             badge_text = "显著" if is_sig else "非显著"
             badge_class = "is-sig" if is_sig else "is-ns"
@@ -283,34 +281,41 @@ class BoxPlotService:
             pairs_html = ""
             if sig_pairs:
                 pairs_html = "<div class=\"pvalue-list\">" + "".join(
-                    f"<span>{html.escape(sp['group1'])} vs {html.escape(sp['group2'])} p={float(sp['pvalue']):.4g}</span>"
+                    f"<span>{html.escape(str(sp['group1']))} vs {html.escape(str(sp['group2']))} p={float(sp['pvalue']):.4g}</span>"
                     for sp in sig_pairs[:10]
                 ) + "</div>"
-            return f"""<article class="plot-card" data-class="{class_col}" data-sig="{'1' if is_sig else '0'}">
+
+            key = f"{param}||{class_col}"
+            cards_by_key[key] = f"""<article class="plot-card" data-param="{html.escape(param)}" data-class="{html.escape(class_col)}" data-sig="{'1' if is_sig else '0'}">
               <div class="plot-head">
                 <div>
-                  <strong>{param}</strong>
-                  <span>{class_col}</span>
+                  <strong>{html.escape(param)}</strong>
+                  <span>{html.escape(class_col)}</span>
                 </div>
                 <em class="{badge_class}">{badge_text}</em>
               </div>
-              <a href="{png}" target="_blank" rel="noopener">
-                <img src="{png}" alt="{param}" loading="lazy">
+              <a href="{html.escape(png)}" target="_blank" rel="noopener">
+                <img src="{html.escape(png)}" alt="{html.escape(param)}" loading="lazy">
               </a>
               {pairs_html}
             </article>"""
 
-        cards_html = "".join(_render_card(p) for p in plot_infos) or '<div class="empty-txt">没有生成箱线图。</div>'
+        # Pre-render all cards into a JS dictionary
+        cards_json = json.dumps(cards_by_key, ensure_ascii=False).replace("</", "<\\/")
+        all_params_json = json.dumps(all_params, ensure_ascii=False)
+        all_classes_json = json.dumps(all_classes, ensure_ascii=False)
 
-        # Class field filter chips
-        class_chips = "".join(
-            f'<span class="filter-chip is-active" data-class="{html.escape(c)}">{html.escape(c)}</span>'
-            for c in class_columns
+        empty_html = '<div class="empty-txt">所选条件下没有生成箱线图。</div>'
+
+        # Dropdown options
+        param_options = "\n".join(
+            f'<option value="{html.escape(v)}"{(" selected" if i == 0 else "")}>{html.escape(v)}</option>'
+            for i, v in enumerate(all_params)
         )
-        if class_columns:
-            class_chips += '<span class="filter-chip is-active" data-class="__all__">全部</span>'
-        else:
-            class_chips = '<span class="filter-chip is-active">(无分类字段)</span>'
+        class_options = "\n".join(
+            f'<option value="{html.escape(v)}"{(" selected" if i == 0 else "")}>{html.escape(v)}</option>'
+            for i, v in enumerate(all_classes)
+        )
 
         summary_cards = [
             ("分类字段", ", ".join(grouptype_fields) if grouptype_fields else "未分组"),
@@ -333,7 +338,7 @@ class BoxPlotService:
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif; background: #f4f7fa; color: #1e293b; line-height: 1.6; }}
-    .page {{ max-width: 1440px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
+    .page {{ max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
     .header {{ background: #fff; border-radius: 18px; padding: 1.5rem 1.8rem; margin-bottom: 1.2rem; border: 1px solid #dee6ed; box-shadow: 0 8px 24px rgba(0,0,0,.04); }}
     .header h1 {{ font-size: 1.35rem; font-weight: 720; margin-bottom: .35rem; }}
     .header .meta {{ color: #5f7d94; font-size: .88rem; }}
@@ -341,17 +346,16 @@ class BoxPlotService:
     .stat-item {{ flex: 1 1 140px; min-width: 130px; background: #f6f9fc; border-radius: 12px; padding: .75rem 1rem; border: 1px solid #dee8f0; }}
     .stat-item strong {{ display: block; font-size: .72rem; color: #5f7d94; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .22rem; }}
     .stat-item span {{ font-size: .95rem; font-weight: 680; }}
-    .toolbar {{ display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; margin-bottom: 1rem; }}
-    .sig-toggle {{ display: inline-flex; align-items: center; gap: .45rem; padding: .52rem 1rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .84rem; font-weight: 600; transition: border-color .15s, background .15s; user-select: none; }}
+    .controls {{ display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; margin-bottom: 1.2rem; padding: 1rem 1.2rem; background: #fff; border-radius: 14px; border: 1px solid #dee6ed; }}
+    .control-group {{ display: flex; flex-direction: column; gap: .3rem; }}
+    .control-group label {{ font-size: .72rem; font-weight: 680; color: #5f7d94; text-transform: uppercase; letter-spacing: .04em; }}
+    .control-group select {{ padding: .48rem 2rem .48rem .7rem; border: 1px solid #c5d4e0; border-radius: 8px; font-size: .86rem; background: #fff; cursor: pointer; min-width: 180px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%235f7d94'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .6rem center; }}
+    .control-group select:focus {{ outline: none; border-color: #11597c; box-shadow: 0 0 0 2px rgba(17,89,124,.15); }}
+    .sig-toggle {{ display: inline-flex; align-items: center; gap: .45rem; padding: .48rem 1rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .84rem; font-weight: 600; transition: all .15s; user-select: none; white-space: nowrap; height: fit-content; align-self: flex-end; }}
     .sig-toggle:hover {{ border-color: #6fa3c4; }}
     .sig-toggle.is-active {{ border-color: #0b6b5f; background: #ecfbf6; color: #0b6b5f; }}
-    .filter-chip {{ display: inline-flex; align-items: center; padding: .38rem .72rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .8rem; transition: all .15s; user-select: none; }}
-    .filter-chip:hover {{ border-color: #6fa3c4; }}
-    .filter-chip.is-active {{ border-color: #11597c; background: #d8ecfa; box-shadow: 0 0 0 1px #11597c; font-weight: 680; }}
-    .filter-chip.is-active[data-sig-only="1"] {{ border-color: #0b6b5f; background: #ecfbf6; box-shadow: 0 0 0 1px #0b6b5f; color: #0b6b5f; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .85rem; }}
-    .plot-card {{ background: #fff; border-radius: 14px; border: 1px solid #dee6ed; overflow: hidden; transition: transform .15s, box-shadow .15s; }}
-    .plot-card:hover {{ box-shadow: 0 6px 18px rgba(0,0,0,.07); }}
+    .plot-panel {{ background: #fff; border-radius: 14px; border: 1px solid #dee6ed; overflow: hidden; }}
+    .plot-card {{ }}
     .plot-card.is-hidden {{ display: none; }}
     .plot-head {{ display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; padding: .7rem .85rem; border-bottom: 1px solid #edf2f6; background: #fbfdfe; }}
     .plot-head strong {{ display: block; font-size: .82rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
@@ -359,13 +363,14 @@ class BoxPlotService:
     .plot-head em {{ flex: 0 0 auto; font-size: .68rem; font-weight: 700; padding: .2rem .48rem; border-radius: 999px; font-style: normal; }}
     .plot-head em.is-sig {{ background: #dcfce7; color: #166534; }}
     .plot-head em.is-ns {{ background: #f1f5f9; color: #64748b; }}
-    .plot-card img {{ width: 100%; height: auto; display: block; cursor: pointer; }}
+    .plot-card img {{ width: 100%; height: auto; display: block; cursor: pointer; max-height: 600px; object-fit: contain; background: #fafbfc; }}
     .pvalue-list {{ padding: .5rem .85rem .65rem; display: flex; flex-wrap: wrap; gap: .3rem; }}
     .pvalue-list span {{ display: inline-block; font-size: .68rem; background: #fef9e7; border: 1px solid #fde68a; border-radius: 6px; padding: .15rem .42rem; color: #92400e; }}
-    .empty-txt {{ grid-column: 1 / -1; text-align: center; padding: 2.5rem 1rem; color: #8397a8; font-size: .92rem; }}
+    .empty-txt {{ text-align: center; padding: 3rem 1rem; color: #8397a8; font-size: .92rem; }}
     .back-link {{ display: inline-flex; align-items: center; gap: .35rem; color: #11597c; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
     .back-link:hover {{ text-decoration: underline; }}
-    @media (max-width: 640px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+    .nav-hint {{ font-size: .74rem; color: #8397a8; margin-left: auto; }}
+    @media (max-width: 640px) {{ .controls {{ flex-direction: column; align-items: stretch; }} .control-group select {{ min-width: 0; }} }}
   </style>
 </head>
 <body>
@@ -376,45 +381,106 @@ class BoxPlotService:
     <div class="meta">数据文件: {html.escape(datapoint_path)} &nbsp;|&nbsp; 任务: {html.escape(job_id)}</div>
     <div class="stats">{summary_html}</div>
   </div>
-  <div class="toolbar">
-    <button class="sig-toggle" id="sigToggle" title="切换显示全部 / 仅显著">🔍 仅显示显著</button>
-    <span style="color:#8397a8;font-size:.76rem;margin-left:.35rem;">点击筛选分类字段：</span>
-    <div id="classChips">{class_chips}</div>
+  <div class="controls">
+    <div class="control-group">
+      <label for="paramSelect">📊 指标字段</label>
+      <select id="paramSelect">{param_options}</select>
+    </div>
+    <div class="control-group">
+      <label for="classSelect">📂 分类字段</label>
+      <select id="classSelect">{class_options}</select>
+    </div>
+    <button class="sig-toggle" id="sigToggle">🔍 仅显示显著</button>
+    <span class="nav-hint" id="counter"></span>
   </div>
-  <div class="grid" id="plotGrid">{cards_html}</div>
+  <div class="plot-panel" id="plotPanel">{empty_html}</div>
 </div>
 <script>
 (function() {{
-  const cards = document.querySelectorAll('.plot-card');
+  const cards = {cards_json};
+  const allParams = {all_params_json};
+  const allClasses = {all_classes_json};
+  const paramSelect = document.getElementById('paramSelect');
+  const classSelect = document.getElementById('classSelect');
   const sigToggle = document.getElementById('sigToggle');
-  const classChips = document.querySelectorAll('#classChips .filter-chip[data-class]');
+  const plotPanel = document.getElementById('plotPanel');
+  const counter = document.getElementById('counter');
   let sigOnly = false;
-  let activeClass = '__all__';
 
-  function applyFilters() {{
-    cards.forEach(card => {{
-      const matchesSig = !sigOnly || card.dataset.sig === '1';
-      const matchesClass = activeClass === '__all__' || card.dataset.class === activeClass;
-      card.classList.toggle('is-hidden', !matchesSig || !matchesClass);
-    }});
+  function showSelected() {{
+    const param = paramSelect.value;
+    const cls = classSelect.value;
+    const key = param + '||' + cls;
+    const html = cards[key] || '{empty_html}';
+    plotPanel.innerHTML = html;
+
+    // Update counter: how many params × classes match?
+    let total = 0, sigs = 0;
+    for (const [k, v] of Object.entries(cards)) {{
+      const [p, c] = k.split('||');
+      if (p === param) {{
+        total++;
+        if (v.includes('data-sig="1"')) sigs++;
+      }}
+    }}
+    counter.textContent = total ? sigs + ' 显著 / ' + total + ' 个分类' : '';
   }}
+
+  function repopulateClassDropdown() {{
+    const param = paramSelect.value;
+    const current = classSelect.value;
+    classSelect.innerHTML = '';
+    allClasses.forEach(cls => {{
+      const key = param + '||' + cls;
+      if (cards[key]) {{
+        const opt = document.createElement('option');
+        opt.value = cls;
+        opt.textContent = cls;
+        if (cls === current) opt.selected = true;
+        classSelect.appendChild(opt);
+      }}
+    }});
+    if (!classSelect.querySelector('option[selected]')) {{
+      const first = classSelect.querySelector('option');
+      if (first) first.selected = true;
+    }}
+    showSelected();
+  }}
+
+  paramSelect.addEventListener('change', repopulateClassDropdown);
+
+  classSelect.addEventListener('change', showSelected);
 
   sigToggle.addEventListener('click', () => {{
     sigOnly = !sigOnly;
     sigToggle.classList.toggle('is-active', sigOnly);
     sigToggle.textContent = sigOnly ? '✅ 仅显示显著' : '🔍 仅显示显著';
-    sigToggle.setAttribute('data-sig-only', sigOnly ? '1' : '0');
-    applyFilters();
+
+    // Rebuild class dropdown with sig-only filter
+    const param = paramSelect.value;
+    const current = classSelect.value;
+    classSelect.innerHTML = '';
+    allClasses.forEach(cls => {{
+      const key = param + '||' + cls;
+      const html = cards[key];
+      if (!html) return;
+      const isSig = html.includes('data-sig="1"');
+      if (sigOnly && !isSig) return;
+      const opt = document.createElement('option');
+      opt.value = cls;
+      opt.textContent = cls + (isSig ? ' ★' : '');
+      if (cls === current) opt.selected = true;
+      classSelect.appendChild(opt);
+    }});
+    if (!classSelect.querySelector('option[selected]')) {{
+      const first = classSelect.querySelector('option');
+      if (first) first.selected = true;
+    }}
+    showSelected();
   }});
 
-  classChips.forEach(chip => {{
-    chip.addEventListener('click', () => {{
-      activeClass = chip.dataset.class;
-      classChips.forEach(c => c.classList.remove('is-active'));
-      chip.classList.add('is-active');
-      applyFilters();
-    }});
-  }});
+  // Init
+  showSelected();
 }})();
 </script>
 </body>
@@ -777,25 +843,93 @@ class BoxPlotService:
                 zorder=3,
             )
 
-        pvalue_text = "\n".join(
-            f"{row['group1']} vs {row['group2']}: p={row['pvalue']:.3g}"
-            for row in BoxPlotService._normalise_significant_pairs(significant_pairs)[:4]
-        )
-        if len(significant_pairs or []) > 4:
-            pvalue_text += f"\n+{len(significant_pairs) - 4} more"
-        if pvalue_text:
-            ax.text(
-                0.02,
-                0.98,
-                pvalue_text,
-                transform=ax.transAxes,
-                ha="left",
-                va="top",
-                fontsize=8.5,
-                fontweight="bold",
-                color="#243746",
-                bbox={"boxstyle": "round,pad=.28", "fc": "#ffffff", "ec": "#d7e2e8", "alpha": 0.92},
+        # ── Significance brackets via ax.annotate ──────────────────────
+        norm_pairs = BoxPlotService._normalise_significant_pairs(significant_pairs)
+        if norm_pairs:
+            # Build label → x-index map for the visible groups
+            label_to_x = {label: i + 1 for i, label in enumerate(labels)}
+
+            # Parse into (x1, x2, pvalue) tuples, drop pairs with unknown labels
+            raw_brackets: List[tuple] = []
+            for pair in norm_pairs:
+                x1 = label_to_x.get(pair["group1"])
+                x2 = label_to_x.get(pair["group2"])
+                if x1 is not None and x2 is not None and x1 != x2:
+                    raw_brackets.append((min(x1, x2), max(x1, x2), pair["pvalue"]))
+
+            if raw_brackets:
+                # Collect all visible y-values to compute bracket offsets
+                all_y = []
+                for vals in data:
+                    all_y.extend(vals)
+                data_max = max(all_y) if all_y else 1
+                data_min = min(all_y) if all_y else 0
+                data_range = data_max - data_min if data_max != data_min else abs(data_max) * 0.5 or 1.0
+
+                tier_spacing = data_range * 0.12
+                y_start = data_max + data_range * 0.08
+
+                # Greedy tier assignment: shorter-span pairs first, avoid span overlap
+                raw_brackets.sort(key=lambda b: (b[1] - b[0], b[0]))
+                tiers: List[List[tuple]] = []
+                for b in raw_brackets:
+                    x1, x2, pv = b
+                    placed = False
+                    for tier in tiers:
+                        if all(not (x1 < t[1] and x2 > t[0]) for t in tier):
+                            tier.append((x1, x2, pv))
+                            placed = True
+                            break
+                    if not placed:
+                        tiers.append([(x1, x2, pv)])
+
+                # Draw brackets tier by tier
+                for ti, tier in enumerate(tiers):
+                    y_line = y_start + ti * tier_spacing
+                    for (x1, x2, pv) in tier:
+                        # Bracket stems + horizontal bar
+                        ax.plot(
+                            [x1, x1, x2, x2],
+                            [y_line - tier_spacing * 0.28, y_line, y_line, y_line - tier_spacing * 0.28],
+                            color=_AXIS_COLOR,
+                            linewidth=0.6,
+                            clip_on=False,
+                        )
+                        # p-value label
+                        p_label = f"p={pv:.3g}" if pv >= 0.0001 else "p<0.0001"
+                        ax.annotate(
+                            p_label,
+                            xy=((x1 + x2) / 2, y_line),
+                            xytext=(0, 2.5),
+                            textcoords="offset points",
+                            ha="center",
+                            va="bottom",
+                            fontsize=7.5,
+                            fontweight="bold",
+                            color="#3F4652",
+                            annotation_clip=False,
+                        )
+
+                # Expand y-axis to fit the highest bracket
+                max_bracket_y = y_start + len(tiers) * tier_spacing
+                ax.set_ylim(top=max(ax.get_ylim()[1], max_bracket_y + data_range * 0.06))
+
+            # n-value legend
+            n_legend = "  ".join(
+                f"{label} (n={len(data[i])})"
+                for i, label in enumerate(labels) if i < len(data)
             )
+            if len(n_legend) < 120:
+                ax.annotate(
+                    n_legend,
+                    xy=(0.02, 0.98),
+                    xycoords="axes fraction",
+                    ha="left",
+                    va="top",
+                    fontsize=7,
+                    fontstyle="italic",
+                    color="#5F7D94",
+                )
 
         ax.set_xlabel("")
         ax.set_ylabel(param, fontsize=9, fontweight="bold")
@@ -842,18 +976,16 @@ class BoxPlotService:
             linewidths=0,
             zorder=3,
         )
-        info_text = f"n={len(values)}\nmedian={float(pd.Series(values).median()):.4g}"
-        ax.text(
-            0.98,
-            0.98,
+        info_text = f"n={len(values)}  median={float(pd.Series(values).median()):.4g}"
+        ax.annotate(
             info_text,
-            transform=ax.transAxes,
+            xy=(0.98, 0.98),
+            xycoords="axes fraction",
             ha="right",
             va="top",
-            fontsize=8.5,
-            fontweight="bold",
-            color="#243746",
-            bbox={"boxstyle": "round,pad=.28", "fc": "#ffffff", "ec": "#d7e2e8", "alpha": 0.92},
+            fontsize=7,
+            fontstyle="italic",
+            color="#5F7D94",
         )
         ax.set_ylabel(param, fontsize=9, fontweight="bold")
         ax.tick_params(axis="x", labelsize=8.5, length=2.2, width=0.55, color=_AXIS_COLOR)
@@ -884,7 +1016,8 @@ class BoxPlotService:
         skipped_insufficient = 0
 
         for class_col in class_columns:
-            class_dir = output_base / class_col
+            safe_class = self._sanitize_name(class_col)
+            class_dir = output_base / safe_class
             class_dir.mkdir(parents=True, exist_ok=True)
             csv_dir = class_dir / "csvfiles"
             csv_dir.mkdir(parents=True, exist_ok=True)
@@ -905,6 +1038,7 @@ class BoxPlotService:
             pvalue_records: List[Dict[str, Any]] = []
 
             for param in param_columns:
+                safe_param = self._sanitize_name(param)
                 step += 1
                 if progress_callback:
                     progress_callback(
@@ -936,10 +1070,10 @@ class BoxPlotService:
                     except Exception:
                         continue
 
-                png_rel = str((class_dir / f"{param}.png").relative_to(output_base))
+                png_rel = str((class_dir / f"{safe_param}.png").relative_to(output_base))
                 self._plot_boxplot(df, class_col, param, class_types,
-                                   significant_pairs, class_dir)
-                png_paths.append(str(class_dir / f"{param}.png"))
+                                   significant_pairs, class_dir, safe_param)
+                png_paths.append(str(class_dir / f"{safe_param}.png"))
 
                 sig_pairs_data = [
                     {"group1": str(a), "group2": str(b), "pvalue": float(p)}
@@ -958,7 +1092,7 @@ class BoxPlotService:
                 concat_df = pd.concat([
                     plot_df[plot_df[class_col] == t] for t in class_types
                 ])
-                csv_path = csv_dir / f"{param}.csv"
+                csv_path = csv_dir / f"{safe_param}.csv"
                 concat_df.to_csv(csv_path, index=False)
                 csv_paths.append(str(csv_path))
 
@@ -1004,6 +1138,7 @@ class BoxPlotService:
         csv_paths: List[str] = []
         total_steps = len(param_columns)
         for i, param in enumerate(param_columns):
+            safe_param = self._sanitize_name(param)
             if progress_callback:
                 progress_callback(
                     5 + int((i + 1) / max(total_steps, 1) * 90),
@@ -1012,11 +1147,11 @@ class BoxPlotService:
                     {"param": param},
                 )
 
-            self._plot_ungrouped_boxplot(df, param, ungrouped_dir)
-            png_paths.append(str(ungrouped_dir / f"{param}.png"))
+            self._plot_ungrouped_boxplot(df, param, ungrouped_dir, safe_param)
+            png_paths.append(str(ungrouped_dir / f"{safe_param}.png"))
 
             param_data = df[[param]].dropna()
-            csv_path = csv_dir / f"{param}.csv"
+            csv_path = csv_dir / f"{safe_param}.csv"
             param_data.to_csv(csv_path, index=False)
             csv_paths.append(str(csv_path))
 
@@ -1030,14 +1165,16 @@ class BoxPlotService:
         class_types: List[str],
         significant_pairs: List[tuple],
         output_dir: Path,
+        safe_param: str = "",
     ) -> None:
+        safe_p = safe_param or BoxPlotService._sanitize_name(param)
         BoxPlotService._save_publication_boxplot(
             plot_df=df[[class_col, param]].copy(),
             group_col=class_col,
             param=param,
             group_values=[str(item) for item in class_types],
             significant_pairs=significant_pairs,
-            output_path=output_dir / f"{param}.png",
+            output_path=output_dir / f"{safe_p}.png",
         )
 
     @staticmethod
@@ -1045,11 +1182,13 @@ class BoxPlotService:
         df: pd.DataFrame,
         param: str,
         output_dir: Path,
+        safe_param: str = "",
     ) -> None:
+        safe_p = safe_param or BoxPlotService._sanitize_name(param)
         BoxPlotService._save_publication_ungrouped_boxplot(
             plot_df=df[[param]].copy(),
             param=param,
-            output_path=output_dir / f"{param}.png",
+            output_path=output_dir / f"{safe_p}.png",
         )
 
     @staticmethod

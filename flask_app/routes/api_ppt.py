@@ -34,6 +34,7 @@ from flask_app.exceptions import (
     PPTSlideNotFoundError, PPTImageReplacementError, 
     PPTSessionNotFoundError, PPTNoHeatmapsError
 )
+from flask_app.services.path_access_service import PathAccessService
 from flask_app.routes.api_ppt_comparison import register_ppt_session
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,8 @@ def replace_heatmaps():
         module = data.get('module')
         layout_config = data.get('layout_config') or {}
         heatmap_dir = data.get('heatmap_dir')
+        if heatmap_dir:
+            heatmap_dir = str(PathAccessService.validate_read_path(heatmap_dir))
         explicit_heatmaps = data.get('heatmaps')
         sample_images = data.get('sample_images') or {}
         
@@ -284,12 +287,16 @@ def replace_heatmaps():
         if module in sample_modules and not sample_images:
             sample_images = {}
             image_base_dir = data.get('image_dir') or heatmap_dir
+            if image_base_dir:
+                image_base_dir = str(PathAccessService.validate_read_path(image_base_dir))
             for image_type, dir_key in (
                 (IMAGE_TYPE_NETWORK_PLOTS, 'network_plots_dir'),
                 (IMAGE_TYPE_ISOTYPE_UPSET, 'isotype_upset_dir'),
                 (IMAGE_TYPE_TREE_MAPS, 'tree_maps_dir'),
             ):
                 source_dir = data.get(dir_key) or image_base_dir
+                if source_dir:
+                    source_dir = str(PathAccessService.validate_read_path(source_dir))
                 if source_dir and os.path.isdir(source_dir):
                     sample_images[image_type] = scan_sample_images(source_dir, image_type)
 
@@ -554,6 +561,8 @@ def replace_heatmaps_direct():
         
         # Also check for heatmap_dir in form data
         heatmap_dir = request.form.get('heatmap_dir')
+        if heatmap_dir:
+            heatmap_dir = str(PathAccessService.validate_read_path(heatmap_dir))
         if heatmap_dir and os.path.isdir(heatmap_dir):
             scanned = scan_heatmap_directory(heatmap_dir)
             for chain, metrics in scanned.items():
@@ -695,6 +704,8 @@ def scan_images():
         
         session_id = data.get('session_id')
         image_dir = data.get('image_dir') or data.get('heatmap_dir')  # Legacy single directory
+        if image_dir:
+            image_dir = str(PathAccessService.validate_read_path(image_dir))
         analysis_id = data.get('analysis_id')
         image_type = data.get('image_type')  # Optional: specific type to scan
         
@@ -703,6 +714,10 @@ def scan_images():
         network_plots_dir = data.get('network_plots_dir') or image_dir
         isotype_upset_dir = data.get('isotype_upset_dir') or image_dir
         tree_maps_dir = data.get('tree_maps_dir') or image_dir
+        sharing_analysis_dir = str(PathAccessService.validate_read_path(sharing_analysis_dir)) if sharing_analysis_dir else ''
+        network_plots_dir = str(PathAccessService.validate_read_path(network_plots_dir)) if network_plots_dir else ''
+        isotype_upset_dir = str(PathAccessService.validate_read_path(isotype_upset_dir)) if isotype_upset_dir else ''
+        tree_maps_dir = str(PathAccessService.validate_read_path(tree_maps_dir)) if tree_maps_dir else ''
         
         # Debug logging
         logger.info(f"scan-images request data: {data}")

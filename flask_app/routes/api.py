@@ -16,6 +16,8 @@ from flask_app.services.ppt_service import PPTService
 from flask_app.services.file_parser import FileParserService
 from flask_app.services.unified_analysis_service import get_unified_analysis_service
 from flask_app.models.database import db, File, Analysis, Annotation, CustomParameter
+from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.user_scope import assign_owner, assert_owned, current_user_id, scope_query
 from flask_app.exceptions import (
     ValidationError,
     FileFormatInvalidError, 
@@ -29,6 +31,22 @@ from flask_app.exceptions import (
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__)
+
+
+def _get_owned_file(file_id: str) -> File:
+    file_record = File.query.get(file_id)
+    if not file_record:
+        raise AppFileNotFoundError(message=f"File not found: {file_id}", details={'file_id': file_id})
+    assert_owned(file_record, "File")
+    return file_record
+
+
+def _get_owned_analysis(analysis_id: str) -> Analysis:
+    analysis = Analysis.query.get(analysis_id)
+    if not analysis:
+        raise AnalysisNotFoundError(message=f"Analysis not found: {analysis_id}", details={'analysis_id': analysis_id})
+    assert_owned(analysis, "Analysis")
+    return analysis
 
 
 @api_bp.route('/health')
@@ -115,7 +133,11 @@ def upload_file():
     file_id = str(uuid.uuid4())
     ext = FileParserService.get_extension(filename)
     storage_filename = f"{file_id}{ext}"
-    storage_path = Path(current_app.config['UPLOAD_FOLDER']) / storage_filename
+    upload_root = Path(current_app.config['UPLOAD_FOLDER'])
+    if current_user_id() is not None:
+        upload_root = upload_root / str(current_user_id())
+    upload_root.mkdir(parents=True, exist_ok=True)
+    storage_path = upload_root / storage_filename
     
     # Save file to disk
     try:
@@ -142,7 +164,8 @@ def upload_file():
             row_count=row_count,
             storage_path=str(storage_path),
             uploaded_at=datetime.utcnow(),
-            project=project
+            project=project,
+            user_id=current_user_id(),
         )
         db.session.add(file_record)
         db.session.commit()
@@ -250,7 +273,11 @@ def upload_multiple_files():
         file_id = str(uuid.uuid4())
         ext = FileParserService.get_extension(filename)
         storage_filename = f"{file_id}{ext}"
-        storage_path = Path(current_app.config['UPLOAD_FOLDER']) / storage_filename
+        upload_root = Path(current_app.config['UPLOAD_FOLDER'])
+        if current_user_id() is not None:
+            upload_root = upload_root / str(current_user_id())
+        upload_root.mkdir(parents=True, exist_ok=True)
+        storage_path = upload_root / storage_filename
         
         # Save file to disk
         try:
@@ -275,7 +302,8 @@ def upload_multiple_files():
                 columns=columns,
                 row_count=row_count,
                 storage_path=str(storage_path),
-                uploaded_at=datetime.utcnow()
+                uploaded_at=datetime.utcnow(),
+                user_id=current_user_id(),
             )
             db.session.add(file_record)
             db.session.commit()
@@ -315,7 +343,10 @@ def list_projects():
     GET /api/files/projects
     """
     # Get distinct project names
-    projects = db.session.query(File.project).distinct().all()
+    query = db.session.query(File.project).distinct()
+    if current_user_id() is not None:
+        query = query.filter(File.user_id == current_user_id())
+    projects = query.all()
     project_list = [p[0] for p in projects if p[0]]
     
     # Ensure 'default' is always included
@@ -344,7 +375,7 @@ def list_files():
     """
     project = request.args.get('project')
     
-    query = File.query
+    query = scope_query(File.query, File)
     if project:
         query = query.filter(File.project == project)
     
@@ -376,13 +407,7 @@ def get_file(file_id):
     
     Requirements: 1.5, 1.6
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     # Get sample data from file
     storage_path = Path(file_record.storage_path)
@@ -419,13 +444,7 @@ def get_column_values(file_id):
     
     Returns unique values for sample detection.
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     column_name = request.args.get('column')
     if not column_name:
@@ -472,13 +491,7 @@ def delete_file(file_id):
     
     Requirements: 1.6
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     # Delete file from disk
     storage_path = Path(file_record.storage_path)
@@ -514,13 +527,7 @@ def download_file(file_id):
     Download a file by ID.
     GET /api/files/{file_id}/download
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     storage_path = Path(file_record.storage_path)
     if not storage_path.exists():
@@ -544,13 +551,7 @@ def rename_file(file_id):
     PUT /api/files/{file_id}/rename
     Body: { "name": "new_filename.csv" }
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     data = request.get_json()
     if not data or 'name' not in data:
@@ -600,13 +601,7 @@ def preview_file(file_id):
     Get file preview with data content.
     GET /api/files/{file_id}/preview?rows=50&offset=0
     """
-    file_record = File.query.get(file_id)
-    
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     # Get pagination parameters
     rows = request.args.get('rows', 50, type=int)
@@ -677,7 +672,7 @@ def search_files():
     sort_by = request.args.get('sort', 'date')  # 'name', 'date', 'size'
     order = request.args.get('order', 'desc')  # 'asc' or 'desc'
     
-    query = File.query
+    query = scope_query(File.query, File)
     
     # Filter by search query
     if query_str:
@@ -752,12 +747,7 @@ def detect_samples():
     sample_column = data['sample_column']
     
     # Get file record
-    file_record = File.query.get(file_id)
-    if not file_record:
-        raise AppFileNotFoundError(
-            message=f"File not found: {file_id}",
-            details={'file_id': file_id}
-        )
+    file_record = _get_owned_file(file_id)
     
     try:
         # Parse file to detect samples
@@ -856,7 +846,8 @@ def create_mapping_template():
         template = MappingTemplate(
             name=name,
             mapping=mapping,
-            analysis_type=analysis_type
+            analysis_type=analysis_type,
+            user_id=current_user_id(),
         )
         db.session.add(template)
         db.session.commit()
@@ -891,7 +882,7 @@ def list_mapping_templates():
     
     analysis_type = request.args.get('analysis_type')
     
-    query = MappingTemplate.query
+    query = scope_query(MappingTemplate.query, MappingTemplate)
     if analysis_type:
         query = query.filter_by(analysis_type=analysis_type)
     
@@ -931,6 +922,7 @@ def get_mapping_template(template_id):
             message=f"Mapping template not found: {template_id}",
             details={'template_id': template_id}
         )
+    assert_owned(template, "Mapping template")
     
     return jsonify({
         'id': template.id,
@@ -960,6 +952,7 @@ def delete_mapping_template(template_id):
             message=f"Mapping template not found: {template_id}",
             details={'template_id': template_id}
         )
+    assert_owned(template, "Mapping template")
     
     try:
         db.session.delete(template)
@@ -1028,7 +1021,7 @@ def suggest_mapping():
         )
     
     # Get saved templates for matching
-    templates = MappingTemplate.query.filter_by(analysis_type=analysis_type).all()
+    templates = scope_query(MappingTemplate.query, MappingTemplate).filter_by(analysis_type=analysis_type).all()
     saved_templates = [
         {
             'id': t.id,
@@ -1178,8 +1171,9 @@ def suggest_field_mapping_get():
         return jsonify({'error': 'File ID and analysis type are required'}), 400
     
     # Get file info
-    file_record = File.query.get(file_id)
-    if not file_record:
+    try:
+        file_record = _get_owned_file(file_id)
+    except AppFileNotFoundError:
         return jsonify({'error': 'File not found'}), 404
     
     # Get required fields for analysis type
@@ -1310,9 +1304,6 @@ def browse_directory():
     path = request.args.get('path', '')
     file_filter = request.args.get('filter', '')
 
-    if path == '/data' and platform.system() != 'Linux' and not Path(path).exists():
-        path = ''
-
     # Parse file filter
     allowed_extensions = set()
     if file_filter:
@@ -1321,102 +1312,14 @@ def browse_directory():
             for ext in file_filter.split(',') if ext.strip()
         }
 
-    # Auto-detect reasonable root on Linux
-    if not path:
-        if platform.system() == 'Linux':
-            candidates = ['/data', '/home', '/mnt', '/opt', '/srv', '/']
-        else:
-            candidates = [
-                str(Path.home() / 'Data'),
-                str(Path.home()),
-                'C:/Data', 'D:/Data', 'E:/Data',
-            ]
-
-        for candidate in candidates:
-            p = Path(candidate)
-            if p.exists() and p.is_dir():
-                path = str(p)
-                break
-        else:
-            path = str(Path.cwd())
-
     try:
-        resolved = Path(path).resolve()
-
-        # Security: block sensitive system paths on Linux
-        restricted_prefixes = ['/sys', '/proc', '/dev', '/run', '/boot', '/etc', '/root']
-        if platform.system() == 'Linux':
-            for prefix in restricted_prefixes:
-                if str(resolved).startswith(prefix):
-                    return jsonify({
-                        'error': 'Access denied: system directory restricted',
-                        'current_path': str(resolved),
-                        'parent_path': str(resolved.parent) if resolved.parent != resolved else None,
-                        'items': [],
-                    }), 403
-
-        if not resolved.exists():
-            return jsonify({
-                'error': 'Directory not found',
-                'current_path': str(resolved),
-                'parent_path': str(resolved.parent) if resolved.parent != resolved else None,
-                'items': [],
-            }), 404
-
-        if not resolved.is_dir():
-            return jsonify({'error': 'Path is not a directory'}), 400
-
-        items = []
-        try:
-            for item in sorted(resolved.iterdir()):
-                try:
-                    is_dir = item.is_dir()
-                    # Use suffixes (plural) to support compound extensions like .csv.gz
-                    suffix = ''.join(item.suffixes).lower()
-
-                    # Apply file filter
-                    if not is_dir and allowed_extensions and suffix not in allowed_extensions:
-                        continue
-
-                    # Skip hidden items (start with .)
-                    if item.name.startswith('.'):
-                        continue
-
-                    # Check if directory has children (for expand icon)
-                    has_children = False
-                    if is_dir:
-                        try:
-                            has_children = any(
-                                not child.name.startswith('.')
-                                for child in item.iterdir()
-                            )
-                        except (PermissionError, OSError):
-                            has_children = False
-
-                    item_info = {
-                        'name': item.name,
-                        'path': str(item),
-                        'type': 'directory' if is_dir else 'file',
-                        'suffix': suffix if not is_dir else '',
-                        'has_children': has_children,
-                    }
-                    items.append(item_info)
-                except (PermissionError, OSError):
-                    continue
-        except (PermissionError, OSError) as e:
-            return jsonify({'error': f'Cannot read directory: {str(e)}'}), 403
-
-        parent_path = str(resolved.parent) if resolved.parent != resolved else None
-        # Don't allow navigating above filesystem root
-        if parent_path and not Path(parent_path).exists():
-            parent_path = None
-
+        return jsonify(PathAccessService.filter_visible_children(path or None, extensions=allowed_extensions))
+    except ValidationError as exc:
         return jsonify({
-            'current_path': str(resolved),
-            'parent_path': parent_path,
-            'items': items,
-            'platform': platform.system(),
-        })
+            'error': exc.message,
+            'details': exc.details,
+            'items': [],
+        }), 403
 
     except Exception as e:
         logger.exception("Unexpected error browsing directory: %s", path)
@@ -1597,7 +1500,7 @@ def create_analysis():
         field_mapping = {}  # Not needed for directory-based analysis
     elif not field_mapping or not isinstance(field_mapping, dict):
         # Get file columns and suggest mapping
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if file_record and file_record.columns:
             # Try to auto-suggest mapping based on column names
             if analysis_type in FieldMappingService.get_supported_analysis_types():
@@ -1631,7 +1534,7 @@ def create_analysis():
         
         if missing_fields and file_id:
             # Try to find missing fields with case-insensitive matching
-            file_record = File.query.get(file_id)
+            file_record = _get_owned_file(file_id)
             if file_record and file_record.columns:
                 for field in missing_fields:
                     for col in file_record.columns:
@@ -1655,7 +1558,7 @@ def create_analysis():
     
     # For similarity_heatmap, add directory info to parameters
     if analysis_type == 'similarity_heatmap':
-        parameters['directory_path'] = directory_path
+        parameters['directory_path'] = str(PathAccessService.validate_read_path(directory_path))
         parameters['selected_samples'] = selected_samples
         parameters['selected_chains'] = selected_chains
         if enable_averaging:
@@ -1698,6 +1601,7 @@ def get_analysis(analysis_id):
     """
     from services.analysis_service import get_analysis_service
     
+    _get_owned_analysis(analysis_id)
     service = get_analysis_service()
     results = service.get_analysis_results(analysis_id)
     
@@ -1714,6 +1618,7 @@ def get_analysis_status(analysis_id):
     """
     from services.analysis_service import get_analysis_service
     
+    _get_owned_analysis(analysis_id)
     service = get_analysis_service()
     status = service.get_analysis_status(analysis_id)
     
@@ -1730,6 +1635,7 @@ def get_analysis_data_table(analysis_id, table_name):
     """
     from services.analysis_service import get_analysis_service
     
+    _get_owned_analysis(analysis_id)
     service = get_analysis_service()
     table_data = service.get_data_table(analysis_id, table_name)
     
@@ -1746,6 +1652,7 @@ def retry_analysis(analysis_id):
     """
     from services.analysis_service import get_analysis_service
     
+    _get_owned_analysis(analysis_id)
     service = get_analysis_service()
     success = service.retry_analysis(analysis_id)
     
@@ -1765,6 +1672,7 @@ def cancel_analysis(analysis_id):
     """
     from services.analysis_service import get_analysis_service
     
+    _get_owned_analysis(analysis_id)
     service = get_analysis_service()
     success = service.cancel_analysis(analysis_id)
     
@@ -1784,8 +1692,9 @@ def get_analysis_image(analysis_id, result_name):
     from exceptions import AnalysisNotFoundError
     from pathlib import Path
     
-    analysis = Analysis.query.get(analysis_id)
-    if not analysis:
+    try:
+        analysis = _get_owned_analysis(analysis_id)
+    except AnalysisNotFoundError:
         return jsonify({'error': 'Analysis not found'}), 404
     
     # Find the result by name
@@ -1919,7 +1828,7 @@ def merge_analysis_images(analysis_id):
     import math
     
     # Get analysis
-    analysis = Analysis.query.get(analysis_id)
+    analysis = _get_owned_analysis(analysis_id)
     if not analysis:
         raise AnalysisNotFoundError(
             message=f"Analysis not found: {analysis_id}",
@@ -2829,7 +2738,7 @@ def create_sample_group():
     
     # Validate file_id if provided
     if file_id:
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -3092,7 +3001,7 @@ def calculate_group_averages():
         )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -3242,7 +3151,7 @@ def calculate_baseline_differences():
         )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -3382,7 +3291,7 @@ def get_baseline_value():
         )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -3456,7 +3365,7 @@ def get_file_fields(file_id):
     from pathlib import Path
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -3579,7 +3488,7 @@ def analyze_field_data():
         )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -3724,7 +3633,7 @@ def extract_pdf_tables():
     file_id_to_name = {}
     
     for file_id in file_ids:
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -4126,7 +4035,7 @@ def list_pdf_images(file_id):
     )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -4218,7 +4127,7 @@ def extract_pdf_images():
     file_id_to_name = {}
     
     for file_id in file_ids:
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -4453,7 +4362,7 @@ def extract_pdf_to_folders():
         )
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -4522,7 +4431,7 @@ def detect_pdf_samples(file_id):
     from services.pdf_extractor import PDFExtractorService
     
     # Get file record
-    file_record = File.query.get(file_id)
+    file_record = _get_owned_file(file_id)
     if not file_record:
         raise AppFileNotFoundError(
             message=f"File not found: {file_id}",
@@ -4584,20 +4493,24 @@ def list_directories():
         "parent_path": "/path/to"
     }
     """
-    from services.directory_service import DirectoryService
-    
     parent_path = request.args.get('parent_path')
     
-    # Get configuration
-    allowed_base_paths = current_app.config.get('ALLOWED_BASE_PATHS', [])
-    hidden_directories = current_app.config.get('HIDDEN_DIRECTORIES', [])
-    
     try:
-        result = DirectoryService.list_directories(
-            parent_path=parent_path,
-            allowed_base_paths=allowed_base_paths,
-            hidden_directories=hidden_directories
-        )
+        visible = PathAccessService.filter_visible_children(parent_path or None)
+        result = {
+            'current_path': visible.get('current_path'),
+            'directories': [
+                {
+                    'name': item['name'],
+                    'path': item['path'],
+                    'has_children': item.get('has_children', False),
+                }
+                for item in visible.get('items', [])
+                if item.get('type') == 'directory'
+            ],
+            'parent_path': visible.get('parent_path'),
+            'roots': visible.get('roots', []),
+        }
         
         return jsonify(result)
         
@@ -4633,8 +4546,6 @@ def validate_directory():
         "message": "Path is valid"
     }
     """
-    from services.directory_service import DirectoryService
-    
     path = request.args.get('path')
     
     if not path:
@@ -4643,14 +4554,15 @@ def validate_directory():
             details={'parameter': 'path'}
         )
     
-    # Get configuration
-    allowed_base_paths = current_app.config.get('ALLOWED_BASE_PATHS', [])
-    
     try:
-        result = DirectoryService.validate_path(
-            path=path,
-            allowed_base_paths=allowed_base_paths
-        )
+        resolved = PathAccessService.validate_read_path(path)
+        result = {
+            'valid': resolved.is_dir(),
+            'exists': resolved.exists(),
+            'is_directory': resolved.is_dir(),
+            'readable': os.access(resolved, os.R_OK),
+            'message': 'Path is valid' if resolved.is_dir() else 'Path is not a directory',
+        }
         
         return jsonify(result)
         
@@ -5223,7 +5135,7 @@ def analyze_bcell_isotype_deprecated():
             )
         
         # Get file
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -5314,7 +5226,7 @@ def analyze_shm_deprecated():
             )
         
         # Get file
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -5405,7 +5317,7 @@ def analyze_ig_metrics_deprecated():
             )
         
         # Get file
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -5503,7 +5415,7 @@ def analyze_custom_field_deprecated():
             )
         
         # Get file
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",

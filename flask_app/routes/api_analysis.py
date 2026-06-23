@@ -23,11 +23,20 @@ from flask_app.exceptions import (
     FileNotFoundError as AppFileNotFoundError,
     StorageError
 )
+from flask_app.services.user_scope import assert_owned
 
 logger = logging.getLogger(__name__)
 
 # Create blueprint
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
+
+
+def _get_owned_file(file_id: str) -> File:
+    file_record = File.query.get(file_id)
+    if not file_record:
+        raise AppFileNotFoundError(message=f"File not found: {file_id}", details={'file_id': file_id})
+    assert_owned(file_record, "File")
+    return file_record
 
 
 @analysis_bp.route('/modules', methods=['GET'])
@@ -604,7 +613,7 @@ def execute_unified_analysis():
             )
         
         # 获取文件
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -799,7 +808,7 @@ def auto_map_fields():
             )
         
         # 获取文件
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -921,7 +930,7 @@ def suggest_scheme():
         min_confidence = data.get('min_confidence', 0.5)
         
         # 获取文件
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -1020,7 +1029,7 @@ def validate_analysis_config():
             )
         
         # 获取文件
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",

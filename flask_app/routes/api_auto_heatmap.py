@@ -28,6 +28,7 @@ from flask_app.services.heatmap_generator import HeatmapGenerator, HeatmapConfig
 from flask_app.services.pipeline_comparison_integration_service import get_pipeline_comparison_service
 from flask_app.services.similarity_heatmap_report_service import get_similarity_heatmap_report_service
 from flask_app.exceptions import ValidationError
+from flask_app.services.path_access_service import PathAccessService
 
 try:
     from flask_app.services.cdr3_export_service import get_cdr3_export_service
@@ -217,6 +218,7 @@ def scan_folder():
             )
         
         # Quick test without service first
+        base_path = str(PathAccessService.validate_read_path(base_path))
         quick_result = {
             'path_exists': os.path.exists(base_path),
             'is_directory': os.path.isdir(base_path) if os.path.exists(base_path) else False
@@ -302,7 +304,8 @@ def scan_pipeline_root():
                 details={'field': 'base_path'}
             )
 
-        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        base_path = str(PathAccessService.validate_read_path(base_path))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_pipeline_comparison_service(results_root=results_root)
         scan_result = service.scan_pipeline_root(base_path=base_path)
 
@@ -367,6 +370,7 @@ def get_file_columns():
             )
         
         service = get_auto_heatmap_service()
+        filepath = str(PathAccessService.validate_read_path(filepath))
         result = service.get_file_columns(filepath)
         
         return jsonify(_json_safe({
@@ -789,11 +793,7 @@ def preview_data():
                 details={'field': 'filepath'}
             )
         
-        if not os.path.exists(filepath):
-            raise ValidationError(
-                message=f"文件不存在: {filepath}",
-                details={'filepath': filepath}
-            )
+        filepath = str(PathAccessService.validate_read_path(filepath))
         
         service = get_auto_heatmap_service()
         sep = service._detect_separator(filepath)
@@ -948,6 +948,7 @@ def generate_pipeline_report():
                 details={'field': 'base_path'}
             )
 
+        base_path = str(PathAccessService.validate_read_path(base_path))
         pipelines = data.get('pipelines')
         if isinstance(pipelines, str):
             pipelines = [item.strip() for item in pipelines.split(',') if item.strip()]
@@ -956,7 +957,7 @@ def generate_pipeline_report():
         if selected_chains is None:
             selected_chains = data.get('chains')
 
-        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_pipeline_comparison_service(results_root=results_root)
 
         run_result = service.generate_pipeline_comparison(
@@ -1046,7 +1047,7 @@ def generate_heatmap_report():
         cdr3_export_request = data.get('cdr3_export_request')
         create_archive = _as_bool(data.get('create_archive'), False)
 
-        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_similarity_heatmap_report_service(results_root=results_root)
 
         run_result = service.generate_report(
@@ -1132,7 +1133,7 @@ def get_pipeline_comparison_result_file(job_id: str, relative_path: str):
     GET /api/auto-heatmap/pipeline-comparison/results/<job_id>/<path:relative_path>
     """
     try:
-        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_pipeline_comparison_service(results_root=results_root)
         target_file = service.resolve_result_file(job_id, relative_path)
         return send_file(target_file)
@@ -1169,7 +1170,7 @@ def get_similarity_heatmap_report_result_file(job_id: str, relative_path: str):
     GET /api/auto-heatmap/similarity-report/results/<job_id>/<path:relative_path>
     """
     try:
-        results_root = Path(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
         service = get_similarity_heatmap_report_service(results_root=results_root)
         target_file = service.resolve_result_file(job_id, relative_path)
         return send_file(target_file)

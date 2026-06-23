@@ -44,7 +44,8 @@ class ProjectAssetService:
         self.projects_root.mkdir(parents=True, exist_ok=True)
 
     def get_project_dir(self, project: Project) -> Path:
-        return self.projects_root / project.id
+        owner = str(project.user_id) if project.user_id else "legacy"
+        return self.projects_root / owner / project.id
 
     def get_asset_dir(self, project: Project, asset_type: str) -> Path:
         return self.get_project_dir(project) / 'assets' / asset_type
@@ -369,7 +370,8 @@ class ProjectAssetService:
 
         try:
             resolved_target = target_path.resolve()
-            project_dir = (self.projects_root / asset.project_id).resolve()
+            project = Project.query.get(asset.project_id)
+            project_dir = self.get_project_dir(project).resolve() if project else (self.projects_root / "legacy" / asset.project_id).resolve()
             resolved_target.relative_to(project_dir)
         except (OSError, ValueError):
             return

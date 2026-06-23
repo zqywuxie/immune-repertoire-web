@@ -3,6 +3,7 @@
 {% block title %}分析总览{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
 <style>
   .analysis-overview {
     max-width: 1320px;
@@ -10,11 +11,9 @@
   }
 
   .ao-hero {
-    border: 1px solid #dbe6ef;
-    border-radius: 1rem;
-    background: linear-gradient(135deg, #f7fbff 0%, #f3faf5 58%, #fff8ef 100%);
-    padding: 1.45rem 1.55rem;
-    margin-bottom: 1.25rem;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.1rem;
   }
 
   .ao-hero-copy {
@@ -32,13 +31,13 @@
     display: flex;
     flex-direction: column;
     min-height: 260px;
-    border: 1px solid #d9e4ec;
-    border-radius: 1rem;
+    border: 1px solid #e8eef4;
+    border-radius: 8px;
     background: #fff;
     padding: 1.1rem;
     color: #183247;
     text-decoration: none;
-    box-shadow: 0 14px 30px rgba(24, 50, 71, .06);
+    box-shadow: 0 8px 22px rgba(24, 50, 71, .04);
     transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
 
@@ -55,7 +54,7 @@
     justify-content: center;
     width: 2.8rem;
     height: 2.8rem;
-    border-radius: .9rem;
+    border-radius: 8px;
     background: #eef7f3;
     color: #0f684d;
     font-size: 1.25rem;
@@ -94,10 +93,16 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 analysis-overview">
-  <section class="ao-hero">
-    <h1 class="h3 mb-2">分析总览</h1>
-    <p class="ao-hero-copy mb-0">先选择数据处理工作流，具体的分析模块在下游步骤中选择。图表报告与脚本分析已经合并到同一个项目数据入口。</p>
+<div class="container-fluid py-4 analysis-workbench analysis-overview">
+  <section class="analysis-page-hero ao-hero">
+    <div class="analysis-page-title-row">
+      <div class="analysis-page-icon"><i class="bi bi-activity"></i></div>
+      <div>
+        <span class="analysis-kicker">Analysis Workspace</span>
+        <h1>分析总览</h1>
+        <p>先选择数据处理工作流，具体的分析模块在下游步骤中选择。图表报告与脚本分析已经合并到同一个项目数据入口。</p>
+      </div>
+    </div>
   </section>
 
   <section class="ao-workflows">

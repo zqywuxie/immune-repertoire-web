@@ -22,15 +22,17 @@
     white-space: nowrap;
   }
 </style>
+<link href="{{ url_for('static', filename='css/management_common.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 sample-shell">
+<div class="container-fluid py-4 management-page sample-shell">
   <section class="sample-hero">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
       <div>
-        <h1 class="h3 mb-2">样本库</h1>
-        <p class="text-muted mb-0">对项目导入的 sample summary 进行统一检索、筛选、编辑与导出。</p>
+        <span class="mg-kicker mb-3"><i class="bi bi-collection"></i>Sample Registry</span>
+        <h1 class="mg-page-title">样本库</h1>
+        <p class="mg-page-subtitle">对项目导入的 sample summary 进行统一检索、筛选、编辑与导出。</p>
       </div>
       <div class="d-flex gap-2">
         <a href="{{ url_for('pages.projects_page') }}" class="btn btn-outline-secondary">返回项目管理</a>
@@ -43,67 +45,90 @@
 
   <div class="alert alert-danger d-none" id="samplesErrorAlert"></div>
 
-  <section class="card mb-4">
+  <section class="card mg-toolbar mb-4">
     <div class="card-body">
-      <div class="row g-2">
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterProjectId" placeholder="项目 ID">
+      <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div class="mg-result-meta" id="sampleResultCount">等待加载样本。</div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" id="resetSamplesBtn" type="button">清空筛选</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#sampleAdvancedFilters" aria-expanded="false" aria-controls="sampleAdvancedFilters">
+            <i class="bi bi-funnel me-1"></i>高级筛选
+          </button>
         </div>
-        <div class="col-md-2">
+      </div>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label" for="sampleFilterProjectName">项目名</label>
           <input type="text" class="form-control" id="sampleFilterProjectName" placeholder="项目名">
         </div>
         <div class="col-md-2">
+          <label class="form-label" for="sampleFilterSampleId">Sample ID</label>
           <input type="text" class="form-control" id="sampleFilterSampleId" placeholder="Sample ID">
         </div>
         <div class="col-md-2">
+          <label class="form-label" for="sampleFilterSampleName">Sample Name</label>
           <input type="text" class="form-control" id="sampleFilterSampleName" placeholder="Sample Name">
         </div>
         <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterInstitution" placeholder="Institution">
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterSequenceId" placeholder="Sequence ID">
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterContainMethod" placeholder="Contain Method">
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterIsoTag" placeholder="Iso Tag">
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterSpices" placeholder="Spices，多值逗号分隔">
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterChainFlag" placeholder="Chain Flag，多值逗号分隔">
+          <label class="form-label" for="sampleFilterChainFlag">Chain</label>
+          <input type="text" class="form-control" id="sampleFilterChainFlag" placeholder="TRA,TRB">
         </div>
         <div class="col-md-1">
+          <label class="form-label" for="sampleFilterIsHealthy">Healthy</label>
           <select class="form-select" id="sampleFilterIsHealthy">
-            <option value="">Healthy</option>
+            <option value="">全部</option>
             <option value="True">True</option>
             <option value="False">False</option>
           </select>
-        </div>
-        <div class="col-md-2">
-          <input type="text" class="form-control" id="sampleFilterIllness" placeholder="Illness，多值逗号分隔">
         </div>
         <div class="col-md-1">
+          <label class="form-label" for="sampleFilterIsPe">PE</label>
           <select class="form-select" id="sampleFilterIsPe">
-            <option value="">PE</option>
+            <option value="">全部</option>
             <option value="True">True</option>
             <option value="False">False</option>
           </select>
         </div>
-        <div class="col-md-2 d-grid">
-          <button class="btn btn-primary" id="searchSamplesBtn" type="button">搜索样本</button>
+        <div class="col-md-1 d-grid">
+          <button class="btn btn-primary" id="searchSamplesBtn" type="button">搜索</button>
         </div>
-        <div class="col-md-2 d-grid">
-          <button class="btn btn-outline-secondary" id="resetSamplesBtn" type="button">清空筛选</button>
+      </div>
+      <div class="collapse mt-3 mg-advanced-filter" id="sampleAdvancedFilters">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterProjectId">项目 ID</label>
+            <input type="text" class="form-control" id="sampleFilterProjectId" placeholder="项目 ID">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterInstitution">Institution</label>
+            <input type="text" class="form-control" id="sampleFilterInstitution" placeholder="Institution">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterSequenceId">Sequence ID</label>
+            <input type="text" class="form-control" id="sampleFilterSequenceId" placeholder="Sequence ID">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterContainMethod">Contain Method</label>
+            <input type="text" class="form-control" id="sampleFilterContainMethod" placeholder="Contain Method">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterIsoTag">Iso Tag</label>
+            <input type="text" class="form-control" id="sampleFilterIsoTag" placeholder="Iso Tag">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="sampleFilterSpices">Spices</label>
+            <input type="text" class="form-control" id="sampleFilterSpices" placeholder="多值逗号分隔">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="sampleFilterIllness">Illness</label>
+            <input type="text" class="form-control" id="sampleFilterIllness" placeholder="多值逗号分隔">
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="card">
+  <section class="card mg-table-card">
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-hover mb-0 sample-table">
@@ -124,7 +149,7 @@
             </tr>
           </thead>
           <tbody id="samplesTableBody">
-            <tr><td colspan="12" class="text-center text-muted py-4">正在加载样本...</td></tr>
+            <tr><td colspan="12"><div class="mg-empty"><i class="bi bi-hourglass-split"></i>正在加载样本...</div></td></tr>
           </tbody>
         </table>
       </div>

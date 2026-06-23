@@ -14,8 +14,12 @@ project_root = os.path.dirname(current_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# Load .env from project root before any config imports read os.environ
+from dotenv import load_dotenv
+load_dotenv(os.path.join(project_root, '.env'))
+
 import numpy as np
-from flask import Flask, jsonify
+from flask import Flask, jsonify, redirect, request, url_for
 from flask_login import LoginManager
 from flask_app.config import config
 from flask_app.models.database import db
@@ -97,12 +101,40 @@ def create_app(config_name=None):
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
+
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        if request.path.startswith('/api/'):
+            return jsonify({'error_code': 'AUTH_REQUIRED', 'message': 'Authentication required'}), 401
+        return redirect(url_for('auth.login', next=request.full_path if request.query_string else request.path))
     
     @login_manager.user_loader
     def load_user(user_id):
         """Load user by ID for Flask-Login."""
         from flask_app.models.database import User
-        return User.query.get(int(user_id))
+        try:
+            return User.query.get(int(user_id))
+        except (TypeError, ValueError):
+            return None
+
+    @app.before_request
+    def require_login_for_application():
+        if not app.config.get('REQUIRE_LOGIN', True):
+            return None
+        endpoint = request.endpoint or ''
+        if endpoint.startswith('static') or endpoint.startswith('auth.'):
+            return None
+        if endpoint in {'api.health_check', 'api.app_info'}:
+            return None
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            return None
+        return unauthorized()
+
+    @app.context_processor
+    def inject_auth_context():
+        from flask_login import current_user
+        return {'current_user': current_user}
     
     # Register error handlers
     register_error_handlers(app)
@@ -113,7 +145,11 @@ def create_app(config_name=None):
     # Initialize database
     with app.app_context():
         db.create_all()
-    
+
+    # Initialize persistent background job service
+    from flask_app.services.background_job_service import init_background_job_service
+    init_background_job_service(app)
+
     # Initialize analysis service
     from flask_app.services.analysis_service import init_analysis_service
     init_analysis_service(app)
@@ -178,6 +214,7 @@ def register_error_handlers(app):
 
 def register_blueprints(app):
     """Register Flask blueprints for routes."""
+    from flask_app.routes.auth import auth_bp
     from flask_app.routes.pages import pages_bp
     from flask_app.routes.api import api_bp
     from flask_app.routes.api_projects import project_api_bp
@@ -187,6 +224,7 @@ def register_blueprints(app):
     from flask_app.routes.api_chord import chord_bp
     from flask_app.routes.api_script_hub import script_hub_bp
     from flask_app.routes.api_treemap import treemap_bp
+    from flask_app.routes.api_jobs import jobs_bp
 
     try:
         from flask_app.routes.api_ppt import ppt_bp
@@ -198,8 +236,10 @@ def register_blueprints(app):
             raise RuntimeError(hint) from exc
         raise
     
+    app.register_blueprint(auth_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(jobs_bp)
     app.register_blueprint(project_api_bp)
     # Register the new analysis blueprint
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')

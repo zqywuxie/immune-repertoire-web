@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 
 from flask_app.models.database import db, CustomParameter
+from flask_app.services.user_scope import assign_owner, assert_owned, scope_query
 
 
 @dataclass
@@ -96,7 +97,7 @@ class ParameterTemplateService:
             
         Requirements: 12.4
         """
-        query = CustomParameter.query
+        query = scope_query(CustomParameter.query, CustomParameter)
         
         if analysis_type:
             query = query.filter_by(analysis_type=analysis_type)
@@ -131,6 +132,7 @@ class ParameterTemplateService:
         
         if not template:
             return None
+        assert_owned(template, "Parameter template")
         
         return ParameterTemplate(
             id=template.id,
@@ -182,6 +184,7 @@ class ParameterTemplateService:
                     message=f"Template not found: {template_id}",
                     details={'template_id': template_id}
                 )
+            assert_owned(template, "Parameter template")
             
             template.name = name
             template.analysis_type = analysis_type
@@ -194,6 +197,7 @@ class ParameterTemplateService:
                 analysis_type=analysis_type,
                 parameters=parameters
             )
+            assign_owner(template)
             db.session.add(template)
         
         try:
@@ -232,6 +236,7 @@ class ParameterTemplateService:
                 message=f"Template not found: {template_id}",
                 details={'template_id': template_id}
             )
+        assert_owned(template, "Parameter template")
         
         try:
             db.session.delete(template)

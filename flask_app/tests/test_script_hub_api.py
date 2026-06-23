@@ -1068,6 +1068,83 @@ def test_volcano_and_umapin_inspect_use_project_cached_usage(api_module, tmp_pat
     assert "TRAV1;TRAJ1" in umapin_payload["columns"]
 
 
+def test_script_hub_jobs_api_tracks_task_state(api_module):
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    job_service = api_module.get_script_hub_job_service()
+    job_service.clear()
+    with api_module._script_task_lock:
+        api_module._script_tasks.clear()
+
+    api_module._set_task_state(
+        "script_task_test_a",
+        status="queued",
+        progress=0.0,
+        stage="Queued",
+        detail="waiting",
+        meta={"module": "profile"},
+        project_id="project-a",
+    )
+    api_module._set_task_state(
+        "script_task_test_b",
+        status="failed",
+        progress=100.0,
+        stage="Failed",
+        detail="boom",
+        error="boom",
+        meta={"module": "umap"},
+        project_id="project-a",
+    )
+
+    client = app.test_client()
+    list_response = client.get("/api/script-hub/jobs?project_id=project-a")
+    list_payload = list_response.get_json()
+    job_response = client.get("/api/script-hub/jobs/script_task_test_b")
+    job_payload = job_response.get_json()
+    task_response = client.get("/api/script-hub/task/script_task_test_a")
+    task_payload = task_response.get_json()
+
+    assert list_response.status_code == 200
+    assert list_payload["success"] is True
+    assert {job["job_id"] for job in list_payload["jobs"]} == {"script_task_test_a", "script_task_test_b"}
+    assert job_response.status_code == 200
+    assert job_payload["job"]["status"] == "failed"
+    assert job_payload["job"]["error"] == "boom"
+    assert task_response.status_code == 200
+    assert task_payload["job_id"] == "script_task_test_a"
+    assert task_payload["module"] == "profile"
+
+
+def test_script_hub_jobs_cancel_updates_task_state(api_module):
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    api_module.get_script_hub_job_service().clear()
+    with api_module._script_task_lock:
+        api_module._script_tasks.clear()
+
+    api_module._set_task_state(
+        "script_task_cancel",
+        status="running",
+        progress=25.0,
+        stage="Running",
+        detail="working",
+        meta={"module": "db-alignment"},
+    )
+
+    response = app.test_client().post("/api/script-hub/jobs/script_task_cancel/cancel")
+    payload = response.get_json()
+    task = api_module._get_task_state("script_task_cancel")
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["job"]["status"] == "cancelled"
+    assert task["status"] == "cancelled"
+
+
 def test_suggest_umap_ranges(api_module):
     cols = ["sample", "therapy", "disease", "TRA_percent_reads_all", "TRB_reads"]
     result = api_module._suggest_umap_ranges(cols)

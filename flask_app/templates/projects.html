@@ -66,15 +66,17 @@
     margin: 0.15rem 0.2rem 0.15rem 0;
   }
 </style>
+<link href="{{ url_for('static', filename='css/management_common.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 project-shell">
+<div class="container-fluid py-4 management-page project-shell">
   <section class="project-hero">
     <div class="row g-3 align-items-end">
       <div class="col-lg-8">
-        <h1 class="h3 mb-2">项目管理</h1>
-        <p class="text-muted mb-0">管理项目、样本数据和分析结果。</p>
+        <span class="mg-kicker mb-3"><i class="bi bi-kanban"></i>Projects</span>
+        <h1 class="mg-page-title">项目管理</h1>
+        <p class="mg-page-subtitle">管理项目、样本数据、数据资产和分析结果。</p>
       </div>
       <div class="col-lg-4 text-lg-end">
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createProjectModal">
@@ -111,20 +113,30 @@
     </div>
   </section>
 
-  <section class="card mb-4">
+  <section class="card mg-toolbar mb-4">
     <div class="card-body">
-      <div class="row g-2">
+      <div class="row g-2 align-items-end">
         <div class="col-md-4">
+          <label class="form-label" for="filterProjectName">项目名</label>
           <input type="text" class="form-control" id="filterProjectName" placeholder="按项目名搜索">
         </div>
         <div class="col-md-3">
+          <label class="form-label" for="filterInstitution">机构</label>
           <input type="text" class="form-control" id="filterInstitution" placeholder="按机构搜索">
         </div>
         <div class="col-md-3">
+          <label class="form-label" for="filterCooperationLevel">合作等级</label>
           <input type="text" class="form-control" id="filterCooperationLevel" placeholder="按合作等级搜索">
         </div>
-        <div class="col-md-2 d-grid">
-          <button class="btn btn-outline-primary" id="searchProjectsBtn">搜索</button>
+        <div class="col-md-1 d-grid">
+          <button class="btn btn-outline-primary" id="searchProjectsBtn">
+            <i class="bi bi-search me-1"></i>搜索
+          </button>
+        </div>
+        <div class="col-md-1 d-grid">
+          <button class="btn btn-outline-secondary" id="resetProjectsBtn" type="button">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>重置
+          </button>
         </div>
       </div>
     </div>
@@ -132,7 +144,7 @@
 
   <div class="alert alert-danger d-none" id="projectsErrorAlert"></div>
 
-  <section class="card">
+  <section class="card mg-table-card">
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-hover mb-0 project-table">
@@ -149,7 +161,7 @@
           </thead>
           <tbody id="projectsTableBody">
             <tr>
-              <td colspan="7" class="text-center text-muted py-4">正在加载项目...</td>
+              <td colspan="7"><div class="mg-empty"><i class="bi bi-hourglass-split"></i>正在加载项目...</div></td>
             </tr>
           </tbody>
         </table>
@@ -194,8 +206,12 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-primary" id="submitCreateProjectBtn">创建项目</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-lg me-1"></i>取消
+        </button>
+        <button type="button" class="btn btn-primary" id="submitCreateProjectBtn">
+          <i class="bi bi-check2-circle me-1"></i>创建项目
+        </button>
       </div>
     </div>
   </div>

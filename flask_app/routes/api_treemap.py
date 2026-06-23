@@ -70,6 +70,12 @@ def _set_task_state(task_id: str, **updates: Any) -> None:
         logger.warning("Failed to sync treemap task %s to global job store", task_id, exc_info=True)
 
 
+def _sync_task_state(task_id: str) -> None:
+    task = _get_task_state(task_id)
+    if task:
+        _set_task_state(task_id, **task)
+
+
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
     with _treemap_task_lock:
         task = _treemap_tasks.get(task_id)
@@ -204,6 +210,7 @@ def _run_treemap_task(
                     history.append(history_entry)
                     if len(history) > 60:
                         del history[:-60]
+            _sync_task_state(task_id)
 
         result = service.generate_report(
             samples=samples,
@@ -333,7 +340,12 @@ def generate_treemap():
         if layout_mode not in {"tetris", "qr"}:
             layout_mode = "tetris"
         style = "classic"
-        canvas_shape = "square"
+        canvas_shape = str(config.get("canvas_shape") or "square").strip().lower()
+        if canvas_shape not in {"square", "portrait"}:
+            canvas_shape = "square"
+        parent_job_id = str(config.get("_parent_job_id") or "").strip() or None
+        hidden_from_default_list = bool(config.get("_hidden_from_default_list"))
+        child_label = str(config.get("_child_label") or "Treemap").strip() or "Treemap"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
@@ -347,12 +359,18 @@ def generate_treemap():
             progress=0.0,
             stage="任务已创建",
             detail="任务已进入队列，等待开始。",
+            parent_job_id=parent_job_id,
+            hidden_from_default_list=hidden_from_default_list,
+            child_label=child_label,
             history=[{"progress": 0.0, "stage": "任务已创建", "detail": "任务已进入队列，等待开始。"}],
         )
         _set_task_state(
             task_id,
             stage="任务已创建",
             detail="任务已进入队列，等待开始。",
+            parent_job_id=parent_job_id,
+            hidden_from_default_list=hidden_from_default_list,
+            child_label=child_label,
             meta={
                 "phase": "queued",
                 "total_samples": len(samples),

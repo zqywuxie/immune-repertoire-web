@@ -1007,6 +1007,10 @@ body {
     font-size: var(--font-size-xl);
 }
 
+.sidebar.collapsed .sidebar-section-label {
+    display: none;
+}
+
 .sidebar.collapsed hr {
     margin: var(--spacing-2) 0;
 }
@@ -1017,6 +1021,13 @@ body {
 
 .sidebar.collapsed #sidebarCollapseBtn {
     padding: var(--spacing-2);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.sidebar.collapsed #sidebarCollapseBtn i {
+    margin: 0;
 }
 
 /* Main content adjustment when sidebar is collapsed */
@@ -1046,6 +1057,10 @@ html.sidebar-precollapsed .sidebar .nav-link i {
     font-size: var(--font-size-xl);
 }
 
+html.sidebar-precollapsed .sidebar .sidebar-section-label {
+    display: none;
+}
+
 html.sidebar-precollapsed .sidebar hr {
     margin: var(--spacing-2) 0;
 }
@@ -1056,6 +1071,13 @@ html.sidebar-precollapsed .sidebar #sidebarCollapseBtn .nav-text {
 
 html.sidebar-precollapsed .sidebar #sidebarCollapseBtn {
     padding: var(--spacing-2);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+html.sidebar-precollapsed .sidebar #sidebarCollapseBtn i {
+    margin: 0;
 }
 
 html.sidebar-precollapsed .main-content {
@@ -1216,6 +1238,124 @@ html.sidebar-precollapsed .main-content {
 
 .settings-page .card-header i {
     color: var(--primary-color);
+}
+
+/* ============================================
+   Workspace shell refinement
+   ============================================ */
+body[data-workspace="analysis"],
+body[data-workspace="management"] {
+    --shell-ink: #142433;
+    --shell-muted: #647486;
+    --shell-border: #dce5ee;
+    --shell-border-soft: #e8eef4;
+    --shell-surface: #ffffff;
+    --shell-active: #28546f;
+}
+
+body[data-workspace="management"] {
+    --shell-active: #245e7f;
+}
+
+body[data-workspace="analysis"] .navbar-professional,
+body[data-workspace="management"] .navbar-professional {
+    border-bottom-color: var(--shell-border-soft);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 1px 0 rgba(20, 36, 51, 0.04);
+}
+
+body[data-workspace="analysis"] .navbar-professional .navbar-brand,
+body[data-workspace="management"] .navbar-professional .navbar-brand {
+    color: var(--shell-ink);
+    font-weight: 760;
+}
+
+body[data-workspace="analysis"] .navbar-professional .navbar-brand i,
+body[data-workspace="management"] .navbar-professional .navbar-brand i {
+    color: var(--shell-active);
+}
+
+body[data-workspace="analysis"] .btn-navbar,
+body[data-workspace="management"] .btn-navbar {
+    border-color: var(--shell-border-soft);
+    border-radius: 8px;
+    color: var(--shell-ink);
+    font-weight: 650;
+}
+
+body[data-workspace="analysis"] .btn-navbar:hover,
+body[data-workspace="management"] .btn-navbar:hover {
+    border-color: #b8cbd8;
+    background: #f8fafc;
+    color: var(--shell-active);
+}
+
+body[data-workspace="analysis"] .btn-workspace-switch,
+body[data-workspace="management"] .btn-workspace-switch {
+    background: var(--shell-active);
+    border-color: var(--shell-active);
+    color: #fff;
+}
+
+body[data-workspace="analysis"] .sidebar,
+body[data-workspace="management"] .sidebar {
+    border-right-color: var(--shell-border-soft);
+    background: #ffffff;
+    padding: 0.85rem;
+}
+
+body[data-workspace="analysis"] .sidebar-section-label,
+body[data-workspace="management"] .sidebar-section-label {
+    color: #8998a8;
+    letter-spacing: 0;
+    padding: 0.25rem 0.5rem;
+}
+
+body[data-workspace="analysis"] .sidebar .nav-link,
+body[data-workspace="management"] .sidebar .nav-link {
+    display: flex;
+    align-items: center;
+    min-height: 2.45rem;
+    border-radius: 8px;
+    color: var(--shell-muted);
+    font-size: 0.92rem;
+    font-weight: 650;
+}
+
+body[data-workspace="analysis"] .sidebar .nav-link:hover,
+body[data-workspace="management"] .sidebar .nav-link:hover {
+    border-color: var(--shell-border-soft);
+    background: #f8fafc;
+    color: var(--shell-ink);
+}
+
+body[data-workspace="analysis"] .sidebar .nav-link.active,
+body[data-workspace="management"] .sidebar .nav-link.active {
+    border-color: transparent;
+    background: #eef5f9;
+    color: var(--shell-active);
+    box-shadow: inset 3px 0 0 var(--shell-active);
+}
+
+body[data-workspace="analysis"] .sidebar .nav-link i,
+body[data-workspace="management"] .sidebar .nav-link i {
+    color: inherit;
+    font-size: 1.05rem;
+}
+
+body[data-workspace="analysis"] #sidebarCollapseBtn,
+body[data-workspace="management"] #sidebarCollapseBtn {
+    border-color: var(--shell-border-soft);
+    border-radius: 8px;
+    color: var(--shell-muted);
+    font-weight: 650;
+}
+
+body[data-workspace="analysis"] .main-content,
+body[data-workspace="management"] .main-content {
+    background:
+        linear-gradient(180deg, #f8fafc 0%, #f5f8fb 270px),
+        #f5f8fb;
 }
 
 /* Ensure proper stacking and no overlap */

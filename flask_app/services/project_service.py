@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from flask_app.exceptions import ValidationError
 from flask_app.models.database import Project, db
+from flask_app.services.user_scope import assert_owned, current_user_id, is_admin, scope_query
 
 
 class ProjectService:
@@ -26,7 +27,7 @@ class ProjectService:
         institution: str = "",
         cooperation_level: str = "",
     ) -> List[Project]:
-        query = Project.query.order_by(Project.created_at.desc())
+        query = scope_query(Project.query, Project).order_by(Project.created_at.desc())
         if name:
             query = query.filter(Project.name.ilike(f"%{name.strip()}%"))
         if institution:
@@ -39,6 +40,7 @@ class ProjectService:
         project = Project.query.get(project_id)
         if project is None:
             raise ValidationError(message="Project not found", details={'project_id': project_id})
+        assert_owned(project, "Project")
         return project
 
     def create_project(
@@ -54,12 +56,16 @@ class ProjectService:
         if not project_name:
             raise ValidationError(message="Project name is required", details={'field': 'name'})
 
-        existing = Project.query.filter(Project.name == project_name).first()
+        existing_query = Project.query.filter(Project.name == project_name)
+        if not is_admin():
+            existing_query = existing_query.filter(Project.user_id == current_user_id())
+        existing = existing_query.first()
         if existing is not None:
             raise ValidationError(message="Project name already exists", details={'field': 'name', 'value': project_name})
 
         project = Project(
             name=project_name,
+            user_id=current_user_id(),
             institution=str(institution or "").strip() or None,
             cooperation_level=str(cooperation_level or "").strip() or None,
             description=str(description or "").strip() or None,
@@ -75,7 +81,10 @@ class ProjectService:
         if not name:
             raise ValidationError(message="Project name is required", details={'field': 'name'})
         if name != project.name:
-            existing = Project.query.filter(Project.name == name, Project.id != project.id).first()
+            existing_query = Project.query.filter(Project.name == name, Project.id != project.id)
+            if not is_admin():
+                existing_query = existing_query.filter(Project.user_id == current_user_id())
+            existing = existing_query.first()
             if existing is not None:
                 raise ValidationError(message="Project name already exists", details={'field': 'name', 'value': name})
             project.name = name
@@ -95,7 +104,8 @@ class ProjectService:
             shutil.rmtree(project_dir, ignore_errors=True)
 
     def get_project_dir(self, project: Project) -> Path:
-        return self.projects_root / project.id
+        owner = str(project.user_id) if project.user_id else "legacy"
+        return self.projects_root / owner / project.id
 
     def get_asset_type_dir(self, project: Project, asset_type: str) -> Path:
         return self.get_project_dir(project) / 'assets' / asset_type

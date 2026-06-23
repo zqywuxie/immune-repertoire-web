@@ -311,15 +311,17 @@
     -webkit-overflow-scrolling: touch;
   }
 </style>
+<link href="{{ url_for('static', filename='css/management_common.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 project-detail-shell">
+<div class="container-fluid py-4 management-page project-detail-shell">
   <section class="detail-hero">
     <div class="row g-3 align-items-end">
       <div class="col-lg-8">
-        <h1 class="h3 mb-2" id="projectTitle">项目详情</h1>
-        <p class="text-muted mb-0" id="projectSubtitle">项目尚未填写描述。</p>
+        <span class="mg-kicker mb-3"><i class="bi bi-folder2-open"></i>Project Detail</span>
+        <h1 class="mg-page-title" id="projectTitle">项目详情</h1>
+        <p class="mg-page-subtitle" id="projectSubtitle">项目尚未填写描述。</p>
       </div>
       <div class="col-lg-4 text-lg-end">
         <button class="btn btn-primary" id="refreshProjectDetailBtn">
@@ -336,11 +338,11 @@
 
   <!-- Tab Navigation -->
   <div class="tab-nav">
-    <button class="tab-btn active" data-tab="overview">项目概览</button>
-    <button class="tab-btn" data-tab="assets">项目资产</button>
-    <button class="tab-btn" data-tab="analysis">数据分析</button>
-    <button class="tab-btn" data-tab="samples">样本信息</button>
-    <button class="tab-btn" data-tab="settings">项目设置</button>
+    <button class="tab-btn active" data-tab="overview"><i class="bi bi-speedometer2"></i>项目概览</button>
+    <button class="tab-btn" data-tab="assets"><i class="bi bi-folder2"></i>项目资产</button>
+    <button class="tab-btn" data-tab="analysis"><i class="bi bi-cpu"></i>数据分析</button>
+    <button class="tab-btn" data-tab="samples"><i class="bi bi-collection"></i>样本信息</button>
+    <button class="tab-btn" data-tab="settings"><i class="bi bi-sliders"></i>项目设置</button>
   </div>
 
   <!-- Tab Content -->
@@ -411,13 +413,16 @@
     <div class="row">
       <div class="col">
         <div class="card detail-card">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <span>项目资产</span>
+          <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
             <div>
+              <div class="fw-semibold">项目资产</div>
+              <div class="asset-panel-subtitle">统一管理项目文件、分析结果和缓存资产</div>
+            </div>
+            <div class="d-flex gap-2">
               <button class="btn btn-sm btn-outline-primary" id="uploadAssetBtn">
                 <i class="bi bi-plus-lg me-1"></i>上传资产
               </button>
-              <button class="btn btn-sm btn-outline-secondary ms-1" id="refreshAssetsBtn">
+              <button class="btn btn-sm btn-outline-secondary" id="refreshAssetsBtn">
                 <i class="bi bi-arrow-clockwise me-1"></i>刷新
               </button>
             </div>
@@ -426,24 +431,46 @@
             <div id="assetStatistics" class="summary-grid mb-3">
               <!-- Asset statistics will be populated here -->
             </div>
+            <div class="asset-control-bar mb-3">
+              <div class="asset-control-search">
+                <label class="form-label" for="assetSearchInput">搜索资产</label>
+                <div class="asset-search-box">
+                  <i class="bi bi-search"></i>
+                  <input type="search" class="form-control" id="assetSearchInput" placeholder="输入文件名、路径、类型或元数据">
+                </div>
+              </div>
+              <div class="asset-control-type">
+                <label class="form-label" for="assetTypeFilter">资产类型</label>
+                <select class="form-select" id="assetTypeFilter">
+                  <option value="">全部类型</option>
+                </select>
+              </div>
+              <div class="asset-control-actions">
+                <div class="asset-result-count" id="projectAssetsMeta">0 个资产</div>
+                <button class="btn btn-outline-secondary btn-sm" id="clearAssetFiltersBtn" type="button">
+                  <i class="bi bi-x-circle me-1"></i>清除筛选
+                </button>
+              </div>
+            </div>
             <div class="collapsible-section">
               <div class="collapsible-header" onclick="toggleCollapsible(this)">
                 <span>资产列表 (点击展开)</span>
                 <i class="bi bi-chevron-down"></i>
               </div>
               <div class="collapsible-body">
-                <div class="table-responsive">
-                  <table class="table table-hover mb-0">
-                    <thead class="table-light">
+                <div class="asset-table-shell table-responsive">
+                  <table class="table table-hover mb-0 asset-management-table">
+                    <thead>
                       <tr>
-                        <th>类型 / 文件</th>
+                        <th>资产</th>
+                        <th>路径 / 来源</th>
                         <th>大小</th>
-                        <th>上传时间</th>
+                        <th>更新时间</th>
                         <th class="text-end">操作</th>
                       </tr>
                     </thead>
                     <tbody id="projectAssetsTableBody">
-                      <tr><td colspan="4" class="text-center text-muted py-4">正在加载资产...</td></tr>
+                      <tr><td colspan="5"><div class="mg-empty"><i class="bi bi-hourglass-split"></i>正在加载资产...</div></td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -459,6 +486,7 @@
     <div class="row g-3">
       <div class="col-md-6 col-lg-4">
         <div class="analysis-module">
+          <div class="analysis-module-icon"><i class="bi bi-diagram-3"></i></div>
           <h6 class="text-primary">Pipeline 比较</h6>
           <p class="text-muted small mb-3">对比不同Pipeline的分析结果</p>
           <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="pipeline-comparison">
@@ -468,6 +496,7 @@
       </div>
       <div class="col-md-6 col-lg-4">
         <div class="analysis-module">
+          <div class="analysis-module-icon"><i class="bi bi-terminal"></i></div>
           <h6 class="text-primary">Script Hub</h6>
           <p class="text-muted small mb-3">基于pep数据生成V/J图谱</p>
           <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="script-hub">
@@ -509,7 +538,7 @@
                     </tr>
                   </thead>
                   <tbody id="samplesPreviewBody">
-                    <tr><td colspan="4" class="text-center text-muted py-4">正在加载样本...</td></tr>
+                    <tr><td colspan="4"><div class="mg-empty"><i class="bi bi-hourglass-split"></i>正在加载样本...</div></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -541,39 +570,92 @@
         </div>
       </div>
       <div class="col-md-6">
-        <div class="card detail-card">
-          <div class="card-header">项目设置</div>
+        <div class="card detail-card project-settings-card">
+          <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div>
+              <div class="fw-semibold">项目设置</div>
+              <div class="asset-panel-subtitle">维护项目基础资料和协作状态</div>
+            </div>
+            <span class="settings-dirty-badge d-none" id="settingsDirtyBadge">
+              <i class="bi bi-dot"></i>未保存更改
+            </span>
+          </div>
           <div class="card-body">
             <form id="projectSettingsForm">
-              <div class="mb-3">
-                <label class="form-label">项目名称</label>
-                <input type="text" class="form-control" id="projectNameInput">
+              <div class="settings-section">
+                <div class="settings-section-title">
+                  <i class="bi bi-card-heading"></i>
+                  <span>基础信息</span>
+                </div>
+                <div class="row g-3">
+                  <div class="col-lg-7">
+                    <label class="form-label" for="projectNameInput">项目名称</label>
+                    <input type="text" class="form-control" id="projectNameInput" required>
+                    <div class="invalid-feedback">项目名称不能为空。</div>
+                  </div>
+                  <div class="col-lg-5">
+                    <label class="form-label" for="projectStatusInput">状态</label>
+                    <select class="form-select" id="projectStatusInput">
+                      <option value="active">活跃</option>
+                      <option value="inactive">未激活</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label">项目描述</label>
-                <textarea class="form-control" id="projectDescInput" rows="3"></textarea>
+
+              <div class="settings-section">
+                <div class="settings-section-title">
+                  <i class="bi bi-building"></i>
+                  <span>合作信息</span>
+                </div>
+                <div class="row g-3">
+                  <div class="col-lg-6">
+                    <label class="form-label" for="projectInstitutionInput">机构</label>
+                    <input type="text" class="form-control" id="projectInstitutionInput" placeholder="合作机构或实验室">
+                  </div>
+                  <div class="col-lg-6">
+                    <label class="form-label" for="projectCooperationInput">合作等级</label>
+                    <select class="form-select" id="projectCooperationInput">
+                      <option value="">请选择</option>
+                      <option value="basic">基础合作</option>
+                      <option value="standard">标准合作</option>
+                      <option value="premium">高级合作</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label">机构</label>
-                <input type="text" class="form-control" id="projectInstitutionInput">
+
+              <div class="settings-section">
+                <div class="settings-section-title">
+                  <i class="bi bi-text-left"></i>
+                  <span>项目描述</span>
+                </div>
+                <textarea class="form-control" id="projectDescInput" rows="4" placeholder="记录项目背景、样本来源或分析目标"></textarea>
               </div>
-              <div class="mb-3">
-                <label class="form-label">合作等级</label>
-                <select class="form-select" id="projectCooperationInput">
-                  <option value="">请选择</option>
-                  <option value="basic">基础合作</option>
-                  <option value="standard">标准合作</option>
-                  <option value="premium">高级合作</option>
-                </select>
+
+              <div class="settings-section settings-readonly-grid">
+                <div class="settings-readonly-item">
+                  <span>Project ID</span>
+                  <strong id="settingsProjectIdValue">{{ project_id }}</strong>
+                </div>
+                <div class="settings-readonly-item">
+                  <span>创建时间</span>
+                  <strong id="settingsCreatedAtValue">-</strong>
+                </div>
+                <div class="settings-readonly-item">
+                  <span>最近更新</span>
+                  <strong id="settingsUpdatedAtValue">-</strong>
+                </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label">状态</label>
-                <select class="form-select" id="projectStatusInput">
-                  <option value="active">活跃</option>
-                  <option value="inactive">未激活</option>
-                </select>
+
+              <div class="settings-actions">
+                <button type="button" class="btn btn-outline-secondary" id="resetProjectSettingsBtn" disabled>
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>重置
+                </button>
+                <button type="submit" class="btn btn-primary" id="saveProjectSettingsBtn" disabled>
+                  <i class="bi bi-check2-circle me-1"></i>保存设置
+                </button>
               </div>
-              <button type="submit" class="btn btn-primary">保存设置</button>
             </form>
           </div>
         </div>

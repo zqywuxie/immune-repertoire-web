@@ -396,3 +396,262 @@
     from { background-position: 1rem 0; }
     to { background-position: 0 0; }
 }
+
+/* ============================================
+   Unified workflow visual system
+   ============================================ */
+:root {
+    --ua-ink: #132331;
+    --ua-muted: #627383;
+    --ua-border: #dbe5ee;
+    --ua-border-soft: #e8eef4;
+    --ua-panel: #ffffff;
+    --ua-blue: #1f6ea5;
+    --ua-blue-soft: #eaf5fc;
+    --ua-teal: #0f766e;
+    --ua-teal-soft: #e9f7f4;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 {
+    max-width: 1500px;
+    margin: 0 auto;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .d-flex:first-child,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .pipeline-hero {
+    border: 1px solid var(--ua-border);
+    border-radius: 8px;
+    background: linear-gradient(135deg, #fbfdff 0%, #ffffff 55%, #f6faf8 100%);
+    padding: 1.25rem;
+    margin-bottom: 1.1rem;
+    box-shadow: 0 12px 30px rgba(19, 35, 49, 0.045);
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .d-flex:first-child h1,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .pipeline-hero h2 {
+    color: var(--ua-ink);
+    font-weight: 780;
+    letter-spacing: 0;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .d-flex:first-child p,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 > .pipeline-hero p {
+    max-width: 850px;
+    color: var(--ua-muted);
+    line-height: 1.6;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .card,
+.pc-card {
+    border: 1px solid var(--ua-border-soft);
+    border-radius: 8px;
+    background: var(--ua-panel);
+    box-shadow: 0 8px 22px rgba(19, 35, 49, 0.04);
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .card-header,
+.pc-card .card-header {
+    border-bottom: 1px solid var(--ua-border-soft);
+    background: #fbfdff;
+    color: var(--ua-ink);
+    font-weight: 720;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .card-header h2,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .card-header h3,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .card-header h5 {
+    font-weight: 760;
+}
+
+.step-indicator {
+    gap: 0.5rem;
+    margin-bottom: 0;
+    padding: 0.25rem;
+}
+
+.step-item {
+    min-width: 0;
+}
+
+.step-item:not(:last-child)::after {
+    top: 17px;
+    height: 1px;
+    background: var(--ua-border);
+}
+
+.step-item.completed:not(:last-child)::after {
+    background: #87b9a7;
+}
+
+.step-number {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--ua-border);
+    background: #f8fafc;
+    color: var(--ua-muted);
+    font-weight: 780;
+}
+
+.step-item.active .step-number {
+    border-color: #b8d7ea;
+    background: var(--ua-blue-soft);
+    color: var(--ua-blue);
+}
+
+.step-item.completed .step-number {
+    border-color: #b9e1d5;
+    background: var(--ua-teal-soft);
+    color: var(--ua-teal);
+}
+
+.step-label {
+    color: var(--ua-muted);
+    font-weight: 650;
+}
+
+.step-item.active .step-label {
+    color: var(--ua-blue);
+    font-weight: 760;
+}
+
+.step-item.completed .step-label {
+    color: var(--ua-teal);
+    font-weight: 760;
+}
+
+.source-panel,
+.sample-detect-panel,
+.field-mapping-section,
+.sh-remote-shell {
+    border: 1px solid var(--ua-border-soft);
+    border-radius: 8px;
+    background: #fbfdff;
+}
+
+.sample-detect-card,
+.chain-item,
+.progress-meta-card,
+.remote-browser-item,
+.module-card,
+.module-option,
+.pc-pipeline-item,
+.pc-result-item {
+    border-color: var(--ua-border-soft);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 4px 14px rgba(19, 35, 49, 0.025);
+}
+
+.chain-item:hover,
+.sample-detect-card:hover,
+.remote-browser-item:hover,
+.module-card:hover,
+.module-option:hover {
+    border-color: #b7ccd9;
+    background: #fbfdff;
+}
+
+.chain-item.selected,
+.sample-detect-card.selected,
+.remote-browser-item.selected {
+    border-color: #9fc8dd;
+    background: var(--ua-blue-soft);
+    box-shadow: inset 0 0 0 1px rgba(31, 110, 165, 0.08);
+}
+
+.remote-tree-panel,
+.preview-table-wrapper,
+.progress-log {
+    border-color: var(--ua-border-soft);
+    border-radius: 8px;
+    background: #fbfdff;
+}
+
+.remote-tree-node {
+    border-radius: 8px;
+}
+
+.remote-tree-node.selected {
+    background: var(--ua-blue-soft);
+    border-color: #bdd8e8;
+}
+
+.progress-meta-label,
+.remote-tree-meta,
+.remote-tree-empty {
+    color: var(--ua-muted);
+}
+
+.progress-meta-value,
+.remote-tree-name,
+.sample-detect-name,
+.pc-pipeline-name,
+.pc-order-name {
+    color: var(--ua-ink);
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .form-label {
+    color: #344a5d;
+    font-size: 0.82rem;
+    font-weight: 720;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .form-control,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .form-select {
+    border-color: var(--ua-border-soft);
+    border-radius: 8px;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .form-control:focus,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .form-select:focus {
+    border-color: rgba(31, 110, 165, 0.55);
+    box-shadow: 0 0 0 0.18rem rgba(31, 110, 165, 0.13);
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .btn {
+    border-radius: 8px;
+    font-weight: 650;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .btn-primary {
+    background: #28546f;
+    border-color: #28546f;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .btn-primary:hover {
+    background: #1f435a;
+    border-color: #1f435a;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .table thead th {
+    background: #f8fafc;
+    color: #4a5d6e;
+    font-weight: 760;
+}
+
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .table td,
+body[data-workspace="analysis"] .main-content > .container-fluid.py-4 .table th {
+    border-color: #eef2f6;
+}
+
+.loading-content {
+    border: 1px solid var(--ua-border-soft);
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(19, 35, 49, 0.16);
+}
+
+@media (max-width: 768px) {
+    .step-indicator {
+        overflow-x: auto;
+        justify-content: flex-start;
+        padding-bottom: 0.35rem;
+    }
+
+    .step-item {
+        flex: 0 0 112px;
+    }
+
+    .remote-tree-toolbar {
+        grid-template-columns: 1fr;
+    }
+}

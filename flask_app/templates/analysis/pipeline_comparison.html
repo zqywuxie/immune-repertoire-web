@@ -224,6 +224,54 @@
         background: #f8fafc;
         font-size: .86rem;
     }
+
+    .pipeline-page {
+        --pc-bg: linear-gradient(135deg, #fbfdff 0%, #ffffff 55%, #f6faf8 100%);
+        --pc-line: #e8eef4;
+        --pc-text: #132331;
+        --pc-muted: #627383;
+        --pc-accent: #28546f;
+        max-width: 1500px;
+        margin: 0 auto;
+    }
+
+    .pipeline-hero,
+    .pc-card,
+    .pc-status,
+    .pc-pipeline-item,
+    .pc-result-item,
+    .pc-source-panel,
+    .pc-loading-card,
+    .pc-loading-log {
+        border-radius: 8px;
+    }
+
+    .pipeline-hero {
+        box-shadow: 0 12px 30px rgba(19, 35, 49, 0.045);
+    }
+
+    .pipeline-hero h2 {
+        color: var(--pc-text);
+        font-weight: 780;
+        letter-spacing: 0;
+    }
+
+    .pc-card {
+        border-color: var(--pc-line);
+        box-shadow: 0 8px 22px rgba(19, 35, 49, 0.04);
+    }
+
+    .pc-card .card-header {
+        background: #fbfdff;
+        border-bottom-color: var(--pc-line);
+        color: var(--pc-text);
+        font-weight: 760;
+    }
+
+    .pc-step {
+        background: #eef7fc;
+        color: var(--pc-accent);
+    }
 </style>
 {% endblock %}
 

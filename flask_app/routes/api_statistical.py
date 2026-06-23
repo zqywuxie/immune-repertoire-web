@@ -14,10 +14,19 @@ from flask_app.services.statistical_analysis_service import get_statistical_anal
 from flask_app.services.file_parser import FileParserService
 from flask_app.models.database import db, File
 from flask_app.exceptions import ValidationError, FileNotFoundError as AppFileNotFoundError
+from flask_app.services.user_scope import assert_owned
 
 logger = logging.getLogger(__name__)
 
 statistical_bp = Blueprint('statistical', __name__, url_prefix='/api/statistical')
+
+
+def _get_owned_file(file_id: str) -> File:
+    file_record = File.query.get(file_id)
+    if not file_record:
+        raise AppFileNotFoundError(message=f"File not found: {file_id}", details={'file_id': file_id})
+    assert_owned(file_record, "File")
+    return file_record
 
 
 @statistical_bp.route('/analyze', methods=['POST'])
@@ -54,12 +63,7 @@ def analyze_groups():
                 details={'field': 'file_id'}
             )
         
-        file_record = File.query.get(file_id)
-        if not file_record:
-            raise AppFileNotFoundError(
-                message=f"File not found: {file_id}",
-                details={'file_id': file_id}
-            )
+        file_record = _get_owned_file(file_id)
         
         with open(file_record.storage_path, 'rb') as f:
             file_content = f.read()
@@ -125,7 +129,7 @@ def create_boxplot():
                 details={'field': 'file_id'}
             )
         
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -201,7 +205,7 @@ def analyze_multiple():
             file_id = file_info.get('file_id')
             name = file_info.get('name', file_id)
             
-            file_record = File.query.get(file_id)
+            file_record = _get_owned_file(file_id)
             if not file_record:
                 logger.warning(f"File not found: {file_id}")
                 continue
@@ -283,7 +287,7 @@ def create_summary_boxplot():
             file_id = file_info.get('file_id')
             name = file_info.get('name', file_id)
             
-            file_record = File.query.get(file_id)
+            file_record = _get_owned_file(file_id)
             if not file_record:
                 continue
             
@@ -333,7 +337,7 @@ def parse_file_columns(file_id):
         列名列表和分组值
     """
     try:
-        file_record = File.query.get(file_id)
+        file_record = _get_owned_file(file_id)
         if not file_record:
             raise AppFileNotFoundError(
                 message=f"File not found: {file_id}",
@@ -461,7 +465,7 @@ def analyze_batch():
             # 使用已上传文件的ID
             file_ids = json.loads(file_ids_str)
             for file_id in file_ids:
-                file_record = File.query.get(file_id)
+                file_record = _get_owned_file(file_id)
                 if not file_record:
                     continue
                 storage_path = current_app.config['UPLOAD_FOLDER'] / file_record.storage_name
@@ -562,7 +566,7 @@ def analyze_direct():
         # 支持两种方式：上传新文件或使用已上传文件的ID
         if file_id:
             # 使用已上传文件的ID
-            file_record = File.query.get(file_id)
+            file_record = _get_owned_file(file_id)
             if not file_record:
                 raise AppFileNotFoundError(
                     message=f"File not found: {file_id}",

@@ -3,6 +3,7 @@
 {% block title %}数据分析{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analysis_common.css') }}">
 <style>
     .analysis-container {
         max-width: 1400px;
@@ -150,15 +151,117 @@
     .confidence-low {
         color: #dc3545;
     }
+
+    .analysis-container {
+        max-width: 1500px;
+    }
+
+    .analysis-flow-note {
+        border: 1px solid #e8eef4;
+        border-radius: 8px;
+        background: #fbfdff;
+        padding: 0.85rem 1rem;
+        box-shadow: 0 8px 22px rgba(19, 35, 49, 0.035);
+    }
+
+    .analysis-flow-note .badge {
+        border-radius: 999px;
+        background: #28546f !important;
+        font-weight: 720;
+    }
+
+    .analysis-panel {
+        border: 1px solid #e8eef4;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 8px 22px rgba(19, 35, 49, 0.04);
+        padding: 1.1rem;
+    }
+
+    .analysis-panel h5 {
+        color: #132331;
+        font-weight: 760;
+    }
+
+    .file-upload-area {
+        border: 1px dashed #bfd1de;
+        border-radius: 8px;
+        background: #fbfdff;
+    }
+
+    .file-upload-area:hover,
+    .file-upload-area.dragover {
+        border-color: #8fb8cf;
+        background: #eaf5fc;
+    }
+
+    .file-info,
+    .param-group,
+    .analysis-module-section,
+    .result-area {
+        border: 1px solid #e8eef4;
+        border-radius: 8px;
+        background: #fbfdff;
+    }
+
+    .scheme-tab {
+        border: 1px solid #e8eef4;
+        border-radius: 8px;
+        box-shadow: 0 4px 14px rgba(19, 35, 49, 0.025);
+    }
+
+    .scheme-tab:hover,
+    .scheme-tab.active {
+        border-color: #9fc8dd;
+        background: #eaf5fc;
+        color: #1f5d82;
+    }
+
+    .result-area {
+        min-height: 360px;
+        background: #fbfdff;
+    }
+
+    .data-table-container {
+        border: 1px solid #e8eef4;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .btn-run-analysis {
+        border-radius: 8px;
+        background: #28546f;
+        border-color: #28546f;
+        font-weight: 700;
+    }
+
+    .btn-run-analysis:hover {
+        background: #1f435a;
+        border-color: #1f435a;
+    }
+
+    @media (max-width: 768px) {
+        .analysis-panel {
+            padding: 0.9rem;
+        }
+
+        .scheme-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 analysis-container">
-    <div class="row mb-4">
-        <div class="col">
-            <h1 class="mb-2"><i class="bi bi-graph-up me-2"></i>数据分析</h1>
-            <p class="text-muted">先选择或上传数据文件，再根据同一份数据选择要执行的分析模块。</p>
+<div class="container-fluid py-4 analysis-workbench analysis-container">
+    <div class="analysis-page-hero">
+        <div class="analysis-page-title-row">
+            <div class="analysis-page-icon"><i class="bi bi-graph-up"></i></div>
+            <div>
+                <span class="analysis-kicker">Analysis Workspace</span>
+                <h1>数据分析</h1>
+                <p>先选择或上传数据文件，再根据同一份数据选择要执行的分析模块。</p>
+            </div>
         </div>
     </div>
 
@@ -169,7 +272,7 @@
         </div>
     </div>
 
-    <div class="row">
+    <div class="row g-4">
         <div class="col-lg-5">
             <div class="analysis-panel">
                 <div class="mb-4">
@@ -289,7 +392,12 @@
 
         <div class="col-lg-7">
             <div class="analysis-panel">
-                <h5 class="mb-3"><i class="bi bi-bar-chart me-2"></i>分析结果</h5>
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                        <h5 class="mb-1"><i class="bi bi-bar-chart me-2"></i>分析结果</h5>
+                        <p class="text-muted small mb-0">图表、数据表和导出操作会在分析完成后显示。</p>
+                    </div>
+                </div>
                 <ul class="nav nav-tabs mb-3" id="resultTabs">
                     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#chartTab">图表</a></li>
                     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dataTab">数据</a></li>

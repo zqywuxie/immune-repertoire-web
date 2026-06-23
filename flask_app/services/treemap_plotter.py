@@ -3,9 +3,10 @@ Matplotlib-based treemap renderer for immune repertoire clonotype visualization.
 
 Two modes:
   - "qr": hierarchical rounded rectangles (V→J→CDR3), FancyBboxPatch
-  - "tetris": same hierarchy, clones packed as tetromino shapes on a grid
+  - "tetris": same hierarchy, each clone is one scaled I/O/T/S/Z/J/L tetromino
 
-Canvas: square 1000×1000, figure 10×10 inches, 300 DPI → 3000×3000 px output.
+Canvas defaults to square 1000×1000.  Portrait mode follows the reference
+treemap_group_vertical.py script: 700×1500 canvas, 5.6×12 inches, 300 DPI.
 """
 from __future__ import annotations
 
@@ -37,7 +38,16 @@ BG_COLOR = "white"
 ROUND_RATIO = 0.28
 MAX_ROUND = 36
 TOP_RANK_COLORS = 64
-RANDOM_SEED = 123
+PALETTE_OFFSET = 123
+ORDER_MODE = "copy"
+FLIP_X = True
+FLIP_Y = True
+SWAP_XY = False
+
+CANVAS_PRESETS: Dict[str, Dict[str, float]] = {
+    "square": {"canvas_w": 1000.0, "canvas_h": 1000.0, "fig_w": 10.0, "fig_h": 10.0},
+    "portrait": {"canvas_w": 700.0, "canvas_h": 1500.0, "fig_w": 5.6, "fig_h": 12.0},
+}
 
 # Tetromino shape definitions (cell coordinates)
 SHAPES: Dict[str, List[Tuple[int, int]]] = {
@@ -112,6 +122,15 @@ def _hex_to_rgb01(hex_color: str) -> Tuple[float, float, float]:
     return tuple(int(hex_color[i : i + 2], 16) / 255 for i in (0, 2, 4))
 
 
+def _rgb01_to_hex(color: Tuple[float, float, float]) -> str:
+    """Convert an (r, g, b) tuple in [0,1] to a hex color string."""
+    return "#{:02x}{:02x}{:02x}".format(
+        max(0, min(255, int(round(float(color[0]) * 255)))),
+        max(0, min(255, int(round(float(color[1]) * 255)))),
+        max(0, min(255, int(round(float(color[2]) * 255)))),
+    )
+
+
 def _stable_int(value: Any) -> int:
     """Deterministic integer hash from any value, via MD5."""
     digest = hashlib.md5(str(value).encode("utf-8")).hexdigest()
@@ -129,10 +148,29 @@ def _assign_colors(
     palette_size = len(MOSAIC_REFERENCE_PALETTE)
     colors: List[Tuple[float, float, float]] = []
     for _, row in plot_df.reset_index(drop=True).iterrows():
-        key_seed = _stable_int(row["_entry_id"]) + RANDOM_SEED
+        key_seed = _stable_int(row["_entry_id"]) + PALETTE_OFFSET
         palette_idx = key_seed % palette_size
         colors.append(_hex_to_rgb01(MOSAIC_REFERENCE_PALETTE[palette_idx]))
     return colors
+
+
+def _canvas_spec(canvas_shape: str = "square") -> Dict[str, float]:
+    return CANVAS_PRESETS.get(str(canvas_shape or "square").strip().lower(), CANVAS_PRESETS["square"])
+
+
+def _sort_usage_df(
+    df: pd.DataFrame,
+    keys: List[str],
+    value_col: str,
+    order_mode: str = ORDER_MODE,
+) -> pd.DataFrame:
+    """Sort usage rows the same way as the vertical reference script."""
+    order_mode = str(order_mode or "copy").strip().lower()
+    if order_mode == "input":
+        return df.sort_values("_source_order", ascending=True).reset_index(drop=True)
+    if order_mode == "name":
+        return df.sort_values(keys, ascending=[True] * len(keys)).reset_index(drop=True)
+    return df.sort_values([value_col, "_source_order"], ascending=[False, True]).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -188,10 +226,7 @@ def _load_plot_df(
         [v_col, j_col, cdr3_col], as_index=False, sort=False
     ).agg({copy_col: "sum", "_source_order": "min"})
 
-    # Sort by copy descending, then source_order ascending
-    plot_df = plot_df.sort_values(
-        [copy_col, "_source_order"], ascending=[False, True]
-    ).reset_index(drop=True)
+    plot_df = _sort_usage_df(plot_df, [v_col, j_col, cdr3_col], copy_col)
 
     if plot_df.empty:
         raise ValueError("No valid data after filtering (empty CDR3, copy < min_count)")
@@ -204,6 +239,7 @@ def _load_plot_df(
         + plot_df[cdr3_col].astype(str)
     )
     plot_df["_color"] = _assign_colors(plot_df)
+    plot_df["_rank"] = list(range(1, len(plot_df) + 1))
     return plot_df
 
 
@@ -358,35 +394,35 @@ def _squarify_items(
 # Hierarchical rects: V → J → CDR3
 # ================================================================
 
-def _make_hierarchy_rects(
+def _make_vj_rects(
     plot_df: pd.DataFrame,
     v_col: str,
     j_col: str,
     copy_col: str,
+    canvas_w: float = CANVAS_W,
+    canvas_h: float = CANVAS_H,
+    order_mode: str = ORDER_MODE,
 ) -> List[Dict[str, Any]]:
-    """Build squarified V→J→CDR3 hierarchy. Returns leaf (CDR3) rects."""
-    # V-level: group by V, squarify over full canvas
+    """Build squarified V→J hierarchy and return J-level rectangles."""
     v_df = plot_df.groupby(v_col, as_index=False, sort=False).agg(
         {copy_col: "sum", "_source_order": "min"}
     )
-    v_df = v_df.sort_values("_source_order", ascending=True).reset_index(drop=True)
+    v_df = _sort_usage_df(v_df, [v_col], copy_col, order_mode=order_mode)
     v_rects = _squarify_items(
-        v_df.to_dict("records"), 0.0, 0.0, CANVAS_W, CANVAS_H, copy_col
+        v_df.to_dict("records"), 0.0, 0.0, canvas_w, canvas_h, copy_col
     )
 
-    leaf_rects: List[Dict[str, Any]] = []
-
+    j_level_rects: List[Dict[str, Any]] = []
     for v_rect in v_rects:
         v_value = v_rect[v_col]
         v_sub = plot_df[plot_df[v_col] == v_value].copy()
         if v_sub.empty:
             continue
 
-        # J-level within the V rect
         j_df = v_sub.groupby(j_col, as_index=False, sort=False).agg(
             {copy_col: "sum", "_source_order": "min"}
         )
-        j_df = j_df.sort_values("_source_order", ascending=True).reset_index(drop=True)
+        j_df = _sort_usage_df(j_df, [j_col], copy_col, order_mode=order_mode)
         j_rects = _squarify_items(
             j_df.to_dict("records"),
             v_rect["x"],
@@ -395,29 +431,83 @@ def _make_hierarchy_rects(
             v_rect["dy"],
             copy_col,
         )
-
         for j_rect in j_rects:
-            j_value = j_rect[j_col]
-            clone_df = v_sub[v_sub[j_col] == j_value].copy()
-            if clone_df.empty:
-                continue
+            item = j_rect.copy()
+            item["_v_value"] = v_value
+            item["_j_value"] = j_rect[j_col]
+            j_level_rects.append(item)
 
-            # CDR3-level within the J rect
-            clone_df = clone_df.sort_values(
-                [copy_col, "_source_order"], ascending=[False, True]
-            ).reset_index(drop=True)
+    return j_level_rects
 
-            clone_rects = _squarify_items(
-                clone_df.to_dict("records"),
-                j_rect["x"],
-                j_rect["y"],
-                j_rect["dx"],
-                j_rect["dy"],
-                copy_col,
-            )
-            leaf_rects.extend(clone_rects)
+
+def _make_hierarchy_rects(
+    plot_df: pd.DataFrame,
+    v_col: str,
+    j_col: str,
+    cdr3_col: str,
+    copy_col: str,
+    canvas_w: float = CANVAS_W,
+    canvas_h: float = CANVAS_H,
+    order_mode: str = ORDER_MODE,
+) -> List[Dict[str, Any]]:
+    """Build squarified V→J→CDR3 hierarchy. Returns leaf (CDR3) rects."""
+    leaf_rects: List[Dict[str, Any]] = []
+
+    for j_rect in _make_vj_rects(plot_df, v_col, j_col, copy_col, canvas_w, canvas_h, order_mode=order_mode):
+        v_value = j_rect["_v_value"]
+        j_value = j_rect["_j_value"]
+        v_sub = plot_df[plot_df[v_col] == v_value].copy()
+        if v_sub.empty:
+            continue
+
+        clone_df = v_sub[v_sub[j_col] == j_value].copy()
+        if clone_df.empty:
+            continue
+
+        # CDR3-level within the J rect
+        clone_df = _sort_usage_df(clone_df, [cdr3_col], copy_col, order_mode=order_mode)
+
+        clone_rects = _squarify_items(
+            clone_df.to_dict("records"),
+            j_rect["x"],
+            j_rect["y"],
+            j_rect["dx"],
+            j_rect["dy"],
+            copy_col,
+        )
+        leaf_rects.extend(clone_rects)
 
     return leaf_rects
+
+
+def _transform_rects(
+    rects: List[Dict[str, Any]],
+    canvas_w: float,
+    canvas_h: float,
+    *,
+    flip_x: bool = FLIP_X,
+    flip_y: bool = FLIP_Y,
+    swap_xy: bool = SWAP_XY,
+) -> List[Dict[str, Any]]:
+    """Apply the reference script's final orientation transform."""
+    transformed: List[Dict[str, Any]] = []
+    for rect in rects:
+        item = rect.copy()
+        x = float(item["x"])
+        y = float(item["y"])
+        dx = float(item["dx"])
+        dy = float(item["dy"])
+
+        if flip_x:
+            x = canvas_w - x - dx
+        if flip_y:
+            y = canvas_h - y - dy
+        if swap_xy:
+            x, y, dx, dy = y, x, dy, dx
+
+        item.update({"x": x, "y": y, "dx": dx, "dy": dy})
+        transformed.append(item)
+    return transformed
 
 
 # ================================================================
@@ -455,6 +545,8 @@ def _add_round_rect(
     dx: float,
     dy: float,
     color: Tuple[float, float, float],
+    canvas_w: float = CANVAS_W,
+    canvas_h: float = CANVAS_H,
 ) -> None:
     """Add a rounded (pill-shaped) FancyBboxPatch to the axes."""
     gap, rounding = _block_style(dx, dy)
@@ -462,8 +554,8 @@ def _add_round_rect(
     # Halve gaps at canvas edges so rectangles don't pull away from borders.
     left_gap = 0.0 if x <= 0 else gap / 2
     top_gap = 0.0 if y <= 0 else gap / 2
-    right_gap = 0.0 if x + dx >= CANVAS_W - 1e-6 else gap / 2
-    bottom_gap = 0.0 if y + dy >= CANVAS_H - 1e-6 else gap / 2
+    right_gap = 0.0 if x + dx >= canvas_w - 1e-6 else gap / 2
+    bottom_gap = 0.0 if y + dy >= canvas_h - 1e-6 else gap / 2
 
     x_inner = x + left_gap
     y_inner = y + top_gap
@@ -493,12 +585,18 @@ def _draw_qr_treemap(
     output_path: Path,
     v_col: str,
     j_col: str,
+    cdr3_col: str,
     copy_col: str,
+    canvas_shape: str = "square",
 ) -> None:
     """Draw a single QR-mode (rounded-rectangle) treemap to *output_path* (PNG)."""
-    rects = _make_hierarchy_rects(plot_df, v_col, j_col, copy_col)
+    spec = _canvas_spec(canvas_shape)
+    canvas_w = spec["canvas_w"]
+    canvas_h = spec["canvas_h"]
+    rects = _make_hierarchy_rects(plot_df, v_col, j_col, cdr3_col, copy_col, canvas_w, canvas_h)
+    rects = _transform_rects(rects, canvas_w, canvas_h)
 
-    fig = plt.figure(figsize=(FIG_W, FIG_H), dpi=DPI, frameon=False)
+    fig = plt.figure(figsize=(spec["fig_w"], spec["fig_h"]), dpi=DPI, frameon=False)
     ax = fig.add_axes([0, 0, 1, 1])
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
@@ -511,10 +609,12 @@ def _draw_qr_treemap(
             dx=rect["dx"],
             dy=rect["dy"],
             color=rect["_color"],
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
         )
 
-    ax.set_xlim(0, CANVAS_W)
-    ax.set_ylim(CANVAS_H, 0)
+    ax.set_xlim(0, canvas_w)
+    ax.set_ylim(canvas_h, 0)
     ax.set_aspect("equal", adjustable="box")
     ax.margins(0, 0)
     ax.axis("off")
@@ -536,7 +636,7 @@ def _shape_key_for_record(
 ) -> str:
     """Deterministic shape name for a clone from its identity hash."""
     ident = f"{record[v_col]}|{record[j_col]}|{record[cdr3_col]}"
-    idx = abs(hash(ident)) % len(SHAPE_ORDER)
+    idx = _stable_int(ident) % len(SHAPE_ORDER)
     return SHAPE_ORDER[idx]
 
 
@@ -614,11 +714,10 @@ def _place_tetromino(
     rows: int,
     rotations: List[List[Tuple[int, int]]],
     desired_scale: int,
-    seed: int = RANDOM_SEED,
+    seed: int = PALETTE_OFFSET,
 ) -> Optional[Tuple[List[Tuple[int, int]], int, int, int]]:
     """Try to place a tetromino. Returns (cells, scale, x, y) or None."""
     for scale in range(desired_scale, 0, -1):
-        # Try each rotation
         rng = random.Random(seed)
         rot_indices = list(range(len(rotations)))
         rng.shuffle(rot_indices)
@@ -628,14 +727,54 @@ def _place_tetromino(
             w_px = dims["w"] * scale
             h_px = dims["h"] * scale
 
-            # Generate scan positions in shuffled order for variety
-            positions = [(px, py) for py in range(rows - h_px + 1) for px in range(cols - w_px + 1)]
-            rng.shuffle(positions)
-
-            for px, py in positions:
-                if _fits(occupancy, px, py, cells, scale):
-                    return (cells, scale, px, py)
+            # Deterministic first-fit keeps each V/J region compact.  Random
+            # position scans leave large holes when clone counts are high.
+            for py in range(rows - h_px + 1):
+                row_range = range(cols - w_px + 1)
+                if py % 2:
+                    row_range = reversed(range(cols - w_px + 1))
+                for px in row_range:
+                    if _fits(occupancy, px, py, cells, scale):
+                        return (cells, scale, px, py)
+            # A second pass from the bottom improves fit in tall portrait strips.
+            for py in range(rows - h_px, -1, -1):
+                for px in range(cols - w_px + 1):
+                    if _fits(occupancy, px, py, cells, scale):
+                        return (cells, scale, px, py)
+            for px in range(cols - w_px + 1):
+                for py in range(rows - h_px + 1):
+                    if _fits(occupancy, px, py, cells, scale):
+                        return (cells, scale, px, py)
     return None
+
+
+def _compute_tetromino_scales(
+    items: List[Dict[str, Any]],
+    cols: int,
+    rows: int,
+    fill_ratio: float = 0.94,
+) -> List[int]:
+    """Scale clones so tetromino cell area attempts to fill the local grid."""
+    if not items:
+        return []
+    target_cells = max(len(items) * 4, int(cols * rows * fill_ratio))
+    total_copy = sum(float(item.get("_copy_val", 0) or 0) for item in items) or 1.0
+    max_scale = max(1, min(8, int(max(1, min(cols, rows)) / 4)))
+    adjust = target_cells / total_copy
+    scales = [
+        max(1, min(max_scale, int(round(math.sqrt((float(item.get("_copy_val", 0) or 0) * adjust) / 4)))))
+        for item in items
+    ]
+    for _ in range(12):
+        occupied = sum(4 * scale * scale for scale in scales)
+        if occupied <= target_cells * 1.03:
+            break
+        adjust *= target_cells / max(occupied, 1)
+        scales = [
+            max(1, min(max_scale, int(round(math.sqrt((float(item.get("_copy_val", 0) or 0) * adjust) / 4)))))
+            for item in items
+        ]
+    return scales
 
 
 def _pack_tetrominos(
@@ -663,7 +802,7 @@ def _pack_tetrominos(
     if n_clones == 0:
         return []
 
-    initial_cell = max(2.0, math.sqrt(region_area / (n_clones * 4)) * 0.7)
+    initial_cell = max(1.6, math.sqrt(region_area / max(n_clones * 4, 1)) * 0.72)
     cols = max(1, int(rdx / initial_cell))
     rows = max(1, int(rdy / initial_cell))
     cell_size = min(rdx / cols, rdy / rows)
@@ -674,34 +813,28 @@ def _pack_tetrominos(
     # Try progressively smaller cell sizes (more grid cells = more precision)
     cell_sizes_to_try: List[float] = []
     current_cs = cell_size
-    while current_cs >= 2.0:
+    min_cell = max(0.9, min(rdx, rdy) / 220)
+    while current_cs >= min_cell:
         cell_sizes_to_try.append(current_cs)
-        current_cs *= 0.85
+        current_cs *= 0.82
     if not cell_sizes_to_try:
         cell_sizes_to_try = [cell_size]
 
     for cell_sz in cell_sizes_to_try:
         cols = max(1, int(rdx / cell_sz))
         rows = max(1, int(rdy / cell_sz))
+        if cols < 2 or rows < 2:
+            continue
         occupancy = np.zeros((rows, cols), dtype=np.int32)
         placed: List[Dict[str, Any]] = []
+        scales = _compute_tetromino_scales(sorted_items, cols, rows, fill_ratio=0.94)
 
-        # Compute copy range for scaling
-        copies = [it["_copy_val"] for it in sorted_items]
-        max_copy = max(copies) if copies else 1
-        min_copy = min(copies) if copies else 1
-        copy_range = max_copy - min_copy if max_copy > min_copy else 1
-
-        for item in sorted_items:
+        for item, desired_scale in zip(sorted_items, scales):
             shape_name = _shape_key_for_record(item, v_col, j_col, cdr3_col)
             cells = SHAPES.get(shape_name, SHAPES["O"])
             rotations = _build_rotations(cells)
 
-            # Scale from 1 to 4 proportional to copy count
-            copy_val = item["_copy_val"]
-            desired_scale = max(1, min(4, int(1 + 3 * (copy_val - min_copy) / copy_range)))
-
-            item_seed = abs(hash(item.get(cdr3_col, ""))) ^ RANDOM_SEED
+            item_seed = _stable_int(item.get(cdr3_col, "")) ^ PALETTE_OFFSET
             result = _place_tetromino(occupancy, cols, rows, rotations, desired_scale, seed=item_seed)
             if result is None:
                 continue
@@ -711,7 +844,8 @@ def _pack_tetrominos(
 
             # Convert grid coords back to canvas coords
             dims = _shape_dimensions(cells_used)
-            placed.append({
+            placed_item = item.copy()
+            placed_item.update({
                 "x": rx + px * cell_sz,
                 "y": ry + py * cell_sz,
                 "dx": dims["w"] * scale * cell_sz,
@@ -719,16 +853,76 @@ def _pack_tetrominos(
                 "_color": item.get("_color"),
                 "cells": cells_used,
                 "scale": scale,
+                "cell_size": cell_sz,
             })
+            placed.append(placed_item)
 
-        if len(placed) > best_placed:
+        occupied_cells = int(np.count_nonzero(occupancy))
+        best_cells = sum(
+            4 * int(item.get("scale", 1)) * int(item.get("scale", 1))
+            for item in best_result
+        )
+        if len(placed) > best_placed or (len(placed) == best_placed and occupied_cells > best_cells):
             best_placed = len(placed)
             best_result = placed
 
-        if len(placed) == len(sorted_items):
-            break  # all packed, no need to try smaller cells
-
     return best_result
+
+
+def _draw_tetromino_cells(ax: plt.Axes, tetro: Dict[str, Any]) -> None:
+    """Draw one placed tetromino as its component cells with a tiny gap."""
+    cell_size = float(tetro.get("cell_size") or 1.0)
+    scale = int(tetro.get("scale") or 1)
+    color = tetro.get("_color")
+    gap = min(cell_size * 0.045, 0.28)
+    block_size = max(scale * cell_size - gap, 0.01)
+    for cx, cy in tetro.get("cells") or []:
+        x = float(tetro["x"]) + cx * scale * cell_size + gap / 2
+        y = float(tetro["y"]) + cy * scale * cell_size + gap / 2
+        rect = Rectangle(
+            (x, y),
+            block_size,
+            block_size,
+            linewidth=0,
+            edgecolor=None,
+            facecolor=color,
+            antialiased=False,
+        )
+        ax.add_patch(rect)
+
+
+def _add_square_block(
+    ax: plt.Axes,
+    x: float,
+    y: float,
+    dx: float,
+    dy: float,
+    color: Tuple[float, float, float],
+    canvas_w: float,
+    canvas_h: float,
+) -> None:
+    """Draw a dense, hard-edged block for tetris mode."""
+    gap, _ = _block_style(dx, dy)
+    gap = min(gap, 0.18)
+    left_gap = 0.0 if x <= 0 else gap / 2
+    top_gap = 0.0 if y <= 0 else gap / 2
+    right_gap = 0.0 if x + dx >= canvas_w - 1e-6 else gap / 2
+    bottom_gap = 0.0 if y + dy >= canvas_h - 1e-6 else gap / 2
+    x_inner = x + left_gap
+    y_inner = y + top_gap
+    dx_inner = max(dx - left_gap - right_gap, 0.01)
+    dy_inner = max(dy - top_gap - bottom_gap, 0.01)
+    ax.add_patch(
+        Rectangle(
+            (x_inner, y_inner),
+            dx_inner,
+            dy_inner,
+            linewidth=0,
+            edgecolor=None,
+            facecolor=color,
+            antialiased=False,
+        )
+    )
 
 
 def _draw_tetris_treemap(
@@ -738,76 +932,40 @@ def _draw_tetris_treemap(
     j_col: str,
     copy_col: str,
     cdr3_col: str,
+    canvas_shape: str = "square",
 ) -> None:
-    """Draw a tetromino-grid treemap to *output_path* (PNG).
+    """Draw a dense hard-edged treemap to *output_path* (PNG).
 
-    Each V→J region is filled with tetromino-shaped clone blocks.
+    It keeps the "tetris" visual direction as sharp mosaic blocks, but uses
+    the reference script's area-preserving V→J→CDR3 hierarchy to avoid the
+    large empty gaps created by free tetromino packing.
     """
-    # 1) V-level layout
-    v_df = plot_df.groupby(v_col, as_index=False, sort=False).agg(
-        {copy_col: "sum", "_source_order": "min"}
-    )
-    v_df = v_df.sort_values("_source_order", ascending=True).reset_index(drop=True)
-    v_rects = _squarify_items(
-        v_df.to_dict("records"), 0.0, 0.0, CANVAS_W, CANVAS_H, copy_col
-    )
+    spec = _canvas_spec(canvas_shape)
+    canvas_w = spec["canvas_w"]
+    canvas_h = spec["canvas_h"]
 
-    # 2) Draw figure
-    fig = plt.figure(figsize=(FIG_W, FIG_H), dpi=DPI, frameon=False)
+    rects = _make_hierarchy_rects(plot_df, v_col, j_col, cdr3_col, copy_col, canvas_w, canvas_h)
+    rects = _transform_rects(rects, canvas_w, canvas_h)
+
+    fig = plt.figure(figsize=(spec["fig_w"], spec["fig_h"]), dpi=DPI, frameon=False)
     ax = fig.add_axes([0, 0, 1, 1])
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
 
-    for v_rect in v_rects:
-        v_value = v_rect[v_col]
-        v_sub = plot_df[plot_df[v_col] == v_value].copy()
-        if v_sub.empty:
-            continue
-
-        # J-level within V
-        j_df = v_sub.groupby(j_col, as_index=False, sort=False).agg(
-            {copy_col: "sum", "_source_order": "min"}
-        )
-        j_df = j_df.sort_values("_source_order", ascending=True).reset_index(drop=True)
-        j_rects = _squarify_items(
-            j_df.to_dict("records"),
-            v_rect["x"],
-            v_rect["y"],
-            v_rect["dx"],
-            v_rect["dy"],
-            copy_col,
+    for rect in rects:
+        _add_square_block(
+            ax=ax,
+            x=rect["x"],
+            y=rect["y"],
+            dx=rect["dx"],
+            dy=rect["dy"],
+            color=rect["_color"],
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
         )
 
-        for j_rect in j_rects:
-            j_value = j_rect[j_col]
-            clone_df = v_sub[v_sub[j_col] == j_value].copy()
-            if clone_df.empty:
-                continue
-
-            # Prepare clone list with copy values
-            clone_records = clone_df.to_dict("records")
-            for rec in clone_records:
-                rec["_copy_val"] = float(rec[copy_col])
-
-            # Pack tetrominos into J rect
-            tetrominos = _pack_tetrominos(
-                clone_records, j_rect, v_col, j_col, cdr3_col
-            )
-
-            for tetro in tetrominos:
-                rect = Rectangle(
-                    (tetro["x"], tetro["y"]),
-                    tetro["dx"],
-                    tetro["dy"],
-                    linewidth=0.3,
-                    edgecolor="white",
-                    facecolor=tetro["_color"],
-                    antialiased=True,
-                )
-                ax.add_patch(rect)
-
-    ax.set_xlim(0, CANVAS_W)
-    ax.set_ylim(CANVAS_H, 0)
+    ax.set_xlim(0, canvas_w)
+    ax.set_ylim(canvas_h, 0)
     ax.set_aspect("equal", adjustable="box")
     ax.margins(0, 0)
     ax.axis("off")
@@ -815,6 +973,283 @@ def _draw_tetris_treemap(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output_path), dpi=DPI, facecolor=BG_COLOR, pad_inches=0)
     plt.close(fig)
+
+
+def _copy_value(value: Any) -> Any:
+    number = float(value or 0)
+    return int(number) if number.is_integer() else number
+
+
+def _clone_payload(
+    record: Dict[str, Any],
+    mode: str,
+    v_col: str,
+    j_col: str,
+    cdr3_col: str,
+    copy_col: str,
+) -> Dict[str, Any]:
+    clone_id = str(record.get("_entry_id") or f"{record.get(v_col, '')}|{record.get(j_col, '')}|{record.get(cdr3_col, '')}")
+    color = record.get("_color") or (0.0, 0.0, 0.0)
+    return {
+        "clone_id": clone_id,
+        "rank": int(record.get("_rank") or 0),
+        "cdr3": str(record.get(cdr3_col, "")),
+        "v": str(record.get(v_col, "")),
+        "j": str(record.get(j_col, "")),
+        "copy": _copy_value(record.get(copy_col, 0)),
+        "color": _rgb01_to_hex(color),
+        "mode": mode,
+    }
+
+
+def _cell_rect(
+    x: float,
+    y: float,
+    cell_w: float,
+    cell_h: float,
+    outer_gap: float,
+    inner_gap: float,
+    is_left: bool,
+    is_right: bool,
+    is_top: bool,
+    is_bottom: bool,
+) -> Dict[str, float]:
+    left_gap = outer_gap if is_left else inner_gap / 2
+    right_gap = outer_gap if is_right else inner_gap / 2
+    top_gap = outer_gap if is_top else inner_gap / 2
+    bottom_gap = outer_gap if is_bottom else inner_gap / 2
+    return {
+        "x": x + left_gap,
+        "y": y + top_gap,
+        "dx": max(cell_w - left_gap - right_gap, 0.01),
+        "dy": max(cell_h - top_gap - bottom_gap, 0.01),
+    }
+
+
+def _build_tetris_clone_shape(
+    rect: Dict[str, Any],
+    v_col: str,
+    j_col: str,
+    cdr3_col: str,
+) -> Dict[str, Any]:
+    """Fit one clone as one scaled tetromino inside its target rectangle."""
+    x = float(rect.get("x", 0))
+    y = float(rect.get("y", 0))
+    dx = max(float(rect.get("dx", 0)), 0.0)
+    dy = max(float(rect.get("dy", 0)), 0.0)
+    if dx <= 0 or dy <= 0:
+        return {"shape": "O", "rotation": 0, "rect": {"x": x, "y": y, "dx": 0.0, "dy": 0.0}, "cells": []}
+
+    seed = _stable_int(f"{rect.get(v_col, '')}|{rect.get(j_col, '')}|{rect.get(cdr3_col, '')}")
+    shape_key = SHAPE_ORDER[seed % len(SHAPE_ORDER)]
+    rotations = _build_rotations(SHAPES[shape_key])
+
+    best_rotation_index = 0
+    best_rotation = rotations[0]
+    best_cell_size = 0.0
+    for rotation_index, rotation in enumerate(rotations):
+        dims = _shape_dimensions(rotation)
+        cell_size = min(dx / max(dims["w"], 1), dy / max(dims["h"], 1))
+        if cell_size > best_cell_size:
+            best_cell_size = cell_size
+            best_rotation_index = rotation_index
+            best_rotation = rotation
+
+    dims = _shape_dimensions(best_rotation)
+    cell_size = max(best_cell_size * 0.92, 0.01)
+    shape_w = dims["w"] * cell_size
+    shape_h = dims["h"] * cell_size
+    origin_x = x + (dx - shape_w) / 2
+    origin_y = y + (dy - shape_h) / 2
+    visual_cell = max(cell_size, 0.01)
+    outer_gap = min(visual_cell * 0.055, 0.55)
+    inner_gap = min(visual_cell * 0.025, 0.2)
+
+    cells: List[Dict[str, float]] = []
+    max_cx = max(cx for cx, _ in best_rotation)
+    max_cy = max(cy for _, cy in best_rotation)
+    for cx, cy in best_rotation:
+        cells.append(
+            _cell_rect(
+                x=origin_x + cx * cell_size,
+                y=origin_y + cy * cell_size,
+                cell_w=cell_size,
+                cell_h=cell_size,
+                outer_gap=outer_gap,
+                inner_gap=inner_gap,
+                is_left=cx == 0,
+                is_right=cx == max_cx,
+                is_top=cy == 0,
+                is_bottom=cy == max_cy,
+            )
+        )
+
+    return {
+        "shape": shape_key,
+        "rotation": best_rotation_index,
+        "rect": {"x": origin_x, "y": origin_y, "dx": shape_w, "dy": shape_h},
+        "cells": cells,
+    }
+
+
+def _flatten_block_cells(blocks: List[Dict[str, Any]]) -> List[Dict[str, float]]:
+    cells: List[Dict[str, float]] = []
+    for block in blocks:
+        cells.extend(block.get("cells") or [])
+    return cells
+
+
+def build_treemap_layout_from_df(
+    plot_df: pd.DataFrame,
+    mode: str,
+    v_col: str,
+    j_col: str,
+    cdr3_col: str,
+    copy_col: str,
+    canvas_shape: str = "square",
+) -> Dict[str, Any]:
+    """Build a JSON-serializable layout used by both PNG and interactive viewer."""
+    mode = str(mode or "tetris").strip().lower()
+    if mode not in {"tetris", "qr"}:
+        raise ValueError(f"Unsupported mode: {mode!r}. Use 'tetris' or 'qr'.")
+
+    spec = _canvas_spec(canvas_shape)
+    canvas_w = spec["canvas_w"]
+    canvas_h = spec["canvas_h"]
+    items: List[Dict[str, Any]] = []
+
+    if mode == "qr":
+        rects = _make_hierarchy_rects(plot_df, v_col, j_col, cdr3_col, copy_col, canvas_w, canvas_h)
+        rects = _transform_rects(rects, canvas_w, canvas_h)
+        for rect in rects:
+            item = _clone_payload(rect, mode, v_col, j_col, cdr3_col, copy_col)
+            item_rect = {
+                "x": float(rect["x"]),
+                "y": float(rect["y"]),
+                "dx": float(rect["dx"]),
+                "dy": float(rect["dy"]),
+            }
+            item["rect"] = item_rect
+            item["cells"] = [item_rect.copy()]
+            items.append(item)
+    else:
+        rects = _make_hierarchy_rects(plot_df, v_col, j_col, cdr3_col, copy_col, canvas_w, canvas_h)
+        rects = _transform_rects(rects, canvas_w, canvas_h)
+        for rect in rects:
+            item = _clone_payload(rect, mode, v_col, j_col, cdr3_col, copy_col)
+            shape_layout = _build_tetris_clone_shape(rect, v_col, j_col, cdr3_col)
+            item["shape"] = shape_layout["shape"]
+            item["rotation"] = shape_layout["rotation"]
+            item["rect"] = shape_layout["rect"]
+            item["target_rect"] = {
+                "x": float(rect["x"]),
+                "y": float(rect["y"]),
+                "dx": float(rect["dx"]),
+                "dy": float(rect["dy"]),
+            }
+            item["cells"] = shape_layout["cells"]
+            if item["cells"]:
+                items.append(item)
+
+    return {
+        "mode": mode,
+        "canvas_shape": canvas_shape,
+        "canvas": {
+            "width": canvas_w,
+            "height": canvas_h,
+            "fig_width": spec["fig_w"],
+            "fig_height": spec["fig_h"],
+            "dpi": DPI,
+        },
+        "items": items,
+    }
+
+
+def render_treemap_layout(layout: Dict[str, Any], output_path: Path) -> Path:
+    """Render a layout generated by build_treemap_layout* to a PNG file."""
+    canvas = layout.get("canvas") or {}
+    canvas_w = float(canvas.get("width") or CANVAS_W)
+    canvas_h = float(canvas.get("height") or CANVAS_H)
+    fig_w = float(canvas.get("fig_width") or FIG_W)
+    fig_h = float(canvas.get("fig_height") or FIG_H)
+    mode = str(layout.get("mode") or "tetris").lower()
+
+    fig = plt.figure(figsize=(fig_w, fig_h), dpi=DPI, frameon=False)
+    ax = fig.add_axes([0, 0, 1, 1])
+    fig.patch.set_facecolor(BG_COLOR)
+    ax.set_facecolor(BG_COLOR)
+
+    for item in layout.get("items") or []:
+        color = _hex_to_rgb01(str(item.get("color") or "#000000"))
+        if mode == "qr":
+            rect = item.get("rect") or {}
+            _add_round_rect(
+                ax=ax,
+                x=float(rect.get("x", 0)),
+                y=float(rect.get("y", 0)),
+                dx=float(rect.get("dx", 0)),
+                dy=float(rect.get("dy", 0)),
+                color=color,
+                canvas_w=canvas_w,
+                canvas_h=canvas_h,
+            )
+            continue
+
+        block_cells = item.get("cells") or _flatten_block_cells(item.get("blocks") or [])
+        for cell in block_cells:
+            ax.add_patch(
+                Rectangle(
+                    (float(cell.get("x", 0)), float(cell.get("y", 0))),
+                    float(cell.get("dx", 0)),
+                    float(cell.get("dy", 0)),
+                    linewidth=0,
+                    edgecolor=None,
+                    facecolor=color,
+                    antialiased=False,
+                )
+            )
+
+    ax.set_xlim(0, canvas_w)
+    ax.set_ylim(canvas_h, 0)
+    ax.set_aspect("equal", adjustable="box")
+    ax.margins(0, 0)
+    ax.axis("off")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(output_path), dpi=DPI, facecolor=BG_COLOR, pad_inches=0)
+    plt.close(fig)
+    return output_path
+
+
+def build_treemap_layout(
+    csv_path: Path,
+    mode: str = "tetris",
+    canvas_shape: str = "square",
+    cdr3_col: str = "CDR3(pep)",
+    copy_col: str = "copy",
+    v_col: str = "V",
+    j_col: str = "J",
+    min_count: int = 1,
+) -> Dict[str, Any]:
+    """Build an interactive treemap layout from a repertoire CSV/TSV file."""
+    plot_df = _load_plot_df(
+        Path(csv_path),
+        cdr3_col=cdr3_col,
+        copy_col=copy_col,
+        v_col=v_col,
+        j_col=j_col,
+        min_count=min_count,
+    )
+    return build_treemap_layout_from_df(
+        plot_df,
+        mode=mode,
+        v_col=v_col,
+        j_col=j_col,
+        cdr3_col=cdr3_col,
+        copy_col=copy_col,
+        canvas_shape=canvas_shape,
+    )
 
 
 # ================================================================
@@ -825,6 +1260,7 @@ def generate_treemap(
     csv_path: Path,
     output_path: Path,
     mode: str = "tetris",
+    canvas_shape: str = "square",
     cdr3_col: str = "CDR3(pep)",
     copy_col: str = "copy",
     v_col: str = "V",
@@ -840,7 +1276,9 @@ def generate_treemap(
     output_path : Path
         Destination path for the PNG output.
     mode : str
-        ``"tetris"`` for tetromino-grid mode, ``"qr"`` for rounded-rectangle mode.
+        ``"tetris"`` for hard-edged mosaic mode, ``"qr"`` for rounded-rectangle mode.
+    canvas_shape : str
+        ``"square"`` or ``"portrait"``.  Portrait follows treemap_group_vertical.py.
     cdr3_col, copy_col, v_col, j_col : str
         Column names to use for CDR3, copy count, V gene, and J gene.
     min_count : int
@@ -854,20 +1292,14 @@ def generate_treemap(
     csv_path = Path(csv_path)
     output_path = Path(output_path)
 
-    plot_df = _load_plot_df(
+    layout = build_treemap_layout(
         csv_path,
+        mode=mode,
+        canvas_shape=canvas_shape,
         cdr3_col=cdr3_col,
         copy_col=copy_col,
         v_col=v_col,
         j_col=j_col,
         min_count=min_count,
     )
-
-    if mode == "qr":
-        _draw_qr_treemap(plot_df, output_path, v_col, j_col, copy_col)
-    elif mode == "tetris":
-        _draw_tetris_treemap(plot_df, output_path, v_col, j_col, copy_col, cdr3_col)
-    else:
-        raise ValueError(f"Unsupported mode: {mode!r}. Use 'tetris' or 'qr'.")
-
-    return output_path
+    return render_treemap_layout(layout, output_path)

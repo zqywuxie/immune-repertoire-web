@@ -227,23 +227,23 @@ def statistical_comparison_page():
 
 @pages_bp.route('/analysis/similarity-heatmap')
 def similarity_heatmap_page():
-    """Legacy heatmap entry removed with the combined report module."""
-    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
-    return redirect(url_for('pages.script_hub_page'))
+    """Legacy heatmap entry redirected to the restored chart workflow."""
+    flash('请在项目综合分析中使用“综合图表”模块。', 'info')
+    return redirect(url_for('pages.script_hub_page', active_module='charts', chart_module='heatmap'))
 
 
 @pages_bp.route('/analysis/treemap')
 def treemap_page():
-    """Legacy treemap entry removed with the combined report module."""
-    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
-    return redirect(url_for('pages.script_hub_page'))
+    """Legacy treemap entry redirected to the restored chart workflow."""
+    flash('请在项目综合分析中使用“综合图表”模块。', 'info')
+    return redirect(url_for('pages.script_hub_page', active_module='charts', chart_module='treemap'))
 
 
 @pages_bp.route('/analysis/chord-diagram')
 def chord_diagram_page():
-    """Legacy chord entry removed with the combined report module."""
-    flash('综合图表报告模块已删除，请在 Script Hub 中使用保留的分析模块。', 'info')
-    return redirect(url_for('pages.script_hub_page'))
+    """Legacy chord entry redirected to the restored chart workflow."""
+    flash('请在项目综合分析中使用“综合图表”模块。', 'info')
+    return redirect(url_for('pages.script_hub_page', active_module='charts', chart_module='chord'))
 
 
 @pages_bp.route('/analysis/advanced-analysis')
@@ -268,3 +268,9 @@ def pipeline_comparison_page():
 def script_hub_page():
     """Unified project/data analysis entry for scripts and chart reports."""
     return render_page('analysis/script_hub.html', workspace=ANALYSIS_WORKSPACE)
+
+
+@pages_bp.route('/analysis/script-hub/jobs')
+def script_hub_jobs_page():
+    """Dedicated background job center for Script Hub analyses."""
+    return render_page('analysis/script_hub_jobs.html', workspace=ANALYSIS_WORKSPACE)

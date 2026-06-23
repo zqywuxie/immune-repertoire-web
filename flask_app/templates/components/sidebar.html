@@ -71,6 +71,13 @@
             </a>
         </li>
         <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'pages.script_hub_jobs_page' %}active{% endif %}"
+                href="{{ url_for('pages.script_hub_jobs_page') }}" data-nav-key="script-hub-jobs">
+                <i class="bi bi-list-check"></i>
+                <span class="nav-text ms-2">后台任务</span>
+            </a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link {% if request.endpoint == 'pages.statistical_comparison_page' %}active{% endif %}"
                 href="{{ url_for('pages.statistical_comparison_page') }}" data-nav-key="statistical">
                 <i class="bi bi-graph-up"></i>

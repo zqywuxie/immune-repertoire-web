@@ -796,7 +796,7 @@ const TreemapAnalysis = {
                 min_copy_default: Number(document.getElementById('minCopyDefault').value || 30),
                 top_n: Number(document.getElementById('topN').value || 100),
                 layout_mode: document.getElementById('layoutModeSelect')?.value || 'tetris',
-                canvas_shape: 'square',
+                canvas_shape: document.getElementById('canvasShapeSelect')?.value || 'portrait',
                 topclone_only: Boolean(document.getElementById('topcloneOnly')?.checked)
             }
         };

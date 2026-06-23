@@ -4,6 +4,10 @@ const ScriptHubPage = {
     result: null,
     activeTaskId: null,
     taskPollTimer: null,
+    pollTimersByJob: {},
+    jobs: {},
+    selectedJobId: '',
+    moduleCatalog: {},
     activeModule: 'db-alignment',
     uiState: 'idle',
     touchedFields: new Set(),
@@ -16,6 +20,7 @@ const ScriptHubPage = {
     selectedDatapointPath: '',
     selectedCachedAssetId: '',
     moduleAvailability: {},
+    moduleCacheHits: {},
     highlightedSource: null,
     dataSelection: {
         pepPaths: [],
@@ -54,14 +59,32 @@ const ScriptHubPage = {
         'scriptHubPathologyValues',
         'scriptHubBoxplotGroupToggle',
         'scriptHubBoxplotGroupChips',
+        'scriptHubProfileGroupFields',
+        'scriptHubParamBegin',
+        'scriptHubParamOver',
+        'scriptHubPvalueThreshold',
+        'scriptHubVolcanoPvalueThreshold',
+        'scriptHubTcPepDataPath',
+        'scriptHubTcDatapointPath',
+        'scriptHubTcTopN',
+        'scriptHubTcGroupField',
+        'scriptHubPepDataDir',
         'scriptHubTcSameDirToggle',
         'scriptHubPepProfilePath',
         'scriptHubPepGroupFields',
         'scriptHubPepPvalueThreshold',
         'scriptHubPepMinSample',
+        'scriptHubPgenDataDir',
         'scriptHubPgenProfilePath',
         'scriptHubPgenSampleCol',
         'scriptHubPgenSpecies',
+        'scriptHubUmapNNeighbors',
+        'scriptHubUmapMinDist',
+        'scriptHubUmapinDataPath',
+        'scriptHubUmapinCategoryCol',
+        'scriptHubUmapinFdrToggle',
+        'scriptHubUmapinNNeighbors',
+        'scriptHubUmapinMinDist',
         'scriptHubMlMode',
         'scriptHubMlProfilePath',
         'scriptHubMlUsagePath',
@@ -74,14 +97,25 @@ const ScriptHubPage = {
         'scriptHubMlThreshold',
         'scriptHubMlCvSplits',
         'scriptHubMlRocCvSplits',
+        'scriptHubMaitNktTraSource',
+        'scriptHubMaitNktTraPath',
+        'scriptHubMaitNktSourceJobId',
+        'scriptHubMaitNktGroupField',
     ],
 
     init() {
         this.bindEvents();
+        this.normalizeModuleControls();
         this.projectContext = this.getProjectContext();
         this.loadProjects();
         this.initializeProjectContext();
         this.syncStageUI();
+    },
+
+    scrollToStage(stageId, delay = 120) {
+        window.setTimeout(() => {
+            document.getElementById(stageId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, delay);
     },
 
     bindEvents() {
@@ -133,6 +167,10 @@ const ScriptHubPage = {
             const fieldBtn = event.target.closest('[data-pep-group-field]');
             if (fieldBtn) this.togglePepGroupField(fieldBtn.dataset.pepGroupField || '');
         });
+        document.getElementById('scriptHubCategoryFieldList')?.addEventListener('click', (event) => {
+            const fieldBtn = event.target.closest('[data-db-category-field]');
+            if (fieldBtn) this.toggleDbCategoryField(fieldBtn.dataset.dbCategoryField || '');
+        });
         document.getElementById('scriptHubPgenChains')?.addEventListener('click', (event) => {
             const chip = event.target.closest('[data-pgen-chain]');
             if (!chip || chip.classList.contains('is-disabled')) return;
@@ -157,6 +195,41 @@ const ScriptHubPage = {
             this.syncMlFeatureMode();
             if (this.activeModule === 'ml-analysis') this.fetchAndRenderCachedUsageConfig();
         });
+        document.getElementById('scriptHubTcGroupField')?.addEventListener('change', () => this.updateSingleGroupPreview({
+            selectId: 'scriptHubTcGroupField',
+            containerId: 'scriptHubTcGroupValuesPreview',
+            title: 'TopClone 分组预览',
+        }));
+        document.getElementById('scriptHubMaitNktGroupField')?.addEventListener('change', () => this.updateMaitNktGroupPreview());
+        document.getElementById('scriptHubMlLabelCol')?.addEventListener('change', () => this.updateSingleGroupPreview({
+            selectId: 'scriptHubMlLabelCol',
+            containerId: 'scriptHubMlGroupValuesPreview',
+            title: '分类标签预览',
+        }));
+        document.getElementById('scriptHubMlFilterCol')?.addEventListener('change', () => this.updateSingleGroupPreview({
+            selectId: 'scriptHubMlFilterCol',
+            containerId: 'scriptHubMlFilterValuesPreview',
+            title: '过滤字段预览',
+            allowEmpty: true,
+        }));
+        document.getElementById('scriptHubChartSelectAllChains')?.addEventListener('click', () => this.selectAllChartChains());
+        document.getElementById('scriptHubChartInvertChains')?.addEventListener('click', () => this.invertChartChains());
+        document.getElementById('scriptHubChartClearChains')?.addEventListener('click', () => this.clearChartChains());
+        document.getElementById('scriptHubChartSelectAllSamples')?.addEventListener('click', () => this.selectAllChartSamples());
+        document.getElementById('scriptHubChartInvertSamples')?.addEventListener('click', () => this.invertChartSamples());
+        document.getElementById('scriptHubChartClearSamples')?.addEventListener('click', () => this.clearChartSamples());
+        document.getElementById('scriptHubChartConfirmSamples')?.addEventListener('click', () => this.confirmChartSamples());
+        document.getElementById('scriptHubChartEditSamples')?.addEventListener('click', () => this.reopenChartSampleSelection());
+        document.getElementById('scriptHubChartConfirmFields')?.addEventListener('click', () => this.confirmChartFields());
+        document.getElementById('scriptHubChartChainList')?.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-chart-chain]');
+            if (btn) this.toggleChartChain(btn.dataset.chartChain || '');
+        });
+        document.getElementById('scriptHubChartSampleList')?.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-chart-sample-key]');
+            if (btn) this.toggleChartSample(btn.dataset.chartSampleKey || '');
+        });
+        document.getElementById('scriptHubChartModuleCards')?.addEventListener('change', () => this.updateChartModuleCards());
         this.bindPepPipelineEvents();
 
         this.CONFIG_FIELD_IDS.forEach((fieldId) => {
@@ -164,6 +237,16 @@ const ScriptHubPage = {
             if (!element) return;
             const eventName = element.tagName === 'SELECT' || element.type === 'checkbox' ? 'change' : 'input';
             element.addEventListener(eventName, () => this.markFieldTouched(fieldId));
+        });
+
+        const configStage = document.getElementById('scriptHubConfigStage');
+        ['input', 'change'].forEach((eventName) => {
+            configStage?.addEventListener(eventName, (event) => {
+                const target = event.target;
+                if (!target?.id) return;
+                this.clearInvalidControl(target.id);
+                this.renderRunDigest();
+            });
         });
     },
 
@@ -632,7 +715,7 @@ const ScriptHubPage = {
         this.renderModuleChips();
         this.renderDataSummary(allPepPaths, allDpPaths);
         this.showSourceFeedback('数据已确认。请在下方选择分析模块。', 'success');
-        window.setTimeout(() => { document.getElementById('scriptHubAssetsStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+        this.scrollToStage('scriptHubModuleStage', 80);
     },
 
     async readPepPreview(filePath) {
@@ -694,6 +777,7 @@ const ScriptHubPage = {
         this.moduleAvailability = {
             'db-alignment': hasPep && hasDatapoint,
             'profile': hasDatapoint,
+            'charts': hasPep,
             'pep-analysis': hasPep && hasDatapoint,
             'pgen-analysis': hasPep && hasDatapoint,
             'topclone': hasPep && hasDatapoint,
@@ -704,6 +788,78 @@ const ScriptHubPage = {
         };
     },
 
+    getModuleIcon(moduleKey) {
+        const icons = {
+            'charts': 'bi-grid-3x3-gap',
+            'db-alignment': 'bi-database-check',
+            'profile': 'bi-table',
+            'pep-analysis': 'bi-share',
+            'pgen-analysis': 'bi-cpu',
+            'topclone': 'bi-diagram-3',
+            'umap': 'bi-bounding-box-circles',
+            'volcano': 'bi-graph-up-arrow',
+            'umapin': 'bi-bullseye',
+            'ml-analysis': 'bi-cpu',
+            'mait-nkt': 'bi-person-lines-fill',
+        };
+        return icons[moduleKey] || 'bi-app-indicator';
+    },
+
+    getModuleRequirementBadges(moduleKey) {
+        const pepAndProfile = ['db-alignment', 'pep-analysis', 'pgen-analysis', 'topclone', 'umap'];
+        const pepOnly = ['charts', 'volcano', 'umapin'];
+        const profileOnly = ['profile', 'ml-analysis', 'mait-nkt'];
+        if (pepAndProfile.includes(moduleKey)) return ['PEP', 'Profile'];
+        if (pepOnly.includes(moduleKey)) return ['PEP'];
+        if (profileOnly.includes(moduleKey)) return ['Profile'];
+        return ['自动检测'];
+    },
+
+    getModuleUnavailableReason(moduleKey) {
+        if (this.moduleAvailability[moduleKey] !== false) return '';
+        const requirements = this.getModuleRequirementBadges(moduleKey);
+        const hasPep = this.selectedPepPaths.length > 0 || !!this.selectedCachedAssetId;
+        const hasProfile = this.selectedDatapointPaths.length > 0;
+        const missing = [];
+        if (requirements.includes('PEP') && !hasPep) missing.push('PEP 路径');
+        if (requirements.includes('Profile') && !hasProfile) missing.push('Profile 文件');
+        return missing.length ? `缺少 ${missing.join(' / ')}` : '当前数据不支持';
+    },
+
+    getModuleOutputLabel(moduleKey) {
+        const labels = {
+            'charts': 'HTML / ZIP / 图表报告',
+            'db-alignment': 'Viewer / CSV / ZIP',
+            'profile': 'PNG / p-value CSV / ZIP',
+            'boxplot': 'PNG / p-value CSV / ZIP',
+            'topclone': 'TopClone CSV / PNG / ZIP',
+            'pep-analysis': '共享矩阵 / VJ usage / ZIP',
+            'pgen-analysis': 'Pgen 统计 / 明细表 / ZIP',
+            'umap': 'UMAP 图 / CSV / ZIP',
+            'volcano': '火山图 / CSV / ZIP',
+            'umapin': 'UMAPin 图 / CSV / ZIP',
+            'ml-analysis': '模型指标 / ROC / ZIP',
+            'mait-nkt': 'MAIT/NKT 图 / ZIP',
+        };
+        return labels[moduleKey] || '结果文件 / 报告';
+    },
+
+    getModuleStatusInfo(moduleKey, available) {
+        const cache = this.moduleCacheHits[moduleKey];
+        if (cache?.hit) {
+            return { text: '已有相同参数结果', tone: 'cached', icon: 'bi-check2-circle' };
+        }
+        if (!available) {
+            return { text: this.getModuleUnavailableReason(moduleKey), tone: 'blocked', icon: 'bi-exclamation-triangle' };
+        }
+        const recommended = ['charts', 'pep-analysis', 'db-alignment'].includes(moduleKey);
+        return {
+            text: recommended ? '推荐可用' : '可运行',
+            tone: recommended ? 'recommended' : 'ready',
+            icon: recommended ? 'bi-stars' : 'bi-play-circle',
+        };
+    },
+
     async renderModuleChips() {
         const container = document.getElementById('scriptHubModuleChips');
         if (!container) return;
@@ -711,42 +867,75 @@ const ScriptHubPage = {
             const response = await fetch('/api/script-hub/modules');
             const data = await response.json();
             const modules = Array.isArray(data.modules) ? data.modules : [];
+            this.moduleCatalog = modules.reduce((acc, item) => {
+                acc[item.key] = item;
+                return acc;
+            }, {});
 
             container.innerHTML = modules.map(m => {
                 const available = this.moduleAvailability[m.key] !== false;
-                return `<span class="sh-chip sh-chip-selectable${available ? '' : ''}"
+                const requirementBadges = this.getModuleRequirementBadges(m.key).map(label =>
+                    `<span>${this.escapeHtml(label)}</span>`
+                ).join('');
+                const unavailableReason = this.getModuleUnavailableReason(m.key);
+                const status = this.getModuleStatusInfo(m.key, available);
+                const title = available ? (m.description || m.label || m.key) : unavailableReason;
+                return `<button type="button" class="sh-module-card sh-module-selectable${available ? '' : ' is-disabled'}"
                     data-module-key="${this.escapeHtml(m.key)}"
-                    style="${available ? '' : 'opacity:0.4;cursor:not-allowed;'}"
-                    title="${available ? this.escapeHtml(m.description || m.label) : '当前数据不支持此模块'}">
-                    ${this.escapeHtml(m.label)}</span>`;
+                    title="${this.escapeHtml(title)}"
+                    ${available ? '' : 'disabled'}>
+                    <span class="sh-module-card-head">
+                        <span class="sh-module-card-icon"><i class="bi ${this.getModuleIcon(m.key)}"></i></span>
+                        <span class="sh-module-card-status is-${status.tone}">
+                            <i class="bi ${status.icon}"></i>${this.escapeHtml(status.text || '')}
+                        </span>
+                    </span>
+                    <span class="sh-module-card-body">
+                        <span class="sh-module-card-title">${this.escapeHtml(m.label || m.key)}</span>
+                        <span class="sh-module-card-desc">${this.escapeHtml(m.description || '根据已确认的数据自动配置分析参数。')}</span>
+                    </span>
+                    <span class="sh-module-card-meta">
+                        <span class="sh-module-card-meta-label">输入</span>
+                        <span class="sh-module-card-tags">${requirementBadges || '<span>自动识别</span>'}</span>
+                    </span>
+                    <span class="sh-module-card-meta">
+                        <span class="sh-module-card-meta-label">输出</span>
+                        <span class="sh-module-card-output">${this.escapeHtml(this.getModuleOutputLabel(m.key))}</span>
+                    </span>
+                </button>`;
             }).join('');
-            container.querySelectorAll('.sh-chip-selectable').forEach(chip => {
-                chip.addEventListener('click', () => {
-                    const moduleKey = chip.dataset.moduleKey;
-                    if (!this.moduleAvailability[moduleKey]) return;
-                    this.selectModule(moduleKey, chip);
+            container.querySelectorAll('.sh-module-selectable').forEach(card => {
+                card.addEventListener('click', () => {
+                    const moduleKey = card.dataset.moduleKey;
+                    if (this.moduleAvailability[moduleKey] === false) return;
+                    this.selectModule(moduleKey, card);
                 });
             });
-            const available = container.querySelectorAll('.sh-chip-selectable:not([style*="opacity:0.4"])');
+            const available = container.querySelectorAll('.sh-module-selectable:not(.is-disabled)');
             const pendingModule = this._pendingActiveModule || this._pendingAnalysisType || '';
             const pendingChip = pendingModule
-                ? container.querySelector(`.sh-chip-selectable[data-module-key="${pendingModule}"]`)
+                ? container.querySelector(`.sh-module-selectable[data-module-key="${pendingModule}"]`)
                 : null;
-            if (pendingChip && this.moduleAvailability[pendingModule] !== false) {
+            const activeChip = this.activeModule
+                ? container.querySelector(`.sh-module-selectable[data-module-key="${this.activeModule}"]`)
+                : null;
+            if (activeChip && this.moduleAvailability[this.activeModule] !== false && !pendingModule) {
+                activeChip.classList.add('sh-module-card-selected');
+            } else if (pendingChip && this.moduleAvailability[pendingModule] !== false) {
                 this.selectModule(pendingModule, pendingChip);
             } else if (available.length === 1) {
                 const autoKey = available[0].dataset.moduleKey;
                 this.selectModule(autoKey, available[0]);
             }
         } catch (error) {
-            container.innerHTML = '<span class="text-danger small">加载模块列表失败。</span>';
+            container.innerHTML = '<div class="text-danger small">加载模块列表失败。</div>';
         }
     },
 
     selectModule(moduleKey, chipEl) {
         this.activeModule = moduleKey;
-        document.querySelectorAll('#scriptHubModuleChips .sh-chip-selectable').forEach(c => c.classList.remove('sh-chip-selected'));
-        if (chipEl) chipEl.classList.add('sh-chip-selected');
+        document.querySelectorAll('#scriptHubModuleChips .sh-module-selectable').forEach(c => c.classList.remove('sh-module-card-selected'));
+        if (chipEl) chipEl.classList.add('sh-module-card-selected');
         this.resetDownstreamState({ preserveInspection: true });
         this._prefillModulePaths(moduleKey);
         this.syncModuleUI();
@@ -755,7 +944,10 @@ const ScriptHubPage = {
         if (['db-alignment', 'profile', 'umap', 'pep-analysis', 'pgen-analysis', 'topclone', 'ml-analysis'].includes(moduleKey)) {
             this.ensureProfileControlsReady();
         }
-        if (moduleKey === 'volcano' || moduleKey === 'umapin' || moduleKey === 'ml-analysis') {
+        if (moduleKey === 'charts') {
+            this.showSourceFeedback('已选择综合图表。正在扫描第一个 PEP 路径的链和样本。', 'info');
+            this.prepareChartWorkflow();
+        } else if (moduleKey === 'volcano' || moduleKey === 'umapin' || moduleKey === 'ml-analysis') {
             this.showSourceFeedback(
                 moduleKey === 'volcano'
                     ? '已选择火山图分析。请从下方 PEP共享分析缓存数据中选择 VJ usage 数据源，或手动填写数据目录后点击检测。'
@@ -773,8 +965,10 @@ const ScriptHubPage = {
         } else {
             this.hideCachedUsageConfig();
         }
-        this.scheduleModuleAutoInspect(moduleKey);
-        window.setTimeout(() => { document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120);
+        if (moduleKey !== 'charts') {
+            this.scheduleModuleAutoInspect(moduleKey);
+        }
+        this.scrollToStage('scriptHubConfigStage', 120);
     },
 
     scheduleModuleAutoInspect(moduleKey) {
@@ -801,6 +995,7 @@ const ScriptHubPage = {
         if (moduleKey === 'topclone') return hasPep && hasProfile;
         if (moduleKey === 'umap') return hasProfile;
         if (moduleKey === 'ml-analysis') return hasProfile;
+        if (moduleKey === 'mait-nkt') return hasProfile;
         return false;
     },
 
@@ -813,6 +1008,7 @@ const ScriptHubPage = {
             'topclone': '自动检测 TopClone 数据...',
             'umap': '自动检测 UMAP Profile 数据...',
             'ml-analysis': '自动检测机器学习输入...',
+            'mait-nkt': '自动检测 MAIT/NKT 数据...',
         };
         return messages[moduleKey] || '自动检测数据...';
     },
@@ -967,6 +1163,7 @@ const ScriptHubPage = {
         const isUmap = module === 'umap';
         const isMl = module === 'ml-analysis';
         const isPgen = module === 'pgen-analysis';
+        const isCharts = module === 'charts';
 
         document.querySelectorAll('[data-module]').forEach((el) => {
             const allowed = (el.getAttribute('data-module') || '').split(/\s+/);
@@ -979,16 +1176,16 @@ const ScriptHubPage = {
 
         const runBtn = document.getElementById('scriptHubRunBtn');
         if (runBtn) {
-            runBtn.style.display = '';
+            runBtn.style.display = isCharts ? 'none' : '';
         }
 
         // Inspect button: visibility + icon/label update
         const inspectBtn = document.getElementById('scriptHubInspectBtn');
         if (inspectBtn) {
-            inspectBtn.style.display = '';
+            inspectBtn.style.display = isCharts ? 'none' : '';
             inspectBtn.querySelector('i').className = (isBoxPlot || isTopClone || isUmap || isMl || isPgen || module === 'pep-analysis') ? 'bi bi-table me-1' : 'bi bi-search me-1';
             const ibtnLabel = document.getElementById('scriptHubInspectBtnLabel');
-            if (ibtnLabel) ibtnLabel.textContent = (isBoxPlot || isTopClone || isUmap || isMl || isPgen || module === 'pep-analysis' || module === 'volcano') ? '检测数据文件' : '检测数据';
+            if (ibtnLabel) ibtnLabel.textContent = (isBoxPlot || isTopClone || isUmap || isMl || isPgen || module === 'pep-analysis' || module === 'volcano' || module === 'mait-nkt') ? '检测数据文件' : '检测数据';
         }
 
         const btnLabel = document.getElementById('scriptHubRunBtnLabel');
@@ -996,7 +1193,13 @@ const ScriptHubPage = {
         const summaryEl = document.getElementById('scriptHubResultSummary');
         const metaEl = document.getElementById('scriptHubResultMeta');
 
-        if (isBoxPlot) {
+        if (isCharts) {
+            if (btnLabel) btnLabel.textContent = '生成综合图表';
+            if (configHint) configHint.textContent = '选择链、样本和字段后，可一次生成相似性热图、Treemap 与 Chord 图表报告。';
+            if (summaryEl) summaryEl.textContent = '综合图表生成完成。';
+            if (metaEl) metaEl.textContent = '生成完成后在下方打开 Viewer 或下载 ZIP。';
+            this.updateChartModuleCards();
+        } else if (isBoxPlot) {
             if (btnLabel) btnLabel.textContent = isProfile ? '运行 Profile 分析' : '运行箱线图分析';
             if (configHint) configHint.textContent = '启用分组可按组绘制箱线图并做 Mann-Whitney U 检验，取消则所有样本作为未分组箱体。';
             if (summaryEl) summaryEl.textContent = isProfile ? 'Profile 分析完成。' : '箱线图分析完成。';
@@ -1047,15 +1250,181 @@ const ScriptHubPage = {
             if (configHint) configHint.textContent = '参考 ML_260526 随机森林流程，输出 CV accuracy、混淆矩阵、特征重要性和 ROC。';
             if (summaryEl) summaryEl.textContent = '机器学习分析完成。';
             if (metaEl) metaEl.textContent = '查看机器学习图表、CSV、报告文本和结果 ZIP。';
+        } else if (module === 'mait-nkt') {
+            if (btnLabel) btnLabel.textContent = '运行 MAIT/NKT 分析';
+            if (configHint) configHint.textContent = '基于 TRA CDR3 宽表与参考 MAIT/iNKT 序列比对，计算丰度分数并生成箱线图。';
+            if (summaryEl) summaryEl.textContent = 'MAIT/NKT 分析完成。';
+            if (metaEl) metaEl.textContent = '查看 MAIT/iNKT 丰度箱线图、profile CSV 和结果 ZIP。';
         } else {
             if (btnLabel) btnLabel.textContent = '运行数据库比对';
             if (configHint) configHint.textContent = '字段与 Profile 设置基于检测结果自动填充，之后可手动调整。';
         }
 
+        this.normalizeModuleControls();
+        this.renderRunDigest();
     },
 
     showError(message) {
+        if (window.Utils?.showToast) {
+            window.Utils.showToast(message, 'danger');
+            return;
+        }
         alert(message);
+    },
+
+    normalizeModuleControls() {
+        const specs = {
+            scriptHubOutputName: { label: '任务名称（可选）', help: '仅用于识别本次任务，不参与重复分析判断。' },
+            scriptHubParamBegin: { label: '参数起始列', help: '和“参数结束列”组成连续特征区间；各模块含义保持一致。' },
+            scriptHubParamOver: { label: '参数结束列', help: '请选择与起始列同一段指标区间的最后一列。' },
+            scriptHubPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；Profile、UMAP、TopClone 复用同一阈值控件。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubVolcanoPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；仅用于火山图差异筛选。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubPepPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；用于 PEP 共享分析中的统计检验。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubPepMinSample: { label: '最小样本数', help: '低于该样本数的分组或类别会被过滤。', attrs: { step: '1', min: '1', max: '100', inputmode: 'numeric' } },
+            scriptHubTcTopN: { label: 'Top N 克隆数', help: 'Trace 和 per-sample 模式都使用该数量。', attrs: { step: '1', min: '1', max: '1000', inputmode: 'numeric' } },
+            scriptHubTcGroupField: { label: '分组字段', help: '用于 TopClone 后续箱线图；检测 Profile 后自动填充。' },
+            scriptHubUmapNNeighbors: { label: '邻居数 n_neighbors', help: '数值越大越强调整体结构。', attrs: { step: '1', min: '2', max: '100', inputmode: 'numeric' } },
+            scriptHubUmapMinDist: { label: '最小距离 min_dist', help: '数值越小点簇越紧凑。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubUmapinNNeighbors: { label: '邻居数 n_neighbors', help: '与 UMAP 模块保持同一参数语义。', attrs: { step: '1', min: '2', max: '100', inputmode: 'numeric' } },
+            scriptHubUmapinMinDist: { label: '最小距离 min_dist', help: '与 UMAP 模块保持同一参数语义。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubUmapinCategoryCol: { label: '分类列', help: '用于 UMAPin 图中点的颜色或分组标签。' },
+            scriptHubMlThreshold: { label: '特征筛选阈值', help: 'Profile/VJ usage 模式共用，影响进入模型的特征数量。', attrs: { step: '0.001', min: '0', inputmode: 'decimal' } },
+            scriptHubMlCvSplits: { label: '交叉验证折数', help: '用于模型准确率评估。', attrs: { step: '1', min: '2', max: '10', inputmode: 'numeric' } },
+            scriptHubMlRocCvSplits: { label: 'ROC 交叉验证折数', help: '用于 ROC 曲线稳定性评估。', attrs: { step: '1', min: '2', max: '20', inputmode: 'numeric' } },
+            scriptHubMaitNktGroupField: { label: '分组字段', help: '与 TopClone/Profile 的分组字段保持同一选择逻辑。' },
+        };
+
+        Object.entries(specs).forEach(([id, spec]) => this.applyControlSpec(id, spec));
+        document.querySelectorAll('#scriptHubConfigStage .form-control, #scriptHubConfigStage .form-select').forEach((el) => {
+            el.classList.add('sh-control');
+            if (el.readOnly || el.disabled) el.classList.add('sh-control-readonly');
+        });
+    },
+
+    applyControlSpec(id, spec = {}) {
+        const control = document.getElementById(id);
+        if (!control) return;
+        const label = document.querySelector(`label[for="${id}"]`);
+        if (label && spec.label) label.textContent = spec.label;
+        Object.entries(spec.attrs || {}).forEach(([key, value]) => control.setAttribute(key, value));
+        if (spec.help) this.ensureControlHelp(control, spec.help);
+    },
+
+    ensureControlHelp(control, text) {
+        const group = control.closest('.sh-col-12, .sh-col-8, .sh-col-7, .sh-col-6, .sh-col-5, .sh-col-4, .sh-col-3, .col-6, .col-4, .col-3') || control.parentElement;
+        if (!group) return;
+        let help = group.querySelector(`.sh-control-help[data-help-for="${control.id}"]`);
+        if (!help) {
+            help = document.createElement('div');
+            help.className = 'sh-control-help';
+            help.dataset.helpFor = control.id;
+            control.insertAdjacentElement('afterend', help);
+        }
+        help.textContent = text;
+    },
+
+    clearInvalidControl(id) {
+        const control = document.getElementById(id);
+        if (!control) return;
+        control.classList.remove('is-invalid');
+        const group = control.closest('.sh-col-12, .sh-col-8, .sh-col-7, .sh-col-6, .sh-col-5, .sh-col-4, .sh-col-3, .col-6, .col-4, .col-3');
+        group?.classList.remove('sh-field-invalid');
+        group?.querySelector('.sh-invalid-message')?.remove();
+    },
+
+    clearValidationState() {
+        document.querySelectorAll('#scriptHubConfigStage .is-invalid').forEach((el) => el.classList.remove('is-invalid'));
+        document.querySelectorAll('#scriptHubConfigStage .sh-field-invalid').forEach((el) => el.classList.remove('sh-field-invalid'));
+        document.querySelectorAll('#scriptHubConfigStage .sh-invalid-message').forEach((el) => el.remove());
+    },
+
+    markInvalidControl(id, message) {
+        const control = document.getElementById(id);
+        if (!control) return false;
+        control.classList.add('is-invalid');
+        const group = control.closest('.sh-col-12, .sh-col-8, .sh-col-7, .sh-col-6, .sh-col-5, .sh-col-4, .sh-col-3, .col-6, .col-4, .col-3') || control.parentElement;
+        group?.classList.add('sh-field-invalid');
+        if (group && !group.querySelector('.sh-invalid-message')) {
+            const feedback = document.createElement('div');
+            feedback.className = 'sh-invalid-message';
+            feedback.textContent = message || '请检查该项配置。';
+            group.appendChild(feedback);
+        }
+        control.focus?.({ preventScroll: true });
+        control.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        return true;
+    },
+
+    inferInvalidControlId(message = '') {
+        const text = String(message || '').toLowerCase();
+        const module = this.activeModule || '';
+        const rules = [
+            [/profile|datapoint/, module === 'pep-analysis' ? 'scriptHubPepProfilePath' : (module === 'mait-nkt' ? 'scriptHubMaitNktGroupField' : 'scriptHubBpDatapointPath')],
+            [/pgen.*链|pgen.*chain|至少选择一条 pgen/i, 'scriptHubPgenChains'],
+            [/chain|链/, module === 'pep-analysis' ? 'scriptHubPepChains' : 'scriptHubChartChainList'],
+            [/group field|分组字段|group_field/, module === 'mait-nkt' ? 'scriptHubMaitNktGroupField' : (module === 'topclone' ? 'scriptHubTcGroupField' : 'scriptHubPepGroupFields')],
+            [/p 值|p-value|pvalue/, module === 'pep-analysis' ? 'scriptHubPepPvalueThreshold' : (module === 'volcano' ? 'scriptHubVolcanoPvalueThreshold' : 'scriptHubPvalueThreshold')],
+            [/起始列|结束列|parameter|参数/, module === 'ml-analysis' ? 'scriptHubMlParamBegin' : 'scriptHubParamBegin'],
+            [/vj usage|缓存/, module === 'ml-analysis' ? 'scriptHubMlUsagePath' : (module === 'umapin' ? 'scriptHubUmapinDataPath' : 'scriptHubVolcanoDataDir')],
+            [/pep_data|pep data|pep 路径|pep 数据|base directory|数据目录/, module === 'topclone' ? 'scriptHubTcPepDataPath' : (module === 'pgen-analysis' ? 'scriptHubPgenDataDir' : 'scriptHubPepDataDir')],
+            [/cdr3|copy|字段映射/, module === 'charts' ? 'scriptHubChartCdr3Column' : 'scriptHubCdr3Column'],
+            [/tra/, 'scriptHubMaitNktTraPath'],
+            [/job id/, 'scriptHubMaitNktSourceJobId'],
+        ];
+        const match = rules.find(([pattern]) => pattern.test(text));
+        return match ? match[1] : '';
+    },
+
+    handleRunError(error) {
+        const message = error?.message || 'Failed to run analysis';
+        this.clearValidationState();
+        const targetId = this.inferInvalidControlId(message);
+        if (targetId && this.markInvalidControl(targetId, message)) {
+            this.setInspectSummary(message, 'danger');
+        } else {
+            this.scrollToStage('scriptHubConfigStage', 0);
+        }
+        this.showSourceFeedback(message, 'danger');
+        this.showError(message);
+    },
+
+    renderRunDigest(payload = null) {
+        const digest = document.getElementById('scriptHubRunDigest');
+        if (!digest) return;
+        let currentPayload = payload;
+        if (!currentPayload && this.inspectData) {
+            try {
+                currentPayload = this.collectRunPayload();
+            } catch (error) {
+                currentPayload = null;
+            }
+        }
+        if (!currentPayload) {
+            digest.innerHTML = '<span class="sh-run-digest-muted">检测数据后显示本次运行会记录的关键参数。</span>';
+            return;
+        }
+        const chips = this.getRunDigestItems(currentPayload).filter(Boolean);
+        digest.innerHTML = chips.length
+            ? chips.map((item) => `<span class="sh-run-digest-chip"><strong>${this.escapeHtml(item.label)}</strong>${this.escapeHtml(item.value)}</span>`).join('')
+            : '<span class="sh-run-digest-muted">当前模块没有额外参数。</span>';
+    },
+
+    getRunDigestItems(payload = {}) {
+        const joinList = (value) => Array.isArray(value) ? value.filter(Boolean).join(', ') : (value || '');
+        const range = payload.param_begin || payload.param_over ? `${payload.param_begin || '-'} → ${payload.param_over || '-'}` : '';
+        const items = [
+            { label: '模块', value: this._getModuleLabel(payload.module || this.activeModule) },
+            payload.project_id ? { label: '项目', value: payload.project_id } : null,
+            payload.pep_data_dir || payload.base_path || payload.pep_data_path ? { label: 'PEP', value: payload.pep_data_dir || payload.base_path || payload.pep_data_path } : null,
+            payload.profile_path || payload.datapoint_path ? { label: 'Profile', value: payload.profile_path || payload.datapoint_path } : null,
+            range ? { label: '参数范围', value: range } : null,
+            payload.pvalue_threshold !== undefined ? { label: 'P 值', value: String(payload.pvalue_threshold) } : null,
+            payload.selected_chains?.length ? { label: '链', value: joinList(payload.selected_chains) } : null,
+            payload.group_fields?.length ? { label: '分组', value: joinList(payload.group_fields) } : null,
+            payload.group_field ? { label: '分组', value: payload.group_field } : null,
+            payload.mode ? { label: '模式', value: payload.mode } : null,
+        ];
+        return items.slice(0, 8);
     },
 
     escapeHtml(value) {
@@ -1090,7 +1459,7 @@ const ScriptHubPage = {
         this.toggleStage('scriptHubModuleStage', unlocked.module);
         this.toggleStage('scriptHubAssetsStage', unlocked.module);
         this.toggleStage('scriptHubConfigStage', unlocked.config);
-        this.toggleStage('scriptHubResultStage', this.uiState === 'completed');
+        this.toggleStage('scriptHubResultStage', this.uiState === 'completed' || Boolean(this.result));
 
         this.setStageStatus('scriptHubProjectState',
             unlocked.data ? { text: '已选择', tone: 'success' } : { text: '选择项目', tone: 'active' });
@@ -1180,6 +1549,123 @@ const ScriptHubPage = {
             : '<span style="color:var(--sh-muted);">等待任务开始。</span>';
     },
 
+    renderQueuedJobNotice({ jobId, module, label, detail = '' } = {}) {
+        const safeJobId = jobId || '';
+        const safeLabel = label || module || '分析任务';
+        this.result = {
+            module,
+            job_id: safeJobId,
+            status: 'queued',
+            metadata: { queued: true },
+        };
+        this.syncStageUI();
+        this.setText('scriptHubResultSummary', `${safeLabel}已提交到后台队列。`);
+        this.setText('scriptHubResultMeta', safeJobId ? `Job ID: ${safeJobId}` : '任务已提交。');
+        this.setHtml('scriptHubResultLog', `
+            <div class="alert alert-info mb-0">
+                <div class="fw-semibold mb-1">后台任务已创建</div>
+                <div>${this.escapeHtml(detail || '任务正在排队或运行中，可在后台任务页面查看实时进度和结果。')}</div>
+            </div>
+        `);
+        const actions = document.getElementById('scriptHubResultActions');
+        if (actions) {
+            actions.innerHTML = `
+                <a class="btn btn-primary btn-sm" href="/analysis/script-hub/jobs">
+                    <i class="bi bi-list-check me-1"></i>查看后台任务
+                </a>
+                ${safeJobId ? `<button type="button" class="btn btn-outline-secondary btn-sm" data-copy-job-id="${this.escapeHtml(safeJobId)}">
+                    <i class="bi bi-clipboard me-1"></i>复制 Job ID
+                </button>` : ''}
+            `;
+            actions.querySelector('[data-copy-job-id]')?.addEventListener('click', async (event) => {
+                const value = event.currentTarget.getAttribute('data-copy-job-id') || '';
+                try {
+                    await navigator.clipboard.writeText(value);
+                    this.showSourceFeedback('Job ID 已复制。', 'success');
+                } catch (error) {
+                    this.showSourceFeedback(value, 'info');
+                }
+            });
+        }
+    },
+
+    async checkCachedResult(payload, module) {
+        if (!payload?.project_id || module === 'charts' || module === 'charts.combined') return null;
+        try {
+            const response = await fetch('/api/script-hub/cache/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, module }),
+            });
+            const data = await response.json();
+            if (!data.success) return null;
+            this.moduleCacheHits[module] = data.hit ? data : { hit: false, analysis_signature: data.analysis_signature || '' };
+            this.renderModuleChips();
+            return data.hit ? data : null;
+        } catch (error) {
+            console.warn('Cache check failed:', error);
+            return null;
+        }
+    },
+
+    async handleReusedResult(data, module, label) {
+        const result = data?.result || null;
+        this.moduleCacheHits[module] = {
+            hit: true,
+            result,
+            result_id: data?.result_id || result?.result_id || '',
+            analysis_signature: data?.analysis_signature || result?.analysis_signature || '',
+        };
+        await this.renderModuleChips();
+        this.hideLoading();
+        this.activeTaskId = data?.task_id || data?.job_id || '';
+        this.selectedJobId = data?.job_id || data?.task_id || result?.job_id || '';
+        if (result) {
+            this.result = result;
+            this.renderResult(result);
+        } else if (this.activeTaskId) {
+            await this.pollTaskStatus(this.activeTaskId, { module, label });
+            return;
+        }
+        this.setCachedResultNotice(module, label, data);
+        this.showSourceFeedback(`${label || this._getModuleLabel(module)} 已有相同参数结果，已直接跳转到结果。`, 'success');
+    },
+
+    setCachedResultNotice(module, label, data = {}) {
+        const resultMeta = document.getElementById('scriptHubResultMeta');
+        if (resultMeta) {
+            const signature = data.analysis_signature ? ` | Signature: ${String(data.analysis_signature).slice(0, 12)}` : '';
+            resultMeta.textContent = `${label || this._getModuleLabel(module)} 已存在相同参数结果，可直接查看。${signature}`;
+        }
+        const summary = document.getElementById('scriptHubResultSummary');
+        if (summary) {
+            summary.className = 'alert alert-info mb-3';
+            summary.innerHTML = `<div class="fw-semibold mb-1">已分析过，直接复用已有结果</div>
+                <div class="small">项目、输入数据和关键分析参数一致。如需重新计算，可点击“重新运行”。</div>`;
+        }
+        const actions = document.getElementById('scriptHubResultActions');
+        if (!actions) return;
+        if (!actions.querySelector('[data-force-rerun-current]')) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-outline-warning';
+            button.setAttribute('data-force-rerun-current', '1');
+            button.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>重新运行';
+            button.addEventListener('click', () => this.forceRerunCurrentModule());
+            actions.appendChild(button);
+        }
+    },
+
+    async forceRerunCurrentModule() {
+        delete this.moduleCacheHits[this.activeModule];
+        this.showSourceFeedback('已选择重新运行，本次会跳过相同参数结果复用。', 'warning');
+        if (this.activeModule === 'charts') {
+            await this.runCombinedCharts(true);
+        } else {
+            await this.runDbAlignment(true);
+        }
+    },
+
     setInspectSummary(message, tone = 'info') {
         const summary = document.getElementById('scriptHubInspectSummary');
         if (!summary) return;
@@ -1228,10 +1714,10 @@ const ScriptHubPage = {
         const preserveInspection = Boolean(options && options.preserveInspection);
         if (!preserveInspection) {
             this.inspectData = null;
+            this.moduleCacheHits = {};
         }
         this.result = null;
         this.activeTaskId = null;
-        this.stopTaskPolling();
         if (!preserveInspection) {
             this.setInspectSummary('等待检测目录。', 'info');
         }
@@ -1321,31 +1807,56 @@ const ScriptHubPage = {
         if (results) results.innerHTML = '';
         const flow = document.getElementById('scriptHubChartFlow');
         if (flow) flow.classList.remove('has-confirmed-samples');
+        if (this._pendingChartModule) {
+            const target = String(this._pendingChartModule || '').toLowerCase();
+            [
+                ['heatmap', 'scriptHubChartHeatmap'],
+                ['treemap', 'scriptHubChartTreemap'],
+                ['chord', 'scriptHubChartChord'],
+            ].forEach(([key, id]) => {
+                const input = document.getElementById(id);
+                if (input) input.checked = key === target;
+            });
+            this._pendingChartModule = '';
+        }
         this.updateChartModuleCards();
     },
 
-    populateFieldSelect(selectId, columns, selectedValue) {
+    populateFieldSelect(selectId, columns, selectedValue, { allowDefault = true, placeholder = '' } = {}) {
         const select = document.getElementById(selectId);
         if (!select) return;
 
         const safeColumns = Array.isArray(columns) ? columns : [];
+        const emptyOption = placeholder ? `<option value="">${this.escapeHtml(placeholder)}</option>` : '';
         const previousValue = String(select.value || '');
         select.innerHTML = safeColumns.length
-            ? safeColumns.map((column) => `<option value="${this.escapeHtml(column)}">${this.escapeHtml(column)}</option>`).join('')
+            ? emptyOption + safeColumns.map((column) => `<option value="${this.escapeHtml(column)}">${this.escapeHtml(column)}</option>`).join('')
             : '<option value="">No columns detected</option>';
 
         if (previousValue && safeColumns.includes(previousValue)) {
             select.value = previousValue;
         } else if (selectedValue && safeColumns.includes(selectedValue)) {
             select.value = selectedValue;
-        } else if (safeColumns.length) {
+        } else if (safeColumns.length && allowDefault) {
             select.value = safeColumns[0];
+        } else {
+            select.value = '';
         }
     },
 
     getSelectedMultiValues(selectId) {
         return Array.from(document.getElementById(selectId)?.selectedOptions || [])
             .map(option => option.value)
+            .filter(Boolean);
+    },
+
+    getSelectedDbCategories() {
+        const selected = this.getSelectedMultiValues('scriptHubCategories');
+        if (selected.length) return selected;
+        const raw = document.getElementById('scriptHubCategories')?.value || '';
+        return String(raw)
+            .split(',')
+            .map(item => item.trim())
             .filter(Boolean);
     },
 
@@ -1409,18 +1920,163 @@ const ScriptHubPage = {
         this.updatePepGroupValuePreview();
     },
 
-    renderPepGroupValuePreview(fields = [], { loading = false, message = '' } = {}) {
-        const preview = document.getElementById('scriptHubPepGroupValuePreview');
-        if (!preview) return;
-        if (loading) { preview.innerHTML = '<div class="sh-category-preview-empty">正在读取分类值...</div>'; return; }
-        if (message) { preview.innerHTML = '<div class="sh-category-preview-empty">' + this.escapeHtml(message) + '</div>'; return; }
-        if (!Array.isArray(fields) || !fields.length) { preview.innerHTML = '<div class="sh-category-preview-empty">选择字段后展示分类值</div>'; return; }
-        preview.innerHTML = fields.map((fieldInfo) => {
-            const values = Array.isArray(fieldInfo.values) ? fieldInfo.values : [];
-            const chips = values.length ? values.map(value => '<span class="sh-category-value" title="' + this.escapeHtml(value) + '">' + this.escapeHtml(value) + '</span>').join('') : '<span class="sh-category-value">无非空分类值</span>';
-            const extra = fieldInfo.truncated ? '，仅显示前 40 个' : '';
-            return '<div class="sh-category-preview-item"><div class="sh-category-preview-title"><span>' + this.escapeHtml(fieldInfo.field || '') + '</span><span class="text-muted">' + String(fieldInfo.unique_count || 0) + ' 类' + extra + '</span></div><div class="sh-category-values">' + chips + '</div></div>';
+    renderDbCategoryFieldList(categoryMeta = null) {
+        const list = document.getElementById('scriptHubCategoryFieldList');
+        const select = document.getElementById('scriptHubCategories');
+        if (!list || !select) return;
+        const selected = new Set(this.getSelectedDbCategories());
+        const countMap = new Map();
+        if (Array.isArray(categoryMeta)) {
+            categoryMeta.forEach((item) => countMap.set(String(item.field || ''), Number(item.unique_count || item.count || 0)));
+        }
+        const options = Array.from(select.options || []).map(option => option.value).filter(Boolean);
+        if (!options.length) {
+            list.innerHTML = '<div class="sh-category-preview-empty">未检测到 Profile 字段</div>';
+            return;
+        }
+        list.innerHTML = options.map((field) => {
+            const isSelected = selected.has(field);
+            const count = countMap.has(field)
+                ? '<span class="sh-category-field-count">' + countMap.get(field) + ' 个分组</span>'
+                : '<span class="sh-category-field-count">字段</span>';
+            return '<button type="button" class="sh-category-field ' + (isSelected ? 'is-selected' : '') + '" data-db-category-field="' + this.escapeHtml(field) + '" title="' + this.escapeHtml(field) + '"><span>' + this.escapeHtml(field) + '</span>' + count + '</button>';
         }).join('');
+    },
+
+    toggleDbCategoryField(field) {
+        if (!field) return;
+        const select = document.getElementById('scriptHubCategories');
+        if (!select) return;
+        const option = Array.from(select.options || []).find(item => item.value === field);
+        if (!option) return;
+        option.selected = !option.selected;
+        this.markFieldTouched('scriptHubCategories');
+        this.renderDbCategoryFieldList();
+        this.updateDbCategoryValuePreview();
+    },
+
+    async updateDbCategoryValuePreview() {
+        const categories = this.getSelectedDbCategories();
+        if (!categories.length) {
+            this.renderDbCategoryFieldList();
+            this.renderGroupValuePreview('scriptHubCategoryValuePreview', {}, { emptyMessage: '选择字段后展示分类值' });
+            return;
+        }
+        const profilePath = document.getElementById('scriptHubProfilePath')?.value?.trim() || this._resolveProfilePath();
+        if (!profilePath) {
+            this.renderGroupValuePreview('scriptHubCategoryValuePreview', {}, { message: '请先选择 Profile 文件' });
+            return;
+        }
+        this.renderGroupValuePreview('scriptHubCategoryValuePreview', {}, { loading: true });
+        try {
+            const response = await fetch('/api/script-hub/db-alignment/profile-categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    profile_path: profilePath,
+                    profile_sheet: document.getElementById('scriptHubProfileSheet')?.value || null,
+                    categories,
+                }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '读取分类值失败');
+            const fields = Array.isArray(data.fields) ? data.fields : [];
+            this.renderDbCategoryFieldList(fields);
+            this.renderGroupValuePreview('scriptHubCategoryValuePreview', fields, {
+                emptyMessage: '所选字段没有可预览的分类值',
+            });
+        } catch (error) {
+            this.renderGroupValuePreview('scriptHubCategoryValuePreview', {}, { message: error.message || '读取分类值失败' });
+        }
+    },
+
+    normalizeGroupValueData(groups) {
+        if (Array.isArray(groups)) {
+            return groups.map((item) => ({
+                field: String(item?.field || ''),
+                values: Array.isArray(item?.values) ? item.values.map(value => String(value)) : [],
+                unique_count: Number(item?.unique_count ?? item?.count ?? (Array.isArray(item?.values) ? item.values.length : 0)),
+                truncated: Boolean(item?.truncated),
+                missing: Boolean(item?.missing),
+            })).filter(item => item.field);
+        }
+        if (groups && typeof groups === 'object') {
+            return Object.entries(groups).map(([field, info]) => ({
+                field: String(field || ''),
+                values: Array.isArray(info?.values) ? info.values.map(value => String(value)) : [],
+                unique_count: Number(info?.unique_count ?? info?.count ?? (Array.isArray(info?.values) ? info.values.length : 0)),
+                truncated: Boolean(info?.truncated),
+                missing: Boolean(info?.missing || info?.error),
+            })).filter(item => item.field);
+        }
+        return [];
+    },
+
+    renderGroupValuePreview(containerId, groups = {}, {
+        loading = false,
+        message = '',
+        emptyMessage = '选择分组字段后展示分类值。',
+        sortable = false,
+        hiddenWhenEmpty = false,
+    } = {}) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        if (hiddenWhenEmpty && !loading && !message && !this.normalizeGroupValueData(groups).length) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+        container.style.display = '';
+        if (loading) {
+            container.innerHTML = '<div class="sh-category-preview-empty">正在读取分组值...</div>';
+            return;
+        }
+        if (message) {
+            container.innerHTML = '<div class="sh-category-preview-empty">' + this.escapeHtml(message) + '</div>';
+            return;
+        }
+        const fields = this.normalizeGroupValueData(groups);
+        if (!fields.length) {
+            container.innerHTML = '<div class="sh-category-preview-empty">' + this.escapeHtml(emptyMessage) + '</div>';
+            return;
+        }
+        container.innerHTML = fields.map((fieldInfo) => {
+            const allValues = Array.isArray(fieldInfo.values) ? fieldInfo.values : [];
+            const shownValues = allValues.slice(0, 40);
+            const chips = shownValues.length
+                ? shownValues.map(value => '<span class="' + (sortable ? 'sh-sortable-chip' : 'sh-category-value') + '" ' + (sortable ? 'draggable="true" data-value="' + this.escapeHtml(value) + '"' : '') + ' title="' + this.escapeHtml(value) + '">' + (sortable ? '<span class="sh-drag-handle">⋮⋮</span>' : '') + this.escapeHtml(value) + '</span>').join('')
+                : '<span class="sh-category-value">无非空分类值</span>';
+            const count = Number(fieldInfo.unique_count || allValues.length || 0);
+            const extra = fieldInfo.truncated || count > shownValues.length ? '，仅显示前 ' + shownValues.length + ' 个' : '';
+            if (sortable) {
+                return '<div class="sh-field-order-group"><div class="sh-field-order-label">' + this.escapeHtml(fieldInfo.field) + '<span class="text-muted ms-2">' + count + ' 个分组' + extra + '</span></div><div class="sh-sortable-chips" data-field="' + this.escapeHtml(fieldInfo.field) + '">' + chips + '</div></div>';
+            }
+            return '<div class="sh-category-preview-item"><div class="sh-category-preview-title"><span>' + this.escapeHtml(fieldInfo.field) + '</span><span class="text-muted">' + count + ' 个分组' + extra + '</span></div><div class="sh-category-values">' + chips + '</div></div>';
+        }).join('');
+        if (sortable) {
+            container.querySelectorAll('.sh-sortable-chips').forEach((sc) => this._bindSortableChipEvents(sc));
+        }
+    },
+
+    async loadGroupValues(profilePath, fields) {
+        const filePath = String(profilePath || '').trim();
+        const columns = Array.isArray(fields) ? fields.map(field => String(field || '').trim()).filter(Boolean) : [];
+        if (!filePath || !columns.length) return {};
+        const response = await fetch('/api/script-hub/boxplot/group-values-bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: filePath, columns }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || '读取分组值失败');
+        return data.groups || {};
+    },
+
+    renderPepGroupValuePreview(fields = [], options = {}) {
+        this.renderGroupValuePreview('scriptHubPepGroupValuePreview', fields, {
+            emptyMessage: '选择字段后展示分类值',
+            ...options,
+        });
     },
 
     async updatePepGroupValuePreview() {
@@ -1442,6 +2098,52 @@ const ScriptHubPage = {
         } catch (error) {
             this.renderPepGroupValuePreview([], { message: error.message || '读取分类值失败' });
         }
+    },
+
+    async updateSingleGroupPreview({ selectId, containerId, title = '', allowEmpty = false } = {}) {
+        const select = document.getElementById(selectId);
+        const field = String(select?.value || '').trim();
+        if (!field) {
+            this.renderGroupValuePreview(containerId, {}, {
+                message: allowEmpty ? '' : '选择分组字段后展示分类值。',
+                hiddenWhenEmpty: Boolean(allowEmpty),
+            });
+            return;
+        }
+        const profilePath = this._resolveProfilePath();
+        if (!profilePath) {
+            this.renderGroupValuePreview(containerId, {}, { message: '请先选择 Profile 文件。' });
+            return;
+        }
+        this.renderGroupValuePreview(containerId, {}, { loading: true });
+        try {
+            const groups = await this.loadGroupValues(profilePath, [field]);
+            this.renderGroupValuePreview(containerId, groups, {
+                emptyMessage: title ? `${title}暂无可用分组值。` : '未检测到有效分组值。',
+            });
+        } catch (error) {
+            this.renderGroupValuePreview(containerId, {}, { message: error.message || '读取分组值失败' });
+        }
+    },
+
+    updateMaitNktGroupPreview() {
+        const field = String(document.getElementById('scriptHubMaitNktGroupField')?.value || '').trim();
+        if (!field) {
+            this.renderGroupValuePreview('scriptHubMaitNktGroupValuesPreview', {}, { message: '选择分组字段后展示分类值。' });
+            return;
+        }
+        const profileGroups = this.inspectData?.profile_groups;
+        if (profileGroups && Object.prototype.hasOwnProperty.call(profileGroups, field)) {
+            this.renderGroupValuePreview('scriptHubMaitNktGroupValuesPreview', {
+                [field]: { values: profileGroups[field], count: Array.isArray(profileGroups[field]) ? profileGroups[field].length : 0 },
+            });
+            return;
+        }
+        this.updateSingleGroupPreview({
+            selectId: 'scriptHubMaitNktGroupField',
+            containerId: 'scriptHubMaitNktGroupValuesPreview',
+            title: 'MAIT/NKT 分组预览',
+        });
     },
 
     renderDataPreview(columns, rows, metaText = '') {
@@ -1769,6 +2471,7 @@ const ScriptHubPage = {
             document.getElementById('scriptHubChartRunStep').style.display = 'none';
             this.updateChartConfirmedSummary();
             document.getElementById('scriptHubChartFlow')?.classList.add('has-confirmed-samples');
+            this.scrollToStage('scriptHubChartFieldStep', 80);
         } catch (error) {
             this.showError(error.message || '读取字段失败');
         } finally {
@@ -1829,6 +2532,23 @@ const ScriptHubPage = {
         // Show main run button for charts
         const runBtn = document.getElementById('scriptHubRunBtn');
         if (runBtn) runBtn.style.display = '';
+        this.scrollToStage('scriptHubChartRunStep', 80);
+    },
+
+    updateChartModuleCards() {
+        const cards = document.querySelectorAll('[data-chart-module-card]');
+        cards.forEach((card) => {
+            const input = card.querySelector('input[type="checkbox"]');
+            card.classList.toggle('is-selected', Boolean(input?.checked));
+        });
+    },
+
+    getSelectedChartModules() {
+        const selected = [];
+        if (document.getElementById('scriptHubChartHeatmap')?.checked) selected.push('heatmap');
+        if (document.getElementById('scriptHubChartTreemap')?.checked) selected.push('treemap');
+        if (document.getElementById('scriptHubChartChord')?.checked) selected.push('chord');
+        return selected;
     },
 
     hideChartFieldAndRunSteps() {
@@ -1924,6 +2644,20 @@ const ScriptHubPage = {
                 ? availableCategories.map((item) => `<span class="sh-chip">${this.escapeHtml(item)}</span>`).join('')
                 : '<span class="sh-chip">No profile columns</span>';
         }
+        const categorySelect = document.getElementById('scriptHubCategories');
+        if (categorySelect) {
+            const previousSelection = this.shouldPreserveField('scriptHubCategories')
+                ? new Set(this.getSelectedDbCategories())
+                : new Set();
+            categorySelect.innerHTML = availableCategories.length
+                ? availableCategories.map((item) => `<option value="${this.escapeHtml(item)}">${this.escapeHtml(item)}</option>`).join('')
+                : '<option value="">未检测到 Profile 字段</option>';
+            Array.from(categorySelect.options).forEach((option) => {
+                option.selected = previousSelection.has(option.value);
+            });
+            this.renderDbCategoryFieldList();
+            this.updateDbCategoryValuePreview();
+        }
 
         const datapointChips = document.getElementById('scriptHubDatapointChips');
         const datapointCandidates = Array.isArray(data.datapoint_candidates) ? data.datapoint_candidates : [];
@@ -1938,10 +2672,6 @@ const ScriptHubPage = {
         this.applyAutoValue('scriptHubCdr3Column', data.resolved_field_mapping?.cdr3_column || '', { force: isNewInspectionContext || !previousBasePath });
         this.applyAutoValue('scriptHubCopyColumn', data.resolved_field_mapping?.copy_column || '', { force: isNewInspectionContext || !previousBasePath });
         this.applyAutoValue('scriptHubProfilePath', data.profile_path || '', { force: isNewInspectionContext || !previousBasePath });
-
-        const defaultCategories = availableCategories.filter((item) => ['therapy', 'disease'].includes(String(item).toLowerCase()));
-        const fallbackCategories = defaultCategories.length ? defaultCategories : availableCategories.slice(0, 2);
-        this.applyAutoValue('scriptHubCategories', fallbackCategories.join(','), { force: isNewInspectionContext || !previousBasePath });
 
         const usingProjectAssets = !!this.getActiveProjectId() && (this._resolveProjectPepPaths().length > 0 || !!this._resolveProfilePath());
         document.getElementById('scriptHubPreviewFileMeta').textContent = usingProjectAssets
@@ -1965,7 +2695,7 @@ const ScriptHubPage = {
         document.getElementById('scriptHubResultMeta').textContent = '任务完成后在这里查看输出、下载结果或打开 viewer。';
 
         window.setTimeout(() => {
-            document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            this.scrollToStage('scriptHubConfigStage', 0);
         }, 80);
     },
 
@@ -2128,6 +2858,54 @@ const ScriptHubPage = {
         control.value = stringValue;
     },
 
+    syncModulePathControls() {
+        const primaryPep = this.selectedPepPaths[0] || '';
+        const profilePath = this.selectedDatapointPath || '';
+        const pepControlIds = [
+            'scriptHubBasePath',
+            'scriptHubPepDataDir',
+            'scriptHubPgenDataDir',
+            'scriptHubTcPepDataPath',
+        ];
+        const profileControlIds = [
+            'scriptHubDatapointPath',
+            'scriptHubBpDatapointPath',
+            'scriptHubProfilePath',
+            'scriptHubPepProfilePath',
+            'scriptHubPgenProfilePath',
+            'scriptHubTcDatapointPath',
+            'scriptHubMlProfilePath',
+        ];
+
+        pepControlIds.forEach((id) => this.ensureControlValue(id, primaryPep));
+        profileControlIds.forEach((id) => this.ensureControlValue(id, profilePath));
+
+        if (!profilePath) {
+            this.resetGroupPreviewState();
+        }
+        this.renderRunDigest();
+    },
+
+    resetGroupPreviewState() {
+        ['scriptHubProfileGroupFields', 'scriptHubPepGroupFields', 'scriptHubCategories'].forEach((id) => {
+            Array.from(document.getElementById(id)?.options || []).forEach(option => { option.selected = false; });
+        });
+        ['scriptHubTcGroupField', 'scriptHubMaitNktGroupField', 'scriptHubMlLabelCol', 'scriptHubMlFilterCol'].forEach((id) => {
+            const select = document.getElementById(id);
+            if (select) select.value = '';
+        });
+        this._selectedGroupFields = [];
+        this.renderGroupValuePreview('scriptHubBoxplotFieldOrderGroups', {}, { message: '选择分组字段后展示分类值。', sortable: true });
+        this.renderDbCategoryFieldList();
+        this.renderGroupValuePreview('scriptHubCategoryValuePreview', {}, { message: '选择字段后展示分类值' });
+        this.renderPepGroupFieldList();
+        this.renderGroupValuePreview('scriptHubPepGroupValuePreview', {}, { message: '选择字段后展示分类值' });
+        this.renderGroupValuePreview('scriptHubTcGroupValuesPreview', {}, { message: '选择分组字段后展示分类值。', hiddenWhenEmpty: true });
+        this.renderGroupValuePreview('scriptHubMaitNktGroupValuesPreview', {}, { message: '选择分组字段后展示分类值。' });
+        this.renderGroupValuePreview('scriptHubMlGroupValuesPreview', {}, { message: '选择分类标签列后展示分类值。' });
+        this.renderGroupValuePreview('scriptHubMlFilterValuesPreview', {}, { message: '选择过滤字段后展示可用值。', hiddenWhenEmpty: true });
+    },
+
     syncDataSelectionState() {
         const pepPaths = this.dataSelection.pepPaths
             .map(item => typeof item === 'string' ? { path: item, type: 'directory', source: 'legacy' } : item)
@@ -2144,20 +2922,9 @@ const ScriptHubPage = {
         this.selectedDatapointPath = this.dataSelection.profilePath || '';
         this.selectedDatapointPaths = this.selectedDatapointPath ? [this.selectedDatapointPath] : [];
 
-        const baseInput = document.getElementById('scriptHubBasePath');
-        const profileInput = document.getElementById('scriptHubDatapointPath');
-        const boxplotProfileInput = document.getElementById('scriptHubBpDatapointPath');
-        const pepProfileInput = document.getElementById('scriptHubPepProfilePath');
         const sheetInput = document.getElementById('scriptHubProfileSheet');
-        const dbProfileInput = document.getElementById('scriptHubProfilePath');
-        if (baseInput) baseInput.value = this.selectedPepPaths[0] || '';
-        if (profileInput) this.ensureControlValue(profileInput, this.selectedDatapointPath);
-        if (boxplotProfileInput) this.ensureControlValue(boxplotProfileInput, this.selectedDatapointPath);
-        if (pepProfileInput) this.ensureControlValue(pepProfileInput, this.selectedDatapointPath);
         if (sheetInput) sheetInput.value = this.dataSelection.profileSheet || '';
-        if (dbProfileInput) {
-            dbProfileInput.value = this.selectedDatapointPath || '';
-        }
+        this.syncModulePathControls();
 
         this.renderDataSelectionBasket();
         this._checkBothConfirmed();
@@ -2476,6 +3243,7 @@ const ScriptHubPage = {
             } else {
                 this.showSourceFeedback('Profile 已确认（箱线图/UMAP/火山图/UMAPin 可用），数据库比对/共享分析/TopClone 还需要 PEP 目录。', 'warning');
             }
+            this.scrollToStage('scriptHubDataConfirmBtn', 80);
         }
     },
 
@@ -2526,6 +3294,9 @@ const ScriptHubPage = {
         }
         if (module === 'ml-analysis') {
             return this.inspectMlAnalysis(loadingText);
+        }
+        if (module === 'mait-nkt') {
+            return this.inspectMaitNkt(loadingText);
         }
 
         const basePath = explicitBasePath
@@ -2668,9 +3439,6 @@ const ScriptHubPage = {
                 bpChips.innerHTML = columns.map((col) =>
                     `<span class="sh-chip sh-chip-selectable" data-value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</span>`
                 ).join('');
-                // Auto-select first column chip
-                const firstChip = bpChips.querySelector('.sh-chip-selectable');
-                if (firstChip) firstChip.classList.add('sh-chip-selected');
                 this._selectedGroupFields = this._getSelectedGroupFields();
                 this.detectGroupValuesForAll();
             }
@@ -2684,7 +3452,7 @@ const ScriptHubPage = {
             document.getElementById('scriptHubResultMeta').textContent = '任务完成后在这里查看 BoxPlot 结果、PNGs 和 p-value CSVs。';
 
             window.setTimeout(() => {
-                document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                this.scrollToStage('scriptHubConfigStage', 0);
             }, 80);
         } catch (error) {
             this.setUiState(this.inspectData ? 'inspected' : 'idle');
@@ -2968,15 +3736,14 @@ const ScriptHubPage = {
 
         const groupFieldsSelect = document.getElementById('scriptHubProfileGroupFields');
         if (groupFieldsSelect) {
+            const previousSelection = this.shouldPreserveField('scriptHubProfileGroupFields')
+                ? new Set(this.getSelectedMultiValues('scriptHubProfileGroupFields'))
+                : new Set();
             groupFieldsSelect.innerHTML = columns.map((col) =>
                 `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`
             ).join('');
-            const start = columns.indexOf(data?.suggested_grouping_begin || '');
-            const end = columns.indexOf(data?.suggested_grouping_over || '');
-            Array.from(groupFieldsSelect.options).forEach((option, index) => {
-                option.selected = start >= 0 && end >= start
-                    ? index >= start && index <= end
-                    : index === 0;
+            Array.from(groupFieldsSelect.options).forEach((option) => {
+                option.selected = previousSelection.has(option.value);
             });
             this.detectGroupValuesForAll();
         }
@@ -3006,6 +3773,7 @@ const ScriptHubPage = {
     async _loadProfileColumns(profilePath, { showFeedback = false } = {}) {
         const filePath = String(profilePath || '').trim();
         if (!filePath) return null;
+        const previousProfilePath = String(this.dataSelection.profilePath || this.selectedDatapointPath || '').trim();
         const response = await fetch('/api/script-hub/profile/columns', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3013,6 +3781,12 @@ const ScriptHubPage = {
         });
         const data = await response.json();
         if (!data.success) throw new Error(data.message || '读取 Profile 列失败');
+        if (previousProfilePath && previousProfilePath !== filePath) {
+            ['scriptHubProfileGroupFields', 'scriptHubPepGroupFields', 'scriptHubTcGroupField', 'scriptHubMaitNktGroupField', 'scriptHubMlLabelCol', 'scriptHubMlFilterCol'].forEach(id => {
+                this.touchedFields.delete(id);
+            });
+            this.resetGroupPreviewState();
+        }
         this.selectedDatapointPath = filePath;
         this.selectedDatapointPaths = [filePath];
         this.dataSelection.profilePath = filePath;
@@ -3229,8 +4003,14 @@ const ScriptHubPage = {
             if (usageInput && data.usage_path) usageInput.value = data.usage_path;
 
             this.populateFieldSelect('scriptHubMlSampleCol', columns, data.sample_col || 'Sample');
-            this.populateFieldSelect('scriptHubMlLabelCol', columns, data.label_col || '');
-            this.populateFieldSelect('scriptHubMlFilterCol', [''].concat(data.filter_candidates || columns), '');
+            this.populateFieldSelect('scriptHubMlLabelCol', columns, '', {
+                allowDefault: false,
+                placeholder: '-- 选择分类标签列 --',
+            });
+            this.populateFieldSelect('scriptHubMlFilterCol', data.filter_candidates || columns, '', {
+                allowDefault: false,
+                placeholder: '-- 不过滤 --',
+            });
             this.populateFieldSelect('scriptHubMlParamBegin', columns, data.suggested_param_begin || '');
             this.populateFieldSelect('scriptHubMlParamOver', columns, data.suggested_param_over || '');
             this._populateParamRangeSelects(columns, data.suggested_param_begin, data.suggested_param_over);
@@ -3238,6 +4018,11 @@ const ScriptHubPage = {
                 ? data.usage_feature_candidates
                 : [];
             this.syncMlFeatureMode();
+            this.renderGroupValuePreview('scriptHubMlGroupValuesPreview', {}, { message: '选择分类标签列后展示分类值。' });
+            this.renderGroupValuePreview('scriptHubMlFilterValuesPreview', {}, {
+                message: '选择过滤字段后展示可用值。',
+                hiddenWhenEmpty: true,
+            });
 
             document.getElementById('scriptHubColumnCount').textContent = columns.length;
             document.getElementById('scriptHubColumnChips').innerHTML = columns.length
@@ -3250,6 +4035,82 @@ const ScriptHubPage = {
             this.setUiState(this.inspectData ? 'inspected' : 'idle');
             this.showError(error.message || '机器学习检测失败');
             this.showSourceFeedback(error.message || '机器学习检测失败。', 'danger');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+
+    async inspectMaitNkt(loadingText = '检测 MAIT/NKT 输入...') {
+        const profilePath = this._resolveProfilePath();
+        const traSource = document.getElementById('scriptHubMaitNktTraSource')?.value || 'upload';
+        const traPath = document.getElementById('scriptHubMaitNktTraPath')?.value?.trim() || '';
+        const sourceJobId = document.getElementById('scriptHubMaitNktSourceJobId')?.value?.trim() || '';
+
+        if (!profilePath) {
+            this.showSourceFeedback('请先选择 Profile 文件。', 'warning');
+            return;
+        }
+        if (traSource === 'upload' && !traPath) {
+            this.showSourceFeedback('请先选择 TRA CSV 文件。', 'warning');
+            return;
+        }
+        if (traSource === 'pep_analysis' && !sourceJobId) {
+            this.showSourceFeedback('请先选择 PEP 共享分析结果。', 'warning');
+            return;
+        }
+
+        this.setUiState('inspecting');
+        this.showSourceFeedback('正在检测 MAIT/NKT 输入...', 'secondary');
+        this.showLoading(loadingText || '检测 MAIT/NKT 输入...', '检测 MAIT/NKT');
+        try {
+            const response = await fetch('/api/script-hub/mait-nkt/inspect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tra_source: traSource,
+                    tra_path: traPath,
+                    source_job_id: sourceJobId,
+                    profile_path: profilePath,
+                }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'MAIT/NKT 检测失败');
+
+            this.inspectData = data;
+            this.result = null;
+            this.setUiState('inspected');
+
+            // Populate group field selector from profile columns
+            const profileGroups = data.profile_groups || {};
+            const groupFields = Object.keys(profileGroups);
+            this.populateFieldSelect('scriptHubMaitNktGroupField', groupFields, '', {
+                allowDefault: false,
+                placeholder: '-- 选择分组字段 --',
+            });
+            this.renderGroupValuePreview('scriptHubMaitNktGroupValuesPreview', {}, {
+                message: groupFields.length ? '选择分组字段后展示分类值。' : '未检测到可用分组字段。',
+            });
+
+            // Show sample info
+            document.getElementById('scriptHubColumnCount').textContent = data.sample_count || 0;
+            document.getElementById('scriptHubColumnChips').innerHTML =
+                (data.sample_columns || []).slice(0, 15).map(
+                    (col) => `<span class="sh-chip">${this.escapeHtml(col)}</span>`
+                ).join('') || '<span class="sh-chip">No samples detected</span>';
+
+            this.showSourceFeedback(
+                `MAIT/NKT 检测完成。${data.sample_count || 0} 个样本${data.has_category_row ? '（检测到 category 行）' : ''}。`,
+                'success'
+            );
+            this.setInspectSummary(
+                `TRA: ${data.resolved_tra_path || traPath} — ${data.sample_count || 0} samples`,
+                'success'
+            );
+        } catch (error) {
+            this.setUiState(this.inspectData ? 'inspected' : 'idle');
+            this.showError(error.message || 'MAIT/NKT 检测失败');
+            this.showSourceFeedback(error.message || 'MAIT/NKT 检测失败。', 'danger');
         } finally {
             this.hideLoading();
         }
@@ -3270,42 +4131,26 @@ const ScriptHubPage = {
         const container = document.getElementById('scriptHubBoxplotFieldOrderGroups');
         if (!container) return;
         if (!filePath || fields.length === 0) {
-            container.innerHTML = '<span class="small text-muted">Select group fields to configure ordering.</span>';
+            this.renderGroupValuePreview('scriptHubBoxplotFieldOrderGroups', {}, {
+                message: filePath ? '选择分组字段后展示分类值。' : '请先检测 Profile 文件。',
+                sortable: true,
+            });
             return;
         }
-
-        let html = '';
-
-        for (const field of fields) {
-            try {
-                const body = { file_path: filePath, column: field };
-                const response = await fetch('/api/script-hub/boxplot/group-values', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                const data = await response.json();
-                const values = Array.isArray(data.values) ? data.values : [];
-                if (values.length === 0) continue;
-
-                html += `<div class="sh-field-order-group">
-                    <div class="sh-field-order-label">${this.escapeHtml(field)}</div>
-                    <div class="sh-sortable-chips" data-field="${this.escapeHtml(field)}">`;
-                html += values.map((v, i) =>
-                    `<span class="sh-sortable-chip" draggable="true" data-value="${this.escapeHtml(v)}" data-index="${i}">
-                        <span class="sh-drag-handle">⋮⋮</span>${this.escapeHtml(v)}
-                    </span>`
-                ).join('');
-                html += `</div></div>`;
-            } catch (error) {
-                console.warn('detectGroupValuesForAll failed for', field, error);
-            }
+        this.renderGroupValuePreview('scriptHubBoxplotFieldOrderGroups', {}, { loading: true, sortable: true });
+        try {
+            const groups = await this.loadGroupValues(filePath, fields);
+            this.renderGroupValuePreview('scriptHubBoxplotFieldOrderGroups', groups, {
+                sortable: true,
+                emptyMessage: '未检测到有效分组值。',
+            });
+        } catch (error) {
+            console.warn('detectGroupValuesForAll failed:', error);
+            this.renderGroupValuePreview('scriptHubBoxplotFieldOrderGroups', {}, {
+                message: error.message || '读取分组值失败',
+                sortable: true,
+            });
         }
-
-        container.innerHTML = html || '<span class="small text-muted">No groups detected.</span>';
-        container.querySelectorAll('.sh-sortable-chips').forEach((sc) => {
-            this._bindSortableChipEvents(sc);
-        });
     },
 
     _bindSortableChipEvents(container) {
@@ -3421,6 +4266,11 @@ const ScriptHubPage = {
             if (groupField && Array.isArray(data.category_cols)) {
                 groupField.innerHTML = '<option value="">-- Select group field --</option>' +
                     data.category_cols.map((c) => `<option value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</option>`).join('');
+                groupField.value = '';
+                this.renderGroupValuePreview('scriptHubTcGroupValuesPreview', {}, {
+                    message: '选择分组字段后展示分类值。',
+                    hiddenWhenEmpty: true,
+                });
             }
 
             this.showSourceFeedback(
@@ -3592,7 +4442,7 @@ const ScriptHubPage = {
 
             if (!skipScroll) {
                 window.setTimeout(() => {
-                    document.getElementById('scriptHubConfigStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    this.scrollToStage('scriptHubConfigStage', 0);
                 }, 80);
             }
         } catch (error) {
@@ -3838,6 +4688,28 @@ const ScriptHubPage = {
             };
         }
 
+        if (this.activeModule === 'mait-nkt') {
+            const traSource = document.getElementById('scriptHubMaitNktTraSource')?.value || 'upload';
+            const traPath = document.getElementById('scriptHubMaitNktTraPath')?.value?.trim() || '';
+            const sourceJobId = document.getElementById('scriptHubMaitNktSourceJobId')?.value?.trim() || '';
+            const profilePath = this._resolveProfilePath();
+            const groupField = document.getElementById('scriptHubMaitNktGroupField')?.value || '';
+            if (!profilePath || !groupField || !this.inspectData) {
+                throw new Error('请先检测 MAIT/NKT 输入');
+            }
+            const groupOrder = this._getGroupOrderFromChips ? this._getGroupOrderFromChips() : '';
+            return {
+                module: 'mait-nkt',
+                tra_source: traSource,
+                tra_path: traPath,
+                source_job_id: sourceJobId,
+                profile_path: profilePath,
+                group_field: groupField,
+                group_order: groupOrder || null,
+                project_id: projectId || null,
+            };
+        }
+
         const allPepPaths = this._resolvePepPaths();
         const basePath = this._resolvePrimaryPepPath();
         const allDpPaths = this.selectedDatapointPaths;
@@ -3856,10 +4728,7 @@ const ScriptHubPage = {
                 cdr3_column: document.getElementById('scriptHubCdr3Column')?.value || '',
                 copy_column: document.getElementById('scriptHubCopyColumn')?.value || '',
             },
-            categories: (document.getElementById('scriptHubCategories')?.value || '')
-                .split(',')
-                .map((item) => item.trim())
-                .filter(Boolean),
+            categories: this.getSelectedDbCategories(),
             contained_pathology: document.getElementById('scriptHubPathologyFilter')?.checked ?? false,
             pathology_values: (document.getElementById('scriptHubPathologyValues')?.value || '')
                 .split(/[\n,]+/)
@@ -3870,10 +4739,285 @@ const ScriptHubPage = {
         };
     },
 
-    async runDbAlignment() {
+    upsertJob(job) {
+        const jobId = String(job?.job_id || job?.task_id || '');
+        if (!jobId) return null;
+        const previous = this.jobs[jobId] || {};
+        const merged = {
+            ...previous,
+            ...job,
+            job_id: jobId,
+            task_id: job.task_id || previous.task_id || jobId,
+            module: job.module || previous.module || job?.meta?.module || 'db-alignment',
+            history: Array.isArray(job.history) ? job.history : (previous.history || []),
+        };
+        this.jobs[jobId] = merged;
+        if (!this.selectedJobId) this.selectedJobId = jobId;
+        return merged;
+    },
+
+    updateJobFromStatus(taskId, statusPayload, fallback = {}) {
+        const jobId = String(statusPayload.job_id || statusPayload.task_id || taskId || '');
+        return this.upsertJob({
+            ...fallback,
+            ...statusPayload,
+            job_id: jobId,
+            task_id: statusPayload.task_id || taskId,
+        });
+    },
+
+    async runCombinedCharts(forceRerun = false) {
+        const selectedModules = this.getSelectedChartModules();
+        const samples = this.getSelectedChartSamplesPayload();
+        const selectedChains = this.chartSelectedChains || [];
+        const outputName = document.getElementById('scriptHubOutputName')?.value?.trim() || null;
+
+        if (!selectedModules.length) throw new Error('请至少选择一个要生成的图表。');
+        if (selectedChains.length === 0) throw new Error('请至少选择一条链。');
+        if (samples.length < 2) throw new Error('综合图表至少需要选择 2 个样本。');
+        if (Object.values(this.chartFieldMapping || {}).some(value => !value)) {
+            throw new Error('请先确认 CDR3、Copy、V、J 字段。');
+        }
+
+        this.clearValidationState();
+        this.renderRunDigest({
+            module: 'charts.combined',
+            project_id: this.getActiveProjectId() || '',
+            selected_chains: selectedChains,
+            mode: selectedModules.join(', '),
+            sample_count: samples.length,
+        });
+        this.setUiState('running');
+        this.showSourceFeedback(forceRerun ? '正在重新提交综合图表后台任务...' : '正在检查综合图表是否已有相同参数结果...', 'info');
+        this.showLoading('正在提交综合图表后台任务...', '排队中');
+        const response = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                module: 'charts.combined',
+                project_id: this.getActiveProjectId() || null,
+                force_rerun: Boolean(forceRerun),
+                payload: {
+                    selected_modules: selectedModules,
+                    samples,
+                    selected_chains: selectedChains,
+                    field_mapping: this.chartFieldMapping,
+                    output_name: outputName,
+                    force_rerun: Boolean(forceRerun),
+                },
+            }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || '综合图表任务提交失败');
+        if (data.reused_result) {
+            await this.handleReusedResult(data, 'charts.combined', '综合图表');
+            return;
+        }
+        this.activeTaskId = data.task_id || data.job_id;
+        this.selectedJobId = data.job_id || data.task_id;
+        this.upsertJob({
+            job_id: data.job_id || data.task_id,
+            task_id: data.task_id || data.job_id,
+            module: 'charts.combined',
+            status: 'queued',
+            progress: 0,
+            stage: 'Queued',
+            detail: '综合图表任务已提交到后台队列。',
+        });
+        this.renderQueuedJobNotice({
+            jobId: data.job_id || data.task_id,
+            module: 'charts.combined',
+            label: '综合图表',
+            detail: 'Heatmap、Treemap、Chord 会作为综合图表的子步骤在后台执行。',
+        });
+        this.showSourceFeedback('综合图表任务已进入后台队列。请到「后台任务」页面查看进度和结果。', 'success');
+        this.hideLoading();
+        return;
+
+        const results = [];
+        const total = selectedModules.length;
+        this.setUiState('running');
+        this.showSourceFeedback('正在生成综合图表...', 'info');
+        this.showLoading('正在生成综合图表...', '综合图表');
+        this.renderChartResults(selectedModules.map(key => ({ key, status: 'pending' })));
+
+        for (let index = 0; index < selectedModules.length; index += 1) {
+            const key = selectedModules[index];
+            const label = key === 'heatmap' ? '相似性热图' : (key === 'treemap' ? 'Treemap' : 'Chord');
+            const baseProgress = Math.round((index / total) * 100);
+            this.updateLoadingProgress(baseProgress, label, `正在生成 ${label}...`, []);
+            try {
+                const result = await this.runOneChartModule(key, {
+                    samples,
+                    selectedChains,
+                    outputName,
+                    progressOffset: baseProgress,
+                    progressSpan: Math.max(1, Math.round(100 / total)),
+                });
+                results.push({ key, label, status: 'completed', ...result });
+            } catch (error) {
+                results.push({ key, label, status: 'failed', message: error.message || '生成失败' });
+            }
+            this.renderChartResults(results.concat(selectedModules.slice(index + 1).map(next => ({ key: next, status: 'pending' }))));
+        }
+
+        this.result = {
+            module: 'charts',
+            job_id: `charts_${Date.now()}`,
+            metadata: {
+                selected_chains: selectedChains,
+                sample_count: samples.length,
+                chart_modules: selectedModules,
+            },
+            chart_results: results,
+            viewer_url: (results.find(item => item.viewer_url) || {}).viewer_url || '',
+            zip_url: (results.find(item => item.zip_url) || {}).zip_url || '',
+        };
+        this.updateLoadingProgress(100, '综合图表完成', '已完成综合图表生成。', []);
+        this.hideLoading();
+        this.setUiState('inspected');
+        this.showSourceFeedback('综合图表生成完成。可在下方打开结果。', 'success');
+        const failed = results.filter(item => item.status === 'failed');
+        if (failed.length) {
+            this.showSourceFeedback(`综合图表部分完成，${failed.length} 个任务失败。请查看下方错误信息。`, 'warning');
+        }
+    },
+
+    async runOneChartModule(key, options) {
+        const samples = options.samples;
+        const selectedChains = options.selectedChains;
+        const outputName = options.outputName;
+        const progressOffset = options.progressOffset || 0;
+        const progressSpan = options.progressSpan || 30;
+
+        if (key === 'heatmap') {
+            const heatmapPayload = {
+                samples,
+                file_pattern: null,
+                selected_chains: selectedChains,
+                field_mapping: {
+                    cdr3_column: this.chartFieldMapping.cdr3_column,
+                    copy_column: this.chartFieldMapping.copy_column,
+                },
+                groups: [],
+                config: {
+                    title: outputName || 'Similarity Heatmap',
+                    plot_type: 'heatmap',
+                    color_scheme: 'viridis',
+                    annotation: true,
+                },
+            };
+            const heatmapResponse = await fetch('/api/auto-heatmap/generate-heatmap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(heatmapPayload),
+            });
+            const heatmapData = await heatmapResponse.json();
+            if (!heatmapData.success) throw new Error(heatmapData.message || '相似性热图生成失败');
+
+            const reportResponse = await fetch('/api/auto-heatmap/generate-heatmap-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    heatmap_result: heatmapData,
+                    output_name: outputName,
+                    create_archive: true,
+                    report_context: {
+                        source: 'script_hub_charts',
+                        selected_chains: selectedChains,
+                        sample_count: samples.length,
+                    },
+                }),
+            });
+            const reportData = await reportResponse.json();
+            if (!reportData.success) throw new Error(reportData.message || '相似性热图报告生成失败');
+            return {
+                job_id: reportData.job_id,
+                viewer_url: reportData.report_url,
+                zip_url: reportData.archive_url,
+                metadata_url: reportData.metadata_url,
+                message: `已生成 ${Object.keys(heatmapData.chains || {}).length || selectedChains.length} 条链的热图。`,
+            };
+        }
+
+        const endpoint = key === 'treemap' ? '/api/treemap/generate' : '/api/chord/generate';
+        const statusPrefix = key === 'treemap' ? '/api/treemap/task/' : '/api/chord/task/';
+        const payload = {
+            samples,
+            selected_chains: selectedChains,
+            field_mapping: this.chartFieldMapping,
+            config: {
+                output_name: outputName,
+                ...(key === 'treemap' ? { layout_mode: 'tetris', canvas_shape: 'portrait' } : {}),
+            },
+        };
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || `${key} 任务提交失败`);
+        const taskResult = await this.pollExternalChartTask(
+            data.status_url || `${statusPrefix}${encodeURIComponent(data.task_id)}`,
+            progressOffset,
+            progressSpan
+        );
+        return taskResult.result || {};
+    },
+
+    async pollExternalChartTask(statusUrl, progressOffset = 0, progressSpan = 30) {
+        while (true) {
+            const response = await fetch(statusUrl);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || '读取图表任务状态失败');
+            const progress = progressOffset + (Number(data.progress || 0) / 100) * progressSpan;
+            this.updateLoadingProgress(progress, data.stage || '处理中', data.detail || '', data.history || []);
+            if (data.status === 'completed') return data;
+            if (data.status === 'failed') throw new Error(data.error || data.detail || '图表任务失败');
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+    },
+
+    renderChartResults(items) {
+        const container = document.getElementById('scriptHubChartResults');
+        if (!container) return;
+        const labels = { heatmap: '相似性热图', treemap: 'Treemap', chord: 'Chord' };
+        container.innerHTML = (items || []).map((item) => {
+            const statusClass = item.status === 'failed' ? 'is-failed' : (item.status === 'completed' ? 'is-success' : '');
+            const statusText = item.status === 'failed' ? '失败' : (item.status === 'completed' ? '完成' : '等待中');
+            const links = item.status === 'completed'
+                ? `<div class="d-flex flex-wrap gap-2 mt-2">
+                    ${item.viewer_url ? `<a class="btn btn-sm btn-primary" href="${this.escapeHtml(item.viewer_url)}" target="_blank" rel="noopener">打开 Viewer</a>` : ''}
+                    ${item.zip_url ? `<a class="btn btn-sm btn-outline-primary" href="${this.escapeHtml(item.zip_url)}">下载 ZIP</a>` : ''}
+                    ${item.metadata_url ? `<a class="btn btn-sm btn-outline-secondary" href="${this.escapeHtml(item.metadata_url)}" target="_blank" rel="noopener">Metadata</a>` : ''}
+                </div>`
+                : '';
+            return `<div class="sh-chart-result-card ${statusClass}">
+                <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div>
+                        <strong>${this.escapeHtml(item.label || labels[item.key] || item.key || '图表')}</strong>
+                        <div class="text-muted small">${this.escapeHtml(item.message || '')}</div>
+                        ${item.status === 'failed' ? `<div class="text-danger small mt-1">${this.escapeHtml(item.message || '生成失败')}</div>` : ''}
+                    </div>
+                    <span class="badge ${item.status === 'failed' ? 'bg-danger' : (item.status === 'completed' ? 'bg-success' : 'bg-secondary')}">${statusText}</span>
+                </div>
+                ${links}
+            </div>`;
+        }).join('');
+    },
+
+    async runDbAlignment(forceRerun = false) {
         try {
+            if (this.activeModule === 'charts') {
+                await this.runCombinedCharts(forceRerun);
+                return;
+            }
             const payload = this.collectRunPayload();
             const module = this.activeModule || 'db-alignment';
+            if (forceRerun) payload.force_rerun = true;
+            this.clearValidationState();
+            this.renderRunDigest(payload);
             const isBoxPlot = module === 'boxplot' || module === 'profile';
             const isTopClone = module === 'topclone';
             const isPep = module === 'pep-analysis';
@@ -3883,6 +5027,7 @@ const ScriptHubPage = {
             const isUmapinModule = module === 'umapin';
             const isProfile = module === 'profile';
             const isMl = module === 'ml-analysis';
+            const isMaitNkt = module === 'mait-nkt';
             const endpoint = isUmapinModule ? '/api/script-hub/umapin/run'
                 : (isVolcano ? '/api/script-hub/volcano/run'
                 : (isUmap ? '/api/script-hub/umap/run'
@@ -3890,10 +5035,20 @@ const ScriptHubPage = {
                 : (isPep ? '/api/script-hub/pep-analysis/run'
                 : (isPgen ? '/api/script-hub/pgen-analysis/run'
                 : (isMl ? '/api/script-hub/ml-analysis/run'
+                : (isMaitNkt ? '/api/script-hub/mait-nkt/run'
                 : (isProfile ? '/api/script-hub/profile/run'
                 : (isBoxPlot ? '/api/script-hub/profile/run'
-                : '/api/script-hub/db-alignment/run'))))))));
-            const label = isUmapinModule ? 'UMAPin' : (isVolcano ? '火山图' : (isUmap ? 'UMAP' : (isTopClone ? 'TopClone' : (isPep ? 'PEP共享' : (isPgen ? 'Pgen' : (isMl ? '机器学习' : (isProfile ? 'Profile分析' : (isBoxPlot ? 'Profile' : '数据库比对'))))))));
+                : '/api/script-hub/db-alignment/run')))))))));
+            const label = isUmapinModule ? 'UMAPin' : (isVolcano ? '火山图' : (isUmap ? 'UMAP' : (isTopClone ? 'TopClone' : (isPep ? 'PEP共享' : (isPgen ? 'Pgen' : (isMl ? '机器学习' : (isMaitNkt ? 'MAIT/NKT' : (isProfile ? 'Profile分析' : (isBoxPlot ? 'Profile' : '数据库比对')))))))));
+
+            if (!forceRerun) {
+                this.showSourceFeedback(`正在检查${label}是否已有相同参数结果...`, 'info');
+                const cached = await this.checkCachedResult(payload, module);
+                if (cached?.hit) {
+                    await this.handleReusedResult(cached, module, label);
+                    return;
+                }
+            }
 
             this.setUiState('running');
             this.showSourceFeedback(`配置已锁定，正在提交${label}任务...`, 'info');
@@ -3908,51 +5063,93 @@ const ScriptHubPage = {
             if (!data.success) {
                 throw new Error(data.message || `Failed to queue ${label} task`);
             }
+            if (data.reused_result) {
+                await this.handleReusedResult(data, module, label);
+                return;
+            }
 
+            const jobId = data.job_id || data.task_id;
             this.activeTaskId = data.task_id;
-            this.stopTaskPolling();
-            this.pollTaskStatus(data.task_id);
+            this.selectedJobId = jobId;
+            this.upsertJob({
+                job_id: jobId,
+                task_id: data.task_id,
+                module,
+                status: data.reused_result ? 'completed' : 'queued',
+                progress: data.reused_result ? 100 : 0,
+                stage: data.reused_result ? 'Completed' : 'Queued',
+                detail: data.reused_result ? '复用已完成结果。' : `已提交${label}任务，等待后台执行。`,
+                analysis_signature: data.analysis_signature || '',
+            });
+            this.hideLoading();
+            if (!data.reused_result) {
+                this.renderQueuedJobNotice({
+                    jobId,
+                    module,
+                    label,
+                    detail: `${label}任务正在后台执行，结果完成后会出现在后台任务详情中。`,
+                });
+            }
+            this.showSourceFeedback(`${label}任务已进入后台队列。请到「后台任务」页面查看进度和结果。`, 'success');
+            this.pollTaskStatus(data.task_id, { module, label });
         } catch (error) {
             this.hideLoading();
             this.setUiState(this.inspectData ? 'inspected' : 'idle');
-            this.showSourceFeedback(error.message || 'Failed to run analysis.', 'danger');
-            this.showError(error.message || 'Failed to run analysis');
+            this.handleRunError(error);
         }
     },
 
-    stopTaskPolling() {
+    stopTaskPolling(taskId = '') {
+        if (taskId && this.pollTimersByJob[taskId]) {
+            clearTimeout(this.pollTimersByJob[taskId]);
+            delete this.pollTimersByJob[taskId];
+            return;
+        }
         if (this.taskPollTimer) {
             clearTimeout(this.taskPollTimer);
             this.taskPollTimer = null;
         }
+        if (!taskId) {
+            Object.keys(this.pollTimersByJob || {}).forEach((key) => {
+                clearTimeout(this.pollTimersByJob[key]);
+                delete this.pollTimersByJob[key];
+            });
+        }
     },
 
-    async pollTaskStatus(taskId) {
+    async pollTaskStatus(taskId, fallback = {}) {
         try {
             const response = await fetch(`/api/script-hub/task/${encodeURIComponent(taskId)}`);
             const data = await response.json();
             if (!data.success) throw new Error(data.message || 'Failed to read task status');
 
-            this.updateLoadingProgress(data.progress, data.stage, data.detail, data.history || []);
+            const job = this.updateJobFromStatus(taskId, data, fallback);
+            if (this.selectedJobId === job?.job_id) {
+                this.updateLoadingProgress(data.progress, data.stage, data.detail, data.history || []);
+            }
 
             if (data.status === 'completed') {
-                this.stopTaskPolling();
-                this.hideLoading();
-                this.result = data.result || null;
-                this.renderResult(this.result);
-                await this.registerProjectResult(this.result);
+                this.stopTaskPolling(taskId);
+                if (this.selectedJobId === job?.job_id) this.hideLoading();
+                if (data.result) {
+                    this.result = data.result;
+                    this.selectedJobId = job?.job_id || this.selectedJobId;
+                    this.renderResult(data.result);
+                    await this.registerProjectResult(data.result);
+                }
                 return;
             }
 
             if (data.status === 'failed') {
-                this.stopTaskPolling();
-                this.hideLoading();
-                throw new Error(data.detail || data.error || 'DB alignment failed');
+                this.stopTaskPolling(taskId);
+                if (this.selectedJobId === job?.job_id) this.hideLoading();
+                this.showSourceFeedback(data.detail || data.error || '分析任务失败。', 'danger');
+                return;
             }
 
-            this.taskPollTimer = setTimeout(() => this.pollTaskStatus(taskId), 1500);
+            this.pollTimersByJob[taskId] = setTimeout(() => this.pollTaskStatus(taskId, fallback), 1500);
         } catch (error) {
-            this.stopTaskPolling();
+            this.stopTaskPolling(taskId);
             this.hideLoading();
             this.setUiState(this.inspectData ? 'inspected' : 'idle');
             this.showSourceFeedback(error.message || 'Failed to read task status.', 'danger');
@@ -3994,6 +5191,7 @@ const ScriptHubPage = {
         if (!result) return;
 
         this.setUiState('completed');
+        document.querySelectorAll('[data-force-rerun-current]').forEach((button) => button.remove());
 
         const summary = this._getResultSummary(result);
         const meta = this._getResultMeta(result);
@@ -4012,7 +5210,7 @@ const ScriptHubPage = {
         this._renderUnifiedResultActions(result);
 
         window.setTimeout(function() {
-            document.getElementById('scriptHubResultStage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            this.scrollToStage('scriptHubResultStage', 0);
         }, 80);
     },
 
@@ -4028,6 +5226,7 @@ const ScriptHubPage = {
             'umapin': 'UMAPin \u964d\u7ef4',
             'ml-analysis': '\u673a\u5668\u5b66\u4e60\u5206\u6790',
             'pgen-analysis': 'Pgen \u5206\u6790',
+            'mait-nkt': 'MAIT/NKT \u5206\u6790',
         };
         return labels[module] || '\u5206\u6790';
     },
@@ -4048,6 +5247,7 @@ const ScriptHubPage = {
         if (mod === 'volcano') return '\u706b\u5c71\u56fe\u5206\u6790\u5b8c\u6210\u3002';
         if (mod === 'umapin') return 'UMAPin \u964d\u7ef4\u5b8c\u6210\u3002';
         if (mod === 'ml-analysis') return '\u673a\u5668\u5b66\u4e60\u5206\u6790\u5b8c\u6210\u3002\u5e73\u5747 CV accuracy: ' + (m.mean_cv_accuracy ?? '-');
+        if (mod === 'mait-nkt') return 'MAIT/NKT \u5206\u6790\u5b8c\u6210\u3002' + (m.plot_count || 0) + ' \u5f20\u7bb1\u7ebf\u56fe\uff0c' + ((m.cdr3_types || []).join(', ')) + '\u3002';
         return '\u5206\u6790\u5b8c\u6210\u3002';
     },
 
@@ -4063,6 +5263,7 @@ const ScriptHubPage = {
         if (mod === 'volcano') return 'P\u503c\u9608\u503c: ' + (m.pvalue_threshold || 0.05) + ' | \u6587\u4ef6\u6570: ' + (m.file_count || 0);
         if (mod === 'umapin') return '\u5206\u7c7b\u5217: ' + (m.category_col || '-') + ' | FDR: ' + (m.do_fdr ? '\u662f' : '\u5426');
         if (mod === 'ml-analysis') return 'Mode: ' + (m.mode || '-') + ' | Label: ' + (m.label_col || '-') + ' | Selected features: ' + (m.selected_feature_number ?? '-');
+        if (mod === 'mait-nkt') return '分组字段: ' + (m.group_field || '-') + ' | 检测类型: ' + ((m.cdr3_types || []).join(', '));
         return '';
     },
 

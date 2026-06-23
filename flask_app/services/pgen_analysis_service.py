@@ -177,6 +177,7 @@ class PgenAnalysisService:
         png_paths: List[str] = []
         pdf_paths: List[str] = []
         processed: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = []
         pgen_mean: Dict[str, Dict[str, float]] = {}
         total_files = sum(len(items) for items in files_by_chain.values())
         done = 0
@@ -185,7 +186,9 @@ class PgenAnalysisService:
             colname = f"Pgen_{chain}"
             pgen_mean.setdefault(colname, {})
             model_name = f"{species}{chain}"
-            processor = Processing(pgen_model=model_name)
+            model_ref = self._sonnia_model_reference(model_name)
+            processor = Processing(pgen_model=model_ref)
+            self._repair_sonnia_windows_gene_sets(processor, model_ref)
             for pep_file in files_by_chain.get(chain, []):
                 done += 1
                 sample = _sample_name_from_file(pep_file, chain)
@@ -195,12 +198,25 @@ class PgenAnalysisService:
 
                 prepared = self._prepare_pep_dataframe(pep_file)
                 if prepared.empty:
+                    skipped.append({
+                        "file": str(pep_file),
+                        "sample": sample,
+                        "chain": chain,
+                        "reason": "no CDR3/V/J rows after parsing",
+                    })
                     continue
                 filtered = processor.filter_dataframe(prepared)
                 if filtered.empty:
+                    skipped.append({
+                        "file": str(pep_file),
+                        "sample": sample,
+                        "chain": chain,
+                        "reason": "all rows removed by SoNNia quality filters",
+                        "input_rows": int(prepared.shape[0]),
+                    })
                     continue
                 data_seqs = filtered.values.astype(str)
-                model = SoNNia(data_seqs=data_seqs, pgen_model=model_name)
+                model = SoNNia(data_seqs=data_seqs, pgen_model=model_ref)
                 q_data, pgen_data, ppost_data = model.evaluate_seqs(model.data_seqs)
 
                 detail_df = pd.DataFrame(model.data_seqs, columns=["CDR3(pep)", "V", "J"])
@@ -226,7 +242,11 @@ class PgenAnalysisService:
                 })
 
         if not processed:
-            raise ValueError("No valid sequences were evaluated by SoNNia")
+            detail = "; ".join(
+                f"{Path(item['file']).name} ({item['chain']}): {item['reason']}"
+                for item in skipped[:8]
+            )
+            raise ValueError(f"No valid sequences were evaluated by SoNNia. {detail}".strip())
 
         if progress_callback:
             progress_callback(88, "Pgen analysis", "Writing summary outputs")
@@ -256,6 +276,8 @@ class PgenAnalysisService:
             "skipped_chains": [chain for chain in selected_chains if _normalize_chain(chain) in SKIPPED_SONNIA_CHAINS],
             "sample_count": int(pd.DataFrame(processed)["sample"].nunique()),
             "processed_file_count": len(processed),
+            "skipped_file_count": len(skipped),
+            "skipped_files": skipped,
             "detail_file_count": len(detail_paths),
             "summary_csv": str(mean_path),
             "output_counts": {
@@ -333,7 +355,58 @@ class PgenAnalysisService:
         out = df[[cdr3_col, v_col, j_col]].dropna().copy()
         out = out.drop_duplicates([cdr3_col, v_col, j_col])
         out.columns = ["amino_acid", "v_gene", "j_gene"]
-        return out.astype(str)
+        for col in ("amino_acid", "v_gene", "j_gene"):
+            out[col] = out[col].astype(str).str.strip()
+        out["amino_acid"] = out["amino_acid"].str.upper().str.replace(" ", "", regex=False)
+        return out
+
+    @staticmethod
+    def _repair_sonnia_windows_gene_sets(processor: Any, model_name: str) -> None:
+        """
+        SoNNia 0.3.x parses anchor filenames with '/' separators internally.
+        On Windows that can turn V/J anchors into D anchors, emptying all filters.
+        """
+        try:
+            from sonnia.processing import define_pgen_model, gene_to_num_str
+        except Exception:
+            return
+
+        try:
+            *_, pgen_dir = define_pgen_model(model_name, compute_norm=False, return_pgen_dir=True)
+        except Exception:
+            return
+
+        pgen_path = Path(pgen_dir)
+        for filename, attr, gene_type in (
+            ("V_gene_CDR3_anchors.csv", "good_vs", "V"),
+            ("J_gene_CDR3_anchors.csv", "good_js", "J"),
+        ):
+            anchor_path = pgen_path / filename
+            if not anchor_path.exists():
+                continue
+            try:
+                anchors = pd.read_csv(anchor_path)
+                functional = anchors.loc[
+                    anchors["function"].astype(str).str.upper().eq("F"),
+                    "gene",
+                ]
+                genes = {gene_to_num_str(str(gene), gene_type) for gene in functional.dropna()}
+            except Exception:
+                continue
+            if genes:
+                setattr(processor, attr, genes)
+
+    @staticmethod
+    def _sonnia_model_reference(model_name: str) -> str:
+        """
+        Return a SoNNia model path that keeps SoNNia 0.3.x Windows path parsing valid.
+        """
+        try:
+            from sonnia.processing import define_pgen_model
+            *_, pgen_dir = define_pgen_model(model_name, compute_norm=False, return_pgen_dir=True)
+        except Exception:
+            return model_name
+        return str(Path(pgen_dir)).replace("\\", "/").rstrip("/") + "/"
 
     @staticmethod
     def _prefix_gene(chain: str, value: Any) -> str:

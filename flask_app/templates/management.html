@@ -71,16 +71,17 @@
         }
     }
 </style>
+<link href="{{ url_for('static', filename='css/management_common.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 management-shell">
+<div class="container-fluid py-4 management-page management-shell">
     <section class="management-hero mb-4">
         <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
             <div>
-                <span class="badge text-bg-light border mb-3">Data Management Workspace</span>
-                <h1 class="h3">数据管理</h1>
-                <p>集中管理项目和样本数据。右上角可切换到分析工作区。</p>
+                <span class="mg-kicker mb-3"><i class="bi bi-database"></i>Data Management Workspace</span>
+                <h1 class="mg-page-title">数据管理</h1>
+                <p class="mg-page-subtitle">集中管理项目、样本、数据资产和分析结果。右上角可切换到分析工作区。</p>
             </div>
             <div class="d-flex gap-2 flex-wrap">
                 <a href="{{ url_for('pages.projects_page') }}" class="btn btn-primary">
@@ -94,7 +95,7 @@
     </section>
 
     <section class="row g-3 mb-4">
-        <div class="col-md-6">
+        <div class="col-md-4">
             <a href="{{ url_for('pages.projects_page') }}" class="card management-card">
                 <div class="card-body">
                     <div class="management-icon bg-primary bg-opacity-10 text-primary">
@@ -105,7 +106,7 @@
                 </div>
             </a>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
             <a href="{{ url_for('pages.samples_page') }}" class="card management-card">
                 <div class="card-body">
                     <div class="management-icon bg-info bg-opacity-10 text-info">
@@ -115,6 +116,34 @@
                     <p class="text-muted mb-0">集中查看所有项目的样本记录，支持按项目、样本ID、物种、链类型、疾病等条件筛选。</p>
                 </div>
             </a>
+        </div>
+        <div class="col-md-4">
+            <a href="{{ url_for('pages.settings_page', workspace='management') }}" class="card management-card">
+                <div class="card-body">
+                    <div class="management-icon bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-sliders"></i>
+                    </div>
+                    <h2 class="h5">管理设置</h2>
+                    <p class="text-muted mb-0">维护数据管理相关默认配置，保持管理端与分析端工作区上下文一致。</p>
+                </div>
+            </a>
+        </div>
+    </section>
+
+    <section class="management-note card mb-4">
+        <div class="card-body">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+                <div>
+                    <h2 class="h6 mb-2">推荐工作顺序</h2>
+                    <p class="text-muted mb-0">先创建项目并上传 PEP/Profile 资产，再检查样本库与 group spec，最后切换到分析工作区启动分析。</p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <span class="mg-chip mg-badge-blue"><i class="bi bi-1-circle"></i>建项目</span>
+                    <span class="mg-chip mg-badge-green"><i class="bi bi-2-circle"></i>上传资产</span>
+                    <span class="mg-chip mg-badge-amber"><i class="bi bi-3-circle"></i>核对样本</span>
+                    <span class="mg-chip mg-badge-gray"><i class="bi bi-4-circle"></i>启动分析</span>
+                </div>
+            </div>
         </div>
     </section>
 

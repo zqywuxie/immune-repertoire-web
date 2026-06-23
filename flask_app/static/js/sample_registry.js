@@ -15,6 +15,31 @@ function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
+function showManagementToast(message, type = 'info') {
+    let stack = document.querySelector('.mg-toast-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.className = 'mg-toast-stack';
+        document.body.appendChild(stack);
+    }
+    const toast = document.createElement('div');
+    toast.className = `mg-toast mg-toast-${type}`;
+    toast.textContent = message;
+    stack.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 3200);
+}
+
+function renderBooleanBadge(value, trueLabel = 'True', falseLabel = 'False') {
+    const normalized = String(value ?? '').toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+        return `<span class="mg-chip mg-badge-green">${trueLabel}</span>`;
+    }
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+        return `<span class="mg-chip mg-badge-gray">${falseLabel}</span>`;
+    }
+    return '<span class="text-muted">-</span>';
+}
+
 const SampleRegistryPage = {
     samples: [],
     editModal: null,
@@ -26,6 +51,11 @@ const SampleRegistryPage = {
         document.getElementById('resetSamplesBtn')?.addEventListener('click', () => this.resetFilters());
         document.getElementById('saveSampleChangesBtn')?.addEventListener('click', () => this.saveSampleChanges());
         document.getElementById('exportSamplesBtn')?.addEventListener('click', () => this.exportSamples());
+        document.querySelectorAll('[id^="sampleFilter"]').forEach((input) => {
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') this.loadSamples();
+            });
+        });
         this.bootstrapFromQuery();
         this.loadSamples();
     },
@@ -68,6 +98,7 @@ const SampleRegistryPage = {
         const params = new URLSearchParams(this.collectFilters());
         const errorAlert = document.getElementById('samplesErrorAlert');
         errorAlert?.classList.add('d-none');
+        this.setTableLoading();
 
         try {
             const response = await fetch(`/api/samples?${params.toString()}`);
@@ -75,18 +106,27 @@ const SampleRegistryPage = {
             if (!response.ok) throw new Error(data.message || '加载样本失败');
             this.samples = data.samples || [];
             this.renderSamples();
+            this.renderResultMeta();
         } catch (error) {
             if (errorAlert) {
                 errorAlert.textContent = error.message || '加载样本失败';
                 errorAlert.classList.remove('d-none');
             }
+            showManagementToast(error.message || '加载样本失败', 'danger');
+        }
+    },
+
+    setTableLoading() {
+        const tbody = document.getElementById('samplesTableBody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="12"><div class="mg-empty"><i class="bi bi-hourglass-split"></i>正在加载样本...</div></td></tr>';
         }
     },
 
     renderSamples() {
         const tbody = document.getElementById('samplesTableBody');
         if (!this.samples.length) {
-            tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">没有匹配的样本记录。</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12"><div class="mg-empty"><i class="bi bi-search"></i>没有匹配的样本记录。</div></td></tr>';
             return;
         }
 
@@ -97,10 +137,10 @@ const SampleRegistryPage = {
               <td>${escapeHtml(sample.sample_name || '-')}</td>
               <td>${escapeHtml(sample.sequence_id || '-')}</td>
               <td>${escapeHtml(sample.spices || '-')}</td>
-              <td>${escapeHtml(sample.chain_flag || '-')}</td>
-              <td>${escapeHtml(sample.is_healthy || '-')}</td>
+              <td><span class="mg-chip mg-badge-blue">${escapeHtml(sample.chain_flag || '-')}</span></td>
+              <td>${renderBooleanBadge(sample.is_healthy, 'Healthy', 'Non-healthy')}</td>
               <td>${escapeHtml(sample.illness || '-')}</td>
-              <td>${escapeHtml(sample.is_pe || '-')}</td>
+              <td>${renderBooleanBadge(sample.is_pe, 'PE', 'Non-PE')}</td>
               <td>${escapeHtml(sample.contain_method || '-')}</td>
               <td>${escapeHtml(sample.iso_tag || '-')}</td>
               <td class="text-end">
@@ -112,6 +152,18 @@ const SampleRegistryPage = {
         tbody.querySelectorAll('[data-sample-edit]').forEach((button) => {
             button.addEventListener('click', () => this.openEditModal(button.dataset.sampleEdit));
         });
+    },
+
+    renderResultMeta() {
+        const meta = document.getElementById('sampleResultCount');
+        if (meta) {
+            meta.textContent = `当前结果：${this.samples.length} 条样本记录`;
+        }
+        const exportBtn = document.getElementById('exportSamplesBtn');
+        if (exportBtn) {
+            exportBtn.disabled = this.samples.length === 0;
+            exportBtn.title = this.samples.length ? '导出当前结果' : '当前没有可导出的样本';
+        }
     },
 
     openEditModal(sampleId) {
@@ -158,9 +210,10 @@ const SampleRegistryPage = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || '保存样本失败');
             this.editModal?.hide();
+            showManagementToast('样本记录已保存。', 'success');
             this.loadSamples();
         } catch (error) {
-            alert(error.message || '保存样本失败');
+            showManagementToast(error.message || '保存样本失败', 'danger');
         }
     },
 
@@ -176,12 +229,16 @@ const SampleRegistryPage = {
         });
         document.getElementById('sampleFilterIsHealthy').value = '';
         document.getElementById('sampleFilterIsPe').value = '';
+        const advanced = document.getElementById('sampleAdvancedFilters');
+        if (advanced && window.bootstrap) {
+            bootstrap.Collapse.getOrCreateInstance(advanced, { toggle: false }).hide();
+        }
         this.loadSamples();
     },
 
     exportSamples() {
         if (!this.samples.length) {
-            alert('当前没有可导出的样本。');
+            showManagementToast('当前没有可导出的样本。', 'info');
             return;
         }
 
@@ -200,6 +257,7 @@ const SampleRegistryPage = {
         anchor.download = 'sample_registry_export.csv';
         anchor.click();
         URL.revokeObjectURL(url);
+        showManagementToast('已导出当前样本结果。', 'success');
     },
 };
 

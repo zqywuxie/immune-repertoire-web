@@ -4,6 +4,30 @@ This directory contains database migration scripts for the Immune Repertoire Ana
 
 ## Available Migrations
 
+### add_auth_user_scope.py
+
+Adds local users, authentication ownership columns, default admin assignment, and user-level project/file/analysis scoping fields.
+
+Recommended existing Docker database upgrade:
+
+```bash
+python migrations/add_auth_user_scope.py --dry-run
+ADMIN_PASSWORD='change-this-password' python migrations/add_auth_user_scope.py --apply --admin-username admin --admin-email admin@example.com
+python migrations/add_auth_user_scope.py --verify
+```
+
+This migration is idempotent and can be run multiple times. Existing rows with `user_id IS NULL` are assigned to the admin user.
+
+### add_analysis_jobs.py
+
+Adds the persistent `analysis_jobs` table used by the global background task center.
+
+```bash
+python migrations/add_analysis_jobs.py --dry-run
+python migrations/add_analysis_jobs.py --apply
+python migrations/add_analysis_jobs.py --verify
+```
+
 ### migrate_analysis_history.py
 
 Migrates existing analysis records to the unified analysis format by adding:

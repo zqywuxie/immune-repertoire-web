@@ -15,7 +15,10 @@ from typing import Any, Dict, List
 from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.path_access_service import PathAccessService
 from flask_app.services.chord_report_service import get_chord_report_service
+from flask_app.services.background_job_service import get_background_job_service
+from flask_app.services.user_scope import current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +32,47 @@ def _get_service():
     results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
     if not results_root.is_absolute():
         results_root = Path(current_app.root_path) / results_root
-    return get_chord_report_service(results_root=results_root)
+    return get_chord_report_service(results_root=PathAccessService.results_root_for_user(results_root.resolve()))
+
+
+def _validate_sample_paths(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    validated = []
+    for sample in samples:
+        item = dict(sample)
+        data_files = []
+        for file_info in item.get("data_files") or []:
+            file_item = dict(file_info)
+            if file_item.get("filepath"):
+                file_item["filepath"] = str(PathAccessService.validate_read_path(file_item["filepath"]))
+            data_files.append(file_item)
+        item["data_files"] = data_files
+        if item.get("folder_path"):
+            item["folder_path"] = str(PathAccessService.validate_read_path(item["folder_path"]))
+        validated.append(item)
+    return validated
 
 
 def _set_task_state(task_id: str, **updates: Any) -> None:
     with _chord_task_lock:
         task = _chord_tasks.setdefault(task_id, {})
+        updates.setdefault("user_id", task.get("user_id") or current_user_id())
         task.update(updates)
+        snapshot = dict(task)
+    try:
+        get_background_job_service().upsert_job(task_id, {
+            "job_type": "chord",
+            "module": "chord",
+            "task_id": task_id,
+            **snapshot,
+        })
+    except Exception:
+        logger.warning("Failed to sync chord task %s to global job store", task_id, exc_info=True)
+
+
+def _sync_task_state(task_id: str) -> None:
+    task = _get_task_state(task_id)
+    if task:
+        _set_task_state(task_id, **task)
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
@@ -81,6 +118,7 @@ def _run_chord_task(
                     history.append(history_entry)
                     if len(history) > 60:
                         del history[:-60]
+            _sync_task_state(task_id)
 
         result = service.generate_report(
             samples=samples,
@@ -151,6 +189,7 @@ def generate_chord():
         samples = data.get("samples") or []
         if not samples:
             raise ValidationError(message="请先扫描并提供样本列表。", details={"field": "samples"})
+        samples = _validate_sample_paths(samples)
 
         selected_chains = data.get("selected_chains") or []
         if not selected_chains:
@@ -165,10 +204,14 @@ def generate_chord():
         config = data.get("config") or {}
         output_name = str(config.get("output_name") or "").strip() or None
         count_mode = "rows"
+        parent_job_id = str(config.get("_parent_job_id") or "").strip() or None
+        hidden_from_default_list = bool(config.get("_hidden_from_default_list"))
+        child_label = str(config.get("_child_label") or "Chord").strip() or "Chord"
 
         results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
         if not results_root.is_absolute():
             results_root = Path(current_app.root_path) / results_root
+        results_root = PathAccessService.results_root_for_user(results_root.resolve())
 
         task_id = f"chord_task_{uuid.uuid4().hex[:12]}"
         queued_meta = {
@@ -183,6 +226,9 @@ def generate_chord():
             progress=0.0,
             stage="任务已创建",
             detail="任务已进入队列，等待开始。",
+            parent_job_id=parent_job_id,
+            hidden_from_default_list=hidden_from_default_list,
+            child_label=child_label,
             meta=queued_meta,
             history=[_history_entry(0.0, "任务已创建", "任务已进入队列，等待开始。", queued_meta)],
         )
