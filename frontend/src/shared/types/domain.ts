@@ -43,3 +43,8 @@ export interface JobSummary {
   completed_at?: string | null;
   error?: string | null;
 }
+
+export interface JobModule {
+  key: string;
+  label: string;
+}

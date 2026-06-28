@@ -217,6 +217,83 @@ tbody tr.is-selected {
   gap: 12px;
 }
 
+.job-submit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: #edf2ed;
+  border: 1px solid var(--line);
+}
+
+.job-submit-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.job-submit h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.job-submit-header button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: #fff7df;
+  padding: 0 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.job-submit-header button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.job-submit-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.job-submit label,
+.payload-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.job-submit select,
+.payload-editor textarea {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--ink);
+}
+
+.job-submit select {
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.payload-editor textarea {
+  min-height: 160px;
+  resize: vertical;
+  padding: 10px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .job-row {
   min-height: 64px;
   padding: 12px;
@@ -465,6 +542,10 @@ meter {
   }
 
   .upload-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .job-submit-grid {
     grid-template-columns: 1fr;
   }
 }

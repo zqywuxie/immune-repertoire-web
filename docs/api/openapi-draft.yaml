@@ -299,24 +299,67 @@ paths:
               properties:
                 module:
                   type: string
-                  examples: ["treemap.generate", "chord.generate", "analysis.execute"]
+                  examples: ["charts.combined"]
                 payload:
                   type: object
                   additionalProperties: true
                 project_id:
                   type: string
+                force_rerun:
+                  type: boolean
       responses:
-        "202":
+        "200":
           description: Job accepted
           content:
             application/json:
               schema:
                 type: object
+                required: [success, job_id]
                 properties:
                   success:
                     type: boolean
                   job_id:
                     type: string
+                  task_id:
+                    type: string
+                  status_url:
+                    type: string
+                  status:
+                    type: string
+                  reused_result:
+                    type: boolean
+                  result_id:
+                    type: string
+                  result:
+                    type: object
+                    additionalProperties: true
+        "400":
+          description: Unsupported job module
+  /api/jobs/modules:
+    get:
+      tags: [Jobs]
+      summary: List frontend-visible background job modules
+      responses:
+        "200":
+          description: Job modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, modules]
+                properties:
+                  success:
+                    type: boolean
+                  modules:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, label]
+                      properties:
+                        key:
+                          type: string
+                        label:
+                          type: string
   /api/jobs/{job_id}:
     get:
       tags: [Jobs]

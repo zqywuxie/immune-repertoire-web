@@ -1,6 +1,6 @@
-import { Activity, Boxes, Database, FlaskConical, GitBranch, ListChecks, RefreshCw } from "lucide-react";
+import { Activity, Boxes, Database, FlaskConical, GitBranch, ListChecks, RefreshCw, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { listJobs } from "../shared/api/jobs";
+import { listJobModules, listJobs, submitJob } from "../shared/api/jobs";
 import {
   getProject,
   listProjectAssets,
@@ -11,16 +11,19 @@ import {
   uploadProjectAssets
 } from "../shared/api/projects";
 import type { JobSummary, ProjectAsset, ProjectSummary } from "../shared/types/domain";
+import type { JobModule } from "../shared/types/domain";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type DetailTab = "assets" | "results" | "jobs";
 
 const assetPageSize = 8;
 const uploadAssetTypes = ["profile", "pep", "transcriptome", "sample_summary", "group_spec", "ppt_template", "pdf_source", "raw_archive"];
+const defaultJobPayload = "{\n  \"selected_modules\": [\"heatmap\", \"treemap\", \"chord\"],\n  \"samples\": [],\n  \"selected_chains\": [],\n  \"field_mapping\": {}\n}";
 
 export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [jobModules, setJobModules] = useState<JobModule[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
@@ -36,17 +39,25 @@ export function App() {
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [uploadState, setUploadState] = useState<LoadState>("idle");
   const [uploadMessage, setUploadMessage] = useState("");
+  const [jobModule, setJobModule] = useState("charts.combined");
+  const [jobPayloadText, setJobPayloadText] = useState(defaultJobPayload);
+  const [forceRerun, setForceRerun] = useState(false);
+  const [jobSubmitState, setJobSubmitState] = useState<LoadState>("idle");
+  const [jobSubmitMessage, setJobSubmitMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     setLoadState("loading");
-    Promise.all([listProjects(), listJobs({ limit: 8 })])
-      .then(([projectPayload, jobPayload]) => {
+    Promise.all([listProjects(), listJobs({ limit: 8 }), listJobModules()])
+      .then(([projectPayload, jobPayload, modulePayload]) => {
         if (cancelled) return;
         const nextProjects = projectPayload.projects || [];
+        const nextModules = modulePayload.modules || [];
         setProjects(nextProjects);
         setJobs(jobPayload.jobs || []);
+        setJobModules(nextModules);
+        setJobModule(nextModules[0]?.key || "charts.combined");
         setSelectedProjectId(nextProjects[0]?.id || "");
         setLoadState("ready");
       })
@@ -127,6 +138,34 @@ export function App() {
     } catch (err) {
       setUploadState("error");
       setUploadMessage(err instanceof Error ? err.message : "Upload failed");
+    }
+  };
+
+  const handleSubmitJob = async () => {
+    if (!selectedProjectId || !jobModule) return;
+    setJobSubmitState("loading");
+    setJobSubmitMessage("");
+    try {
+      const parsed = JSON.parse(jobPayloadText || "{}");
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        throw new Error("Job payload must be a JSON object.");
+      }
+      const payload = await submitJob({
+        module: jobModule,
+        payload: parsed as Record<string, unknown>,
+        projectId: selectedProjectId,
+        forceRerun
+      });
+      setJobSubmitState("ready");
+      setJobSubmitMessage(
+        payload.reused_result
+          ? `Reused cached result ${payload.result_id || payload.job_id}.`
+          : `Submitted job ${payload.job_id}.`
+      );
+      setDetailRefreshKey((key) => key + 1);
+    } catch (err) {
+      setJobSubmitState("error");
+      setJobSubmitMessage(err instanceof Error ? err.message : "Job submission failed");
     }
   };
 
@@ -294,10 +333,89 @@ export function App() {
               projectId={selectedProjectId}
             />
           )}
-          {detailTab === "jobs" && <JobList jobs={selectedJobs} emptyLabel="No jobs found for the selected project." loading={detailState === "loading"} />}
+          {detailTab === "jobs" && (
+            <>
+              <JobSubmissionForm
+                disabled={!selectedProjectId || jobSubmitState === "loading"}
+                forceRerun={forceRerun}
+                message={jobSubmitMessage}
+                modules={jobModules}
+                moduleValue={jobModule}
+                onForceRerunChange={setForceRerun}
+                onModuleChange={setJobModule}
+                onPayloadChange={setJobPayloadText}
+                onSubmit={handleSubmitJob}
+                payloadText={jobPayloadText}
+                state={jobSubmitState}
+              />
+              <JobList jobs={selectedJobs} emptyLabel="No jobs found for the selected project." loading={detailState === "loading"} />
+            </>
+          )}
         </section>
       </section>
     </main>
+  );
+}
+
+function JobSubmissionForm({
+  disabled,
+  forceRerun,
+  message,
+  modules,
+  moduleValue,
+  onForceRerunChange,
+  onModuleChange,
+  onPayloadChange,
+  onSubmit,
+  payloadText,
+  state
+}: {
+  disabled: boolean;
+  forceRerun: boolean;
+  message: string;
+  modules: JobModule[];
+  moduleValue: string;
+  onForceRerunChange: (value: boolean) => void;
+  onModuleChange: (value: string) => void;
+  onPayloadChange: (value: string) => void;
+  onSubmit: () => void;
+  payloadText: string;
+  state: LoadState;
+}) {
+  return (
+    <div className="job-submit">
+      <div className="job-submit-header">
+        <div>
+          <p className="eyebrow">Submit job</p>
+          <h4>Unified API bridge</h4>
+        </div>
+        <button disabled={disabled} onClick={onSubmit} type="button">
+          <Send size={16} />
+          {state === "loading" ? "Submitting" : "Submit"}
+        </button>
+      </div>
+      <div className="job-submit-grid">
+        <label>
+          <span>Module</span>
+          <select disabled={disabled} onChange={(event) => onModuleChange(event.target.value)} value={moduleValue}>
+            {(modules.length ? modules : [{ key: moduleValue, label: moduleValue }]).map((module) => (
+              <option key={module.key} value={module.key}>
+                {module.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="check-row">
+          <input checked={forceRerun} disabled={disabled} onChange={(event) => onForceRerunChange(event.target.checked)} type="checkbox" />
+          <span>Force rerun cached chart jobs</span>
+        </label>
+      </div>
+      <label className="payload-editor">
+        <span>Payload JSON</span>
+        <textarea disabled={disabled} onChange={(event) => onPayloadChange(event.target.value)} spellCheck={false} value={payloadText} />
+      </label>
+      {message && <p className={state === "error" ? "upload-message is-error" : "upload-message"}>{message}</p>}
+    </div>
   );
 }
 
