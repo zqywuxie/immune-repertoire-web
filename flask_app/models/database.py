@@ -427,15 +427,17 @@ class ProjectAsset(db.Model):
     project = db.relationship("Project", back_populates="assets")
 
     def to_dict(self) -> Dict[str, Any]:
+        metadata = self.metadata_json or {}
         return {
             'id': self.id,
             'project_id': self.project_id,
             'asset_type': self.asset_type,
             'original_name': self.original_name,
             'storage_path': self.storage_path,
+            'storage_uri': metadata.get('storage_uri'),
             'mime_type': self.mime_type,
             'size': self.size,
-            'metadata': self.metadata_json or {},
+            'metadata': metadata,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
         }
 

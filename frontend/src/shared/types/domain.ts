@@ -21,6 +21,7 @@ export interface ProjectAsset {
   asset_type: string;
   original_name: string;
   storage_path: string;
+  storage_uri?: string | null;
   mime_type?: string | null;
   size: number;
   metadata?: Record<string, unknown>;

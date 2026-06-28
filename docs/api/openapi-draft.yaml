@@ -595,6 +595,7 @@ components:
         storage_uri:
           type: string
           nullable: true
+          description: Stable storage URI. During the Flask transition this is surfaced from metadata.storage_uri.
         mime_type:
           type: string
           nullable: true

@@ -424,6 +424,8 @@ run_combined_analysis_job(job_id)
 5. 批量迁移历史资产。
 6. 废弃直接依赖 Windows path 的逻辑。
 
+当前过渡实现：在不触发表结构迁移的前提下，先由 `ProjectAsset.metadata_json.storage_uri` 承载 `local://` URI，并在 API 响应中映射为顶层 `storage_uri`；读取文件时优先解析该 URI，再 fallback 到历史 `storage_path`。
+
 ### Phase 5：API 平台替换
 
 目标：从 Flask 单体迁到 FastAPI 或 NestJS。

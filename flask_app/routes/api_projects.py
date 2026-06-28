@@ -20,6 +20,7 @@ from flask_app.services.project_analysis_bridge import get_project_analysis_brid
 from flask_app.services.project_asset_service import get_project_asset_service
 from flask_app.services.project_service import get_project_service
 from flask_app.services.sample_registry_service import get_sample_registry_service
+from flask_app.services.storage_adapter import get_storage_adapter
 
 
 project_api_bp = Blueprint('project_api', __name__, url_prefix='/api')
@@ -68,19 +69,18 @@ def _paginate_items(items: List[Dict[str, Any]], *, page: int, page_size: int) -
 
 
 def _resolve_asset_file(asset: ProjectAsset) -> Path:
-    target_path = Path(asset.storage_path)
-    if target_path.exists() and target_path.is_file():
-        return target_path
-
     metadata = asset.metadata_json or {}
     fallback_candidates = [
+        metadata.get('storage_uri'),
+        asset.storage_path,
         metadata.get('report_path'),
         metadata.get('viewer_path'),
         metadata.get('file_path'),
     ]
+    storage = get_storage_adapter()
     for candidate in fallback_candidates:
-        fallback_path = Path(str(candidate or ''))
-        if fallback_path.exists() and fallback_path.is_file():
+        fallback_path = storage.resolve(candidate)
+        if fallback_path and fallback_path.exists() and fallback_path.is_file():
             return fallback_path
 
     raise StorageError(message="Asset file is not available", details={'asset_id': asset.id})

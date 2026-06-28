@@ -9,7 +9,7 @@ from flask_app.app import create_app
 from flask_app.models.database import Project, ProjectAsset, db
 
 
-def _create_project_with_assets(storage_path: str = ""):
+def _create_project_with_assets(storage_path: str = "", metadata_json=None):
     project = Project(id="project-pagination", name="Pagination Project", status="active")
     db.session.add(project)
     now = datetime.utcnow()
@@ -22,7 +22,7 @@ def _create_project_with_assets(storage_path: str = ""):
             storage_path=storage_path if index == 0 and storage_path else f"/tmp/asset-{index}.csv",
             size=index + 1,
             uploaded_at=now - timedelta(minutes=index),
-            metadata_json={"analysis_type": "unit-test"} if index % 2 == 0 else {},
+            metadata_json=metadata_json if index == 0 and metadata_json is not None else ({"analysis_type": "unit-test"} if index % 2 == 0 else {}),
         ))
     db.session.commit()
     return project
@@ -88,3 +88,22 @@ def test_project_asset_preview_and_download(tmp_path):
     assert global_download.status_code == 200
     assert b"sample,value" in global_download.data
     assert "attachment" in global_download.headers.get("Content-Disposition", "")
+
+
+def test_global_asset_preview_prefers_storage_uri(tmp_path):
+    app = create_app("testing")
+    asset_file = tmp_path / "asset-via-uri.csv"
+    asset_file.write_text("sample,value\ns2,2\n", encoding="utf-8")
+
+    with app.app_context():
+        from flask_app.services.storage_adapter import get_storage_adapter
+
+        _create_project_with_assets(
+            storage_path="/legacy/missing.csv",
+            metadata_json={"storage_uri": get_storage_adapter().uri_for_path(asset_file)},
+        )
+        response = app.test_client().get("/api/assets/asset-0/preview")
+        db.session.remove()
+
+    assert response.status_code == 200
+    assert response.data.replace(b"\r\n", b"\n") == b"sample,value\ns2,2\n"
