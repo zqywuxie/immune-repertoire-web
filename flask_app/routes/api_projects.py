@@ -86,6 +86,33 @@ def _resolve_asset_file(asset: ProjectAsset) -> Path:
     raise StorageError(message="Asset file is not available", details={'asset_id': asset.id})
 
 
+def _get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
+    asset = ProjectAsset.query.filter(
+        ProjectAsset.id == asset_id,
+        ProjectAsset.project_id == project_id,
+    ).first()
+    if asset is None:
+        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    return asset
+
+
+def _get_asset(asset_id: str) -> ProjectAsset:
+    asset = ProjectAsset.query.filter(ProjectAsset.id == asset_id).first()
+    if asset is None:
+        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    return asset
+
+
+def _send_asset_file(asset: ProjectAsset, *, as_attachment: bool):
+    target_path = _resolve_asset_file(asset)
+    return send_file(
+        target_path,
+        as_attachment=as_attachment,
+        download_name=asset.original_name or target_path.name,
+        mimetype=None if as_attachment else asset.mime_type,
+    )
+
+
 def _mongo_cached_usage_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
     metadata = doc.get('metadata_json') if isinstance(doc.get('metadata_json'), dict) else {}
     merged_metadata = {
@@ -346,50 +373,34 @@ def register_project_asset_path(project_id: str):
 @project_api_bp.route('/projects/<project_id>/assets/<asset_id>/download', methods=['GET'])
 def download_project_asset(project_id: str, asset_id: str):
     _project_service().get_project(project_id)
-    asset = ProjectAsset.query.filter(
-        ProjectAsset.id == asset_id,
-        ProjectAsset.project_id == project_id,
-    ).first()
-    if asset is None:
-        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
-
-    target_path = _resolve_asset_file(asset)
-
-    return send_file(
-        target_path,
-        as_attachment=True,
-        download_name=asset.original_name or target_path.name,
-    )
+    asset = _get_project_asset(project_id, asset_id)
+    return _send_asset_file(asset, as_attachment=True)
 
 
 @project_api_bp.route('/projects/<project_id>/assets/<asset_id>/preview', methods=['GET'])
 def preview_project_asset(project_id: str, asset_id: str):
     _project_service().get_project(project_id)
-    asset = ProjectAsset.query.filter(
-        ProjectAsset.id == asset_id,
-        ProjectAsset.project_id == project_id,
-    ).first()
-    if asset is None:
-        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    asset = _get_project_asset(project_id, asset_id)
+    return _send_asset_file(asset, as_attachment=False)
 
-    target_path = _resolve_asset_file(asset)
-    return send_file(
-        target_path,
-        as_attachment=False,
-        download_name=asset.original_name or target_path.name,
-        mimetype=asset.mime_type,
-    )
+@project_api_bp.route('/assets/<asset_id>/download', methods=['GET'])
+def download_asset(asset_id: str):
+    asset = _get_asset(asset_id)
+    _project_service().get_project(asset.project_id)
+    return _send_asset_file(asset, as_attachment=True)
+
+
+@project_api_bp.route('/assets/<asset_id>/preview', methods=['GET'])
+def preview_asset(asset_id: str):
+    asset = _get_asset(asset_id)
+    _project_service().get_project(asset.project_id)
+    return _send_asset_file(asset, as_attachment=False)
 
 
 @project_api_bp.route('/projects/<project_id>/assets/<asset_id>', methods=['DELETE'])
 def delete_project_asset(project_id: str, asset_id: str):
     _project_service().get_project(project_id)
-    asset = ProjectAsset.query.filter(
-        ProjectAsset.id == asset_id,
-        ProjectAsset.project_id == project_id,
-    ).first()
-    if asset is None:
-        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    asset = _get_project_asset(project_id, asset_id)
     _asset_service().delete_asset(asset)
     return jsonify({'success': True})
 

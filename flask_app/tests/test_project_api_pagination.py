@@ -72,6 +72,8 @@ def test_project_asset_preview_and_download(tmp_path):
         client = app.test_client()
         preview = client.get(f"/api/projects/{project.id}/assets/asset-0/preview")
         download = client.get(f"/api/projects/{project.id}/assets/asset-0/download")
+        global_preview = client.get("/api/assets/asset-0/preview")
+        global_download = client.get("/api/assets/asset-0/download")
         db.session.remove()
 
     assert preview.status_code == 200
@@ -80,3 +82,9 @@ def test_project_asset_preview_and_download(tmp_path):
     assert download.status_code == 200
     assert b"sample,value" in download.data
     assert "attachment" in download.headers.get("Content-Disposition", "")
+    assert global_preview.status_code == 200
+    assert global_preview.data.replace(b"\r\n", b"\n") == b"sample,value\ns1,1\n"
+    assert "attachment" not in global_preview.headers.get("Content-Disposition", "")
+    assert global_download.status_code == 200
+    assert b"sample,value" in global_download.data
+    assert "attachment" in global_download.headers.get("Content-Disposition", "")

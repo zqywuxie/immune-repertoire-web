@@ -230,8 +230,8 @@ def _job_result_assets(job: Dict[str, Any]) -> List[Dict[str, Any]]:
         metadata = asset.metadata_json or {}
         if metadata.get("job_id") == job_id or metadata.get("task_id") == job_id or metadata.get("analysis_type") == module:
             item = asset.to_dict()
-            item["preview_url"] = f"/api/projects/{asset.project_id}/assets/{asset.id}/preview"
-            item["download_url"] = f"/api/projects/{asset.project_id}/assets/{asset.id}/download"
+            item["preview_url"] = f"/api/assets/{asset.id}/preview"
+            item["download_url"] = f"/api/assets/{asset.id}/download"
             matched.append(item)
     return matched
 

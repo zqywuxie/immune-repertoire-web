@@ -76,6 +76,14 @@ export function uploadProjectAssets(
   });
 }
 
+export function assetPreviewUrl(assetId: string) {
+  return `/api/assets/${assetId}/preview`;
+}
+
+export function assetDownloadUrl(assetId: string) {
+  return `/api/assets/${assetId}/download`;
+}
+
 export function projectAssetPreviewUrl(projectId: string, assetId: string) {
   return `/api/projects/${projectId}/assets/${assetId}/preview`;
 }

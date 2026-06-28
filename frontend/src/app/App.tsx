@@ -5,8 +5,8 @@ import {
   getProject,
   listProjectAssets,
   listProjects,
-  projectAssetDownloadUrl,
-  projectAssetPreviewUrl,
+  assetDownloadUrl,
+  assetPreviewUrl,
   type Pagination,
   uploadProjectAssets
 } from "../shared/api/projects";
@@ -343,7 +343,6 @@ export function App() {
               <AssetTable
                 assets={assets}
                 emptyLabel={detailState === "loading" ? "Loading assets..." : "No assets registered for this project."}
-                projectId={selectedProjectId}
               />
               <PaginationControls pagination={assetPagination} page={assetPage} onPageChange={setAssetPage} />
             </>
@@ -352,7 +351,6 @@ export function App() {
             <AssetTable
               assets={results}
               emptyLabel={detailState === "loading" ? "Loading results..." : "No processed results registered for this project."}
-              projectId={selectedProjectId}
             />
           )}
           {detailTab === "jobs" && (
@@ -594,7 +592,7 @@ function JobList({
   );
 }
 
-function AssetTable({ assets, emptyLabel, projectId }: { assets: ProjectAsset[]; emptyLabel: string; projectId: string }) {
+function AssetTable({ assets, emptyLabel }: { assets: ProjectAsset[]; emptyLabel: string }) {
   return (
     <div className="table-shell">
       <table>
@@ -616,10 +614,10 @@ function AssetTable({ assets, emptyLabel, projectId }: { assets: ProjectAsset[];
               <td>{formatDate(asset.uploaded_at)}</td>
               <td>
                 <div className="asset-actions">
-                  <a href={projectAssetPreviewUrl(projectId, asset.id)} rel="noreferrer" target="_blank">
+                  <a href={assetPreviewUrl(asset.id)} rel="noreferrer" target="_blank">
                     Preview
                   </a>
-                  <a href={projectAssetDownloadUrl(projectId, asset.id)}>
+                  <a href={assetDownloadUrl(asset.id)}>
                     Download
                   </a>
                 </div>

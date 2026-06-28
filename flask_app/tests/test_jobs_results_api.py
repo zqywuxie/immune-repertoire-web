@@ -56,8 +56,8 @@ def test_job_results_include_outputs_and_registered_assets():
         "/reports/job_results_1/treemap.html",
     ]
     assert payload["assets"][0]["id"] == "asset-job-result"
-    assert payload["assets"][0]["preview_url"] == "/api/projects/project-job-results/assets/asset-job-result/preview"
-    assert payload["assets"][0]["download_url"] == "/api/projects/project-job-results/assets/asset-job-result/download"
+    assert payload["assets"][0]["preview_url"] == "/api/assets/asset-job-result/preview"
+    assert payload["assets"][0]["download_url"] == "/api/assets/asset-job-result/download"
 
 
 def test_job_results_missing_job_returns_404():

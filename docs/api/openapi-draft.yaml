@@ -216,7 +216,7 @@ paths:
   /api/projects/{project_id}/assets/{asset_id}/preview:
     get:
       tags: [Assets]
-      summary: Preview a project asset inline
+      summary: Preview a project asset inline (legacy project-scoped route)
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/AssetId"
@@ -231,9 +231,39 @@ paths:
   /api/projects/{project_id}/assets/{asset_id}/download:
     get:
       tags: [Assets]
-      summary: Download a project asset
+      summary: Download a project asset (legacy project-scoped route)
       parameters:
         - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/assets/{asset_id}/preview:
+    get:
+      tags: [Assets]
+      summary: Preview an asset inline
+      description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
+      parameters:
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/assets/{asset_id}/download:
+    get:
+      tags: [Assets]
+      summary: Download an asset
+      description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
+      parameters:
         - $ref: "#/components/parameters/AssetId"
       responses:
         "200":
