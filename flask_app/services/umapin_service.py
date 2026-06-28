@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from flask_app.services.figure_style import category_palette, apply_publication_style, soften_axes
+from flask_app.services.figure_style import category_palette, apply_publication_style, save_publication_png, soften_axes
 
 # Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
@@ -152,7 +152,7 @@ class UmapinService:
         ax.set_aspect("equal", "datalim")
         soften_axes(ax, grid_axis="both")
         png_path = output_base / self._reference_plot_name(source_path)
-        fig.savefig(png_path, bbox_inches="tight", dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
         png_paths.append(str(png_path))
 

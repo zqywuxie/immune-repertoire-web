@@ -35,6 +35,7 @@ from flask_app.services.figure_style import (
     MUTED_CATEGORY_COLORS,
     PALETTE,
     apply_publication_style,
+    save_publication_png,
     soften_axes,
 )
 
@@ -211,7 +212,7 @@ class MLAnalysisService:
 
         zip_path = output_base / "ml_analysis_results.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for path in [output_base / "ml_analysis_metadata.json"] + [Path(p) for p in csv_paths + text_paths + png_paths + pdf_paths]:
+            for path in [output_base / "ml_analysis_metadata.json"] + [Path(p) for p in csv_paths + text_paths + png_paths]:
                 if path.exists():
                     zf.write(path, path.relative_to(output_base).as_posix())
 
@@ -542,12 +543,9 @@ class MLAnalysisService:
         soften_axes(ax)
         ax.legend()
         fig.tight_layout()
-        pdf_path = out_dir / "cross_validation_accuracy.pdf"
         png_path = out_dir / "cross_validation_accuracy.png"
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
-        fig.savefig(png_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
-        pdf_paths.append(str(pdf_path))
         png_paths.append(str(png_path))
 
     @staticmethod
@@ -578,12 +576,9 @@ class MLAnalysisService:
                 ax.text(j, i, format(cm[i, j], "d"), horizontalalignment="center",
                         color="white" if cm[i, j] > thresh else PALETTE["neutral_dark"])
         fig.tight_layout()
-        pdf_path = out_dir / "confusion_matrix.pdf"
         png_path = out_dir / "confusion_matrix.png"
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
-        fig.savefig(png_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
-        pdf_paths.append(str(pdf_path))
         png_paths.append(str(png_path))
 
     @staticmethod
@@ -618,12 +613,9 @@ class MLAnalysisService:
         ax.set_title(f"Top {top_n} Feature Importances")
         soften_axes(ax)
         fig.tight_layout()
-        pdf_path = out_dir / "top20_feature_importances.pdf"
         png_path = out_dir / "top20_feature_importances.png"
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
-        fig.savefig(png_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
-        pdf_paths.append(str(pdf_path))
         png_paths.append(str(png_path))
 
     @staticmethod
@@ -689,12 +681,9 @@ class MLAnalysisService:
         soften_axes(ax, grid_axis="both")
         ax.legend(loc="lower right", fontsize=9)
         fig.tight_layout()
-        pdf_path = out_dir / "ROC.pdf"
         png_path = out_dir / "ROC_AUC.png"
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
-        fig.savefig(png_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
-        pdf_paths.append(str(pdf_path))
         png_paths.append(str(png_path))
         auc_path = out_dir / "ROC_AUC.txt"
         auc_path.write_text(auc_text, encoding="utf-8")

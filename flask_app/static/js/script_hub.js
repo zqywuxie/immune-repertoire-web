@@ -18,6 +18,7 @@ const ScriptHubPage = {
     selectedDatapointPaths: [],
     customPepPaths: [],
     selectedDatapointPath: '',
+    selectedTranscriptomePath: '',
     selectedCachedAssetId: '',
     moduleAvailability: {},
     moduleCacheHits: {},
@@ -27,6 +28,7 @@ const ScriptHubPage = {
         profilePath: '',
         profileSheet: null,
         profileType: '',
+        transcriptomePath: '',
         validation: null,
     },
     chartScanResult: null,
@@ -63,10 +65,25 @@ const ScriptHubPage = {
         'scriptHubParamBegin',
         'scriptHubParamOver',
         'scriptHubPvalueThreshold',
+        'scriptHubVolcanoInputMode',
+        'scriptHubVolcanoExpressionPath',
+        'scriptHubVolcanoGroupPrefix',
+        'scriptHubVolcanoComparisons',
+        'scriptHubVolcanoLogFc',
         'scriptHubVolcanoPvalueThreshold',
+        'scriptHubEnrichmentExpressionPath',
+        'scriptHubEnrichmentGroupPrefix',
+        'scriptHubEnrichmentComparisons',
+        'scriptHubEnrichmentLogFc',
+        'scriptHubEnrichmentPvalue',
+        'scriptHubEnrichmentPAdjustMethod',
+        'scriptHubEnrichmentShowCategory',
+        'scriptHubEnrichmentSimplifyToggle',
+        'scriptHubEnrichmentGseaToggle',
         'scriptHubTcPepDataPath',
         'scriptHubTcDatapointPath',
         'scriptHubTcTopN',
+        'scriptHubTcChains',
         'scriptHubTcGroupField',
         'scriptHubPepDataDir',
         'scriptHubTcSameDirToggle',
@@ -77,6 +94,7 @@ const ScriptHubPage = {
         'scriptHubPgenDataDir',
         'scriptHubPgenProfilePath',
         'scriptHubPgenSampleCol',
+        'scriptHubPgenCategoryCol',
         'scriptHubPgenSpecies',
         'scriptHubUmapNNeighbors',
         'scriptHubUmapMinDist',
@@ -125,6 +143,9 @@ const ScriptHubPage = {
         document.getElementById('scriptHubDataConfirmBtn')?.addEventListener('click', () => this.confirmDataSelection());
         document.getElementById('scriptHubAddPepBtn')?.addEventListener('click', () => this.addHighlightedPep());
         document.getElementById('scriptHubSetProfileBtn')?.addEventListener('click', () => this.setHighlightedProfile());
+        document.getElementById('scriptHubSetTranscriptomeBtn')?.addEventListener('click', () => this.setHighlightedTranscriptome());
+        document.getElementById('scriptHubUploadTranscriptomeBtn')?.addEventListener('click', () => this.openTranscriptomeUpload());
+        document.getElementById('scriptHubTranscriptomeUploadInput')?.addEventListener('change', (event) => this.uploadTranscriptomeAsset(event));
         document.getElementById('scriptHubPepConfirmBtn')?.addEventListener('click', () => this.confirmPep());
         document.getElementById('scriptHubProfileConfirmBtn')?.addEventListener('click', () => this.confirmProfile());
         document.getElementById('scriptHubRunBtn')?.addEventListener('click', () => this.runDbAlignment());
@@ -177,6 +198,7 @@ const ScriptHubPage = {
             chip.classList.toggle('sh-chip-selected');
             this._pgenSelectedChains = this._getSelectedPgenChains();
         });
+        document.getElementById('scriptHubPgenCategoryCol')?.addEventListener('change', () => this.updatePgenGroupPreview());
         document.getElementById('scriptHubPepChainSelect')?.addEventListener('change', (event) => {
             this.onPepChainSelectChange(event.target.value);
         });
@@ -188,6 +210,13 @@ const ScriptHubPage = {
             const container = document.getElementById('scriptHubTcDatapointContainer');
             if (container) container.style.display = event.target.checked ? 'none' : '';
         });
+        document.getElementById('scriptHubTcChains')?.addEventListener('click', (event) => {
+            const chip = event.target.closest('[data-tc-chain]');
+            if (!chip) return;
+            chip.classList.toggle('sh-chip-selected');
+            this._tcSelectedChains = this._getSelectedTopCloneChains();
+            this.renderRunDigest();
+        });
         document.getElementById('scriptHubOpenPepMetadataBtn')?.addEventListener('click', () => this.openResultUrl('metadata_url'));
         document.getElementById('scriptHubRefreshCachedUsageBtn')?.addEventListener('click', () => this.fetchAndRenderCachedUsageConfig());
         document.getElementById('scriptHubMlMode')?.addEventListener('change', () => {
@@ -195,12 +224,20 @@ const ScriptHubPage = {
             this.syncMlFeatureMode();
             if (this.activeModule === 'ml-analysis') this.fetchAndRenderCachedUsageConfig();
         });
+        document.getElementById('scriptHubVolcanoInputMode')?.addEventListener('change', () => {
+            this.syncVolcanoInputMode();
+            this.renderRunDigest();
+        });
         document.getElementById('scriptHubTcGroupField')?.addEventListener('change', () => this.updateSingleGroupPreview({
             selectId: 'scriptHubTcGroupField',
             containerId: 'scriptHubTcGroupValuesPreview',
             title: 'TopClone 分组预览',
         }));
         document.getElementById('scriptHubMaitNktGroupField')?.addEventListener('change', () => this.updateMaitNktGroupPreview());
+        document.getElementById('scriptHubMaitNktTraSource')?.addEventListener('change', () => {
+            this.syncMaitNktSourceMode();
+            this.renderRunDigest();
+        });
         document.getElementById('scriptHubMlLabelCol')?.addEventListener('change', () => this.updateSingleGroupPreview({
             selectId: 'scriptHubMlLabelCol',
             containerId: 'scriptHubMlGroupValuesPreview',
@@ -385,6 +422,8 @@ const ScriptHubPage = {
             if (assetsDiv) assetsDiv.innerHTML = '<span class="text-muted small">请选择项目以查看可用资产和数据。</span>';
             this.activeProject = null;
             this.projectAssets = null;
+            this.selectedTranscriptomePath = '';
+            this.dataSelection.transcriptomePath = '';
             this.stageUnlocked.data = false;
             this.stageUnlocked.module = false;
             this.stageUnlocked.config = false;
@@ -407,6 +446,7 @@ const ScriptHubPage = {
 
             const pepAssets = this.projectAssets.filter(a => a.asset_type === 'pep');
             const profileAssets = this.getProjectProfileAssets(this.projectAssets);
+            const transcriptomeAssets = this.getProjectTranscriptomeAssets(this.projectAssets);
             const basePathInput = document.getElementById('scriptHubBasePath');
             const localPepAssets = pepAssets.filter(a => !(a.metadata || {}).remote_source_id);
             const projectPepPaths = [...new Set(pepAssets.map(a => a.storage_path).filter(Boolean))];
@@ -422,6 +462,15 @@ const ScriptHubPage = {
                 const dpPath = profileAssets[0].storage_path;
                 const dpInput = document.getElementById('scriptHubDatapointPath');
                 if (dpInput) dpInput.value = dpPath;
+            }
+            this.selectedTranscriptomePath = transcriptomeAssets[0]?.storage_path || '';
+            this.dataSelection.transcriptomePath = this.selectedTranscriptomePath;
+            if (this.selectedTranscriptomePath) {
+                this.ensureControlValue('scriptHubEnrichmentExpressionPath', this.selectedTranscriptomePath);
+                this.ensureControlValue('scriptHubVolcanoExpressionPath', this.selectedTranscriptomePath);
+            } else {
+                this.ensureControlValue('scriptHubEnrichmentExpressionPath', '');
+                this.ensureControlValue('scriptHubVolcanoExpressionPath', '');
             }
 
             this.selectedPepPaths = projectPepPaths;
@@ -453,17 +502,24 @@ const ScriptHubPage = {
 
             this.stageUnlocked.data = true;
             this.evaluateAvailableModules(this.selectedPepPaths, this.selectedDatapointPaths);
-            this.stageUnlocked.module = this.selectedPepPaths.length > 0 || this.selectedDatapointPaths.length > 0;
+            this.stageUnlocked.module = this.selectedPepPaths.length > 0 || this.selectedDatapointPaths.length > 0 || Boolean(this.selectedTranscriptomePath);
             this.syncStageUI();
             this.renderModuleChips();
             this.renderDataSummary(this.selectedPepPaths, this.selectedDatapointPaths);
             if (this.stageUnlocked.module) {
+                if (!this.selectedPepPaths.length && !this.selectedDatapointPaths.length && this.selectedTranscriptomePath) {
+                    this.showSourceFeedback(
+                        `已直接使用项目注册转录组表达矩阵：${this.getPathName(this.selectedTranscriptomePath) || this.selectedTranscriptomePath}。`,
+                        'success'
+                    );
+                    return;
+                }
                 try {
                     const inspectResult = await this.inspectDataSelection();
                     await this.previewDetectedAssets(inspectResult);
                     this.renderDataSummary(this.selectedPepPaths, this.selectedDatapointPaths);
                     this.showSourceFeedback(
-                        `已直接使用项目注册资产：PEP ${this.selectedPepPaths.length} 个，Profile ${this.selectedDatapointPaths.length ? this.getPathName(this.selectedDatapointPath) : '未注册'}。`,
+                        `已直接使用项目注册资产：PEP ${this.selectedPepPaths.length} 个，Profile ${this.selectedDatapointPaths.length ? this.getPathName(this.selectedDatapointPath) : '未注册'}，转录组 ${this.selectedTranscriptomePath ? this.getPathName(this.selectedTranscriptomePath) : '未注册'}。`,
                         inspectResult?.warnings?.length ? 'warning' : 'success'
                     );
                 } catch (inspectError) {
@@ -487,12 +543,14 @@ const ScriptHubPage = {
         const assets = project.assets || [];
         const pepCount = assets.filter(a => a.asset_type === 'pep').length;
         const profileCount = this.getProjectProfileAssets(assets).length;
+        const transcriptomeCount = this.getProjectTranscriptomeAssets(assets).length;
         const cachedCount = assets.filter(a => a.asset_type === 'cached_usage').length;
         const resultCount = assets.filter(a => a.asset_type === 'processed_result').length;
 
         assetsDiv.innerHTML = `
             <span class="sh-project-asset-pill">Pep Files <span class="sh-asset-count ms-1">${pepCount}</span></span>
             <span class="sh-project-asset-pill">Profile <span class="sh-asset-count ms-1">${profileCount}</span></span>
+            <span class="sh-project-asset-pill">Transcriptome <span class="sh-asset-count ms-1">${transcriptomeCount}</span></span>
             <span class="sh-project-asset-pill">Cached Data <span class="sh-asset-count ms-1">${cachedCount}</span></span>
             <span class="sh-project-asset-pill">Results <span class="sh-asset-count ms-1">${resultCount}</span></span>
         `;
@@ -665,8 +723,8 @@ const ScriptHubPage = {
     async confirmDataSelection() {
         this.syncDataSelectionState();
 
-        if (this.selectedPepPaths.length === 0 && this.selectedDatapointPaths.length === 0 && !this.selectedCachedAssetId) {
-            alert('请先在目录树中加入 PEP 路径或设置 Profile 文件。');
+        if (this.selectedPepPaths.length === 0 && this.selectedDatapointPaths.length === 0 && !this.selectedTranscriptomePath && !this.selectedCachedAssetId) {
+            alert('请先在目录树中加入 PEP 路径、设置 Profile 文件或选择转录组表达矩阵。');
             return;
         }
 
@@ -675,7 +733,11 @@ const ScriptHubPage = {
         let inspectResult = null;
 
         try {
-            inspectResult = await this.inspectDataSelection();
+            if (!this.selectedPepPaths.length && !this.selectedDatapointPaths.length && this.selectedTranscriptomePath) {
+                inspectResult = { success: true, sample_count: 0, pep_file_count: 0, chains: [] };
+            } else {
+                inspectResult = await this.inspectDataSelection();
+            }
             allPepPaths = [...this.selectedPepPaths];
             allDpPaths = [...this.selectedDatapointPaths];
 
@@ -774,6 +836,7 @@ const ScriptHubPage = {
     evaluateAvailableModules(pepPaths, dpPaths) {
         const hasPep = pepPaths.length > 0 || !!this.selectedCachedAssetId;
         const hasDatapoint = dpPaths.length > 0;
+        const hasExpression = Boolean(this._resolveTranscriptomePath({ includeProfileFallback: !this.getActiveProjectId() }));
         this.moduleAvailability = {
             'db-alignment': hasPep && hasDatapoint,
             'profile': hasDatapoint,
@@ -782,7 +845,8 @@ const ScriptHubPage = {
             'pgen-analysis': hasPep && hasDatapoint,
             'topclone': hasPep && hasDatapoint,
             'umap': hasPep && hasDatapoint,
-            'volcano': hasPep,
+            'volcano': hasPep || hasExpression,
+            'go-kegg-enrichment': hasExpression,
             'umapin': hasPep,
             'ml-analysis': hasDatapoint,
         };
@@ -798,6 +862,7 @@ const ScriptHubPage = {
             'topclone': 'bi-diagram-3',
             'umap': 'bi-bounding-box-circles',
             'volcano': 'bi-graph-up-arrow',
+            'go-kegg-enrichment': 'bi-diagram-2',
             'umapin': 'bi-bullseye',
             'ml-analysis': 'bi-cpu',
             'mait-nkt': 'bi-person-lines-fill',
@@ -808,6 +873,8 @@ const ScriptHubPage = {
     getModuleRequirementBadges(moduleKey) {
         const pepAndProfile = ['db-alignment', 'pep-analysis', 'pgen-analysis', 'topclone', 'umap'];
         const pepOnly = ['charts', 'volcano', 'umapin'];
+        if (moduleKey === 'volcano') return ['PEP/Expression'];
+        if (moduleKey === 'go-kegg-enrichment') return ['Expression'];
         const profileOnly = ['profile', 'ml-analysis', 'mait-nkt'];
         if (pepAndProfile.includes(moduleKey)) return ['PEP', 'Profile'];
         if (pepOnly.includes(moduleKey)) return ['PEP'];
@@ -820,9 +887,11 @@ const ScriptHubPage = {
         const requirements = this.getModuleRequirementBadges(moduleKey);
         const hasPep = this.selectedPepPaths.length > 0 || !!this.selectedCachedAssetId;
         const hasProfile = this.selectedDatapointPaths.length > 0;
+        const hasExpression = Boolean(this._resolveTranscriptomePath({ includeProfileFallback: !this.getActiveProjectId() }));
         const missing = [];
         if (requirements.includes('PEP') && !hasPep) missing.push('PEP 路径');
         if (requirements.includes('Profile') && !hasProfile) missing.push('Profile 文件');
+        if (requirements.includes('Expression') && !hasExpression) missing.push('转录组表达矩阵');
         return missing.length ? `缺少 ${missing.join(' / ')}` : '当前数据不支持';
     },
 
@@ -837,6 +906,7 @@ const ScriptHubPage = {
             'pgen-analysis': 'Pgen 统计 / 明细表 / ZIP',
             'umap': 'UMAP 图 / CSV / ZIP',
             'volcano': '火山图 / CSV / ZIP',
+            'go-kegg-enrichment': 'GO/KEGG 图表 / DEG / ZIP',
             'umapin': 'UMAPin 图 / CSV / ZIP',
             'ml-analysis': '模型指标 / ROC / ZIP',
             'mait-nkt': 'MAIT/NKT 图 / ZIP',
@@ -939,9 +1009,20 @@ const ScriptHubPage = {
         this.resetDownstreamState({ preserveInspection: true });
         this._prefillModulePaths(moduleKey);
         this.syncModuleUI();
+        if (moduleKey !== 'mait-nkt') {
+            this._maitNktResolvedTraPath = '';
+            this._maitNktResolvedSourceJobId = '';
+        }
+        if (moduleKey === 'mait-nkt' && this.getActiveProjectId()) {
+            const source = document.getElementById('scriptHubMaitNktTraSource');
+            const traPath = document.getElementById('scriptHubMaitNktTraPath')?.value?.trim() || '';
+            const sourceJobId = document.getElementById('scriptHubMaitNktSourceJobId')?.value?.trim() || '';
+            if (source && !traPath && !sourceJobId) source.value = 'pep_analysis';
+            this.syncMaitNktSourceMode();
+        }
         this.stageUnlocked.config = true;
         this.syncStageUI();
-        if (['db-alignment', 'profile', 'umap', 'pep-analysis', 'pgen-analysis', 'topclone', 'ml-analysis'].includes(moduleKey)) {
+        if (['db-alignment', 'profile', 'umap', 'pep-analysis', 'pgen-analysis', 'topclone', 'ml-analysis', 'go-kegg-enrichment', 'mait-nkt'].includes(moduleKey)) {
             this.ensureProfileControlsReady();
         }
         if (moduleKey === 'charts') {
@@ -950,12 +1031,14 @@ const ScriptHubPage = {
         } else if (moduleKey === 'volcano' || moduleKey === 'umapin' || moduleKey === 'ml-analysis') {
             this.showSourceFeedback(
                 moduleKey === 'volcano'
-                    ? '已选择火山图分析。请从下方 PEP共享分析缓存数据中选择 VJ usage 数据源，或手动填写数据目录后点击检测。'
+                    ? '已选择火山图分析。可使用 VJ usage 缓存数据，也可切换到表达矩阵输入后检测分组。'
                     : (moduleKey === 'umapin'
                         ? '已选择 UMAPin 降维。请从下方 PEP共享分析缓存数据中选择 VJ usage 数据源，或手动填写数据文件后点击检测。'
                         : '已选择机器学习分析。默认使用 Profile 特征；切换到 VJ usage 模式时请选择 PEP共享分析缓存数据。'),
                 'info'
             );
+        } else if (moduleKey === 'go-kegg-enrichment') {
+            this.showSourceFeedback('已选择 GO/KEGG 富集分析。请确认表达矩阵文件，点击检测后会自动识别样本分组和比较组。', 'info');
         } else {
             this.showSourceFeedback('已选择分析模块。请点击上方「检测数据」按钮扫描文件并自动填充配置。', 'info');
         }
@@ -988,8 +1071,10 @@ const ScriptHubPage = {
     shouldAutoInspectModule(moduleKey) {
         const hasPep = this._resolvePepPaths().length > 0 || Boolean(this._resolvePrimaryPepPath());
         const hasProfile = Boolean(this._resolveProfilePath());
+        const hasExpression = Boolean(this._resolveTranscriptomePath({ includeProfileFallback: !this.getActiveProjectId() }));
         if (moduleKey === 'db-alignment') return hasPep && hasProfile;
         if (moduleKey === 'profile') return hasProfile;
+        if (moduleKey === 'go-kegg-enrichment') return hasExpression;
         if (moduleKey === 'pep-analysis') return hasPep && hasProfile;
         if (moduleKey === 'pgen-analysis') return hasPep && hasProfile;
         if (moduleKey === 'topclone') return hasPep && hasProfile;
@@ -1008,6 +1093,7 @@ const ScriptHubPage = {
             'topclone': '自动检测 TopClone 数据...',
             'umap': '自动检测 UMAP Profile 数据...',
             'ml-analysis': '自动检测机器学习输入...',
+            'go-kegg-enrichment': '自动检测表达矩阵...',
             'mait-nkt': '自动检测 MAIT/NKT 数据...',
         };
         return messages[moduleKey] || '自动检测数据...';
@@ -1017,6 +1103,7 @@ const ScriptHubPage = {
     _prefillModulePaths(moduleKey) {
         const pepPath = this._resolvePrimaryPepPath();
         const dpPath = this._resolveProfilePath();
+        const expressionPath = this._resolveTranscriptomePath({ includeProfileFallback: !this.getActiveProjectId() });
 
         const setText = (id, val) => {
             const el = document.getElementById(id);
@@ -1042,11 +1129,24 @@ const ScriptHubPage = {
             setText('scriptHubTcPepDataPath', pepPath);
             setText('scriptHubTcDatapointPath', dpPath);
         }
+        if (moduleKey === 'mait-nkt') {
+            const source = document.getElementById('scriptHubMaitNktTraSource');
+            if (source && this.getActiveProjectId()) source.value = 'pep_analysis';
+            this.syncMaitNktSourceMode();
+        }
         if (moduleKey === 'umap') {
             setText('scriptHubDatapointPath', dpPath);
         }
         if (moduleKey === 'ml-analysis') {
             setText('scriptHubMlProfilePath', dpPath);
+        }
+        if (moduleKey === 'go-kegg-enrichment') {
+            setText('scriptHubEnrichmentExpressionPath', expressionPath);
+        }
+        if (moduleKey === 'volcano') {
+            setText('scriptHubVolcanoExpressionPath', expressionPath);
+            const mode = document.getElementById('scriptHubVolcanoInputMode');
+            if (mode && expressionPath && !pepPath) mode.value = 'expression';
         }
         // volcano/umapin: do NOT prefill from pepPath - they need VJ usage data from PEP shared analysis cache
     },
@@ -1060,6 +1160,7 @@ const ScriptHubPage = {
         if (pepPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>PEP 路径 (${pepPaths.length})：</strong> ${pepPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
         if (dpPaths && dpPaths.length > 0) parts.push(`<div class="sh-data-summary-item"><strong>Profile：</strong> ${dpPaths.map(p => this.escapeHtml(p)).join('；')}</div>`);
         else if (this.selectedDatapointPath) parts.push(`<div class="sh-data-summary-item"><strong>Profile：</strong> ${this.escapeHtml(this.selectedDatapointPath)}</div>`);
+        if (this.selectedTranscriptomePath) parts.push(`<div class="sh-data-summary-item"><strong>转录组表达矩阵：</strong> ${this.escapeHtml(this.selectedTranscriptomePath)}</div>`);
         if (this.dataSelection.validation) {
             const validation = this.dataSelection.validation;
             parts.push(`<div class="sh-data-summary-item"><strong>检测：</strong> ${this.escapeHtml(String(validation.sample_count || 0))} 样本，${this.escapeHtml(String(validation.pep_file_count || 0))} 个 PEP 文件，链：${this.escapeHtml((validation.chains || []).join(', ') || '-')}</div>`);
@@ -1233,9 +1334,14 @@ const ScriptHubPage = {
             if (metaEl) metaEl.textContent = '下载 ZIP 压缩包查看所有 UMAP 图和坐标数据。';
         } else if (module === 'volcano') {
             if (btnLabel) btnLabel.textContent = '运行火山图分析';
-            if (configHint) configHint.textContent = '对 VJ usage 数据做两组间差异比较，生成火山图。';
+            if (configHint) configHint.textContent = '对 VJ usage 或表达矩阵做两组间差异比较，生成火山图。';
             if (summaryEl) summaryEl.textContent = '火山图分析完成。';
             if (metaEl) metaEl.textContent = '查看火山图 PNG 和差异结果 CSV。';
+        } else if (module === 'go-kegg-enrichment') {
+            if (btnLabel) btnLabel.textContent = '运行 GO/KEGG 富集分析';
+            if (configHint) configHint.textContent = '输入 RNA-seq TPM 表达矩阵，自动完成差异表达、火山图、GO/KEGG ORA 和 GSEA。';
+            if (summaryEl) summaryEl.textContent = 'GO/KEGG 富集分析完成。';
+            if (metaEl) metaEl.textContent = '查看 DEG 表、富集图、富集 CSV 和结果 ZIP。';
         } else if (module === 'umapin') {
             if (btnLabel) btnLabel.textContent = '运行 UMAPin 降维';
             if (configHint) configHint.textContent = '基于 VJ usage 拼接数据做 UMAP 降维，可选 FDR 校正。';
@@ -1260,6 +1366,12 @@ const ScriptHubPage = {
             if (configHint) configHint.textContent = '字段与 Profile 设置基于检测结果自动填充，之后可手动调整。';
         }
 
+        if (module === 'volcano') {
+            this.syncVolcanoInputMode();
+        }
+        if (module === 'mait-nkt') {
+            this.syncMaitNktSourceMode();
+        }
         this.normalizeModuleControls();
         this.renderRunDigest();
     },
@@ -1279,6 +1391,14 @@ const ScriptHubPage = {
             scriptHubParamOver: { label: '参数结束列', help: '请选择与起始列同一段指标区间的最后一列。' },
             scriptHubPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；Profile、UMAP、TopClone 复用同一阈值控件。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
             scriptHubVolcanoPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；仅用于火山图差异筛选。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubVolcanoGroupPrefix: { label: '样本列前缀', help: '按 tpm_<组名>_<编号> 推断分组；无固定前缀时可留空。' },
+            scriptHubVolcanoComparisons: { label: '比较组', help: '每行一个比较，格式 ICI_T1DM_vs_T1DM；留空时自动生成所有两两比较。' },
+            scriptHubVolcanoLogFc: { label: 'log2FC 阈值', help: '用于判定上调/下调基因，默认 1。', attrs: { step: '0.1', min: '0', inputmode: 'decimal' } },
+            scriptHubEnrichmentGroupPrefix: { label: '样本列前缀', help: '按 tpm_<组名>_<编号> 推断分组；无固定前缀时可留空。' },
+            scriptHubEnrichmentComparisons: { label: '比较组', help: '每行一个比较，格式 ICI_T1DM_vs_T1DM；留空时自动生成所有两两比较。' },
+            scriptHubEnrichmentLogFc: { label: 'log2FC 阈值', help: '用于判定上调/下调基因，默认 1。', attrs: { step: '0.1', min: '0', inputmode: 'decimal' } },
+            scriptHubEnrichmentPvalue: { label: 'P 值阈值', help: '用于 DEG 和富集筛选，默认 0.05。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
+            scriptHubEnrichmentShowCategory: { label: '展示条目数', help: 'dotplot/barplot 中展示的富集条目数。', attrs: { step: '1', min: '1', max: '100', inputmode: 'numeric' } },
             scriptHubPepPvalueThreshold: { label: 'P 值阈值', help: '默认 0.05；用于 PEP 共享分析中的统计检验。', attrs: { step: '0.01', min: '0', max: '1', inputmode: 'decimal' } },
             scriptHubPepMinSample: { label: '最小样本数', help: '低于该样本数的分组或类别会被过滤。', attrs: { step: '1', min: '1', max: '100', inputmode: 'numeric' } },
             scriptHubTcTopN: { label: 'Top N 克隆数', help: 'Trace 和 per-sample 模式都使用该数量。', attrs: { step: '1', min: '1', max: '1000', inputmode: 'numeric' } },
@@ -1361,9 +1481,11 @@ const ScriptHubPage = {
         const rules = [
             [/profile|datapoint/, module === 'pep-analysis' ? 'scriptHubPepProfilePath' : (module === 'mait-nkt' ? 'scriptHubMaitNktGroupField' : 'scriptHubBpDatapointPath')],
             [/pgen.*链|pgen.*chain|至少选择一条 pgen/i, 'scriptHubPgenChains'],
-            [/chain|链/, module === 'pep-analysis' ? 'scriptHubPepChains' : 'scriptHubChartChainList'],
+            [/topclone.*链|topclone.*chain|至少选择一条 topclone/i, 'scriptHubTcChains'],
+            [/chain|链/, module === 'pep-analysis' ? 'scriptHubPepChains' : (module === 'topclone' ? 'scriptHubTcChains' : 'scriptHubChartChainList')],
             [/group field|分组字段|group_field/, module === 'mait-nkt' ? 'scriptHubMaitNktGroupField' : (module === 'topclone' ? 'scriptHubTcGroupField' : 'scriptHubPepGroupFields')],
             [/p 值|p-value|pvalue/, module === 'pep-analysis' ? 'scriptHubPepPvalueThreshold' : (module === 'volcano' ? 'scriptHubVolcanoPvalueThreshold' : 'scriptHubPvalueThreshold')],
+            [/expression|表达矩阵|矩阵/, 'scriptHubEnrichmentExpressionPath'],
             [/起始列|结束列|parameter|参数/, module === 'ml-analysis' ? 'scriptHubMlParamBegin' : 'scriptHubParamBegin'],
             [/vj usage|缓存/, module === 'ml-analysis' ? 'scriptHubMlUsagePath' : (module === 'umapin' ? 'scriptHubUmapinDataPath' : 'scriptHubVolcanoDataDir')],
             [/pep_data|pep data|pep 路径|pep 数据|base directory|数据目录/, module === 'topclone' ? 'scriptHubTcPepDataPath' : (module === 'pgen-analysis' ? 'scriptHubPgenDataDir' : 'scriptHubPepDataDir')],
@@ -1417,8 +1539,10 @@ const ScriptHubPage = {
             payload.project_id ? { label: '项目', value: payload.project_id } : null,
             payload.pep_data_dir || payload.base_path || payload.pep_data_path ? { label: 'PEP', value: payload.pep_data_dir || payload.base_path || payload.pep_data_path } : null,
             payload.profile_path || payload.datapoint_path ? { label: 'Profile', value: payload.profile_path || payload.datapoint_path } : null,
+            payload.expression_path ? { label: '表达矩阵', value: payload.expression_path } : null,
             range ? { label: '参数范围', value: range } : null,
             payload.pvalue_threshold !== undefined ? { label: 'P 值', value: String(payload.pvalue_threshold) } : null,
+            payload.logfc_cutoff !== undefined ? { label: 'log2FC', value: String(payload.logfc_cutoff) } : null,
             payload.selected_chains?.length ? { label: '链', value: joinList(payload.selected_chains) } : null,
             payload.group_fields?.length ? { label: '分组', value: joinList(payload.group_fields) } : null,
             payload.group_field ? { label: '分组', value: payload.group_field } : null,
@@ -1715,6 +1839,8 @@ const ScriptHubPage = {
         if (!preserveInspection) {
             this.inspectData = null;
             this.moduleCacheHits = {};
+            this._maitNktResolvedTraPath = '';
+            this._maitNktResolvedSourceJobId = '';
         }
         this.result = null;
         this.activeTaskId = null;
@@ -1764,6 +1890,8 @@ const ScriptHubPage = {
         this._pepResult = null;
         this._pepSelectedChains = [];
         this._pepAvailableChains = [];
+        this._tcSelectedChains = [];
+        this._tcAvailableChains = [];
         this._pepActiveGroup = null;
         this._pepActiveChain = null;
         this._pepActiveResultType = null;
@@ -1775,6 +1903,8 @@ const ScriptHubPage = {
         if (pepGroupSelect) pepGroupSelect.innerHTML = '<option value="">-- Select --</option>';
         const pepChainSelect = document.getElementById('scriptHubPepChainSelect');
         if (pepChainSelect) pepChainSelect.innerHTML = '<option value="">-- Select --</option>';
+        this.setHtml('scriptHubTcChains', '<span class="sh-chip">等待检测 PEP 文件</span>');
+        this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', {}, { message: '选择分布图分类列后展示组信息。', hiddenWhenEmpty: true });
         this.setUiState(preserveInspection && this.inspectData ? 'inspected' : 'idle');
         this.syncModuleUI();
     },
@@ -2144,6 +2274,14 @@ const ScriptHubPage = {
             containerId: 'scriptHubMaitNktGroupValuesPreview',
             title: 'MAIT/NKT 分组预览',
         });
+    },
+
+    syncMaitNktSourceMode() {
+        const source = document.getElementById('scriptHubMaitNktTraSource')?.value || 'upload';
+        const pathBlock = document.getElementById('scriptHubMaitNktTraPathBlock');
+        const jobBlock = document.getElementById('scriptHubMaitNktSourceJobBlock');
+        if (pathBlock) pathBlock.style.display = source === 'upload' ? '' : 'none';
+        if (jobBlock) jobBlock.style.display = source === 'pep_analysis' ? '' : 'none';
     },
 
     renderDataPreview(columns, rows, metaText = '') {
@@ -2704,6 +2842,7 @@ const ScriptHubPage = {
         const name = this.getPathName(path);
         const addPepBtn = document.getElementById('scriptHubAddPepBtn');
         const profileBtn = document.getElementById('scriptHubSetProfileBtn');
+        const transcriptomeBtn = document.getElementById('scriptHubSetTranscriptomeBtn');
         const hint = document.getElementById('scriptHubSourceHint');
         const isFile = type === 'file';
         const canUseProfile = isFile && this.isTabularFile(path);
@@ -2712,6 +2851,10 @@ const ScriptHubPage = {
         if (profileBtn) {
             profileBtn.disabled = !canUseProfile;
             profileBtn.title = canUseProfile ? '' : 'Profile 需要选择 CSV/TSV 文件';
+        }
+        if (transcriptomeBtn) {
+            transcriptomeBtn.disabled = !canUseProfile;
+            transcriptomeBtn.title = canUseProfile ? '' : '转录组表达矩阵需要选择 CSV/TSV/XLSX 文件';
         }
         if (hint) {
             hint.textContent = canUseProfile
@@ -2784,6 +2927,93 @@ const ScriptHubPage = {
         this.showSourceFeedback('已清除 Profile 文件。', 'info');
     },
 
+    async setHighlightedTranscriptome() {
+        const selection = this.highlightedSource;
+        if (!selection?.path) return;
+        if (selection.type !== 'file' || !this.isTabularFile(selection.path)) {
+            this.showSourceFeedback('转录组表达矩阵需要选择 CSV/TSV/XLSX 文件。', 'warning');
+            return;
+        }
+
+        this.selectedTranscriptomePath = selection.path;
+        this.dataSelection.transcriptomePath = selection.path;
+        this.dataSelection.validation = null;
+        this.syncDataSelectionState();
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        if (projectId) {
+            await this._registerPathToProject('transcriptome', selection.path, {
+                source: 'script-hub',
+                role: 'transcriptome',
+                registered_from: 'data-selection',
+            });
+            await this.refreshProjectAssetSummary(projectId);
+        }
+        this.showSourceFeedback(`已设置转录组表达矩阵：${selection.path}`, 'success');
+    },
+
+    async clearSelectedTranscriptome() {
+        const name = this.getPathName(this.selectedTranscriptomePath) || this.selectedTranscriptomePath;
+        if (!confirm(`确定要清除转录组表达矩阵吗？\n\n${name}`)) return;
+
+        const oldPath = this.selectedTranscriptomePath;
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        const assetId = this._findProjectAssetId('transcriptome', oldPath);
+        if (assetId) {
+            await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { method: 'DELETE' });
+        }
+
+        this.selectedTranscriptomePath = '';
+        this.dataSelection.transcriptomePath = '';
+        this.dataSelection.validation = null;
+        this.ensureControlValue('scriptHubEnrichmentExpressionPath', '');
+        this.ensureControlValue('scriptHubVolcanoExpressionPath', '');
+        this.syncDataSelectionState();
+        if (projectId) await this.refreshProjectAssetSummary(projectId);
+        this.showSourceFeedback('已清除转录组表达矩阵。', 'info');
+    },
+
+    openTranscriptomeUpload() {
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        if (!projectId) {
+            this.showSourceFeedback('请先选择项目，再上传转录组表达矩阵。', 'warning');
+            return;
+        }
+        document.getElementById('scriptHubTranscriptomeUploadInput')?.click();
+    },
+
+    async uploadTranscriptomeAsset(event) {
+        const input = event?.target;
+        const file = input?.files?.[0];
+        const projectId = document.getElementById('scriptHubProjectSelect')?.value || '';
+        if (!file || !projectId) return;
+
+        const formData = new FormData();
+        formData.append('asset_type', 'transcriptome');
+        formData.append('replace_existing', 'true');
+        formData.append('files', file);
+
+        try {
+            this.showSourceFeedback(`正在上传转录组表达矩阵：${file.name}`, 'secondary');
+            const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || data.error || '上传失败');
+            const asset = Array.isArray(data.assets) ? data.assets[0] : null;
+            const storagePath = asset?.storage_path || '';
+            this.selectedTranscriptomePath = storagePath;
+            this.dataSelection.transcriptomePath = storagePath;
+            this.syncDataSelectionState();
+            await this.refreshProjectAssetSummary(projectId);
+            this.showSourceFeedback(`转录组表达矩阵已上传：${this.getPathName(storagePath) || file.name}`, 'success');
+        } catch (error) {
+            this.showSourceFeedback(error.message || '转录组表达矩阵上传失败。', 'danger');
+        } finally {
+            if (input) input.value = '';
+        }
+    },
+
     _findProjectAssetId(assetType, storagePath) {
         if (!storagePath || !this.projectAssets) return null;
         const normalized = String(storagePath).replace(/\\/g, '/');
@@ -2802,6 +3032,16 @@ const ScriptHubPage = {
 
     getProjectProfileAssets(assets) {
         return (assets || []).filter((asset) => this.isProjectProfileAsset(asset));
+    },
+
+    isProjectTranscriptomeAsset(asset) {
+        if (!asset) return false;
+        const assetType = String(asset.asset_type || '').toLowerCase();
+        return assetType === 'transcriptome';
+    },
+
+    getProjectTranscriptomeAssets(assets) {
+        return (assets || []).filter((asset) => this.isProjectTranscriptomeAsset(asset) && asset.storage_path);
     },
 
     getProjectPepAssets(assets) {
@@ -2836,6 +3076,22 @@ const ScriptHubPage = {
         return asset ? asset.id : null;
     },
 
+    _resolveTranscriptomePath(options = {}) {
+        const includeProfileFallback = options.includeProfileFallback !== false;
+        const projectTranscriptome = this.getProjectTranscriptomeAssets(this.projectAssets || [])[0]?.storage_path || '';
+        if (this.getActiveProjectId() && projectTranscriptome) return projectTranscriptome;
+        const explicitPath = document.getElementById('scriptHubEnrichmentExpressionPath')?.value?.trim()
+            || document.getElementById('scriptHubVolcanoExpressionPath')?.value?.trim()
+            || this.selectedTranscriptomePath
+            || projectTranscriptome
+            || '';
+        if (explicitPath) return explicitPath;
+        if (!this.getActiveProjectId() && includeProfileFallback) {
+            return this._resolveProfilePath();
+        }
+        return '';
+    },
+
     ensureControlValue(controlOrId, value, label = '') {
         const control = typeof controlOrId === 'string' ? document.getElementById(controlOrId) : controlOrId;
         if (!control) return;
@@ -2861,6 +3117,7 @@ const ScriptHubPage = {
     syncModulePathControls() {
         const primaryPep = this.selectedPepPaths[0] || '';
         const profilePath = this.selectedDatapointPath || '';
+        const transcriptomePath = this._resolveTranscriptomePath({ includeProfileFallback: false });
         const pepControlIds = [
             'scriptHubBasePath',
             'scriptHubPepDataDir',
@@ -2879,6 +3136,7 @@ const ScriptHubPage = {
 
         pepControlIds.forEach((id) => this.ensureControlValue(id, primaryPep));
         profileControlIds.forEach((id) => this.ensureControlValue(id, profilePath));
+        ['scriptHubEnrichmentExpressionPath', 'scriptHubVolcanoExpressionPath'].forEach((id) => this.ensureControlValue(id, transcriptomePath));
 
         if (!profilePath) {
             this.resetGroupPreviewState();
@@ -2921,6 +3179,7 @@ const ScriptHubPage = {
         this.selectedPepPaths = deduped.map(item => item.path);
         this.selectedDatapointPath = this.dataSelection.profilePath || '';
         this.selectedDatapointPaths = this.selectedDatapointPath ? [this.selectedDatapointPath] : [];
+        this.selectedTranscriptomePath = this.dataSelection.transcriptomePath || this.selectedTranscriptomePath || '';
 
         const sheetInput = document.getElementById('scriptHubProfileSheet');
         if (sheetInput) sheetInput.value = this.dataSelection.profileSheet || '';
@@ -2933,6 +3192,7 @@ const ScriptHubPage = {
     renderDataSelectionBasket() {
         const pepList = document.getElementById('scriptHubPepSelectionList');
         const profileList = document.getElementById('scriptHubProfileSelectionList');
+        const transcriptomeList = document.getElementById('scriptHubTranscriptomeSelectionList');
         if (pepList) {
             pepList.innerHTML = this.dataSelection.pepPaths.length
                 ? this.dataSelection.pepPaths.map((item, index) => `
@@ -2982,6 +3242,28 @@ const ScriptHubPage = {
                 : '<div class="sh-selection-empty">尚未设置 Profile 文件</div>';
             document.getElementById('scriptHubLocateProfileBtn')?.addEventListener('click', () => this.locatePathInSourceTree(profilePath, 'file'));
             document.getElementById('scriptHubClearProfileBtn')?.addEventListener('click', () => this.clearSelectedProfile());
+        }
+
+        if (transcriptomeList) {
+            const transcriptomePath = this.selectedTranscriptomePath || this.dataSelection.transcriptomePath || '';
+            transcriptomeList.innerHTML = transcriptomePath
+                ? `<div class="sh-selected-row">
+                    <div title="${this.escapeHtml(transcriptomePath)}">
+                        <strong>${this.escapeHtml(this.getPathName(transcriptomePath) || transcriptomePath)}</strong>
+                        <span>${this.escapeHtml(transcriptomePath)}</span>
+                    </div>
+                    <div class="sh-selected-row-actions">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" id="scriptHubLocateTranscriptomeBtn" title="在左侧文件树定位">
+                            <i class="bi bi-crosshair"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" type="button" id="scriptHubClearTranscriptomeBtn" title="清除转录组表达矩阵">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>`
+                : '<div class="sh-selection-empty">尚未设置转录组表达矩阵</div>';
+            document.getElementById('scriptHubLocateTranscriptomeBtn')?.addEventListener('click', () => this.locatePathInSourceTree(transcriptomePath, 'file'));
+            document.getElementById('scriptHubClearTranscriptomeBtn')?.addEventListener('click', () => this.clearSelectedTranscriptome());
         }
     },
 
@@ -3225,12 +3507,14 @@ const ScriptHubPage = {
     _checkBothConfirmed() {
         const pep = this.selectedPepPaths[0] || document.getElementById('scriptHubBasePath')?.value?.trim() || '';
         const dp = this.selectedDatapointPath || document.getElementById('scriptHubDatapointPath')?.value?.trim() || '';
+        const transcriptome = this.selectedTranscriptomePath || this.dataSelection.transcriptomePath || '';
         const both = !!(pep && dp);
-        const any = !!(pep || dp);
+        const any = !!(pep || dp || transcriptome);
 
         // Enable the main confirm button if at least one is confirmed
         this.selectedDatapointPaths = dp ? [dp] : [];
         this.selectedDatapointPath = dp || '';
+        this.selectedTranscriptomePath = transcriptome || '';
 
         if (any) {
             this.evaluateAvailableModules(this.selectedPepPaths, this.selectedDatapointPaths);
@@ -3241,7 +3525,12 @@ const ScriptHubPage = {
             } else if (pep) {
                 this.showSourceFeedback('PEP 已确认；数据库比对/共享分析/TopClone 还需要 Profile 文件。', 'warning');
             } else {
-                this.showSourceFeedback('Profile 已确认（箱线图/UMAP/火山图/UMAPin 可用），数据库比对/共享分析/TopClone 还需要 PEP 目录。', 'warning');
+                this.showSourceFeedback(
+                    dp
+                        ? 'Profile 已确认（箱线图/UMAP 可用），数据库比对/共享分析/TopClone 还需要 PEP 目录。'
+                        : '转录组表达矩阵已确认（GO/KEGG、DEG 火山图可用）。',
+                    dp ? 'warning' : 'success'
+                );
             }
             this.scrollToStage('scriptHubDataConfirmBtn', 80);
         }
@@ -3288,6 +3577,9 @@ const ScriptHubPage = {
         }
         if (module === 'volcano') {
             return this.inspectVolcano(explicitBasePath, loadingText);
+        }
+        if (module === 'go-kegg-enrichment') {
+            return this.inspectGoKeggEnrichment(loadingText);
         }
         if (module === 'umapin') {
             return this.inspectUmapin(explicitBasePath, loadingText);
@@ -3626,6 +3918,21 @@ const ScriptHubPage = {
                     sampleSelect.value = sampleCandidate;
                 }
             }
+            const categorySelect = document.getElementById('scriptHubPgenCategoryCol');
+            if (categorySelect) {
+                const candidates = Array.isArray(data.distribution_category_candidates)
+                    ? data.distribution_category_candidates
+                    : (Array.isArray(data.profile_columns) ? data.profile_columns.filter(col => String(col).toLowerCase() !== 'sample') : []);
+                categorySelect.innerHTML = candidates.length
+                    ? candidates.map(col => `<option value="${this.escapeHtml(col)}">${this.escapeHtml(col)}</option>`).join('')
+                    : '<option value="">自动选择</option>';
+                const preferred = candidates.find(col => /^symptoms$/i.test(String(col)))
+                    || candidates.find(col => /^category$/i.test(String(col)))
+                    || candidates[0]
+                    || '';
+                if (preferred) categorySelect.value = preferred;
+            }
+            await this.updatePgenGroupPreview();
 
             const depBox = document.getElementById('scriptHubPgenDependency');
             if (depBox) {
@@ -3652,6 +3959,32 @@ const ScriptHubPage = {
     _getSelectedPgenChains() {
         const chips = document.querySelectorAll('#scriptHubPgenChains .sh-chip-selected[data-pgen-chain]');
         return Array.from(chips).map(c => c.dataset.pgenChain || '').filter(Boolean);
+    },
+
+    async updatePgenGroupPreview() {
+        const field = String(document.getElementById('scriptHubPgenCategoryCol')?.value || '').trim();
+        if (!field) {
+            this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', {}, {
+                message: '选择分布图分类列后展示组信息。',
+                hiddenWhenEmpty: true,
+            });
+            return;
+        }
+        const profilePath = document.getElementById('scriptHubPgenProfilePath')?.value?.trim()
+            || this._resolveProfilePath();
+        if (!profilePath) {
+            this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', {}, { message: '请先选择 Profile 文件。' });
+            return;
+        }
+        this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', {}, { loading: true });
+        try {
+            const groups = await this.loadGroupValues(profilePath, [field]);
+            this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', groups, {
+                emptyMessage: '未检测到可用组信息。',
+            });
+        } catch (error) {
+            this.renderGroupValuePreview('scriptHubPgenGroupValuesPreview', {}, { message: error.message || '读取组信息失败' });
+        }
     },
 
     async inspectUmap(loadingText = 'Scanning datapoint...') {
@@ -3844,6 +4177,54 @@ const ScriptHubPage = {
     // ---- Volcano inspection ----
     async inspectVolcano(explicitBasePath = '', loadingText = '扫描 VJ usage 数据...') {
         const projectId = this.getActiveProjectId();
+        const inputMode = document.getElementById('scriptHubVolcanoInputMode')?.value || 'usage';
+        if (inputMode === 'expression') {
+            const expressionPath = document.getElementById('scriptHubVolcanoExpressionPath')?.value?.trim()
+                || this._resolveTranscriptomePath()
+                || '';
+            if (!expressionPath) {
+                this.showSourceFeedback('请先选择表达矩阵 CSV/TSV/XLSX 文件。', 'warning');
+                return;
+            }
+            this.setUiState('inspecting');
+            this.showSourceFeedback('正在检测表达矩阵火山图输入...', 'secondary');
+            this.showLoading(loadingText || '检测表达矩阵...', '检测火山图');
+            try {
+                const response = await fetch('/api/script-hub/volcano/inspect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        input_mode: 'expression',
+                        expression_path: expressionPath,
+                        group_prefix: document.getElementById('scriptHubVolcanoGroupPrefix')?.value ?? 'tpm_',
+                        project_id: projectId || null,
+                    }),
+                });
+                const data = await response.json();
+                if (!data.success) throw new Error(data.message || '火山图检测失败');
+                this.inspectData = data;
+                this.result = null;
+                this.setUiState('inspected');
+                document.getElementById('scriptHubVolcanoExpressionPath').value = data.expression_path || expressionPath;
+                const comparisonBox = document.getElementById('scriptHubVolcanoComparisons');
+                if (comparisonBox && !comparisonBox.value.trim()) {
+                    comparisonBox.value = (data.suggested_comparisons || [])
+                        .map((item) => `${item.group1}_vs_${item.group2}`)
+                        .join('\n');
+                }
+                const groups = data.group_counts || {};
+                const groupText = Object.keys(groups).map((key) => `${key}:${groups[key]}`).join(', ');
+                this.showSourceFeedback(`表达矩阵火山图检测完成。${data.gene_count || 0} 个基因，分组：${groupText || '-'}`, 'success');
+                this.setInspectSummary(`表达矩阵: ${data.expression_path || expressionPath} — ${data.gene_count || 0} genes / ${data.sample_count || 0} samples`, 'success');
+            } catch (error) {
+                this.setUiState(this.inspectData ? 'inspected' : 'idle');
+                this.showError(error.message || '火山图检测失败');
+                this.showSourceFeedback(error.message || '火山图检测失败。', 'danger');
+            } finally {
+                this.hideLoading();
+            }
+            return;
+        }
         const dataDir = explicitBasePath
             || document.getElementById('scriptHubVolcanoDataDir')?.value?.trim()
             || '';
@@ -3873,6 +4254,58 @@ const ScriptHubPage = {
             this.setUiState(this.inspectData ? 'inspected' : 'idle');
             this.showError(error.message || '火山图检测失败');
             this.showSourceFeedback(error.message || '火山图检测失败。', 'danger');
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    // ---- GO / KEGG enrichment inspection ----
+    async inspectGoKeggEnrichment(loadingText = '检测表达矩阵...') {
+        const projectId = this.getActiveProjectId();
+        const expressionPath = document.getElementById('scriptHubEnrichmentExpressionPath')?.value?.trim()
+            || this._resolveTranscriptomePath()
+            || '';
+        if (!expressionPath) {
+            this.showSourceFeedback('请先选择表达矩阵 CSV/TSV/XLSX 文件。', 'warning');
+            return;
+        }
+        this.setUiState('inspecting');
+        this.showSourceFeedback('正在检测表达矩阵分组...', 'secondary');
+        this.showLoading(loadingText || '检测表达矩阵...', '检测 GO/KEGG');
+        try {
+            const response = await fetch('/api/script-hub/go-kegg-enrichment/inspect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: projectId || null,
+                    expression_path: expressionPath,
+                    group_prefix: document.getElementById('scriptHubEnrichmentGroupPrefix')?.value ?? 'tpm_',
+                }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'GO/KEGG 检测失败');
+            this.inspectData = data;
+            this.result = null;
+            this.setUiState('inspected');
+            document.getElementById('scriptHubEnrichmentExpressionPath').value = data.expression_path || expressionPath;
+            const comparisonBox = document.getElementById('scriptHubEnrichmentComparisons');
+            if (comparisonBox && !comparisonBox.value.trim()) {
+                comparisonBox.value = (data.suggested_comparisons || [])
+                    .map((item) => `${item.group1}_vs_${item.group2}`)
+                    .join('\n');
+            }
+            const groups = data.group_counts || {};
+            const groupText = Object.keys(groups).map((key) => `${key}:${groups[key]}`).join(', ');
+            document.getElementById('scriptHubColumnCount').textContent = data.sample_count || 0;
+            document.getElementById('scriptHubColumnChips').innerHTML = (data.groups || []).length
+                ? (data.groups || []).map((group) => `<span class="sh-chip">${this.escapeHtml(group)} (${this.escapeHtml(groups[group] ?? '')})</span>`).join('')
+                : '<span class="sh-chip">No groups detected</span>';
+            this.showSourceFeedback(`GO/KEGG 检测完成。${data.gene_count || 0} 个基因，分组：${groupText || '-'}`, 'success');
+            this.setInspectSummary(`表达矩阵: ${data.expression_path || expressionPath} — ${data.gene_count || 0} genes / ${data.sample_count || 0} samples`, 'success');
+        } catch (error) {
+            this.setUiState(this.inspectData ? 'inspected' : 'idle');
+            this.showError(error.message || 'GO/KEGG 检测失败');
+            this.showSourceFeedback(error.message || 'GO/KEGG 检测失败。', 'danger');
         } finally {
             this.hideLoading();
         }
@@ -3916,6 +4349,24 @@ const ScriptHubPage = {
             this.showSourceFeedback(error.message || 'UMAPin 检测失败。', 'danger');
         } finally {
             this.hideLoading();
+        }
+    },
+
+    syncVolcanoInputMode() {
+        const mode = document.getElementById('scriptHubVolcanoInputMode')?.value || 'usage';
+        const usageBlock = document.getElementById('scriptHubVolcanoUsageConfig');
+        const expressionBlock = document.getElementById('scriptHubVolcanoExpressionConfig');
+        const cachedSection = document.getElementById('scriptHubCachedUsageConfigSection');
+        if (usageBlock) usageBlock.style.display = mode === 'usage' ? '' : 'none';
+        if (expressionBlock) expressionBlock.style.display = mode === 'expression' ? '' : 'none';
+        if (cachedSection && this.activeModule === 'volcano') {
+            cachedSection.style.display = mode === 'usage' ? '' : 'none';
+        }
+        if (mode === 'expression') {
+            const expressionInput = document.getElementById('scriptHubVolcanoExpressionPath');
+            if (expressionInput && !expressionInput.value) {
+                expressionInput.value = this._resolveTranscriptomePath() || '';
+            }
         }
     },
 
@@ -4055,8 +4506,8 @@ const ScriptHubPage = {
             this.showSourceFeedback('请先选择 TRA CSV 文件。', 'warning');
             return;
         }
-        if (traSource === 'pep_analysis' && !sourceJobId) {
-            this.showSourceFeedback('请先选择 PEP 共享分析结果。', 'warning');
+        if (traSource === 'pep_analysis' && !sourceJobId && !this.getActiveProjectId()) {
+            this.showSourceFeedback('请先输入 PEP 共享分析 Job ID，或在项目中先运行 PEP 共享分析。', 'warning');
             return;
         }
 
@@ -4072,14 +4523,25 @@ const ScriptHubPage = {
                     tra_path: traPath,
                     source_job_id: sourceJobId,
                     profile_path: profilePath,
+                    project_id: this.getActiveProjectId() || null,
                 }),
             });
             const data = await response.json();
             if (!data.success) throw new Error(data.message || 'MAIT/NKT 检测失败');
 
             this.inspectData = data;
+            this._maitNktResolvedTraPath = data.resolved_tra_path || traPath || '';
+            this._maitNktResolvedSourceJobId = data.source_job_id || sourceJobId || '';
             this.result = null;
             this.setUiState('inspected');
+            if (data.resolved_tra_path) {
+                const traInput = document.getElementById('scriptHubMaitNktTraPath');
+                if (traInput) traInput.value = data.resolved_tra_path;
+            }
+            if (data.source_job_id) {
+                const jobInput = document.getElementById('scriptHubMaitNktSourceJobId');
+                if (jobInput && !jobInput.value) jobInput.value = data.source_job_id;
+            }
 
             // Populate group field selector from profile columns
             const profileGroups = data.profile_groups || {};
@@ -4210,6 +4672,26 @@ const ScriptHubPage = {
         return document.getElementById('scriptHubTcDatapointPath')?.value?.trim() || '';
     },
 
+    renderTopCloneChainChips(chains = [], selectedChains = null) {
+        const container = document.getElementById('scriptHubTcChains');
+        if (!container) return;
+        const available = Array.isArray(chains) ? chains.filter(Boolean) : [];
+        const selected = new Set(Array.isArray(selectedChains) ? selectedChains : available);
+        this._tcAvailableChains = available;
+        this._tcSelectedChains = available.filter(chain => selected.has(chain));
+        container.innerHTML = available.length
+            ? available.map((chain) => {
+                const isSelected = this._tcSelectedChains.includes(chain);
+                return `<span class="sh-chip sh-chip-selectable${isSelected ? ' sh-chip-selected' : ''}" data-tc-chain="${this.escapeHtml(chain)}" title="点击切换">${this.escapeHtml(chain)}</span>`;
+            }).join('')
+            : '<span class="sh-chip">No chains detected</span>';
+    },
+
+    _getSelectedTopCloneChains() {
+        const chips = document.querySelectorAll('#scriptHubTcChains .sh-chip-selected[data-tc-chain]');
+        return Array.from(chips).map(c => c.dataset.tcChain || '').filter(Boolean);
+    },
+
     async inspectTopClone(loadingText = 'Scanning pep_data...') {
         let pepDataPath = this._resolvePrimaryPepPath()
             || document.getElementById('scriptHubTcPepDataPath')?.value?.trim()
@@ -4261,6 +4743,7 @@ const ScriptHubPage = {
             document.getElementById('scriptHubColumnCount').textContent = data.chain_count || 0;
             document.getElementById('scriptHubColumnChips').innerHTML = (Array.isArray(data.chains) ? data.chains : [])
                 .map((c) => `<span class="sh-chip">${this.escapeHtml(c)}</span>`).join('');
+            this.renderTopCloneChainChips(data.chains || [], data.chains || []);
 
             const groupField = document.getElementById('scriptHubTcGroupField');
             if (groupField && Array.isArray(data.category_cols)) {
@@ -4525,13 +5008,53 @@ const ScriptHubPage = {
         }
 
         if (this.activeModule === 'volcano') {
+            const inputMode = document.getElementById('scriptHubVolcanoInputMode')?.value || 'usage';
+            if (inputMode === 'expression') {
+                const expressionPath = document.getElementById('scriptHubVolcanoExpressionPath')?.value?.trim()
+                    || this._resolveTranscriptomePath()
+                    || '';
+                if (!expressionPath || !this.inspectData) throw new Error('请先检测表达矩阵');
+                return {
+                    module: 'volcano',
+                    input_mode: 'expression',
+                    expression_path: expressionPath,
+                    project_id: projectId || null,
+                    group_prefix: document.getElementById('scriptHubVolcanoGroupPrefix')?.value ?? 'tpm_',
+                    comparisons: document.getElementById('scriptHubVolcanoComparisons')?.value?.trim() || '',
+                    logfc_cutoff: parseFloat(document.getElementById('scriptHubVolcanoLogFc')?.value || '1'),
+                    pvalue_threshold: parseFloat(document.getElementById('scriptHubVolcanoPvalueThreshold')?.value || '0.05'),
+                };
+            }
             const dataDir = document.getElementById('scriptHubVolcanoDataDir')?.value?.trim() || '';
             if (!dataDir && !projectId) throw new Error('请先检测数据目录');
             return {
                 module: 'volcano',
+                input_mode: 'usage',
                 data_dir: dataDir,
                 project_id: projectId || null,
                 pvalue_threshold: parseFloat(document.getElementById('scriptHubVolcanoPvalueThreshold')?.value || '0.05'),
+            };
+        }
+
+        if (this.activeModule === 'go-kegg-enrichment') {
+            const expressionPath = document.getElementById('scriptHubEnrichmentExpressionPath')?.value?.trim()
+                || this._resolveTranscriptomePath()
+                || '';
+            if (!expressionPath || !this.inspectData) throw new Error('请先检测表达矩阵');
+            return {
+                module: 'go-kegg-enrichment',
+                expression_path: expressionPath,
+                project_id: projectId || null,
+                group_prefix: document.getElementById('scriptHubEnrichmentGroupPrefix')?.value ?? 'tpm_',
+                comparisons: document.getElementById('scriptHubEnrichmentComparisons')?.value?.trim() || '',
+                logfc_cutoff: parseFloat(document.getElementById('scriptHubEnrichmentLogFc')?.value || '1'),
+                pvalue_threshold: parseFloat(document.getElementById('scriptHubEnrichmentPvalue')?.value || '0.05'),
+                enrich_pvalue_cutoff: parseFloat(document.getElementById('scriptHubEnrichmentPvalue')?.value || '0.05'),
+                p_adjust_method: document.getElementById('scriptHubEnrichmentPAdjustMethod')?.value || 'none',
+                show_category: parseInt(document.getElementById('scriptHubEnrichmentShowCategory')?.value || '20', 10),
+                simplify_go: document.getElementById('scriptHubEnrichmentSimplifyToggle')?.checked !== false,
+                do_gsea: document.getElementById('scriptHubEnrichmentGseaToggle')?.checked !== false,
+                output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
             };
         }
 
@@ -4628,6 +5151,7 @@ const ScriptHubPage = {
                 profile_path: profilePath,
                 selected_chains: chains,
                 sample_col: document.getElementById('scriptHubPgenSampleCol')?.value || 'sample',
+                distribution_category_col: document.getElementById('scriptHubPgenCategoryCol')?.value || '',
                 species: document.getElementById('scriptHubPgenSpecies')?.value || 'human',
                 output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
                 project_id: projectId || null,
@@ -4644,11 +5168,14 @@ const ScriptHubPage = {
             }
             const modeToggle = document.getElementById('scriptHubTcModeToggle');
             const mode = modeToggle?.checked ? 'per_sample' : 'trace';
+            const chains = this._getSelectedTopCloneChains();
+            if (!chains.length) throw new Error('请至少选择一条 TopClone 链');
             return {
                 module: 'topclone',
                 pep_data_path: pepDataPath,
                 datapoint_path: datapointPath,
                 mode: mode,
+                selected_chains: chains,
                 top_n: parseInt(document.getElementById('scriptHubTcTopN')?.value || '10', 10),
                 group_field: document.getElementById('scriptHubTcGroupField')?.value || null,
                 group_order: this._getGroupOrderFromChips() || null,
@@ -4690,14 +5217,18 @@ const ScriptHubPage = {
 
         if (this.activeModule === 'mait-nkt') {
             const traSource = document.getElementById('scriptHubMaitNktTraSource')?.value || 'upload';
-            const traPath = document.getElementById('scriptHubMaitNktTraPath')?.value?.trim() || '';
-            const sourceJobId = document.getElementById('scriptHubMaitNktSourceJobId')?.value?.trim() || '';
+            const traPath = this._maitNktResolvedTraPath
+                || document.getElementById('scriptHubMaitNktTraPath')?.value?.trim()
+                || '';
+            const sourceJobId = this._maitNktResolvedSourceJobId
+                || document.getElementById('scriptHubMaitNktSourceJobId')?.value?.trim()
+                || '';
             const profilePath = this._resolveProfilePath();
             const groupField = document.getElementById('scriptHubMaitNktGroupField')?.value || '';
             if (!profilePath || !groupField || !this.inspectData) {
                 throw new Error('请先检测 MAIT/NKT 输入');
             }
-            const groupOrder = this._getGroupOrderFromChips ? this._getGroupOrderFromChips() : '';
+            const groupOrder = document.getElementById('scriptHubBoxplotGroupOrder')?.value?.trim() || '';
             return {
                 module: 'mait-nkt',
                 tra_source: traSource,
@@ -4771,6 +5302,7 @@ const ScriptHubPage = {
         const samples = this.getSelectedChartSamplesPayload();
         const selectedChains = this.chartSelectedChains || [];
         const outputName = document.getElementById('scriptHubOutputName')?.value?.trim() || null;
+        const transcriptomePath = this._resolveTranscriptomePath({ includeProfileFallback: false });
 
         if (!selectedModules.length) throw new Error('请至少选择一个要生成的图表。');
         if (selectedChains.length === 0) throw new Error('请至少选择一条链。');
@@ -4786,6 +5318,7 @@ const ScriptHubPage = {
             selected_chains: selectedChains,
             mode: selectedModules.join(', '),
             sample_count: samples.length,
+            expression_path: transcriptomePath || '',
         });
         this.setUiState('running');
         this.showSourceFeedback(forceRerun ? '正在重新提交综合图表后台任务...' : '正在检查综合图表是否已有相同参数结果...', 'info');
@@ -4802,6 +5335,7 @@ const ScriptHubPage = {
                     samples,
                     selected_chains: selectedChains,
                     field_mapping: this.chartFieldMapping,
+                    transcriptome_path: transcriptomePath || null,
                     output_name: outputName,
                     force_rerun: Boolean(forceRerun),
                 },
@@ -5024,12 +5558,14 @@ const ScriptHubPage = {
             const isPgen = module === 'pgen-analysis';
             const isUmap = module === 'umap';
             const isVolcano = module === 'volcano';
+            const isGoKegg = module === 'go-kegg-enrichment';
             const isUmapinModule = module === 'umapin';
             const isProfile = module === 'profile';
             const isMl = module === 'ml-analysis';
             const isMaitNkt = module === 'mait-nkt';
             const endpoint = isUmapinModule ? '/api/script-hub/umapin/run'
                 : (isVolcano ? '/api/script-hub/volcano/run'
+                : (isGoKegg ? '/api/script-hub/go-kegg-enrichment/run'
                 : (isUmap ? '/api/script-hub/umap/run'
                 : (isTopClone ? '/api/script-hub/topclone/run'
                 : (isPep ? '/api/script-hub/pep-analysis/run'
@@ -5038,8 +5574,8 @@ const ScriptHubPage = {
                 : (isMaitNkt ? '/api/script-hub/mait-nkt/run'
                 : (isProfile ? '/api/script-hub/profile/run'
                 : (isBoxPlot ? '/api/script-hub/profile/run'
-                : '/api/script-hub/db-alignment/run')))))))));
-            const label = isUmapinModule ? 'UMAPin' : (isVolcano ? '火山图' : (isUmap ? 'UMAP' : (isTopClone ? 'TopClone' : (isPep ? 'PEP共享' : (isPgen ? 'Pgen' : (isMl ? '机器学习' : (isMaitNkt ? 'MAIT/NKT' : (isProfile ? 'Profile分析' : (isBoxPlot ? 'Profile' : '数据库比对')))))))));
+                : '/api/script-hub/db-alignment/run'))))))))));
+            const label = isUmapinModule ? 'UMAPin' : (isVolcano ? '火山图' : (isGoKegg ? 'GO/KEGG' : (isUmap ? 'UMAP' : (isTopClone ? 'TopClone' : (isPep ? 'PEP共享' : (isPgen ? 'Pgen' : (isMl ? '机器学习' : (isMaitNkt ? 'MAIT/NKT' : (isProfile ? 'Profile分析' : (isBoxPlot ? 'Profile' : '数据库比对'))))))))));
 
             if (!forceRerun) {
                 this.showSourceFeedback(`正在检查${label}是否已有相同参数结果...`, 'info');
@@ -5143,7 +5679,17 @@ const ScriptHubPage = {
             if (data.status === 'failed') {
                 this.stopTaskPolling(taskId);
                 if (this.selectedJobId === job?.job_id) this.hideLoading();
+                this.setUiState(this.inspectData ? 'inspected' : 'idle');
                 this.showSourceFeedback(data.detail || data.error || '分析任务失败。', 'danger');
+                this.showError(data.detail || data.error || '分析任务失败。');
+                return;
+            }
+
+            if (data.status === 'cancelled') {
+                this.stopTaskPolling(taskId);
+                if (this.selectedJobId === job?.job_id) this.hideLoading();
+                this.setUiState(this.inspectData ? 'inspected' : 'idle');
+                this.showSourceFeedback(data.detail || '任务已取消。', 'warning');
                 return;
             }
 
@@ -5223,6 +5769,7 @@ const ScriptHubPage = {
             'topclone': 'TopClone \u5206\u6790',
             'umap': 'UMAP \u964d\u7ef4\u5206\u6790',
             'volcano': '\u706b\u5c71\u56fe\u5206\u6790',
+            'go-kegg-enrichment': 'GO/KEGG \u5bcc\u96c6\u5206\u6790',
             'umapin': 'UMAPin \u964d\u7ef4',
             'ml-analysis': '\u673a\u5668\u5b66\u4e60\u5206\u6790',
             'pgen-analysis': 'Pgen \u5206\u6790',
@@ -5245,6 +5792,7 @@ const ScriptHubPage = {
         if (mod === 'topclone') return 'TopClone \u5206\u6790\u5b8c\u6210\u3002' + (result.png_urls?.length || 0) + ' \u5f20\u7bb1\u7ebf\u56fe\u3002';
         if (mod === 'umap') return 'UMAP \u5206\u6790\u5b8c\u6210\u3002' + (result.png_urls?.length || 0) + ' \u5f20\u56fe\u3002';
         if (mod === 'volcano') return '\u706b\u5c71\u56fe\u5206\u6790\u5b8c\u6210\u3002';
+        if (mod === 'go-kegg-enrichment') return 'GO/KEGG \u5bcc\u96c6\u5206\u6790\u5b8c\u6210\u3002' + (result.png_urls?.length || 0) + ' \u5f20\u56fe\uff0c' + (result.csv_urls?.length || 0) + ' \u4e2a CSV\u3002';
         if (mod === 'umapin') return 'UMAPin \u964d\u7ef4\u5b8c\u6210\u3002';
         if (mod === 'ml-analysis') return '\u673a\u5668\u5b66\u4e60\u5206\u6790\u5b8c\u6210\u3002\u5e73\u5747 CV accuracy: ' + (m.mean_cv_accuracy ?? '-');
         if (mod === 'mait-nkt') return 'MAIT/NKT \u5206\u6790\u5b8c\u6210\u3002' + (m.plot_count || 0) + ' \u5f20\u7bb1\u7ebf\u56fe\uff0c' + ((m.cdr3_types || []).join(', ')) + '\u3002';
@@ -5261,6 +5809,7 @@ const ScriptHubPage = {
         if (mod === 'topclone') return 'Mode: ' + (m.mode || 'trace') + ' | Chains: ' + ((m.chains || []).join(', '));
         if (mod === 'umap') return 'n_neighbors: ' + (m.n_neighbors || 6) + ' | min_dist: ' + (m.min_dist || 0.01);
         if (mod === 'volcano') return 'P\u503c\u9608\u503c: ' + (m.pvalue_threshold || 0.05) + ' | \u6587\u4ef6\u6570: ' + (m.file_count || 0);
+        if (mod === 'go-kegg-enrichment') return '\u8868\u8fbe\u77e9\u9635: ' + (this.getPathName(m.expression_path) || '-') + ' | \u6bd4\u8f83: ' + ((m.comparisons || []).length || 0);
         if (mod === 'umapin') return '\u5206\u7c7b\u5217: ' + (m.category_col || '-') + ' | FDR: ' + (m.do_fdr ? '\u662f' : '\u5426');
         if (mod === 'ml-analysis') return 'Mode: ' + (m.mode || '-') + ' | Label: ' + (m.label_col || '-') + ' | Selected features: ' + (m.selected_feature_number ?? '-');
         if (mod === 'mait-nkt') return '分组字段: ' + (m.group_field || '-') + ' | 检测类型: ' + ((m.cdr3_types || []).join(', '));

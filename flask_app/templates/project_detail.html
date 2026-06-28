@@ -369,6 +369,10 @@
                 <div class="summary-value" id="overviewDatapointCount">0</div>
                 <div class="summary-label">Profile</div>
               </div>
+              <div class="summary-item">
+                <div class="summary-value" id="overviewTranscriptomeCount">0</div>
+                <div class="summary-label">转录组</div>
+              </div>
             </div>
             <dl class="row">
               <dt class="col-sm-3">机构</dt>
@@ -501,6 +505,16 @@
           <p class="text-muted small mb-3">基于pep数据生成V/J图谱</p>
           <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="script-hub">
             <i class="bi bi-terminal me-1"></i>开始分析
+          </button>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="analysis-module">
+          <div class="analysis-module-icon"><i class="bi bi-diagram-2"></i></div>
+          <h6 class="text-primary">GO/KEGG DEG</h6>
+          <p class="text-muted small mb-3">基于转录组表达矩阵进行差异基因与富集分析</p>
+          <button class="btn btn-primary btn-sm quick-action-btn" data-analysis-launch="go-kegg-enrichment">
+            <i class="bi bi-diagram-2 me-1"></i>开始分析
           </button>
         </div>
       </div>
@@ -678,6 +692,7 @@
           <select class="form-select" id="assetTypeSelect">
             <option value="pep">pep 数据</option>
             <option value="profile">Profile 文件</option>
+            <option value="transcriptome">转录组表达矩阵</option>
             <option value="sample_summary">sample summary</option>
             <option value="raw_archive">raw archive / pipeline root</option>
           </select>

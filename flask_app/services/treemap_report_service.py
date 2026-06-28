@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PIL import Image
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.result_path_resolver import candidate_job_roots
 from flask_app.services.auto_heatmap_service import get_auto_heatmap_service
 from flask_app.services.treemap_plotter import build_treemap_layout, render_treemap_layout
 from flask_app.services.treemap_renderer import (
@@ -1457,10 +1458,10 @@ class TreemapReportService:
 
     def _resolve_job_root(self, job_id: str) -> Path:
         safe_job_id = self._sanitize_job_id(job_id)
-        job_root = (self.results_root / self._RESULT_DIR / safe_job_id).resolve()
-        if not job_root.exists() or not job_root.is_dir():
-            raise FileNotFoundError(f"Treemap result job not found: {job_id}")
-        return job_root
+        for job_root in candidate_job_roots(self.results_root, self._RESULT_DIR, safe_job_id):
+            if job_root.exists() and job_root.is_dir():
+                return job_root
+        raise FileNotFoundError(f"Treemap result job not found: {job_id}")
 
     def read_metadata(self, job_id: str) -> Dict[str, Any]:
         job_root = self._resolve_job_root(job_id)

@@ -7,7 +7,8 @@ clear enough for categorical contrast, but not dark or over-saturated.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List
+from pathlib import Path
+from typing import Dict, Iterable, List, Union
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -103,3 +104,24 @@ def soften_axes(ax, grid_axis: str = "y") -> None:
     for spine in ax.spines.values():
         spine.set_color(PALETTE["neutral_dark"])
         spine.set_linewidth(0.7)
+
+
+def save_publication_png(
+    fig,
+    output_path: Union[str, Path],
+    *,
+    dpi: int = 600,
+    bbox_inches: str = "tight",
+    facecolor: str = "white",
+    **kwargs,
+) -> None:
+    """Save a white-background, high-DPI PNG for Script Hub analysis figures."""
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(
+        path,
+        dpi=dpi,
+        bbox_inches=bbox_inches,
+        facecolor=facecolor,
+        **kwargs,
+    )

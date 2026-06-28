@@ -118,7 +118,7 @@ class MappingTemplate(db.Model):
     analysis_type = db.Column(db.String(50), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -418,6 +418,11 @@ class ProjectAsset(db.Model):
     size = db.Column(db.Integer, nullable=False, default=0)
     metadata_json = db.Column(db.JSON, nullable=True)
     uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('ix_project_assets_project_uploaded', 'project_id', 'uploaded_at'),
+        db.Index('ix_project_assets_project_type_uploaded', 'project_id', 'asset_type', 'uploaded_at'),
+    )
 
     project = db.relationship("Project", back_populates="assets")
 

@@ -7,11 +7,13 @@ Implements steps 2-7 of the Pep_260213 pipeline:
 
 from __future__ import annotations
 
+import csv
+import heapq
 import json
 import os
 import re
+import threading
 import zipfile
-from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import combinations
@@ -21,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -30,12 +33,17 @@ from flask_app.services.figure_style import (
     MUTED_BLUE_RED_CMAP,
     MUTED_DIVERGING_CMAP,
     apply_publication_style,
+    save_publication_png,
 )
 
 # Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
 
 apply_publication_style(font_size=9, axes_linewidth=0.85)
+_PLOT_LOCK = threading.Lock()
+REFERENCE_CATEGORY_ORDER = ["before", "after"]
+REFERENCE_STEP8_SECTION_CATEGORIES = [("T1DM__count", "T1DM unique")]
+PEP_MAX_ARRANGE_HEATMAP_ROWS = 3000
 
 def _try_read_csv(filepath, **kwargs):
     """Read CSV/TSV with encoding fallback."""
@@ -91,6 +99,45 @@ def _reference_numeric_sort_key(value: Any) -> List[float]:
     return [float(item) for item in numbers]
 
 
+def _reference_heatmap_column_order(columns: List[str]) -> List[str]:
+    ordered = list(columns)
+    for i in range(1, len(ordered)):
+        for k in range(0, len(ordered) - i):
+            numbers_pre = np.array(re.findall(r"[1-9]+\.?[0-9]*", ordered[k]), dtype=np.float16).tolist()
+            numbers_behind = np.array(re.findall(r"[1-9]+\.?[0-9]*", ordered[k + 1]), dtype=np.float16).tolist()
+            n1, n2 = len(numbers_pre), len(numbers_behind)
+            minlen = int(np.min(np.array([n1, n2]))) if max(n1, n2) else 0
+            maxlen_flag = n1 > minlen
+            for j in range(minlen):
+                if numbers_pre[j] != numbers_behind[j]:
+                    if numbers_pre[j] > numbers_behind[j]:
+                        ordered[k], ordered[k + 1] = ordered[k + 1], ordered[k]
+                    break
+                if j == minlen - 1 and maxlen_flag:
+                    ordered[k], ordered[k + 1] = ordered[k + 1], ordered[k]
+    return ordered
+
+
+def _reference_category_order(values: List[Any], preferred: Optional[List[str]] = None) -> List[str]:
+    categories = sorted([str(v) for v in values if str(v) not in {"", "0", "nan"}])
+    index_sorted = list(preferred or REFERENCE_CATEGORY_ORDER)
+    index_sorted.reverse()
+    if index_sorted:
+        for cate in index_sorted:
+            if cate in categories:
+                categories.remove(cate)
+                categories.insert(0, cate)
+    categories.reverse()
+    return categories
+
+
+def _reference_step8_cmap():
+    return LinearSegmentedColormap.from_list(
+        "nature_blue_yellow_red",
+        ["#235AA6", "#F3E8A3", "#CF2B24"],
+    )
+
+
 @dataclass
 class PepAnalysisReport:
     job_id: str
@@ -101,6 +148,7 @@ class PepAnalysisReport:
     heatmap_csv_paths: List[str]
     classification_paths: List[str]
     proportion_paths: List[str]
+    proportion_plot_paths: List[str]
     arrange_heatmap_paths: List[str]
     plot_heatmap_paths: List[str]
     zip_path: str
@@ -157,6 +205,10 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(pct, "Pep Analysis", msg, meta or {})
 
+        def _status(pct: float, msg: str, meta: Optional[Dict] = None):
+            if progress_callback:
+                progress_callback(pct, "Pep Analysis", msg, meta or {})
+
         # ---- Step 2: CDR3 sharing analysis (per chain, GROUP-INDEPENDENT) ----
         _progress("Step 2: Scanning pep files by chain", {"step": 2})
         chain_files: Dict[str, List[str]] = {chain: [] for chain in chains}
@@ -173,7 +225,46 @@ class PepAnalysisService:
             if not files:
                 continue
             _progress(f"Step 2: CDR3 sharing for {chain} ({len(files)} files)", {"step": 2, "chain": chain})
-            sh_paths, us_paths = self._run_cdr3_sharing(chain, files, output_base)
+
+            def _step2_progress(
+                processed: int,
+                total: int,
+                current_file: str,
+                chain_name: str = chain,
+                phase: str = "reading",
+                label: str = "",
+            ):
+                chain_index = chains.index(chain_name)
+                chain_span = 28.0 / max(len(chains), 1)
+                base_pct = 8.0 + chain_index * chain_span
+                pct = min(base_pct + chain_span * (processed / max(total, 1)), 36.0)
+                if phase != "reading":
+                    pct = min(base_pct + chain_span * 0.92 + chain_span * 0.08 * (processed / max(total, 1)), 36.0)
+                detail = (
+                    f"Step 2 [{chain_name}]: processed {processed}/{total} files"
+                    if phase == "reading"
+                    else f"Step 2 [{chain_name}]: {label or phase}"
+                )
+                _status(
+                    pct,
+                    detail,
+                    {
+                        "step": 2,
+                        "chain": chain_name,
+                        "phase": phase,
+                        "processed": processed,
+                        "total": total,
+                        "current_file": current_file,
+                        "label": label,
+                    },
+                )
+
+            sh_paths, us_paths = self._run_cdr3_sharing(
+                chain,
+                files,
+                output_base,
+                progress_callback=_step2_progress,
+            )
             shared_matrix_paths.extend(sh_paths)
             usage_paths.extend(us_paths)
 
@@ -189,6 +280,7 @@ class PepAnalysisService:
         heatmap_csv_paths: List[str] = []
         classification_paths: List[str] = []
         proportion_paths: List[str] = []
+        proportion_plot_paths: List[str] = []
         arrange_heatmap_paths: List[str] = []
         plot_heatmap_paths: List[str] = []
         all_optional_step_errors: List[Dict[str, Any]] = []
@@ -206,18 +298,28 @@ class PepAnalysisService:
             usage_cate_base = field_dir / "usage_cate" / "usage"
             usage_cate_base.mkdir(parents=True, exist_ok=True)
 
-            # ---- Steps 3+4: 并行执行 (mandatory) ----
-            _progress(f"Step 3+4 [{gf}]: Adding categories (parallel)", {"step": "3+4", "group_field": gf})
+            # ---- Steps 3+4: Add category annotations (mandatory) ----
+            _progress(f"Step 3+4 [{gf}]: Adding categories", {"step": "3+4", "group_field": gf})
 
             def _run_step3():
                 """Step 3: Add category to shared CDR3"""
-                for chain in chains:
+                existing = [chain for chain in chains if (shared_dir / f"{chain}.csv").exists()]
+                total = max(len(existing), 1)
+                for idx, chain in enumerate(existing, start=1):
                     src = shared_dir / f"{chain}.csv"
-                    if src.exists():
-                        self._add_cate_shared(src, pep_shared_cate_dir / f"{chain}.csv", profile_df, gf)
+                    _progress(
+                        f"Step 3 [{gf}]: annotating Pep_shared {idx}/{total} ({chain})",
+                        {"step": 3, "group_field": gf, "chain": chain, "processed": idx - 1, "total": total},
+                    )
+                    self._add_cate_shared(src, pep_shared_cate_dir / f"{chain}.csv", profile_df, gf)
+                    _progress(
+                        f"Step 3 [{gf}]: annotated Pep_shared {idx}/{total} ({chain})",
+                        {"step": 3, "group_field": gf, "chain": chain, "processed": idx, "total": total},
+                    )
 
             def _run_step4():
                 """Step 4: Add category to usage"""
+                tasks: List[Tuple[str, str, Path, Path]] = []
                 for usage_type in ["0Vusage", "1Vusage", "0Jusage", "1Jusage", "0VJusage", "1VJusage"]:
                     src_usage_dir = usage_dir / usage_type
                     dst_usage_dir = usage_cate_base / usage_type
@@ -226,7 +328,32 @@ class PepAnalysisService:
                         for chain in chains:
                             src = src_usage_dir / f"{chain}.csv"
                             if src.exists():
-                                self._add_cate_usage(src, dst_usage_dir / f"{chain}.csv", profile_df, gf)
+                                tasks.append((usage_type, chain, src, dst_usage_dir / f"{chain}.csv"))
+                total = max(len(tasks), 1)
+                for idx, (usage_type, chain, src, dst) in enumerate(tasks, start=1):
+                    _progress(
+                        f"Step 4 [{gf}]: annotating usage {idx}/{total} ({usage_type}/{chain})",
+                        {
+                            "step": 4,
+                            "group_field": gf,
+                            "usage_type": usage_type,
+                            "chain": chain,
+                            "processed": idx - 1,
+                            "total": total,
+                        },
+                    )
+                    self._add_cate_usage(src, dst, profile_df, gf)
+                    _progress(
+                        f"Step 4 [{gf}]: annotated usage {idx}/{total} ({usage_type}/{chain})",
+                        {
+                            "step": 4,
+                            "group_field": gf,
+                            "usage_type": usage_type,
+                            "chain": chain,
+                            "processed": idx,
+                            "total": total,
+                        },
+                    )
 
             # Run steps 3 and 4 in parallel
             with ThreadPoolExecutor(max_workers=2) as step34_executor:
@@ -313,9 +440,10 @@ class PepAnalysisService:
                 heatmap_image_paths.extend(h_imgs)
                 heatmap_csv_paths.extend(h_csvs)
             if 6 in optional_task_results:
-                arr_paths, prp_paths = optional_task_results[6]
+                arr_paths, prp_paths, prp_plot_paths = optional_task_results[6]
                 classification_paths.extend(arr_paths)
                 proportion_paths.extend(prp_paths)
+                proportion_plot_paths.extend(prp_plot_paths)
             if 7 in optional_task_results:
                 arrange_heatmap_paths.extend(optional_task_results[7])
             if 8 in optional_task_results:
@@ -329,23 +457,26 @@ class PepAnalysisService:
                         {"step": err["step"], "group_field": err["group_field"], "error": err["error"]},
                     )
 
-        # ---- Generate ZIP ----
-        zip_path = output_base / "pep_analysis_results.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for p in shared_matrix_paths + usage_paths + heatmap_image_paths + \
-                     heatmap_csv_paths + classification_paths + proportion_paths + \
-                     arrange_heatmap_paths + plot_heatmap_paths:
-                fp = Path(p)
-                if fp.exists():
-                    arcname = str(fp.relative_to(output_base))
-                    zf.write(fp, arcname)
-
         combined_source = (
             output_base / group_fields[0] / "usage_cate" / "usage" / "1VJusage"
             if group_fields else output_base / "usage" / "1VJusage"
         )
         df_vj_all_path = self._write_combined_usage(combined_source, output_base / "usage" / "df_VJ_all.csv")
         df_1vj_all_path = self._write_combined_usage(combined_source, output_base / "usage" / "df_1VJusage_all.csv")
+        for combined_path in (df_vj_all_path, df_1vj_all_path):
+            if combined_path and str(combined_path) not in usage_paths:
+                usage_paths.append(str(combined_path))
+
+        # ---- Generate ZIP ----
+        zip_path = output_base / "pep_analysis_results.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in shared_matrix_paths + usage_paths + heatmap_image_paths + \
+                     heatmap_csv_paths + classification_paths + proportion_paths + \
+                     proportion_plot_paths + arrange_heatmap_paths + plot_heatmap_paths:
+                fp = Path(p)
+                if fp.exists():
+                    arcname = str(fp.relative_to(output_base))
+                    zf.write(fp, arcname)
 
         metadata = {
             "job_id": job_id,
@@ -365,6 +496,7 @@ class PepAnalysisService:
                 "heatmap_csv": len(heatmap_csv_paths),
                 "classification": len(classification_paths),
                 "proportion": len(proportion_paths),
+                "proportion_plot": len(proportion_plot_paths),
                 "arrange_heatmap": len(arrange_heatmap_paths),
                 "plot_heatmap": len(plot_heatmap_paths),
             },
@@ -372,6 +504,25 @@ class PepAnalysisService:
             "chain_file_counts": {c: len(chain_files.get(c, [])) for c in chains},
             "df_vj_all_path": str(df_vj_all_path) if df_vj_all_path else "",
             "df_1vj_all_path": str(df_1vj_all_path) if df_1vj_all_path else "",
+            "intermediate_paths": {
+                "pep_shared_dir": str(output_base / "Pep_shared"),
+                "usage_dir": str(output_base / "usage"),
+                "group_dirs": {
+                    gf: {
+                        "pep_shared_cate_dir": str(output_base / gf / "Pep_shared_cate" / "Pep_shared"),
+                        "usage_cate_dir": str(output_base / gf / "usage_cate" / "usage"),
+                        "arrage_pep_dir": str(output_base / gf / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"),
+                        "prop_pep_dir": str(output_base / gf / "prop_pep" / "Pep_shared_cate" / "Pep_shared"),
+                    }
+                    for gf in group_fields
+                },
+                "tra_candidates": [
+                    str(path)
+                    for path in [output_base / "Pep_shared" / "TRA.csv"]
+                    + [output_base / gf / "Pep_shared_cate" / "Pep_shared" / "TRA.csv" for gf in group_fields]
+                    if path.exists()
+                ],
+            },
         }
         (output_base / "pep_analysis_metadata.json").write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -389,6 +540,7 @@ class PepAnalysisService:
             heatmap_csv_paths=heatmap_csv_paths,
             classification_paths=classification_paths,
             proportion_paths=proportion_paths,
+            proportion_plot_paths=proportion_plot_paths,
             arrange_heatmap_paths=arrange_heatmap_paths,
             plot_heatmap_paths=plot_heatmap_paths,
             zip_path=str(zip_path),
@@ -405,7 +557,7 @@ class PepAnalysisService:
         files = sorted(source_dir.glob("*.csv"))
         if not files:
             return None
-        df_all = pd.DataFrame(columns=["sample", "Category"])
+        normalized_frames: List[pd.DataFrame] = []
         for file_path in files:
             df = _try_read_csv(file_path, low_memory=False)
             if df.empty:
@@ -416,68 +568,149 @@ class PepAnalysisService:
             if "Category" not in df.columns:
                 df.insert(1, "Category", "")
             feature_cols = [col for col in df.columns if col not in ("sample", "Category")]
-            df = df[["sample", "Category"] + feature_cols]
-            df_all = pd.merge(df_all, df, how="outer", on=["sample", "Category"])
+            normalized_frames.append(df[["sample", "Category"] + feature_cols])
+        if not normalized_frames:
+            return None
+        try:
+            df_all = pd.concat(
+                [df.set_index(["sample", "Category"]) for df in normalized_frames],
+                axis=1,
+                join="outer",
+            ).reset_index()
+        except Exception:
+            df_all = pd.DataFrame(columns=["sample", "Category"])
+            for df in normalized_frames:
+                df_all = pd.merge(df_all, df, how="outer", on=["sample", "Category"])
         if df_all.shape[1] <= 2:
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df_all.fillna(0).to_csv(output_path, index=False, encoding="utf-8-sig")
         return output_path
 
-    def _run_cdr3_sharing(self, chain: str, file_paths: List[str], output_base: Path) -> Tuple[List[str], List[str]]:
-        df_all = pd.DataFrame(columns=["CDR3(pep)"])
-        df_gb_all_v = pd.DataFrame(columns=["V"])
-        df_n_all_v = pd.DataFrame(columns=["V"])
-        df_gb_all_j = pd.DataFrame(columns=["J"])
-        df_n_all_j = pd.DataFrame(columns=["J"])
-        df_gb_all_vj = pd.DataFrame(columns=["vj"])
-        df_n_all_vj = pd.DataFrame(columns=["vj"])
+    @staticmethod
+    def _write_sparse_feature_csv(
+        output_path: Path,
+        *,
+        first_column: str,
+        row_order: List[str],
+        column_maps: Dict[str, Dict[str, Any]],
+        transpose: bool,
+    ) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        sample_names = list(column_maps.keys())
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            if not transpose:
+                writer.writerow([first_column, *sample_names])
+                for feature in row_order:
+                    writer.writerow([feature, *[column_maps[sample].get(feature, "") for sample in sample_names]])
+                return
 
-        for file_path in file_paths:
-            param_col = os.path.basename(file_path)
+            writer.writerow([first_column, *row_order])
+            for sample_name, values in column_maps.items():
+                writer.writerow([sample_name, *[values.get(feature, "") for feature in row_order]])
+
+    def _run_cdr3_sharing(
+        self,
+        chain: str,
+        file_paths: List[str],
+        output_base: Path,
+        progress_callback=None,
+    ) -> Tuple[List[str], List[str]]:
+        shared_series: Dict[str, Dict[str, Any]] = {}
+        one_v_series: Dict[str, Dict[str, Any]] = {}
+        zero_v_series: Dict[str, Dict[str, Any]] = {}
+        one_j_series: Dict[str, Dict[str, Any]] = {}
+        zero_j_series: Dict[str, Dict[str, Any]] = {}
+        one_vj_series: Dict[str, Dict[str, Any]] = {}
+        zero_vj_series: Dict[str, Dict[str, Any]] = {}
+
+        shared_order: List[str] = []
+        v_order: List[str] = []
+        j_order: List[str] = []
+        vj_order: List[str] = []
+        shared_seen: set[str] = set()
+        v_seen: set[str] = set()
+        j_seen: set[str] = set()
+        vj_seen: set[str] = set()
+        seen_columns: Dict[str, int] = {}
+
+        def _sample_col(file_path: str) -> str:
+            base = os.path.basename(file_path)
+            count = seen_columns.get(base, 0)
+            seen_columns[base] = count + 1
+            if count == 0:
+                return base
+            stem, suffix = os.path.splitext(base)
+            return f"{stem}_{count}{suffix}"
+
+        def _extend_order(order: List[str], existing: set[str], values: Any) -> None:
+            for value in values:
+                key = str(value)
+                if key not in existing:
+                    order.append(key)
+                    existing.add(key)
+
+        total_files = len(file_paths)
+        progress_interval = max(1, total_files // 80)
+
+        for idx, file_path in enumerate(file_paths, start=1):
+            param_col = _sample_col(file_path)
             try:
-                df = _try_read_csv(file_path, usecols=["CDR3(pep)", "V", "J", "copy"])
+                df = _try_read_csv(
+                    file_path,
+                    usecols=["CDR3(pep)", "V", "J", "copy"],
+                    dtype={"CDR3(pep)": str, "V": str, "J": str},
+                )
             except Exception:
+                if progress_callback and (idx == total_files or idx % progress_interval == 0):
+                    progress_callback(idx, total_files, os.path.basename(file_path))
                 continue
             if df.empty:
+                if progress_callback and (idx == total_files or idx % progress_interval == 0):
+                    progress_callback(idx, total_files, os.path.basename(file_path))
                 continue
 
-            type_dict = {"CDR3(pep)": str, "V": str, "J": str, "copy": np.int32}
-            df = df.astype(type_dict)
+            df["CDR3(pep)"] = df["CDR3(pep)"].fillna("nan").astype(str)
+            df["V"] = df["V"].fillna("nan").astype(str)
+            df["J"] = df["J"].fillna("nan").astype(str)
+            df["copy"] = pd.to_numeric(df["copy"], errors="coerce").fillna(0).astype(np.int64)
 
-            df_gb = df[["V", "copy"]].groupby("V").sum()
-            df_gb["copy"] = df_gb["copy"] / df_gb["copy"].sum()
-            df_gb.rename(columns={"copy": param_col}, inplace=True)
-            df_gb_all_v = pd.merge(df_gb_all_v, df_gb, how="outer", on="V")
+            copy_total = float(df["copy"].sum())
+            if copy_total <= 0:
+                copy_total = 1.0
 
-            se_n = df["V"].value_counts(normalize=True)
-            df_n = pd.DataFrame(data={"V": se_n.index, param_col: se_n.values})
-            df_n_all_v = pd.merge(df_n_all_v, df_n, how="outer", on="V")
+            shared = df.groupby("CDR3(pep)", sort=False)["copy"].sum()
+            _extend_order(shared_order, shared_seen, shared.index.tolist())
+            shared_series[param_col] = shared.to_dict()
 
-            df_gb_j = df[["J", "copy"]].groupby("J").sum()
-            df_gb_j["copy"] = df_gb_j["copy"] / df_gb_j["copy"].sum()
-            df_gb_j.rename(columns={"copy": param_col}, inplace=True)
-            df_gb_all_j = pd.merge(df_gb_all_j, df_gb_j, how="outer", on="J")
+            gb_v = df.groupby("V", sort=False)["copy"].sum() / copy_total
+            _extend_order(v_order, v_seen, gb_v.index.tolist())
+            one_v_series[param_col] = gb_v.to_dict()
 
-            se_n_j = df["J"].value_counts(normalize=True)
-            df_n_j = pd.DataFrame(data={"J": se_n_j.index, param_col: se_n_j.values})
-            df_n_all_j = pd.merge(df_n_all_j, df_n_j, how="outer", on="J")
+            n_v = df["V"].value_counts(normalize=True, sort=False)
+            _extend_order(v_order, v_seen, n_v.index.tolist())
+            zero_v_series[param_col] = n_v.to_dict()
 
-            se_vjcombin = df["V"] + ";" + df["J"]
-            se_copy = df["copy"]
-            df_vj_combine = pd.DataFrame({"vj": se_vjcombin.tolist(), "copy": se_copy.tolist()})
-            df_gb_vj = df_vj_combine[["vj", "copy"]].groupby("vj").sum()
-            df_gb_vj["copy"] = df_gb_vj["copy"] / df_gb_vj["copy"].sum()
-            df_gb_vj.rename(columns={"copy": param_col}, inplace=True)
-            df_gb_all_vj = pd.merge(df_gb_all_vj, df_gb_vj, how="outer", on="vj")
+            gb_j = df.groupby("J", sort=False)["copy"].sum() / copy_total
+            _extend_order(j_order, j_seen, gb_j.index.tolist())
+            one_j_series[param_col] = gb_j.to_dict()
 
-            se_n_vj = df_vj_combine["vj"].value_counts(normalize=True)
-            df_n_vj = pd.DataFrame(data={"vj": se_n_vj.index, param_col: se_n_vj.values})
-            df_n_all_vj = pd.merge(df_n_all_vj, df_n_vj, how="outer", on="vj")
+            n_j = df["J"].value_counts(normalize=True, sort=False)
+            _extend_order(j_order, j_seen, n_j.index.tolist())
+            zero_j_series[param_col] = n_j.to_dict()
 
-            df.rename(columns={"copy": param_col}, inplace=True)
-            concat_df = df[["CDR3(pep)", param_col]].groupby("CDR3(pep)").sum()
-            df_all = pd.merge(df_all, concat_df, how="outer", on="CDR3(pep)")
+            vj = df["V"] + ";" + df["J"]
+            gb_vj = df["copy"].groupby(vj, sort=False).sum() / copy_total
+            _extend_order(vj_order, vj_seen, gb_vj.index.tolist())
+            one_vj_series[param_col] = gb_vj.to_dict()
+
+            n_vj = vj.value_counts(normalize=True, sort=False)
+            _extend_order(vj_order, vj_seen, n_vj.index.tolist())
+            zero_vj_series[param_col] = n_vj.to_dict()
+
+            if progress_callback and (idx == total_files or idx % progress_interval == 0):
+                progress_callback(idx, total_files, os.path.basename(file_path))
 
         shared_paths: List[str] = []
         usage_paths: List[str] = []
@@ -486,26 +719,46 @@ class PepAnalysisService:
         shared_dir = output_base / "Pep_shared"
         shared_dir.mkdir(parents=True, exist_ok=True)
         shared_csv = shared_dir / f"{chain}.csv"
-        df_all.to_csv(shared_csv, index=False)
+        if progress_callback:
+            progress_callback(total_files, total_files, shared_csv.name, phase="assembling", label="assembling Pep_shared matrix")
+        if progress_callback:
+            progress_callback(total_files, total_files, shared_csv.name, phase="writing_shared", label=f"writing Pep_shared/{chain}.csv")
+        self._write_sparse_feature_csv(
+            shared_csv,
+            first_column="CDR3(pep)",
+            row_order=shared_order,
+            column_maps=shared_series,
+            transpose=False,
+        )
         shared_paths.append(str(shared_csv))
 
-        # Save usage matrices
-        usage_mappings = [
-            (df_gb_all_v, "1Vusage"),
-            (df_gb_all_j, "1Jusage"),
-            (df_n_all_v, "0Vusage"),
-            (df_n_all_j, "0Jusage"),
-            (df_n_all_vj, "0VJusage"),
-            (df_gb_all_vj, "1VJusage"),
+        usage_mappings: List[Tuple[Dict[str, Dict[str, Any]], str, List[str]]] = [
+            (one_v_series, "1Vusage", v_order),
+            (one_j_series, "1Jusage", j_order),
+            (zero_v_series, "0Vusage", v_order),
+            (zero_j_series, "0Jusage", j_order),
+            (zero_vj_series, "0VJusage", vj_order),
+            (one_vj_series, "1VJusage", vj_order),
         ]
-        for df_u, usage_type in usage_mappings:
+        for series_map, usage_type, feature_order in usage_mappings:
             usage_dir = output_base / "usage" / usage_type
             usage_dir.mkdir(parents=True, exist_ok=True)
-            idx_col = df_u.columns[0]
-            df_u.index = df_u[idx_col].tolist()
-            df_u_t = df_u.drop(columns=idx_col).T
             csv_path = usage_dir / f"{chain}.csv"
-            df_u_t.to_csv(csv_path, index=True)
+            if progress_callback:
+                progress_callback(
+                    total_files,
+                    total_files,
+                    csv_path.name,
+                    phase="writing_usage",
+                    label=f"writing usage/{usage_type}/{chain}.csv",
+                )
+            self._write_sparse_feature_csv(
+                csv_path,
+                first_column="",
+                row_order=feature_order,
+                column_maps=series_map,
+                transpose=True,
+            )
             usage_paths.append(str(csv_path))
 
         return shared_paths, usage_paths
@@ -515,26 +768,44 @@ class PepAnalysisService:
     # ============================================================
     @staticmethod
     def _add_cate_shared(src: Path, dst: Path, profile_df: pd.DataFrame, group_field: str) -> None:
-        pep_df = _try_read_csv(src)
-        cate_dict: Dict[str, list] = {"CDR3(pep)": ["category"]}
+        header_df = _try_read_csv(src, nrows=0)
+        source_columns = list(header_df.columns)
+        if not source_columns:
+            return
         sample_col = profile_df.columns[0]
+        group_map = {
+            str(sample): value
+            for sample, value in profile_df.set_index(sample_col)[group_field].to_dict().items()
+        }
 
-        for pep_name in pep_df.columns[1:]:
+        cate_values: Dict[str, str] = {}
+        for pep_name in source_columns[1:]:
             parts = pep_name.split("__")
             samplename = "__".join(parts[:-1]) if len(parts) > 1 else pep_name
-            match = profile_df[profile_df[sample_col] == samplename]
-            if not match.empty:
-                val = match[group_field].values[0]
-                cate_dict[pep_name] = [str(val) if pd.notna(val) else "nan"]
+            if samplename in group_map:
+                val = group_map[samplename]
+                category = str(val) if pd.notna(val) else "nan"
+                if category != "nan":
+                    cate_values[pep_name] = category
 
-        remove_keys = [k for k, v in cate_dict.items() if v and v[0] == "nan"]
-        for k in remove_keys:
-            cate_dict.pop(k)
+        categories = _reference_category_order(list(dict.fromkeys(cate_values.values())))
+        categories_dict: Dict[str, List[str]] = {}
+        for col, category in cate_values.items():
+            categories_dict.setdefault(category, []).append(col)
+        ordered_sample_columns: List[str] = []
+        for category in categories:
+            for col in categories_dict.get(category, []):
+                ordered_sample_columns.insert(0, col)
+        ordered_columns = ["CDR3(pep)", *ordered_sample_columns]
 
-        cate_df = pd.DataFrame(cate_dict)
-        pep_df = pd.concat([cate_df, pep_df[list(cate_dict.keys())]])
         dst.parent.mkdir(parents=True, exist_ok=True)
-        pep_df.to_csv(dst, index=False)
+        with dst.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(ordered_columns)
+            writer.writerow(["category", *[cate_values[col] for col in ordered_sample_columns]])
+            chunks = _try_read_csv(src, usecols=ordered_columns, chunksize=100_000, low_memory=False)
+            for chunk in chunks:
+                chunk.loc[:, ordered_columns].to_csv(handle, index=False, header=False)
 
     # ============================================================
     # Step 4: Add categories to usage matrices
@@ -544,30 +815,25 @@ class PepAnalysisService:
         df = _try_read_csv(src)
         sample_col = profile_df.columns[0]
         index_col = df.columns[0]
-        vj_cate: List[str] = []
-        use_file: List[str] = []
+        group_map = {
+            str(sample): value
+            for sample, value in profile_df.set_index(sample_col)[group_field].to_dict().items()
+        }
 
-        for name_vj in df[index_col]:
-            parts = str(name_vj).split("__")
-            samplename = "__".join(parts[:-1]) if len(parts) > 1 else str(name_vj)
-            match = profile_df[profile_df[sample_col] == samplename]
-            if not match.empty:
-                use_file.append(str(name_vj))
-                val = match[group_field].values[0]
-                vj_cate.append(str(val) if pd.notna(val) else "nan")
+        sample_names = df[index_col].astype(str).map(
+            lambda name: "__".join(name.split("__")[:-1]) if "__" in name else name
+        )
+        categories = sample_names.map(group_map)
+        clean_cate = categories.map(lambda value: str(value) if pd.notna(value) else "nan")
+        mask = clean_cate.ne("nan")
 
-        clean_cate = []
-        clean_files = []
-        for item, fname in zip(vj_cate, use_file):
-            if item != "nan":
-                clean_cate.append(item)
-                clean_files.append(fname)
-
-        df_s = df[df[index_col].isin(clean_files)]
+        df_s = df.loc[mask].copy()
+        clean_cate = clean_cate.loc[mask].tolist()
         df_s.insert(loc=1, column="Category", value=clean_cate)
-        unique_cates = sorted(set(clean_cate))
-        df_s["Category"] = pd.Categorical(df_s["Category"], categories=unique_cates, ordered=True)
-        df_s = df_s.sort_values(by=["Category"])
+        category_order = [item for item in REFERENCE_CATEGORY_ORDER if item in set(clean_cate)]
+        category_order.extend(sorted(str(item) for item in set(clean_cate) if str(item) not in category_order))
+        df_s["Category"] = pd.Categorical(df_s["Category"], categories=category_order, ordered=True)
+        df_s.sort_values(by=["Category"], ascending=True, inplace=True)
         df_s.rename(columns={df_s.columns[0]: "sample"}, inplace=True)
         dst.parent.mkdir(parents=True, exist_ok=True)
         df_s.to_csv(dst, index=False)
@@ -578,124 +844,120 @@ class PepAnalysisService:
     @staticmethod
     def _run_heatmap(src: Path, output_dir: Path, pvalue_threshold: float) -> Tuple[List[str], List[str]]:
         output_dir.mkdir(parents=True, exist_ok=True)
-        df = _try_read_csv(src)
-        df.fillna(0, inplace=True)
+        df = _try_read_csv(src, low_memory=False)
 
-        category_col = "Category"
-        if category_col not in df.columns:
+        if df.shape[1] < 3:
             return [], []
 
-        data_split_point = df.columns.get_loc(category_col) + 1
-        class_dict: Dict[str, list] = {}
-        for col_name in df.columns[1:data_split_point]:
-            col_types = sorted(df[col_name].dropna().unique().tolist())
-            class_dict[col_name] = [t for t in col_types if t != 0]
+        data_split_point = 2
+        category_col = df.columns[1]
+        feature_cols = df.columns[data_split_point:].tolist()
+        if not feature_cols:
+            return [], []
 
-        p_value_all: Dict[str, list] = {}
-        for colname, itemlist in class_dict.items():
-            itemlist = sorted(itemlist)
-            p_value_all[colname] = []
-            for cb in list(combinations(itemlist, 2)):
-                for param_col in df.columns[data_split_point:]:
-                    try:
-                        g_a = df[df[colname] == cb[0]][param_col].dropna()
-                        g_b = df[df[colname] == cb[1]][param_col].dropna()
-                        if len(g_a) == 0 or len(g_b) == 0:
-                            continue
-                        pvalue = mannwhitneyu(g_a, g_b, alternative="two-sided").pvalue
-                        p_value_all[colname].append((cb[0], cb[1], param_col, pvalue))
-                    except Exception:
-                        continue
+        category_series = df[category_col].astype(str)
+        itemlist = sorted([
+            item for item in category_series.dropna().unique().tolist()
+            if item not in {"", "0", "nan"}
+        ])
 
-        heatmap_columns = sorted(list(df.columns[data_split_point:]), key=_reference_numeric_sort_key)
+        numeric_df = df.loc[:, feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).astype(np.float32)
+        heatmap_columns = _reference_heatmap_column_order(feature_cols)
         threash_hold_s = pvalue_threshold / 10.0
         threash_hold_p = pvalue_threshold
 
         image_paths: List[str] = []
         csv_paths: List[str] = []
+        rows: List[np.ndarray] = []
+        row_names: List[str] = []
+        csv_dir = output_dir / "csv_file"
+        csv_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = csv_dir / f"{category_col}.csv"
 
-        for category, p_list in p_value_all.items():
-            pre_mapdict: Dict[str, list] = {"category": []}
-            for col in heatmap_columns:
-                pre_mapdict[col] = []
+        if len(itemlist) < 2:
+            pd.DataFrame(columns=heatmap_columns).to_csv(csv_path)
+            return [], [str(csv_path)]
 
-            for pair in p_list:
-                category_vs = f"{pair[0]} vs. {pair[1]}"
-                if category_vs not in pre_mapdict["category"]:
-                    pre_mapdict["category"].append(category_vs)
-                if pair[3] > threash_hold_p:
-                    pre_mapdict[pair[2]].append(0)
-                    continue
-                arr1_avg = np.mean(df[df[category] == pair[0]][pair[2]].values.astype(np.float64))
-                arr2_avg = np.mean(df[df[category] == pair[1]][pair[2]].values.astype(np.float64))
-                if arr1_avg > arr2_avg:
-                    if pair[3] < threash_hold_s:
-                        pre_mapdict[pair[2]].append(10)
-                    else:
-                        pre_mapdict[pair[2]].append(5)
+        values_cache = {
+            item: numeric_df.loc[category_series == item].to_numpy(dtype=np.float32, copy=False)
+            for item in itemlist
+        }
+        for group_a, group_b in combinations(itemlist, 2):
+            arr_a = values_cache.get(group_a)
+            arr_b = values_cache.get(group_b)
+            if arr_a is None or arr_b is None or arr_a.size == 0 or arr_b.size == 0:
+                continue
+            try:
+                pvalues = mannwhitneyu(arr_a, arr_b, alternative="two-sided", axis=0).pvalue
+            except Exception:
+                pvalues = np.array([
+                    mannwhitneyu(arr_a[:, idx], arr_b[:, idx], alternative="two-sided").pvalue
+                    for idx in range(len(feature_cols))
+                ])
+            mean_a = np.nanmean(arr_a, axis=0)
+            mean_b = np.nanmean(arr_b, axis=0)
+            row = np.zeros(len(feature_cols), dtype=np.int8)
+            valid = pvalues <= threash_hold_p
+            stronger = pvalues < threash_hold_s
+            direction = np.where(mean_a > mean_b, 1, -1)
+            row[valid] = np.where(stronger[valid], 10, 5) * direction[valid]
+            rows.append(row)
+            row_names.append(f"{group_a} vs. {group_b}")
+
+        if not rows:
+            pd.DataFrame(columns=heatmap_columns).to_csv(csv_path)
+            return [], [str(csv_path)]
+
+        pre_df = pd.DataFrame(np.vstack(rows), index=row_names, columns=feature_cols)
+        pre_df = pre_df.loc[:, heatmap_columns]
+
+        heat_y = pre_df.shape[0]
+        heat_x = pre_df.shape[1]
+
+        pre_df.to_csv(csv_path)
+        csv_paths.append(str(csv_path))
+
+        if heat_y <= 0 or heat_x <= 0:
+            return image_paths, csv_paths
+
+        if heat_x > 30:
+            num_split = heat_x // 30 + 1
+            for i in range(num_split):
+                if i == num_split - 1:
+                    iso_df = pre_df[pre_df.columns[i * 30:]]
                 else:
-                    if pair[3] < threash_hold_s:
-                        pre_mapdict[pair[2]].append(-10)
-                    else:
-                        pre_mapdict[pair[2]].append(-5)
-
-            # Pad all columns to same length
-            max_len = max(len(v) for v in pre_mapdict.values())
-            for col in pre_mapdict:
-                if len(pre_mapdict[col]) < max_len:
-                    pre_mapdict[col].extend([0] * (max_len - len(pre_mapdict[col])))
-
-            pre_df = pd.DataFrame(pre_mapdict)
-            pre_df.index = pre_df["category"]
-            pre_df.drop(columns=["category"], inplace=True)
-
-            heat_y = pre_df.shape[0]
-            heat_x = pre_df.shape[1]
-
-            if heat_x > 30:
-                num_split = heat_x // 30 + 1
-                for i in range(num_split):
-                    if i == num_split - 1:
-                        iso_df = pre_df[pre_df.columns[i * 30:]]
-                    else:
-                        iso_df = pre_df[pre_df.columns[i * 30:(i + 1) * 30]]
-                    pre_x = len(iso_df.columns)
-                    plt.subplots(figsize=(max(pre_x, 1), max(heat_y, 1)), dpi=120)
-                    sns.heatmap(iso_df, cbar=False, linewidths=0.5, square=True,
-                                cmap=MUTED_DIVERGING_CMAP, vmax=10, vmin=-10)
-                    plt.ylim(0, heat_y)
-                    plt.xlim(0, pre_x)
-                    plt.yticks(rotation=0)
-                    ax = plt.gca()
-                    for spine in ax.spines.values():
-                        spine.set_visible(True)
-                    jpg_path = output_dir / f"{category}_{i}.jpg"
-                    plt.savefig(jpg_path, bbox_inches="tight")
-                    plt.clf()
-                    plt.close("all")
-                    image_paths.append(str(jpg_path))
-            else:
-                pre_x = len(pre_df.columns)
-                plt.subplots(figsize=(max(pre_x, 1), max(heat_y, 1)), dpi=120)
-                sns.heatmap(pre_df, cbar=False, linewidths=0.5, square=True,
-                            cmap=MUTED_DIVERGING_CMAP, vmax=10, vmin=-10)
+                    iso_df = pre_df[pre_df.columns[i * 30:(i + 1) * 30]]
+                pre_x = len(iso_df.columns)
+                plt.subplots(figsize=(pre_x, heat_y), dpi=120)
+                sns.heatmap(iso_df, cbar=False, linewidths=0.5, square=True,
+                            cmap="coolwarm", vmax=10, vmin=-10)
                 plt.ylim(0, heat_y)
                 plt.xlim(0, pre_x)
                 plt.yticks(rotation=0)
                 ax = plt.gca()
                 for spine in ax.spines.values():
                     spine.set_visible(True)
-                jpg_path = output_dir / f"{category}.jpg"
-                plt.savefig(jpg_path, bbox_inches="tight")
+                png_path = output_dir / f"{category_col}_{i}.png"
+                save_publication_png(plt.gcf(), png_path)
                 plt.clf()
                 plt.close("all")
-                image_paths.append(str(jpg_path))
-
-            csv_dir = output_dir / "csv_file"
-            csv_dir.mkdir(parents=True, exist_ok=True)
-            csv_path = csv_dir / f"{category}.csv"
-            pre_df.to_csv(csv_path)
-            csv_paths.append(str(csv_path))
+                image_paths.append(str(png_path))
+        else:
+            pre_x = len(pre_df.columns)
+            plt.subplots(figsize=(pre_x, heat_y), dpi=120)
+            sns.heatmap(pre_df, cbar=False, linewidths=0.5, square=True,
+                        cmap="coolwarm", vmax=10, vmin=-10)
+            plt.ylim(0, heat_y)
+            plt.xlim(0, pre_x)
+            plt.yticks(rotation=0)
+            ax = plt.gca()
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+            png_path = output_dir / f"{category_col}.png"
+            save_publication_png(plt.gcf(), png_path)
+            plt.clf()
+            plt.close("all")
+            image_paths.append(str(png_path))
 
         return image_paths, csv_paths
 
@@ -706,32 +968,39 @@ class PepAnalysisService:
     def _run_classification(src: Path, arr_dst: Path, prop_dst: Path,
                             min_sample_threshold: int) -> Tuple[Optional[str], Optional[str]]:
         df = _try_read_csv(src, low_memory=False)
-        df.fillna(0, inplace=True)
         if df.shape[0] <= 1:
             return None, None
 
         category_dict: Dict[str, list] = {}
         for cate, idname in zip(df.iloc[0].tolist()[1:], df.iloc[0].index[1:].tolist()):
+            if str(cate).strip() == " ":
+                break
             category_dict.setdefault(str(cate), []).append(idname)
 
-        df_nocate = df.drop(labels=0, axis=0)
+        if not category_dict:
+            return None, None
+
+        df_nocate = df.iloc[1:].copy()
         count_name_list: List[str] = []
+        aggregate_data: Dict[str, np.ndarray] = {}
         for cate, idnames in category_dict.items():
-            ca = np.array(df_nocate[idnames].values, dtype=np.float32).astype(np.int32)
-            df[f"{cate}__sum"] = [" "] + ca.sum(axis=1).tolist()
-            ca[ca >= 1] = 1
-            df[f"{cate}__count"] = [" "] + ca.sum(axis=1).tolist()
+            ca = df_nocate.loc[:, idnames].apply(pd.to_numeric, errors="coerce").fillna(0).to_numpy(dtype=np.float32)
+            sum_values = ca.sum(axis=1).astype(np.int32)
+            aggregate_data[f"{cate}__sum"] = sum_values
+            ca = (ca >= 1).astype(np.int8)
+            count_values = ca.sum(axis=1).astype(np.int16)
+            aggregate_data[f"{cate}__count"] = count_values
+            count_name_list.append(f"{cate}__count")
 
-        for column in df.columns.tolist():
-            if "count" in str(column).lower():
-                count_name_list.append(column)
+        for column, values in aggregate_data.items():
+            df_nocate[column] = values
+        all_num = np.sum(
+            np.column_stack([aggregate_data[column] for column in count_name_list]),
+            axis=1,
+        ).astype(np.int16)
+        df_nocate["all_num"] = all_num
 
-        all_num = np.sum(np.array(df[count_name_list].iloc[1:].values, dtype=np.float32).astype(np.int32), axis=1).tolist()
-        all_num.insert(0, " ")
-        df["all_num"] = all_num
-
-        df_sort = df.iloc[1:].sort_values(by="all_num", ascending=False)
-        df_sort = df_sort[df_sort["all_num"] > min_sample_threshold]
+        df_sort = df_nocate[df_nocate["all_num"] > min_sample_threshold].sort_values(by="all_num", ascending=False)
 
         cb_list: list = []
         for i in range(2, len(count_name_list) + 1):
@@ -739,37 +1008,48 @@ class PepAnalysisService:
         cb_list = count_name_list + cb_list
 
         proportion_dict: Dict[Any, int] = {}
-        df_t = pd.DataFrame(columns=df_sort.columns)
-        category_list: list = []
+        selected_frames: List[pd.DataFrame] = []
+        category_list: List[str] = []
+        count_matrix = df_sort.loc[:, count_name_list].to_numpy(dtype=np.int16, copy=False) if not df_sort.empty else np.empty((0, len(count_name_list)))
+        positive_matrix = count_matrix != 0
+        count_index = {name: idx for idx, name in enumerate(count_name_list)}
 
         for cb in cb_list:
-            other_list = deepcopy(count_name_list)
             if isinstance(cb, str):
-                other_list.remove(cb)
-                df_m = df_sort[df_sort[cb] != 0]
-                for remove_type in other_list:
-                    df_m = df_m[df_m[remove_type] == 0]
-                pre_num = df_m.shape[0]
-                proportion_dict[cb] = pre_num
-                category_list += pre_num * [str(cb)]
-                df_t = pd.concat([df_t, df_m])
-                continue
-            df_m = df_sort
-            for item in cb:
-                other_list.remove(item)
-            for item in cb:
-                df_m = df_m[df_m[item] != 0]
-            for item in other_list:
-                df_m = df_m[df_m[item] == 0]
-            pre_num = df_m.shape[0]
-            proportion_dict[str(cb)] = pre_num
-            category_list += pre_num * [str(cb)]
-            df_t = pd.concat([df_t, df_m])
+                selected = positive_matrix[:, count_index[cb]].copy()
+                for other in count_name_list:
+                    if other != cb:
+                        selected &= ~positive_matrix[:, count_index[other]]
+                category_name = cb
+            else:
+                selected = np.ones(len(df_sort), dtype=bool)
+                cb_set = set(cb)
+                for item in cb:
+                    selected &= positive_matrix[:, count_index[item]]
+                for other in count_name_list:
+                    if other not in cb_set:
+                        selected &= ~positive_matrix[:, count_index[other]]
+                category_name = str(cb)
+            pre_num = int(selected.sum())
+            proportion_dict[category_name] = pre_num
+            if pre_num:
+                selected_frames.append(df_sort.loc[selected])
+                category_list.extend([str(category_name)] * pre_num)
 
-        df_t["category"] = category_list
-        df_top = pd.DataFrame(df.iloc[0]).T
-        df_top["category"] = " "
-        df_t = pd.concat([df_top, df_t])
+        if selected_frames:
+            df_t = pd.concat(selected_frames, axis=0, copy=False)
+            df_t = df_t.copy()
+            df_t["category"] = category_list
+        else:
+            df_t = pd.DataFrame(columns=list(df_nocate.columns) + ["category"])
+
+        top_row = {column: df.iloc[0][column] if column in df.columns else " " for column in df_t.columns}
+        for column in aggregate_data.keys():
+            top_row[column] = " "
+        top_row["all_num"] = " "
+        top_row["category"] = " "
+        df_top = pd.DataFrame([top_row], columns=df_t.columns)
+        df_t = pd.concat([df_top, df_t], ignore_index=True)
 
         arr_dst.parent.mkdir(parents=True, exist_ok=True)
         df_t.to_csv(arr_dst, index=False)
@@ -787,6 +1067,38 @@ class PepAnalysisService:
 
         return str(arr_dst), str(prop_dst)
 
+    @staticmethod
+    def _plot_proportion_bar(prop_csv: Path, dst: Path) -> Optional[str]:
+        if not prop_csv.exists():
+            return None
+        prop_df = _try_read_csv(prop_csv, low_memory=False)
+        if prop_df.empty or "cate" not in prop_df.columns or "prop" not in prop_df.columns:
+            return None
+
+        plot_df = prop_df.copy()
+        plot_df["cate"] = plot_df["cate"].astype(str)
+        plot_df["prop"] = pd.to_numeric(plot_df["prop"], errors="coerce").fillna(0)
+        plot_df = plot_df.sort_values("prop", ascending=True)
+        if plot_df.empty:
+            return None
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        height = max(3.2, min(12.0, 0.32 * len(plot_df) + 1.8))
+        fig, ax = plt.subplots(figsize=(7.2, height), dpi=180)
+        colors = sns.color_palette("Blues", n_colors=max(len(plot_df), 3))
+        ax.barh(plot_df["cate"], plot_df["prop"], color=colors[-len(plot_df):])
+        ax.set_xlabel("Proportion")
+        ax.set_ylabel("")
+        ax.set_xlim(0, max(1.0, float(plot_df["prop"].max()) * 1.08))
+        ax.tick_params(axis="y", labelsize=7)
+        ax.grid(axis="x", linestyle="--", alpha=0.25)
+        for y, value in enumerate(plot_df["prop"].tolist()):
+            ax.text(value + 0.01, y, f"{value:.2%}", va="center", fontsize=7)
+        fig.tight_layout()
+        save_publication_png(fig, dst)
+        plt.close(fig)
+        return str(dst)
+
     # ============================================================
     # Steps 5-8: Per-group optional helpers (called in parallel)
     # ============================================================
@@ -802,16 +1114,17 @@ class PepAnalysisService:
                 for chain in chains:
                     src = src_dir / f"{chain}.csv"
                     if src.exists():
-                        h_imgs, h_csvs = self._run_heatmap(
-                            src, heatmap_base / usage_type / chain, pvalue_threshold
-                        )
+                        with _PLOT_LOCK:
+                            h_imgs, h_csvs = self._run_heatmap(
+                                src, heatmap_base / usage_type / chain, pvalue_threshold
+                            )
                         images.extend(h_imgs)
                         csvs.extend(h_csvs)
         return images, csvs
 
     def _run_step6_for_group(self, chains, pep_shared_cate_dir, field_dir, min_sample_threshold):
         """Step 6: CDR3 classification statistics for one group field."""
-        arr_paths, prp_paths = [], []
+        arr_paths, prp_paths, prp_plot_paths = [], [], []
         arrage_base = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
         prop_base = field_dir / "prop_pep" / "Pep_shared_cate" / "Pep_shared"
         arrage_base.mkdir(parents=True, exist_ok=True)
@@ -827,7 +1140,7 @@ class PepAnalysisService:
                     arr_paths.append(arr_path)
                 if prp_path:
                     prp_paths.append(prp_path)
-        return arr_paths, prp_paths
+        return arr_paths, prp_paths, prp_plot_paths
 
     def _run_step7_for_group(self, chains, field_dir):
         """Step 7: CDR3 arrangement heatmap for one group field."""
@@ -838,7 +1151,8 @@ class PepAnalysisService:
         for chain in chains:
             arr_src = arrage_src_base / f"{chain}.csv"
             if arr_src.exists():
-                png_path = self._run_arrange_heatmap(arr_src, arrange_dir / f"{chain}.png")
+                with _PLOT_LOCK:
+                    png_path = self._run_arrange_heatmap(arr_src, arrange_dir / f"{chain}.png")
                 if png_path:
                     paths.append(png_path)
         return paths
@@ -866,12 +1180,14 @@ class PepAnalysisService:
         vmax = self._get_plot_heatmap_vmax(payloads)
 
         for payload in payloads:
-            out_path = self._plot_chain_heatmap(payload, vmax, output_dir)
+            with _PLOT_LOCK:
+                out_path = self._plot_chain_heatmap(payload, vmax, output_dir)
             if out_path:
                 paths.append(out_path)
 
         # Summary across all chains
-        summary_path = self._plot_summary_heatmap(payloads, vmax, output_dir)
+        with _PLOT_LOCK:
+            summary_path = self._plot_summary_heatmap(payloads, vmax, output_dir)
         if summary_path:
             paths.append(summary_path)
 
@@ -883,88 +1199,105 @@ class PepAnalysisService:
     def _read_plot_heatmap_data(data_path: Path, chain: str) -> Dict[str, Any]:
         import csv as csv_module
         with data_path.open("r", newline="", encoding="utf-8-sig") as handle:
-            rows = list(csv_module.reader(handle))
+            reader = csv_module.reader(handle)
+            try:
+                header = next(reader)
+                group_row = next(reader)
+            except StopIteration as exc:
+                raise ValueError(f"Input CSV must contain two header rows: {data_path}") from exc
 
-        if len(rows) < 3:
-            raise ValueError(f"Input CSV must contain two header rows: {data_path}")
+            sample_idx = [
+                i for i, group in enumerate(group_row)
+                if i > 0 and group.strip() not in {"", "category"}
+            ]
+            if not sample_idx:
+                raise ValueError(f"No sample category columns found: {data_path}")
 
-        header = rows[0]
-        group_row = rows[1]
-        data_rows = rows[2:]
+            cdr3_col = header.index("CDR3(pep)")
+            category_col = header.index("category")
+            sample_names = []
+            for i in sample_idx:
+                sample_name = Path(header[i]).stem
+                sample_name = sample_name.replace(f"__{chain}", "")
+                sample_names.append(sample_name)
 
-        sample_idx = [
-            i for i, group in enumerate(group_row)
-            if i > 0 and group.strip() not in {"", "category"}
-        ]
-        if not sample_idx:
-            raise ValueError(f"No sample category columns found: {data_path}")
+            sample_groups = [group_row[i].strip() for i in sample_idx]
+            sort_cols: Dict[str, Optional[int]] = {}
+            selected_counts: Dict[str, int] = {}
+            top_records: Dict[str, List[Tuple[Tuple[float, float], int, Dict[str, Any]]]] = {}
+            available_categories: List[str] = []
+            counter = 0
 
-        cdr3_col = header.index("CDR3(pep)")
-        category_col = header.index("category")
+            def _track_category(category: str) -> None:
+                if category not in selected_counts:
+                    selected_counts[category] = 0
+                    top_records[category] = []
+                    sort_col_name = f"{category.replace('__count', '')}__sum"
+                    sort_cols[category] = header.index(sort_col_name) if sort_col_name in header else None
 
-        sample_names = []
-        for i in sample_idx:
-            sample_name = Path(header[i]).stem
-            sample_name = sample_name.replace(f"__{chain}", "")
-            sample_names.append(sample_name)
+            for category, _ in REFERENCE_STEP8_SECTION_CATEGORIES:
+                _track_category(category)
 
-        sample_groups = [group_row[i].strip() for i in sample_idx]
-
-        all_categories = sorted(set(
-            r[category_col].strip() for r in data_rows
-            if len(r) > category_col
-            and r[category_col].strip().endswith("__count")
-            and not r[category_col].strip().startswith("(")
-        ))
-        if not all_categories:
-            all_categories = sorted(set(
-                r[category_col].strip() for r in data_rows
-                if len(r) > category_col and r[category_col].strip()
-            ))
-
-        sections = []
-        for category in all_categories:
-            records = []
-            sort_col_name = f"{category.replace('__count', '')}__sum"
-            sort_col = header.index(sort_col_name) if sort_col_name in header else None
-
-            for row in data_rows:
+            for row in reader:
                 if not row or len(row) <= category_col:
                     continue
                 row_category = row[category_col].strip()
-                if row_category != category:
+                if not row_category.endswith("__count") or row_category.startswith("("):
                     continue
-
+                if row_category not in available_categories:
+                    available_categories.append(row_category)
+                _track_category(row_category)
                 values = [float(str(row[i]).strip() or 0) if i < len(row) else 0.0 for i in sample_idx]
-                sort_value = float(str(row[sort_col]).strip() or 0) if sort_col is not None else sum(values)
-                records.append({
+                sort_col = sort_cols.get(row_category)
+                sort_value = float(str(row[sort_col]).strip() or 0) if sort_col is not None and sort_col < len(row) else sum(values)
+                rec = {
                     "chain": chain,
                     "cdr3": row[cdr3_col].strip(),
                     "category": row_category,
                     "values": values,
                     "sort_value": sort_value,
-                })
-
-            records.sort(key=lambda item: (item["sort_value"], sum(item["values"])), reverse=True)
-            top_n = 20
-            records = records[:top_n]
-
-            # Normalize rows
-            matrix = []
-            for rec in records:
-                vmax_r = max(rec["values"]) if rec["values"] else 0.0
-                if vmax_r <= 0:
-                    matrix.append([0.0 for _ in rec["values"]])
+                }
+                selected_counts[row_category] += 1
+                sort_key = (sort_value, sum(values))
+                heap = top_records[row_category]
+                counter += 1
+                if len(heap) < 20:
+                    heapq.heappush(heap, (sort_key, counter, rec))
                 else:
-                    matrix.append([v / vmax_r for v in rec["values"]])
+                    heapq.heappushpop(heap, (sort_key, counter, rec))
 
-            sections.append({
-                "category": category,
-                "title": f"{category.replace('__count', '')} unique",
-                "records": records,
-                "matrix": matrix,
-                "selected_count": len(records),
-            })
+        def _build_sections(section_categories: List[Tuple[str, str]]) -> List[Dict[str, Any]]:
+            built_sections = []
+            for category, section_title in section_categories:
+                heap = top_records.get(category, [])
+                records = [
+                    item[2] for item in sorted(heap, key=lambda item: item[0], reverse=True)
+                ]
+                selected_count = selected_counts.get(category, 0)
+
+                matrix = []
+                for rec in records:
+                    vmax_r = max(rec["values"]) if rec["values"] else 0.0
+                    if vmax_r <= 0:
+                        matrix.append([0.0 for _ in rec["values"]])
+                    else:
+                        matrix.append([v / vmax_r for v in rec["values"]])
+
+                built_sections.append({
+                    "category": category,
+                    "title": section_title,
+                    "records": records,
+                    "matrix": matrix,
+                    "selected_count": selected_count,
+                })
+            return built_sections
+
+        sections = _build_sections(REFERENCE_STEP8_SECTION_CATEGORIES)
+        if not any(section["selected_count"] for section in sections) and available_categories:
+            sections = _build_sections([
+                (category, f"{category.replace('__count', '')} unique")
+                for category in available_categories
+            ])
 
         return {
             "chain": chain,
@@ -975,13 +1308,7 @@ class PepAnalysisService:
 
     @staticmethod
     def _get_plot_heatmap_vmax(payloads):
-        vmax = 0.0
-        for payload in payloads:
-            for section in payload["sections"]:
-                for row in section["matrix"]:
-                    if row:
-                        vmax = max(vmax, max(row))
-        return vmax if vmax > 0 else 1.0
+        return 1.0
 
     @staticmethod
     def _plot_chain_heatmap(payload, color_vmax, output_dir):
@@ -990,7 +1317,7 @@ class PepAnalysisService:
         if total_plotted == 0:
             return None
 
-        cmap = MUTED_BLUE_RED_CMAP
+        cmap = _reference_step8_cmap()
 
         # Build combined matrix
         records = []
@@ -1045,10 +1372,10 @@ class PepAnalysisService:
         for g in groups:
             labels[(g["start"] + g["end"]) // 2] = g["label"]
         ax.set_xticks(range(n_cols))
-        ax.set_xticklabels(labels, fontsize=8.5, fontweight="bold")
+        ax.set_xticklabels(labels, fontsize=7.0, fontweight="bold")
 
         # Y-axis with CDR3 labels
-        label_font_size = 6.6 if n_rows <= 50 else 5.3
+        label_font_size = 5.4 if n_rows <= 50 else 4.4
         ax.set_yticks(range(n_rows))
         ax.set_yticklabels(
             [f"{chain}_{r['cdr3']}" for r in records],
@@ -1068,13 +1395,13 @@ class PepAnalysisService:
 
         cbar = fig.colorbar(im, cax=cbar_ax)
         cbar.set_ticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        cbar.ax.tick_params(labelsize=7.2, length=1.8, width=0.6)
+        cbar.ax.tick_params(labelsize=5.8, length=1.8, width=0.6)
         for tl in cbar.ax.get_yticklabels():
             tl.set_fontweight("bold")
         cbar.outline.set_linewidth(0.6)
 
         out_path = output_dir / f"{chain}_CT_SRMCY_unique_heatmap.png"
-        fig.savefig(out_path, dpi=600, bbox_inches="tight")
+        save_publication_png(fig, out_path)
         plt.close(fig)
         return str(out_path)
 
@@ -1085,7 +1412,12 @@ class PepAnalysisService:
         if not payloads:
             return None
 
-        cmap = MUTED_BLUE_RED_CMAP
+        cmap = _reference_step8_cmap()
+
+        reference_groups = payloads[0]["sample_groups"]
+        for payload in payloads[1:]:
+            if payload["sample_groups"] != reference_groups:
+                raise ValueError("ALL heatmap requires the same sample category order in every chain.")
 
         # Merge all payloads
         all_records = []
@@ -1140,9 +1472,9 @@ class PepAnalysisService:
         for g in groups:
             labels[(g["start"] + g["end"]) // 2] = g["label"]
         ax.set_xticks(range(n_cols))
-        ax.set_xticklabels(labels, fontsize=8.5, fontweight="bold")
+        ax.set_xticklabels(labels, fontsize=7.0, fontweight="bold")
 
-        label_font_size = 5.8 if n_rows <= 80 else 4.8
+        label_font_size = 4.8 if n_rows <= 80 else 4.0
         ax.set_yticks(range(n_rows))
         ax.set_yticklabels(
             [f"{r.get('chain', 'ALL')}_{r.get('cdr3', '')}" for r in all_records],
@@ -1161,13 +1493,13 @@ class PepAnalysisService:
 
         cbar = fig.colorbar(im, cax=cbar_ax)
         cbar.set_ticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        cbar.ax.tick_params(labelsize=7.2, length=1.8, width=0.6)
+        cbar.ax.tick_params(labelsize=5.8, length=1.8, width=0.6)
         for tl in cbar.ax.get_yticklabels():
             tl.set_fontweight("bold")
         cbar.outline.set_linewidth(0.6)
 
         out_path = output_dir / "ALL_CT_SRMCY_unique_heatmap_summary.png"
-        fig.savefig(out_path, dpi=600, bbox_inches="tight")
+        save_publication_png(fig, out_path)
         plt.close(fig)
         return str(out_path)
 
@@ -1188,16 +1520,18 @@ class PepAnalysisService:
         df_s = df[df.columns[1:data_end]].iloc[1:]
         df_s = df_s.apply(pd.to_numeric, errors="coerce").fillna(0)
         df_s[df_s > 1] = 1
+        if df_s.shape[0] > PEP_MAX_ARRANGE_HEATMAP_ROWS:
+            df_s = df_s.iloc[:PEP_MAX_ARRANGE_HEATMAP_ROWS]
 
         plt.figure(figsize=(20, 8))
         try:
             sns.set_palette("pastel")
-            ax = sns.heatmap(df_s, square=False, cmap=MUTED_BLUE_RED_CMAP,
+            ax = sns.heatmap(df_s, square=False, cmap="BuGn",
                              cbar_kws={"aspect": 100, "pad": 0.0005}, cbar=False)
             ax.get_yaxis().set_visible(False)
-            plt.rcParams.update({"xtick.labelsize": 11, "ytick.labelsize": 11, "font.weight": "bold"})
+            plt.rcParams.update({"xtick.labelsize": 10})
             dst.parent.mkdir(parents=True, exist_ok=True)
-            ax.figure.savefig(dst, bbox_inches="tight", dpi=600)
+            save_publication_png(ax.figure, dst)
             plt.clf()
             plt.close("all")
             return str(dst)

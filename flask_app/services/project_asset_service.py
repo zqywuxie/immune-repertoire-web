@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
+from sqlalchemy.exc import OperationalError
 from werkzeug.utils import secure_filename
 
 from flask_app.exceptions import StorageError, ValidationError
@@ -26,6 +27,7 @@ class ProjectAssetService:
     ASSET_TYPES = {
         'datapoint',
         'profile',
+        'transcriptome',
         'pep',
         'sample_summary',
         'group_spec',
@@ -51,10 +53,22 @@ class ProjectAssetService:
         return self.get_project_dir(project) / 'assets' / asset_type
 
     def list_assets(self, project_id: str, asset_type: str = "") -> List[ProjectAsset]:
-        query = ProjectAsset.query.filter(ProjectAsset.project_id == project_id).order_by(ProjectAsset.uploaded_at.desc())
+        query = ProjectAsset.query.filter(ProjectAsset.project_id == project_id)
         if asset_type:
             query = query.filter(ProjectAsset.asset_type == asset_type)
-        return query.all()
+        ordered_query = query.order_by(ProjectAsset.uploaded_at.desc(), ProjectAsset.id.desc())
+        try:
+            return ordered_query.all()
+        except OperationalError as exc:
+            if not _is_mysql_sort_memory_error(exc):
+                raise
+            db.session.rollback()
+            assets = query.all()
+            return sorted(
+                assets,
+                key=lambda asset: (asset.uploaded_at or datetime.min, asset.id or ""),
+                reverse=True,
+            )
 
     def upload_assets(
         self,
@@ -400,3 +414,13 @@ def get_project_asset_service(projects_root: Path) -> ProjectAssetService:
     if _project_asset_service is None or _project_asset_service.projects_root != resolved:
         _project_asset_service = ProjectAssetService(resolved)
     return _project_asset_service
+
+
+def _is_mysql_sort_memory_error(exc: OperationalError) -> bool:
+    """Detect MySQL 1038 sort-buffer errors and allow a narrower fallback."""
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", ())
+    if args and str(args[0]) == "1038":
+        return True
+    message = str(orig or exc).lower()
+    return "out of sort memory" in message or "sort buffer size" in message

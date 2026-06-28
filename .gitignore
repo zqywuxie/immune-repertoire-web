@@ -46,8 +46,10 @@ flask_app/.tmp_pytest_auto/
 
 # Sensitive config
 .env
+.env.*
 .mcp.json
 .claude/
+.codex/
 .playwright-mcp/
 
 # Temp pytest dirs (root)

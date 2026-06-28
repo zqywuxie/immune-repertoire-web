@@ -4,6 +4,8 @@ import json
 import os
 import sys
 import tempfile
+import zipfile
+from datetime import datetime, timedelta
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 from flask import Flask
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Query
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -267,17 +271,83 @@ def test_project_primary_pep_path_uses_registered_asset(api_module, tmp_path):
     assert resolved == str(registered_pep)
 
 
+def test_collect_project_assets_uses_sort_buffer_fallback(api_module, tmp_path, monkeypatch):
+    from flask_app.models.database import Project, ProjectAsset, db
+
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+
+    pep_dir = tmp_path / "pep"
+    pep_dir.mkdir()
+    profile_path = tmp_path / "profile.csv"
+    profile_path.write_text("sample,group\ns1,A\n", encoding="utf-8")
+
+    with app.app_context():
+        db.create_all()
+        project = Project(id="project-sort-fallback", name="Sort Fallback", status="active")
+        old_asset = ProjectAsset(
+            id="asset-old",
+            project_id=project.id,
+            asset_type="pep",
+            original_name="pep",
+            storage_path=str(pep_dir),
+            size=0,
+            uploaded_at=datetime.utcnow() - timedelta(days=1),
+        )
+        new_asset = ProjectAsset(
+            id="asset-new",
+            project_id=project.id,
+            asset_type="profile",
+            original_name="profile.csv",
+            storage_path=str(profile_path),
+            size=profile_path.stat().st_size,
+            uploaded_at=datetime.utcnow(),
+        )
+        db.session.add_all([project, old_asset, new_asset])
+        db.session.commit()
+
+        original_all = Query.all
+
+        class SortBufferError(Exception):
+            def __init__(self):
+                super().__init__(1038, "Out of sort memory, consider increasing server sort buffer size")
+
+        def flaky_all(self):
+            if getattr(self, "_order_by_clauses", ()):
+                raise OperationalError("SELECT project_assets", {}, SortBufferError())
+            return original_all(self)
+
+        monkeypatch.setattr(Query, "all", flaky_all)
+
+        result = api_module._collect_project_script_hub_assets(project.id)
+
+        db.session.remove()
+        db.drop_all()
+
+    assert result["pep_paths"] == [str(pep_dir)]
+    assert result["profile_path"] == str(profile_path)
+
+
 def test_normalize_script_result_generates_viewer_and_zip(api_module, tmp_path):
     output_base = tmp_path / "script_job"
     output_base.mkdir()
-    (output_base / "plot.png").write_bytes(b"fake-png")
+    (output_base / "alpha_one.png").write_bytes(b"fake-png")
+    (output_base / "beta_two.png").write_bytes(b"fake-png")
     (output_base / "values.csv").write_text("sample,value\ns1,1\n", encoding="utf-8")
 
     result = {
         "module": "unit-test",
         "job_id": output_base.name,
         "output_base": str(output_base),
-        "png_urls": [f"/api/script-hub/results/{output_base.name}/plot.png"],
+        "png_urls": [
+            f"/api/script-hub/results/{output_base.name}/alpha_one.png",
+            f"/api/script-hub/results/{output_base.name}/beta_two.png",
+        ],
         "csv_urls": [f"/api/script-hub/results/{output_base.name}/values.csv"],
     }
 
@@ -296,6 +366,19 @@ def test_normalize_script_result_generates_viewer_and_zip(api_module, tmp_path):
     assert (output_base / "viewer.html").exists()
     assert (output_base / "unit_results.zip").exists()
     assert (output_base / "metadata.json").exists()
+    html = (output_base / "viewer.html").read_text(encoding="utf-8")
+    assert 'id="categorySelect"' in html
+    assert '<option value="alpha" selected>alpha</option>' in html
+    assert '<option value="beta">beta</option>' in html
+    assert 'class="plot-card is-hidden" data-category="beta"' in html
+    assert "__all__" not in html
+    with zipfile.ZipFile(output_base / "unit_results.zip") as archive:
+        names = set(archive.namelist())
+    assert "figures/alpha_one.png" in names
+    assert "figures/beta_two.png" in names
+    assert "tables/values.csv" in names
+    assert "metadata/metadata.json" in names
+    assert "viewer/viewer.html" in names
 
 
 def test_pep_viewer_switches_by_chain_and_collapses_csv(api_module, tmp_path):
@@ -304,8 +387,8 @@ def test_pep_viewer_switches_by_chain_and_collapses_csv(api_module, tmp_path):
     result = {
         "job_id": output_base.name,
         "heatmap_image_urls": [
-            f"/api/script-hub/results/{output_base.name}/therapy/heatmap/1VJusage/TRA/A.jpg",
-            f"/api/script-hub/results/{output_base.name}/therapy/heatmap/1VJusage/TRB/A.jpg",
+            f"/api/script-hub/results/{output_base.name}/therapy/heatmap/1VJusage/TRA/A.png",
+            f"/api/script-hub/results/{output_base.name}/therapy/heatmap/1VJusage/TRB/A.png",
         ],
         "arrange_heatmap_urls": [f"/api/script-hub/results/{output_base.name}/therapy/CDR3_arrage_heatmap/TRA.png"],
         "plot_heatmap_urls": [f"/api/script-hub/results/{output_base.name}/therapy/plot_heatmap/TRA_unique_heatmap.png"],
@@ -328,15 +411,46 @@ def test_pep_viewer_switches_by_chain_and_collapses_csv(api_module, tmp_path):
     assert "Differential heatmaps" in html
     assert "CDR3 arrangement heatmaps" in html
     assert "Unique CDR3 heatmaps" in html
-    assert 'class="chain-tab is-active" data-chain="TRA"' in html
-    assert 'data-chain="TRB"' in html
-    assert 'data-chain="TRA"' in html
+    assert 'id="pepImageCategorySelect"' in html
+    assert '<option value="Differential heatmaps" selected>Differential heatmaps (2)</option>' in html
+    assert '<option value="CDR3 arrangement heatmaps">CDR3 arrangement heatmaps (1)</option>' in html
+    assert "therapy/CDR3_arrage_heatmap/TRA.png" in html
+    assert "chain-tab" not in html
     assert "<details><summary>2.Pep_shared.py / Pep_shared</summary>" in html
     assert "<details><summary>2.Pep_shared.py / usage</summary>" in html
     assert "<details><summary>5.Heat_map_Thread.py / heatmap/csv_file</summary>" in html
     assert "Pep_shared/TRA.csv" in html
     assert "usage/1VJusage/TRA.csv" in html
     assert "plot-card" in html
+
+
+def test_pep_viewer_displays_arrange_heatmap_category_when_only_step7_images(api_module, tmp_path):
+    output_base = tmp_path / "pep_job_step7"
+    output_base.mkdir()
+    result = {
+        "job_id": output_base.name,
+        "heatmap_image_urls": [],
+        "proportion_plot_urls": [],
+        "arrange_heatmap_urls": [
+            f"/api/script-hub/results/{output_base.name}/group_type/CDR3_arrage_heatmap/TRA.png"
+        ],
+        "plot_heatmap_urls": [],
+        "shared_matrix_urls": [],
+        "usage_urls": [],
+        "heatmap_csv_urls": [],
+        "classification_urls": [],
+        "proportion_urls": [],
+    }
+
+    api_module._write_pep_analysis_viewer(output_base, result, {
+        "selected_chains": ["TRA"],
+        "group_fields": ["group_type"],
+    })
+
+    html = (output_base / "viewer.html").read_text(encoding="utf-8")
+    assert '<option value="CDR3 arrangement heatmaps" selected>CDR3 arrangement heatmaps (1)</option>' in html
+    assert "group_type/CDR3_arrage_heatmap/TRA.png" in html
+    assert "No images generated" not in html
 
 
 def test_pep_viewer_does_not_render_csv_previews_as_main_images(api_module, tmp_path):
@@ -394,7 +508,7 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
 
     order = []
 
-    def fake_run_cdr3(self, chain, file_paths, output_base):
+    def fake_run_cdr3(self, chain, file_paths, output_base, progress_callback=None):
         shared = output_base / "Pep_shared" / f"{chain}.csv"
         usage = output_base / "usage" / "1VJusage" / f"{chain}.csv"
         shared.parent.mkdir(parents=True, exist_ok=True)
@@ -412,7 +526,7 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
         out = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared" / "TRA.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("CDR3(pep),A__sum\nAAA,1\n", encoding="utf-8")
-        return [str(out)], []
+        return [str(out)], [], []
 
     def fake_step7(self, chains, field_dir):
         assert 6 in order
@@ -454,7 +568,128 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
     assert report.metadata["optional_steps_run"] == [6, 7, 8]
 
 
+def test_pep_step2_fast_writer_matches_reference_outputs(tmp_path):
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    pep_a = tmp_path / "sampleA__TRA.csv"
+    pep_b = tmp_path / "sampleB__TRA.csv"
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA", "AAA", "BBB"],
+        "V": ["TRAV1", "TRAV1", "TRAV2"],
+        "J": ["TRAJ1", "TRAJ1", "TRAJ2"],
+        "copy": [2, 3, 5],
+    }).to_csv(pep_a, index=False)
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA", "CCC"],
+        "V": ["TRAV1", "TRAV3"],
+        "J": ["TRAJ1", "TRAJ3"],
+        "copy": [1, 9],
+    }).to_csv(pep_b, index=False)
+
+    output_base = tmp_path / "out"
+    seen_progress = []
+    service = PepAnalysisService(output_parent=tmp_path / "results")
+    service._run_cdr3_sharing(
+        "TRA",
+        [str(pep_a), str(pep_b)],
+        output_base,
+        progress_callback=lambda done, total, name, **meta: seen_progress.append((done, total, name, meta.get("phase", "reading"))),
+    )
+
+    shared = pd.read_csv(output_base / "Pep_shared" / "TRA.csv")
+    assert shared["CDR3(pep)"].tolist() == ["AAA", "BBB", "CCC"]
+    assert shared["sampleA__TRA.csv"].iloc[:2].tolist() == [5.0, 5.0]
+    assert pd.isna(shared["sampleA__TRA.csv"].iloc[2])
+    assert shared["sampleB__TRA.csv"].iloc[0] == 1.0
+    assert pd.isna(shared["sampleB__TRA.csv"].iloc[1])
+    assert shared["sampleB__TRA.csv"].iloc[2] == 9.0
+
+    one_v = pd.read_csv(output_base / "usage" / "1Vusage" / "TRA.csv", index_col=0)
+    assert one_v.loc["sampleA__TRA.csv", "TRAV1"] == 0.5
+    assert one_v.loc["sampleA__TRA.csv", "TRAV2"] == 0.5
+    assert one_v.loc["sampleB__TRA.csv", "TRAV3"] == 0.9
+
+    zero_vj = pd.read_csv(output_base / "usage" / "0VJusage" / "TRA.csv", index_col=0)
+    assert zero_vj.loc["sampleA__TRA.csv", "TRAV1;TRAJ1"] == 2 / 3
+    assert zero_vj.loc["sampleA__TRA.csv", "TRAV2;TRAJ2"] == 1 / 3
+    assert seen_progress[-1][0:2] == (2, 2)
+    phases = [item[3] for item in seen_progress if len(item) > 3]
+    assert "writing_shared" in phases
+    assert phases.count("writing_usage") == 6
+
+
+def test_pep_step3_add_cate_shared_streams_without_local_dataframe(tmp_path):
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    src = tmp_path / "TRA.csv"
+    dst = tmp_path / "out" / "TRA.csv"
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA", "BBB"],
+        "sampleA__TRA.csv": [5, 0],
+        "sampleB__TRA.csv": [0, 3],
+    }).to_csv(src, index=False)
+    profile = pd.DataFrame({
+        "sample": ["sampleA", "sampleB"],
+        "group_type": ["after", "before"],
+    })
+
+    PepAnalysisService._add_cate_shared(src, dst, profile, "group_type")
+
+    out_df = pd.read_csv(dst)
+    assert out_df.iloc[0]["CDR3(pep)"] == "category"
+    assert set(out_df.columns) == {"CDR3(pep)", "sampleA__TRA.csv", "sampleB__TRA.csv"}
+    assert out_df.iloc[0]["sampleA__TRA.csv"] == "after"
+    assert out_df.iloc[1]["CDR3(pep)"] == "AAA"
+
+
 def test_pep_plot_heatmap_reads_single_unique_categories(tmp_path):
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    csv_path = tmp_path / "TRA.csv"
+    pd.DataFrame([
+            {
+                "CDR3(pep)": " ",
+                "sampleA__TRA.csv": "T1DM",
+                "sampleB__TRA.csv": "CT",
+                "T1DM__sum": " ",
+                "T1DM__count": " ",
+                "CT__sum": " ",
+                "CT__count": " ",
+                "all_num": " ",
+                "category": " ",
+            },
+        {
+                "CDR3(pep)": "AAA",
+                "sampleA__TRA.csv": 2,
+                "sampleB__TRA.csv": 0,
+                "T1DM__sum": 2,
+                "T1DM__count": 1,
+                "CT__sum": 0,
+                "CT__count": 0,
+                "all_num": 1,
+                "category": "T1DM__count",
+            },
+            {
+                "CDR3(pep)": "BBB",
+                "sampleA__TRA.csv": 1,
+                "sampleB__TRA.csv": 1,
+                "T1DM__sum": 1,
+                "T1DM__count": 1,
+                "CT__sum": 1,
+                "CT__count": 1,
+                "all_num": 2,
+                "category": "('T1DM__count', 'CT__count')",
+            },
+    ]).to_csv(csv_path, index=False)
+
+    payload = PepAnalysisService._read_plot_heatmap_data(csv_path, "TRA")
+
+    assert [section["category"] for section in payload["sections"]] == ["T1DM__count"]
+    assert payload["sections"][0]["records"][0]["chain"] == "TRA"
+    assert payload["sections"][0]["records"][0]["cdr3"] == "AAA"
+
+
+def test_pep_step8_falls_back_to_available_count_categories(tmp_path):
     from flask_app.services.pep_analysis_service import PepAnalysisService
 
     csv_path = tmp_path / "TRA.csv"
@@ -481,24 +716,98 @@ def test_pep_plot_heatmap_reads_single_unique_categories(tmp_path):
             "all_num": 1,
             "category": "A__count",
         },
-        {
-            "CDR3(pep)": "BBB",
-            "sampleA__TRA.csv": 1,
-            "sampleB__TRA.csv": 1,
-            "A__sum": 1,
-            "A__count": 1,
-            "B__sum": 1,
-            "B__count": 1,
-            "all_num": 2,
-            "category": "('A__count', 'B__count')",
-        },
     ]).to_csv(csv_path, index=False)
 
     payload = PepAnalysisService._read_plot_heatmap_data(csv_path, "TRA")
 
     assert [section["category"] for section in payload["sections"]] == ["A__count"]
-    assert payload["sections"][0]["records"][0]["chain"] == "TRA"
     assert payload["sections"][0]["records"][0]["cdr3"] == "AAA"
+
+
+def test_pep_step5_empty_heatmap_matrix_writes_csv_without_warning(tmp_path):
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    src = tmp_path / "usage.csv"
+    pd.DataFrame({
+        "sample": ["sampleA", "sampleB"],
+        "Category": ["A", "A"],
+        "TRAV1;TRAJ1": [1, 2],
+    }).to_csv(src, index=False)
+
+    image_paths, csv_paths = PepAnalysisService._run_heatmap(src, tmp_path / "heatmap", 0.05)
+
+    assert image_paths == []
+    assert len(csv_paths) == 1
+    assert Path(csv_paths[0]).exists()
+
+
+def test_pep_step6_outputs_only_reference_csv_tables(tmp_path):
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    pep_shared = tmp_path / "Pep_shared_cate" / "Pep_shared"
+    pep_shared.mkdir(parents=True)
+    pd.DataFrame([
+        {"CDR3(pep)": "category", "sampleA__TRA.csv": "T1DM", "sampleB__TRA.csv": "CT"},
+        {"CDR3(pep)": "AAA", "sampleA__TRA.csv": 1, "sampleB__TRA.csv": 0},
+        {"CDR3(pep)": "BBB", "sampleA__TRA.csv": 0, "sampleB__TRA.csv": 1},
+    ]).to_csv(pep_shared / "TRA.csv", index=False)
+
+    service = PepAnalysisService(output_parent=tmp_path / "results")
+    arr_paths, prp_paths, plot_paths = service._run_step6_for_group(["TRA"], pep_shared, tmp_path / "field", 0)
+
+    assert len(arr_paths) == 1
+    assert len(prp_paths) == 1
+    assert plot_paths == []
+    assert Path(arr_paths[0]).exists()
+    assert Path(prp_paths[0]).exists()
+
+
+def test_pep_step5_plot_uses_matplotlib_lock_and_step6_keeps_csv_only(tmp_path, monkeypatch):
+    from flask_app.services import pep_analysis_service
+    from flask_app.services.pep_analysis_service import PepAnalysisService
+
+    lock_events = []
+    original_lock = pep_analysis_service._PLOT_LOCK
+
+    class TrackingLock:
+        def __enter__(self):
+            lock_events.append("enter")
+            return original_lock.__enter__()
+
+        def __exit__(self, exc_type, exc, tb):
+            lock_events.append("exit")
+            return original_lock.__exit__(exc_type, exc, tb)
+
+    monkeypatch.setattr(pep_analysis_service, "_PLOT_LOCK", TrackingLock())
+
+    usage_base = tmp_path / "usage_cate" / "usage"
+    src_usage = usage_base / "1VJusage" / "TRA.csv"
+    src_usage.parent.mkdir(parents=True)
+    pd.DataFrame({
+        "sample": ["sampleA", "sampleB"],
+        "Category": ["A", "B"],
+        "TRAV1;TRAJ1": [10, 1],
+    }).to_csv(src_usage, index=False)
+
+    pep_shared = tmp_path / "Pep_shared_cate" / "Pep_shared"
+    src_shared = pep_shared / "TRA.csv"
+    src_shared.parent.mkdir(parents=True)
+    pd.DataFrame([
+        {"CDR3(pep)": "category", "sampleA__TRA.csv": "A", "sampleB__TRA.csv": "B"},
+        {"CDR3(pep)": "AAA", "sampleA__TRA.csv": 1, "sampleB__TRA.csv": 0},
+        {"CDR3(pep)": "BBB", "sampleA__TRA.csv": 0, "sampleB__TRA.csv": 1},
+    ]).to_csv(src_shared, index=False)
+
+    service = PepAnalysisService(output_parent=tmp_path / "results")
+    step5_imgs, _ = service._run_step5_for_group(["TRA"], usage_base, tmp_path / "field", 1.0)
+    arr_paths, prp_paths, step6_imgs = service._run_step6_for_group(["TRA"], pep_shared, tmp_path / "field", 0)
+
+    assert step5_imgs
+    assert arr_paths
+    assert prp_paths
+    assert step6_imgs == []
+    assert lock_events.count("enter") >= 1
+    assert lock_events.count("enter") == lock_events.count("exit")
 
 
 def test_inspect_data_selection_uses_project_profile_asset(api_module, tmp_path):
@@ -784,6 +1093,66 @@ def test_project_profile_asset_rejects_only_empty_registered_file(api_module, tm
     assert "empty or has no columns" in payload["message"]
 
 
+def test_project_transcriptome_asset_drives_go_kegg_and_deg_inspect(api_module, tmp_path):
+    from flask_app.models.database import Project, ProjectAsset, db
+
+    aligned = ROOT_DIR / "test_data" / "aligned.csv"
+    assert aligned.exists()
+
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    with app.app_context():
+        db.create_all()
+        project = Project(name="Transcriptome Project")
+        db.session.add(project)
+        db.session.commit()
+        db.session.add(ProjectAsset(
+            project_id=project.id,
+            asset_type="transcriptome",
+            original_name=aligned.name,
+            storage_path=str(aligned),
+            size=aligned.stat().st_size,
+            metadata_json={"role": "transcriptome", "reference": "test_data/aligned.csv"},
+        ))
+        db.session.commit()
+
+        client = app.test_client()
+        summary_response = client.post("/api/script-hub/data-selection/inspect", json={"project_id": project.id})
+        summary_payload = summary_response.get_json()
+        enrichment_response = client.post(
+            "/api/script-hub/go-kegg-enrichment/inspect",
+            json={"project_id": project.id, "expression_path": str(tmp_path / "wrong.csv")},
+        )
+        enrichment_payload = enrichment_response.get_json()
+        volcano_response = client.post(
+            "/api/script-hub/volcano/inspect",
+            json={"project_id": project.id, "input_mode": "expression"},
+        )
+        volcano_payload = volcano_response.get_json()
+        db.session.remove()
+        db.drop_all()
+
+    resolved_aligned = str(aligned.resolve())
+    assert summary_response.status_code == 200
+    assert summary_payload["registered_transcriptome_paths"] == [str(aligned)]
+    assert summary_payload["transcriptome_path"] == str(aligned)
+    assert enrichment_response.status_code == 200
+    assert enrichment_payload["expression_path"] == resolved_aligned
+    assert {"ICI_T1DM", "T1DM", "T_CT"}.issubset(set(enrichment_payload["groups"]))
+    assert enrichment_payload["gene_count"] > 0
+    assert volcano_response.status_code == 200
+    assert volcano_payload["expression_path"] == resolved_aligned
+    assert volcano_payload["input_mode"] == "expression"
+    assert volcano_payload["sample_count"] > 0
+
+
 def test_cached_usage_resolver_prefers_usage_cate_asset(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
@@ -839,6 +1208,76 @@ def test_cached_usage_resolver_prefers_usage_cate_asset(api_module, tmp_path):
 
     assert resolved_volcano == str((cate_usage / "1VJusage").resolve())
     assert resolved_umapin == str(cate_usage.resolve())
+
+
+def test_mait_nkt_inspect_auto_resolves_project_pep_tra(api_module, tmp_path):
+    from flask_app.models.database import Project, ProjectAsset, db
+
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    output_base = tmp_path / "results" / "script_hub" / "pep_job"
+    pep_shared = output_base / "Pep_shared"
+    usage_dir = output_base / "usage"
+    pep_shared.mkdir(parents=True)
+    (usage_dir / "1VJusage").mkdir(parents=True)
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA", "BBB"],
+        "sampleA__TRA.csv": [1, 0],
+        "sampleB__TRA.csv": [0, 1],
+    }).to_csv(pep_shared / "TRA.csv", index=False)
+    profile = tmp_path / "Profile_All.csv"
+    pd.DataFrame({"sample": ["sampleA", "sampleB"], "therapy": ["A", "B"]}).to_csv(profile, index=False)
+
+    with app.app_context():
+        db.create_all()
+        project = Project(name="MAIT PEP Auto Project")
+        db.session.add(project)
+        db.session.commit()
+        db.session.add(ProjectAsset(
+            project_id=project.id,
+            asset_type="profile",
+            original_name=profile.name,
+            storage_path=str(profile),
+            size=profile.stat().st_size,
+            metadata_json={"role": "profile"},
+        ))
+        db.session.add(ProjectAsset(
+            project_id=project.id,
+            asset_type="cached_usage",
+            original_name="pep_usage_pep_job",
+            storage_path=str(usage_dir),
+            size=0,
+            metadata_json={
+                "source_module": "pep-analysis",
+                "source_job_id": "pep_job",
+                "usage_scope": "usage",
+                "pep_output_base": str(output_base),
+                "pep_shared_TRA_path": str(pep_shared / "TRA.csv"),
+            },
+        ))
+        db.session.commit()
+
+        response = app.test_client().post(
+            "/api/script-hub/mait-nkt/inspect",
+            json={"project_id": project.id, "tra_source": "pep_analysis"},
+        )
+        payload = response.get_json()
+        db.session.remove()
+        db.drop_all()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["resolved_tra_path"] == str((pep_shared / "TRA.csv").resolve())
+    assert payload["source_job_id"] == "pep_job"
+    assert payload["sample_count"] == 2
+    assert payload["profile_groups"]["therapy"] == ["A", "B"]
 
 
 def test_cached_usage_resolver_reads_mongodb_documents(api_module, tmp_path, monkeypatch):
@@ -1145,6 +1584,95 @@ def test_script_hub_jobs_cancel_updates_task_state(api_module):
     assert task["status"] == "cancelled"
 
 
+def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
+    api_jobs = import_module("flask_app.routes.api_jobs")
+
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_jobs.jobs_bp)
+
+    class BrokenJobService:
+        def list_jobs(self, **kwargs):
+            raise RuntimeError("analysis_jobs table missing")
+
+    monkeypatch.setattr(api_jobs, "get_background_job_service", lambda: BrokenJobService())
+
+    response = app.test_client().get("/api/jobs?limit=200")
+    payload = response.get_json()
+
+    assert response.status_code == 500
+    assert response.content_type.startswith("application/json")
+    assert payload["success"] is False
+    assert payload["error"] == "JOBS_LIST_ERROR"
+    assert "analysis_jobs table missing" in payload["details"]["detail"]
+
+
+def test_background_cancelled_job_cannot_be_overwritten(tmp_path):
+    from flask_app.models.database import db
+    from flask_app.services.background_job_service import get_background_job_service
+
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+
+    with app.app_context():
+        db.create_all()
+        service = get_background_job_service()
+        service.clear()
+        service.create_job(job_type="script_hub", module="pep-analysis", job_id="job_cancel_guard")
+        cancelled = service.request_cancel("job_cancel_guard")
+        progressed = service.update_progress("job_cancel_guard", 55, "Running", "should not overwrite")
+        completed = service.complete_job("job_cancel_guard", {"ok": True})
+        db.session.remove()
+        db.drop_all()
+
+    assert cancelled["status"] == "cancelled"
+    assert progressed["status"] == "cancelled"
+    assert completed["status"] == "cancelled"
+
+
+def test_script_hub_record_stage_obeys_generic_job_cancel(api_module):
+    from flask_app.models.database import db
+    from flask_app.services.background_job_service import get_background_job_service
+
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+
+    api_module.get_script_hub_job_service().clear()
+    with api_module._script_task_lock:
+        api_module._script_tasks.clear()
+
+    with app.app_context():
+        db.create_all()
+        api_module._set_task_state(
+            "script_task_generic_cancel",
+            status="running",
+            progress=20.0,
+            stage="Running",
+            detail="working",
+            meta={"module": "pep-analysis"},
+        )
+        get_background_job_service().request_cancel("script_task_generic_cancel")
+        with pytest.raises(api_module.ScriptTaskCancelled):
+            api_module._record_stage("script_task_generic_cancel", 30, "Running", "next tick")
+        task = api_module._get_task_state("script_task_generic_cancel")
+        job = get_background_job_service().get_job("script_task_generic_cancel")
+        db.session.remove()
+        db.drop_all()
+
+    assert task["status"] == "cancelled"
+    assert job["status"] == "cancelled"
+
+
 def test_suggest_umap_ranges(api_module):
     cols = ["sample", "therapy", "disease", "TRA_percent_reads_all", "TRB_reads"]
     result = api_module._suggest_umap_ranges(cols)
@@ -1243,6 +1771,211 @@ def test_volcano_service_concatenates_usage_directory():
         assert {"Gene", "FC", "log2FC", "P-value", "significant"}.issubset(result_df.columns)
 
 
+def test_volcano_service_runs_expression_matrix():
+    from flask_app.services.volcano_service import VolcanoService
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        expr = root / "aligned.csv"
+        pd.DataFrame({
+            "gene": ["G1", "G2", "G3"],
+            "tpm_A_1": [100, 2, 10],
+            "tpm_A_2": [110, 3, 11],
+            "tpm_B_1": [5, 90, 10],
+            "tpm_B_2": [4, 95, 9],
+        }).to_csv(expr, index=False)
+
+        service = VolcanoService(output_parent=root / "results")
+        report = service.generate_expression_report(
+            expression_path=str(expr),
+            comparisons=[["A", "B"]],
+            pvalue_threshold=1.0,
+            logfc_cutoff=0.1,
+        )
+
+        assert report.metadata["input_mode"] == "expression"
+        assert report.metadata["comparisons"] == [{"group1": "A", "group2": "B"}]
+        assert len(report.png_paths) == 1
+        assert Path(report.png_paths[0]).exists()
+        deg_df = pd.read_csv(report.csv_paths[0])
+        assert {"gene_symbol", "logFC", "P.Value", "adj.P.Val", "significant"}.issubset(deg_df.columns)
+
+
+def test_go_kegg_inspect_expression_matrix_route(api_module, tmp_path):
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    expr = tmp_path / "aligned.csv"
+    pd.DataFrame({
+        "gene": ["G1", "G2"],
+        "tpm_A_1": [1, 2],
+        "tpm_A_2": [2, 3],
+        "tpm_B_1": [4, 5],
+        "tpm_B_2": [5, 6],
+    }).to_csv(expr, index=False)
+
+    response = app.test_client().post(
+        "/api/script-hub/go-kegg-enrichment/inspect",
+        json={"expression_path": str(expr)},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["groups"] == ["A", "B"]
+    assert payload["group_counts"] == {"A": 2, "B": 2}
+    assert payload["suggested_comparisons"] == [{"group1": "A", "group2": "B"}]
+
+
+def test_run_go_kegg_task_normalizes_fake_service(api_module, tmp_path, monkeypatch):
+    output_base = tmp_path / "results" / "script_hub" / "go_kegg_job"
+    output_base.mkdir(parents=True)
+    (output_base / "plot.png").write_bytes(b"png")
+    (output_base / "table.csv").write_text("term,pvalue\nGO:1,0.01\n", encoding="utf-8")
+    (output_base / "plot.pdf").write_bytes(b"pdf")
+    (output_base / "go_kegg_enrichment.log").write_text("ok\n", encoding="utf-8")
+    (output_base / "go_kegg_enrichment_results.zip").write_bytes(b"zip")
+
+    class FakeGoKeggService:
+        def __init__(self, output_parent):
+            self.output_parent = output_parent
+
+        def generate_report(self, **kwargs):
+            return SimpleNamespace(
+                job_id="go_kegg_job",
+                output_base=output_base,
+                png_paths=[str(output_base / "plot.png")],
+                pdf_paths=[str(output_base / "plot.pdf")],
+                csv_paths=[str(output_base / "table.csv")],
+                zip_path=str(output_base / "go_kegg_enrichment_results.zip"),
+                log_path=str(output_base / "go_kegg_enrichment.log"),
+                metadata={"expression_path": kwargs["expression_path"], "comparisons": [{"group1": "A", "group2": "B"}]},
+            )
+
+    monkeypatch.setattr(api_module, "GoKeggEnrichmentService", FakeGoKeggService)
+    task_id = "task_go_kegg_fake"
+    api_module._run_go_kegg_enrichment_task(
+        task_id,
+        results_root=tmp_path / "results",
+        expression_path=str(tmp_path / "aligned.csv"),
+        comparisons=[["A", "B"]],
+    )
+
+    task = api_module._get_task_state(task_id)
+    assert task["status"] == "completed"
+    assert task["result"]["module"] == "go-kegg-enrichment"
+    assert task["result"]["viewer_url"].endswith("/viewer.html")
+    assert task["result"]["zip_url"].endswith("/go_kegg_enrichment_results.zip")
+    assert task["result"]["log_url"].endswith("/go_kegg_enrichment.log")
+
+
+def test_pgen_public_distribution_generates_png_and_stats(tmp_path):
+    from flask_app.services.pgen_analysis_service import PgenAnalysisService
+
+    output_base = tmp_path / "pgen_job"
+    detail_dir = output_base / "Pgen"
+    detail_dir.mkdir(parents=True)
+    processed = []
+    for sample, values in {
+        "s1": [("CASSA", 1e-4), ("CASSB", 1e-6)],
+        "s2": [("CASSA", 1e-5), ("CASSB", 1e-7)],
+    }.items():
+        sample_dir = detail_dir / sample
+        sample_dir.mkdir()
+        detail_path = sample_dir / "TRA.csv"
+        pd.DataFrame({
+            "CDR3(pep)": [item[0] for item in values],
+            "Pgen": [item[1] for item in values],
+        }).to_csv(detail_path, index=False)
+        processed.append({
+            "sample": sample,
+            "chain": "TRA",
+            "detail_path": str(detail_path),
+        })
+
+    profile_df = pd.DataFrame({
+        "sample": ["s1", "s2"],
+        "Symptoms": ["A", "A"],
+    })
+    png_paths = []
+
+    csv_paths = PgenAnalysisService._plot_public_pgen_distributions(
+        processed_records=processed,
+        profile_df=profile_df,
+        sample_col="sample",
+        category_col="Symptoms",
+        output_base=output_base,
+        png_paths=png_paths,
+    )
+
+    assert len(png_paths) == 1
+    assert Path(png_paths[0]).name == "TRA_Symptoms_pgen_public.png"
+    assert Path(png_paths[0]).exists()
+    assert len(csv_paths) == 1
+    stats = pd.read_csv(csv_paths[0])
+    assert stats.loc[0, "public_cdr3"] == 2
+    assert stats.loc[0, "public_nonzero"] == 4
+
+
+def test_pgen_inspect_returns_distribution_category_candidates(api_module, tmp_path):
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    pep_dir = tmp_path / "pep"
+    chain_dir = pep_dir / "TRA"
+    chain_dir.mkdir(parents=True)
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA"],
+        "V": ["TRAV1"],
+        "J": ["TRAJ1"],
+        "copy": [1],
+    }).to_csv(chain_dir / "s1__TRA.csv", index=False)
+    profile = tmp_path / "Profile.csv"
+    pd.DataFrame({
+        "sample": ["s1"],
+        "Symptoms": ["A"],
+        "therapy": ["before"],
+    }).to_csv(profile, index=False)
+
+    response = app.test_client().post(
+        "/api/script-hub/pgen-analysis/inspect",
+        json={"base_path": str(pep_dir), "profile_path": str(profile)},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["distribution_category_candidates"] == ["Symptoms", "therapy"]
+
+
+def test_combined_charts_cache_context_includes_transcriptome(tmp_path):
+    api_jobs = import_module("flask_app.routes.api_jobs")
+
+    sample_file = tmp_path / "sample.csv"
+    transcriptome = tmp_path / "aligned.csv"
+    sample_file.write_text("cdr3,copy,v,j\nAAA,1,TRBV1,TRBJ1\n", encoding="utf-8")
+    transcriptome.write_text("Gene,tpm_A_1,tpm_B_1\nG1,1,2\n", encoding="utf-8")
+
+    context = api_jobs._build_charts_cache_context("", {
+        "selected_modules": ["heatmap"],
+        "selected_chains": ["TRB"],
+        "field_mapping": {"cdr3_column": "cdr3", "copy_column": "copy"},
+        "transcriptome_path": str(transcriptome),
+        "samples": [{
+            "sample_key": "S1",
+            "data_files": [{"filepath": str(sample_file)}],
+        }],
+    })
+
+    asset_types = [asset["asset_type"] for asset in context["input_assets"]]
+    assert asset_types == ["sample", "transcriptome"]
+    transcriptome_asset = context["input_assets"][1]
+    assert transcriptome_asset["path"] == str(transcriptome.resolve())
+    assert context["config_json"]["has_transcriptome"] is True
+
+
 def test_umapin_service_concatenates_usage_directory(monkeypatch):
     import numpy as np
     from flask_app.services.umapin_service import UmapinService
@@ -1280,3 +2013,115 @@ def test_umapin_service_concatenates_usage_directory(monkeypatch):
         assert Path(report.output_base / "df_VJ_all.csv").exists()
         coord_df = pd.read_csv(report.csv_paths[0])
         assert {"sample", "Category", "UMAP1", "UMAP2"}.issubset(coord_df.columns)
+
+
+def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
+    output_base = tmp_path / "topclone_job"
+    output_base.mkdir()
+    result = {
+        "job_id": output_base.name,
+        "png_urls": [
+            f"/api/script-hub/results/{output_base.name}/boxplot/therapy/top10TRA.png",
+            f"/api/script-hub/results/{output_base.name}/boxplot/therapy/top20TRB.png",
+        ],
+        "topclone_csv_url": f"/api/script-hub/results/{output_base.name}/topclone.csv",
+        "cdr3_urls": [f"/api/script-hub/results/{output_base.name}/top_cdr3_sequences/TRA/top10_cdr3s.csv"],
+    }
+    metadata = {
+        "mode": "trace",
+        "chains": ["TRA", "TRB"],
+        "sample_count": 2,
+        "top_clone_values": [10, 20, 50, 100],
+    }
+
+    api_module._build_topclone_viewer(output_base, result, metadata)
+
+    html = (output_base / "viewer.html").read_text(encoding="utf-8")
+    assert 'id="chainSelect"' in html
+    assert 'id="topSelect"' in html
+    assert '"chain": "TRA"' in html
+    assert '"top_n": "10"' in html
+    assert "top10_cdr3s.csv" in html
+
+
+def test_script_hub_result_route_finds_user_scoped_viewer(api_module, tmp_path):
+    app = Flask(__name__)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False, RESULTS_FOLDER=str(tmp_path / "results"))
+    app.register_blueprint(api_module.script_hub_bp)
+
+    viewer = tmp_path / "results" / "1" / "script_hub" / "topclone_job" / "viewer.html"
+    viewer.parent.mkdir(parents=True)
+    viewer.write_text("<!doctype html><title>viewer</title>", encoding="utf-8")
+
+    response = app.test_client().get("/api/script-hub/results/topclone_job/viewer.html")
+
+    assert response.status_code == 200
+    assert b"<title>viewer</title>" in response.data
+
+
+def test_mait_nkt_service_matches_profile_sample_alias(monkeypatch, tmp_path):
+    from flask_app.services.mait_nkt_service import MaitNktService
+
+    def fake_boxplot(*, out_path, **kwargs):
+        Path(out_path).write_bytes(b"png")
+
+    monkeypatch.setattr(MaitNktService, "_load_reference", lambda self: {"MAIT": ["AAA"]})
+    monkeypatch.setattr(MaitNktService, "_make_boxplot", staticmethod(fake_boxplot))
+
+    tra_df = pd.DataFrame({
+        "CDR3(pep)": ["AAA", "BBB"],
+        "sampleA__TRA.csv": [5, 0],
+        "sampleB__TRA.csv": [0, 7],
+    })
+    profile_df = pd.DataFrame({
+        "SampleID": ["sampleA", "sampleB"],
+        "therapy": ["Control", "Treatment"],
+    })
+
+    report = MaitNktService(output_parent=tmp_path).generate_report(
+        tra_df=tra_df,
+        profile_df=profile_df,
+        group_field="therapy",
+        job_id="mait_alias",
+    )
+
+    profile = pd.read_csv(report.csv_paths[0])
+    assert profile["category"].tolist() == ["Control", "Treatment"]
+    assert profile["MAIT_sum"].tolist() == [5, 0]
+
+
+def test_mait_nkt_run_reuses_resolved_pep_tra_path(api_module, monkeypatch, tmp_path):
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    tra = tmp_path / "TRA.csv"
+    profile = tmp_path / "Profile_All.csv"
+    pd.DataFrame({
+        "CDR3(pep)": ["AAA"],
+        "sampleA__TRA.csv": [1],
+    }).to_csv(tra, index=False)
+    pd.DataFrame({"sample": ["sampleA"], "therapy": ["A"]}).to_csv(profile, index=False)
+
+    submitted = {}
+
+    def fake_submit(fn, *args, **kwargs):
+        submitted["fn"] = fn
+        submitted["kwargs"] = kwargs
+        return SimpleNamespace()
+
+    monkeypatch.setattr(api_module, "_resolve_pep_analysis_tra_source", lambda data: (_ for _ in ()).throw(AssertionError("resolver should not run")))
+    monkeypatch.setattr(api_module._script_executor, "submit", fake_submit)
+
+    response = app.test_client().post("/api/script-hub/mait-nkt/run", json={
+        "tra_source": "pep_analysis",
+        "tra_path": str(tra),
+        "profile_path": str(profile),
+        "group_field": "therapy",
+        "force_rerun": True,
+    })
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert submitted["kwargs"]["tra_path"] == str(tra.resolve())

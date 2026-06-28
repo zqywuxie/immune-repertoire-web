@@ -86,6 +86,7 @@ class TopCloneService:
         pvalue_threshold: float = 0.05,
         output_name: Optional[str] = None,
         profile_sheet: Optional[str] = None,
+        selected_chains: Optional[List[str]] = None,
         progress_callback=None,
     ) -> TopCloneReport:
         pep_data = Path(pep_data_path)
@@ -112,6 +113,7 @@ class TopCloneService:
                 pvalue_threshold=pvalue_threshold,
                 output_name=output_name,
                 profile_sheet=profile_sheet,
+                selected_chains=selected_chains,
                 progress_callback=progress_callback,
             )
         else:
@@ -120,6 +122,7 @@ class TopCloneService:
                 output_base=output_base,
                 job_id=job_id,
                 top_n=top_n,
+                selected_chains=selected_chains,
                 progress_callback=progress_callback,
             )
 
@@ -169,6 +172,25 @@ class TopCloneService:
         if match and match.group("chain"):
             return match.group("chain").upper()
         return None
+
+    @classmethod
+    def _filter_chain_files(
+        cls,
+        chain_files: Dict[str, List[Path]],
+        selected_chains: Optional[List[str]],
+    ) -> Dict[str, List[Path]]:
+        selected = {
+            cls._normalize_chain(str(chain))
+            for chain in (selected_chains or [])
+            if str(chain or "").strip()
+        }
+        if not selected:
+            return chain_files
+        return {
+            chain: files
+            for chain, files in chain_files.items()
+            if cls._normalize_chain(chain) in selected
+        }
 
     @staticmethod
     def _parse_sample_name(file_path: Path, chain: str) -> Optional[str]:
@@ -237,6 +259,7 @@ class TopCloneService:
         pvalue_threshold: float,
         output_name: Optional[str] = None,
         profile_sheet: Optional[str] = None,
+        selected_chains: Optional[List[str]] = None,
         progress_callback=None,
     ) -> TopCloneReport:
         # 1. Read Profile file (CSV or XLSX)
@@ -248,8 +271,9 @@ class TopCloneService:
 
         # 2. Discover chain files & build O(1) lookup {(sample, chain): path}
         chain_files = self._discover_files(pep_data)
+        chain_files = self._filter_chain_files(chain_files, selected_chains)
         if not chain_files:
-            raise ValueError("No chain CSV files found in pep_data path")
+            raise ValueError("No selected chain CSV files found in pep_data path")
 
         sample_chain_map: Dict[tuple, Path] = {}
         for chain, files in chain_files.items():
@@ -392,6 +416,7 @@ class TopCloneService:
             "datapoint_path": str(datapoint),
             "profile_sheet": profile_sheet or "",
             "chains": chains,
+            "selected_chains": chains,
             "sample_count": len(sample_list),
             "category_cols": category_cols,
             "topclone_csv": str(topclone_csv),
@@ -417,11 +442,13 @@ class TopCloneService:
         output_base: Path,
         job_id: str,
         top_n: int,
+        selected_chains: Optional[List[str]],
         progress_callback,
     ) -> TopCloneReport:
         chain_files = self._discover_files(pep_data)
+        chain_files = self._filter_chain_files(chain_files, selected_chains)
         if not chain_files:
-            raise ValueError("No chain CSV files found in pep_data path")
+            raise ValueError("No selected chain CSV files found in pep_data path")
 
         output_columns = ["index", "Chain", "CDR3(pep)", "joinedSeq", "V", "D", "J", "C", "copy"]
         input_columns = ["CDR3(pep)", "joinedSeq", "V", "D", "J", "C", "copy"]
@@ -507,6 +534,7 @@ class TopCloneService:
             "pep_data_path": str(pep_data),
             "top_n": top_n,
             "chains": sorted(chain_files.keys()),
+            "selected_chains": sorted(chain_files.keys()),
             "file_count": len(per_sample_files),
         }
 

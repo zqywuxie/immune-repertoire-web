@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import mannwhitneyu
 
-from flask_app.services.figure_style import MUTED_CATEGORY_COLORS, PALETTE, apply_publication_style
+from flask_app.services.figure_style import MUTED_CATEGORY_COLORS, PALETTE, apply_publication_style, save_publication_png
 
 
 @dataclass
@@ -938,7 +938,7 @@ class BoxPlotService:
         ax.grid(axis="y", color="#E5E7EB", linewidth=0.4, alpha=0.85)
         ax.set_axisbelow(True)
         fig.tight_layout(pad=0.45)
-        fig.savefig(output_path, dpi=600, bbox_inches="tight", facecolor="white")
+        save_publication_png(fig, output_path)
         plt.close(fig)
 
     @staticmethod
@@ -993,7 +993,7 @@ class BoxPlotService:
         ax.grid(axis="y", color="#E5E7EB", linewidth=0.4, alpha=0.85)
         ax.set_axisbelow(True)
         fig.tight_layout(pad=0.45)
-        fig.savefig(output_path, dpi=600, bbox_inches="tight", facecolor="white")
+        save_publication_png(fig, output_path)
         plt.close(fig)
 
     def _generate_grouped(

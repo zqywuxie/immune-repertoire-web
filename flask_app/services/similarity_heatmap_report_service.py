@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.result_path_resolver import candidate_job_roots
 
 logger = logging.getLogger(__name__)
 
@@ -802,8 +803,12 @@ class SimilarityHeatmapReportService:
         if not relative_path:
             raise ValidationError(message="relative_path is required.")
 
-        base_dir = (self.results_root / self._RESULT_DIR / job_id / "shared_analysis").resolve()
-        if not base_dir.exists() or not base_dir.is_dir():
+        base_dir = None
+        for candidate in candidate_job_roots(self.results_root, self._RESULT_DIR, job_id, nested_dir="shared_analysis"):
+            if candidate.exists() and candidate.is_dir():
+                base_dir = candidate.resolve()
+                break
+        if base_dir is None:
             raise FileNotFoundError(f"Report job not found: {job_id}")
 
         target_path = (base_dir / relative_path).resolve()
@@ -821,8 +826,12 @@ class SimilarityHeatmapReportService:
 
     def create_archive(self, job_id: str, archive_name: str = "shared_analysis.zip") -> Path:
         """Create a ZIP archive from the shared_analysis directory contents."""
-        output_base = (self.results_root / self._RESULT_DIR / job_id / "shared_analysis").resolve()
-        if not output_base.exists() or not output_base.is_dir():
+        output_base = None
+        for candidate in candidate_job_roots(self.results_root, self._RESULT_DIR, job_id, nested_dir="shared_analysis"):
+            if candidate.exists() and candidate.is_dir():
+                output_base = candidate.resolve()
+                break
+        if output_base is None:
             raise FileNotFoundError(f"Report job not found: {job_id}")
 
         archive_path = output_base / archive_name

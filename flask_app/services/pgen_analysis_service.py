@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import zipfile
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,11 +21,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.stats import gaussian_kde
 
 from flask_app.services.figure_style import (
     MUTED_BLUE_RED_CMAP,
+    MUTED_CATEGORY_COLORS,
     PALETTE,
     apply_publication_style,
+    save_publication_png,
     soften_axes,
 )
 
@@ -136,6 +140,7 @@ class PgenAnalysisService:
         selected_chains: List[str],
         species: str = "human",
         sample_col: str = "sample",
+        distribution_category_col: Optional[str] = None,
         output_name: Optional[str] = None,
         progress_callback=None,
     ) -> PgenAnalysisReport:
@@ -156,6 +161,11 @@ class PgenAnalysisService:
         profile_df = _try_read_table(profile_file, low_memory=False)
         sample_col = self._resolve_sample_column(profile_df, sample_col)
         profile_df[sample_col] = profile_df[sample_col].astype(str)
+        distribution_category_col = self._resolve_distribution_category_column(
+            profile_df,
+            sample_col,
+            distribution_category_col,
+        )
 
         chains = [_normalize_chain(chain) for chain in selected_chains if _normalize_chain(chain) in SUPPORTED_CHAINS]
         chains = [chain for chain in dict.fromkeys(chains) if chain not in SKIPPED_SONNIA_CHAINS]
@@ -239,6 +249,7 @@ class PgenAnalysisService:
                     "chain": chain,
                     "sequence_count": int(detail_df.shape[0]),
                     "mean_pgen": mean_value,
+                    "detail_path": str(detail_path),
                 })
 
         if not processed:
@@ -264,6 +275,15 @@ class PgenAnalysisService:
         self._plot_mean_by_chain(pd.DataFrame(processed), output_base, png_paths, pdf_paths)
         self._plot_sample_heatmap(merged, sample_col, output_base, png_paths, pdf_paths)
 
+        distribution_csv_paths = self._plot_public_pgen_distributions(
+            processed_records=processed,
+            profile_df=profile_df,
+            sample_col=sample_col,
+            category_col=distribution_category_col,
+            output_base=output_base,
+            png_paths=png_paths,
+        )
+
         metadata = {
             "job_id": job_id,
             "generated_at": datetime.now().isoformat(),
@@ -272,6 +292,7 @@ class PgenAnalysisService:
             "pep_data_dir": str(pep_dir.resolve()),
             "profile_path": str(profile_file.resolve()),
             "sample_col": sample_col,
+            "distribution_category_col": distribution_category_col,
             "selected_chains": chains,
             "skipped_chains": [chain for chain in selected_chains if _normalize_chain(chain) in SKIPPED_SONNIA_CHAINS],
             "sample_count": int(pd.DataFrame(processed)["sample"].nunique()),
@@ -283,16 +304,21 @@ class PgenAnalysisService:
             "output_counts": {
                 "detail_csv": len(detail_paths),
                 "summary_csv": 2,
+                "distribution_csv": len(distribution_csv_paths),
                 "plots": len(png_paths),
+                "distribution_plots": len([
+                    path for path in png_paths
+                    if "/pgen_distribution/" in str(path).replace("\\", "/")
+                ]),
             },
         }
         metadata_path = output_base / "pgen_analysis_metadata.json"
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        csv_paths = [str(mean_path), str(detail_index_path), str(metadata_path)]
+        csv_paths = [str(mean_path), str(detail_index_path), *distribution_csv_paths, str(metadata_path)]
         zip_path = output_base / "pgen_analysis_results.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_path in [Path(p) for p in csv_paths + detail_paths + png_paths + pdf_paths]:
+            for file_path in [Path(p) for p in csv_paths + detail_paths + png_paths]:
                 if file_path.exists():
                     zf.write(file_path, file_path.relative_to(output_base).as_posix())
 
@@ -309,6 +335,30 @@ class PgenAnalysisService:
             zip_path=str(zip_path),
             metadata=metadata,
         )
+
+    @staticmethod
+    def _resolve_distribution_category_column(
+        df: pd.DataFrame,
+        sample_col: str,
+        preferred: Optional[str],
+    ) -> str:
+        if preferred and preferred in df.columns and preferred != sample_col:
+            return preferred
+        lower_map = {str(col).strip().lower(): col for col in df.columns}
+        if preferred and preferred.strip().lower() in lower_map:
+            candidate = lower_map[preferred.strip().lower()]
+            if candidate != sample_col:
+                return candidate
+        for candidate in ("Symptoms", "Category", "category", "group", "Group", "therapy", "disease"):
+            if candidate in df.columns and candidate != sample_col:
+                return candidate
+            lowered = candidate.lower()
+            if lowered in lower_map and lower_map[lowered] != sample_col:
+                return lower_map[lowered]
+        for column in df.columns:
+            if column != sample_col:
+                return str(column)
+        return ""
 
     @staticmethod
     def _resolve_sample_column(df: pd.DataFrame, preferred: str) -> str:
@@ -426,12 +476,9 @@ class PgenAnalysisService:
         soften_axes(ax)
         fig.tight_layout()
         png_path = output_base / "pgen_mean_by_chain.png"
-        pdf_path = output_base / "pgen_mean_by_chain.pdf"
-        fig.savefig(png_path, dpi=300, facecolor="white")
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
         png_paths.append(str(png_path))
-        pdf_paths.append(str(pdf_path))
 
     @staticmethod
     def _plot_sample_heatmap(merged: pd.DataFrame, sample_col: str, output_base: Path, png_paths: List[str], pdf_paths: List[str]) -> None:
@@ -454,12 +501,198 @@ class PgenAnalysisService:
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         fig.tight_layout()
         png_path = output_base / "pgen_sample_heatmap.png"
-        pdf_path = output_base / "pgen_sample_heatmap.pdf"
-        fig.savefig(png_path, dpi=300, facecolor="white")
-        fig.savefig(pdf_path, dpi=300, facecolor="white")
+        save_publication_png(fig, png_path)
         plt.close(fig)
         png_paths.append(str(png_path))
-        pdf_paths.append(str(pdf_path))
+
+    @staticmethod
+    def _plot_public_pgen_distributions(
+        *,
+        processed_records: List[Dict[str, Any]],
+        profile_df: pd.DataFrame,
+        sample_col: str,
+        category_col: str,
+        output_base: Path,
+        png_paths: List[str],
+    ) -> List[str]:
+        if not category_col or category_col not in profile_df.columns:
+            return []
+
+        output_dir = output_base / "pgen_distribution"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        sample_category: Dict[str, str] = {}
+        for _, row in profile_df[[sample_col, category_col]].dropna(how="any").iterrows():
+            sample = str(row[sample_col]).strip()
+            category = str(row[category_col]).strip()
+            if sample and category and category.lower() != "nan":
+                sample_category[sample] = category
+
+        if not sample_category:
+            return []
+
+        stats_records: List[Dict[str, Any]] = []
+        records_by_chain: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
+        for item in processed_records:
+            sample = str(item.get("sample") or "").strip()
+            chain = _normalize_chain(str(item.get("chain") or ""))
+            detail_path = Path(str(item.get("detail_path") or ""))
+            if not sample or not chain or not detail_path.exists():
+                continue
+            try:
+                detail_df = _try_read_table(detail_path, usecols=["CDR3(pep)", "Pgen"])
+            except Exception:
+                continue
+            for _, row in detail_df.iterrows():
+                cdr3 = str(row.get("CDR3(pep)", "")).strip()
+                pgen = pd.to_numeric(row.get("Pgen"), errors="coerce")
+                if not cdr3 or cdr3.lower() == "nan" or not np.isfinite(pgen):
+                    continue
+                records_by_chain[chain].append((sample, cdr3, float(pgen)))
+
+        for chain in sorted(records_by_chain):
+            category_values, category_stats, meta = PgenAnalysisService._classify_public_pgen_by_category(
+                records_by_chain[chain],
+                sample_category,
+            )
+            for category, stats in category_stats.items():
+                stats_records.append({
+                    "chain": chain,
+                    "category_column": category_col,
+                    "category": category,
+                    "total_cdr3": stats["total_cdr3"],
+                    "public_cdr3": stats["public_cdr3"],
+                    "public_nonzero": stats["public_nonzero"],
+                    "total_rows": meta["total_rows"],
+                    "matched_rows": meta["matched_rows"],
+                    "zero_pgen": meta["zero_pgen"],
+                })
+            out_path = PgenAnalysisService._plot_distribution_chain(
+                chain,
+                category_values,
+                category_stats,
+                category_col,
+                output_dir,
+            )
+            if out_path:
+                png_paths.append(str(out_path))
+
+        if not stats_records:
+            return []
+        stats_path = output_dir / "pgen_public_distribution_stats.csv"
+        pd.DataFrame(stats_records).to_csv(stats_path, index=False, encoding="utf-8-sig")
+        return [str(stats_path)]
+
+    @staticmethod
+    def _classify_public_pgen_by_category(
+        rows: List[Tuple[str, str, float]],
+        sample_category: Dict[str, str],
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict[str, int]], Dict[str, int]]:
+        cat_cdr3_samples: Dict[str, Dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+        cat_pgen_values: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        total_rows = 0
+        matched_rows = 0
+        zero_pgen = 0
+
+        for sample, cdr3, pgen in rows:
+            category = sample_category.get(sample)
+            if category is None:
+                continue
+            matched_rows += 1
+            total_rows += 1
+            cat_cdr3_samples[category][cdr3].add(sample)
+            if pgen > 0.0:
+                cat_pgen_values[category].append((cdr3, pgen))
+            else:
+                zero_pgen += 1
+
+        category_values: Dict[str, np.ndarray] = {}
+        category_stats: Dict[str, Dict[str, int]] = {}
+        for category in sorted(cat_cdr3_samples):
+            cdr3_samples = cat_cdr3_samples[category]
+            public_cdr3s = {
+                cdr3 for cdr3, samples in cdr3_samples.items()
+                if len(samples) >= 2
+            }
+            vals = [
+                -np.log10(pgen)
+                for cdr3, pgen in cat_pgen_values[category]
+                if cdr3 in public_cdr3s
+            ]
+            arr = np.array(vals, dtype=np.float64) if vals else np.array([], dtype=np.float64)
+            category_values[category] = arr
+            category_stats[category] = {
+                "total_cdr3": len(cdr3_samples),
+                "public_cdr3": len(public_cdr3s),
+                "public_nonzero": int(arr.size),
+            }
+
+        return category_values, category_stats, {
+            "total_rows": total_rows,
+            "matched_rows": matched_rows,
+            "zero_pgen": zero_pgen,
+        }
+
+    @staticmethod
+    def _plot_distribution_chain(
+        chain: str,
+        category_values: Dict[str, np.ndarray],
+        category_stats: Dict[str, Dict[str, int]],
+        category_col: str,
+        output_dir: Path,
+    ) -> Optional[Path]:
+        drawable: List[Tuple[int, str, np.ndarray, int]] = []
+        for index, category in enumerate(sorted(category_values)):
+            vals = category_values[category]
+            vals = vals[np.isfinite(vals)]
+            if len(vals) < 4 or np.unique(vals).size < 2:
+                continue
+            drawable.append((index, category, vals, category_stats[category]["public_nonzero"]))
+        if not drawable:
+            return None
+
+        fig, ax = plt.subplots(figsize=(89 / 25.4, 63 / 25.4), constrained_layout=True)
+        pooled = np.concatenate([vals for _, _, vals, _ in drawable])
+        x_min, x_max = np.percentile(pooled, [0.5, 99.5])
+        if not np.isfinite(x_min) or not np.isfinite(x_max) or x_min >= x_max:
+            x_min, x_max = float(pooled.min()), float(pooled.max())
+        pad = max((x_max - x_min) * 0.06, 0.2)
+        x = np.linspace(x_min - pad, x_max + pad, 500)
+        fill_curves = len(drawable) <= 3
+
+        for index, category, vals, public_count in drawable:
+            color = MUTED_CATEGORY_COLORS[index % len(MUTED_CATEGORY_COLORS)]
+            try:
+                kde = gaussian_kde(vals)
+                y = kde(x)
+            except Exception:
+                continue
+            ax.plot(x, y, color=color, linewidth=1.35, label=f"{category} (n={public_count:,})")
+            if fill_curves:
+                ax.fill_between(x, y, alpha=0.08, color=color, linewidth=0)
+            median = float(np.median(vals))
+            ax.plot(
+                [median, median],
+                [0, max(y) * 0.08],
+                color=color,
+                linewidth=0.9,
+                solid_capstyle="butt",
+            )
+
+        if not ax.lines:
+            plt.close(fig)
+            return None
+        ax.set_xlabel(f"-log10({chain} Pgen)", fontweight="bold")
+        ax.set_ylabel("Density", fontweight="bold")
+        ax.set_title(f"{chain} public CDR3s", loc="center", fontweight="bold", pad=4)
+        ax.legend(loc="upper right", handlelength=1.2, borderaxespad=0.2, labelspacing=0.35)
+        ax.tick_params(axis="both", direction="out")
+        ax.margins(y=0.08)
+        ax.set_xlim(x[0], x[-1])
+        safe_col = _safe_name(category_col)
+        out_path = output_dir / f"{chain}_{safe_col}_pgen_public.png"
+        save_publication_png(fig, out_path)
+        plt.close(fig)
+        return out_path
 
     def _allocate_job_id(self, output_name: str) -> str:
         base = _safe_name(output_name or "pgen_analysis")

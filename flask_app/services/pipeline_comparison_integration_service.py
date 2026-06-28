@@ -28,6 +28,7 @@ import pandas as pd
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.auto_heatmap_service import AutoHeatmapService
+from flask_app.services.result_path_resolver import candidate_job_roots
 from flask_app.services.heatmap_generator import HeatmapConfig, HeatmapGenerator
 
 try:
@@ -960,8 +961,12 @@ class PipelineComparisonIntegrationService:
         if not relative_path:
             raise ValidationError(message="relative_path is required.")
 
-        base_dir = (self.results_root / self._PIPELINE_RESULT_DIR / job_id / "shared_analysis").resolve()
-        if not base_dir.exists() or not base_dir.is_dir():
+        base_dir = None
+        for candidate in candidate_job_roots(self.results_root, self._PIPELINE_RESULT_DIR, job_id, nested_dir="shared_analysis"):
+            if candidate.exists() and candidate.is_dir():
+                base_dir = candidate.resolve()
+                break
+        if base_dir is None:
             raise FileNotFoundError(f"Report job not found: {job_id}")
 
         target_path = (base_dir / relative_path).resolve()

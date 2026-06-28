@@ -30,11 +30,14 @@ from flask_app.services.pep_analysis_service import PepAnalysisService
 from flask_app.services.topclone_service import TopCloneService
 from flask_app.services.umap_service import UmapService
 from flask_app.services.volcano_service import VolcanoService
+from flask_app.services.go_kegg_enrichment_service import GoKeggEnrichmentService
 from flask_app.services.umapin_service import UmapinService
 from flask_app.services.ml_analysis_service import MLAnalysisService
 from flask_app.services.pgen_analysis_service import PgenAnalysisService
 from flask_app.services.mait_nkt_service import MaitNktService
+from flask_app.services.figure_style import save_publication_png
 from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.result_path_resolver import candidate_job_roots, scoped_results_root
 from flask_app.services.script_hub_job_service import get_script_hub_job_service
 from flask_app.services.user_scope import assert_owned, current_user_id
 
@@ -46,7 +49,7 @@ _script_task_lock = threading.Lock()
 _script_tasks: Dict[str, Dict[str, Any]] = {}
 
 _RESULT_DIR = "script_hub"
-_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "umapin", "ml-analysis", "mait-nkt"}
+_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "go-kegg-enrichment", "umapin", "ml-analysis", "mait-nkt"}
 _COLUMN_HINTS = {
     "cdr3_column": ["cdr3(pep)", "cdr3_pep", "cdr3aa", "cdr3_aa", "cdr3", "aminoacid", "sequence"],
     "copy_column": ["copy", "copies", "count", "reads", "umis", "umi", "frequency"],
@@ -57,6 +60,20 @@ _RESULT_FILES = {"viewer.html", "metadata.json", "db_alignment_bundle.zip", "spe
 
 # Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+
+
+class ScriptTaskCancelled(BaseException):
+    """Cooperative cancellation signal for Script Hub worker threads."""
+
+
+def _projects_root() -> Path:
+    return Path(current_app.root_path) / "data" / "projects"
+
+
+def _project_asset_service():
+    from flask_app.services.project_asset_service import get_project_asset_service
+
+    return get_project_asset_service(_projects_root())
 
 
 def _robust_read_csv(path, **kwargs):
@@ -88,9 +105,12 @@ def _history_entry(progress: float, stage: str, detail: str, meta: Optional[Dict
 def _set_task_state(task_id: str, **updates: Any) -> None:
     with _script_task_lock:
         task = _script_tasks.setdefault(task_id, {})
-        updates.setdefault("user_id", task.get("user_id") or current_user_id())
-        task.update(updates)
-        snapshot = dict(task)
+        if task.get("status") == "cancelled" and updates.get("status") != "cancelled":
+            snapshot = dict(task)
+        else:
+            updates.setdefault("user_id", task.get("user_id") or current_user_id())
+            task.update(updates)
+            snapshot = dict(task)
     _sync_job_state(task_id, snapshot)
 
 
@@ -116,12 +136,48 @@ def _sync_job_state(task_id: str, task: Dict[str, Any]) -> None:
         logger.warning("Failed to sync Script Hub job state for %s", task_id, exc_info=True)
 
 
+def _script_task_cancel_requested(task_id: str) -> bool:
+    task = _get_task_state(task_id)
+    if task and task.get("status") == "cancelled":
+        return True
+    try:
+        job = get_script_hub_job_service().get_job(task_id)
+    except Exception:
+        job = None
+    return bool(job and (job.get("cancel_requested") or job.get("status") == "cancelled"))
+
+
+def _mark_script_task_cancelled(task_id: str, detail: str = "Job cancelled by user.") -> Dict[str, Any]:
+    history_item = _history_entry(100.0, "Cancelled", detail, {"phase": "cancelled"})
+    with _script_task_lock:
+        task = _script_tasks.setdefault(task_id, {})
+        meta = task.get("meta") if isinstance(task.get("meta"), dict) else {}
+        task.update({
+            "status": "cancelled",
+            "stage": "Cancelled",
+            "detail": detail,
+            "meta": {**meta, "phase": "cancelled"},
+        })
+        history = task.setdefault("history", [])
+        if not history or history[-1] != history_item:
+            history.append(history_item)
+            if len(history) > 80:
+                del history[:-80]
+        snapshot = dict(task)
+    _sync_job_state(task_id, snapshot)
+    return snapshot
+
+
 def _record_stage(task_id: str, progress: float, stage: str, detail: str, meta: Optional[Dict[str, Any]] = None) -> None:
+    if _script_task_cancel_requested(task_id):
+        _mark_script_task_cancelled(task_id)
+        raise ScriptTaskCancelled()
+
     history_item = _history_entry(progress, stage, detail, meta)
     with _script_task_lock:
         task = _script_tasks.setdefault(task_id, {})
         if task.get("status") == "cancelled":
-            return
+            raise ScriptTaskCancelled()
         task["status"] = "running"
         task["progress"] = round(progress, 2)
         task["stage"] = stage
@@ -137,10 +193,7 @@ def _record_stage(task_id: str, progress: float, stage: str, detail: str, meta: 
 
 
 def _resolve_results_root() -> Path:
-    results_root = Path(current_app.config.get("RESULTS_FOLDER", Path(current_app.root_path) / "data" / "results"))
-    if not results_root.is_absolute():
-        results_root = Path(current_app.root_path) / results_root
-    return PathAccessService.results_root_for_user(results_root.resolve())
+    return scoped_results_root()
 
 
 def _sanitize_nan(obj: Any) -> Any:
@@ -385,20 +438,42 @@ def _is_project_profile_asset(asset: Any) -> bool:
     return asset_type == "profile"
 
 
+def _is_project_transcriptome_asset(asset: Any) -> bool:
+    asset_type = str(getattr(asset, "asset_type", "") or "").strip().lower()
+    return asset_type == "transcriptome"
+
+
 def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, Any]:
     if not str(project_id or "").strip():
-        return {"pep_paths": [], "profile_path": "", "profile_paths": [], "invalid_profile_paths": []}
+        return {
+            "pep_paths": [],
+            "profile_path": "",
+            "profile_paths": [],
+            "invalid_profile_paths": [],
+            "transcriptome_path": "",
+            "transcriptome_paths": [],
+            "invalid_transcriptome_paths": [],
+        }
     try:
-        from flask_app.models.database import Project, ProjectAsset
+        from flask_app.models.database import Project
     except Exception as exc:  # pragma: no cover - defensive import fallback
         logger.warning("ProjectAsset import failed while collecting Script Hub assets: %s", exc)
-        return {"pep_paths": [], "profile_path": "", "profile_paths": [], "invalid_profile_paths": []}
+        return {
+            "pep_paths": [],
+            "profile_path": "",
+            "profile_paths": [],
+            "invalid_profile_paths": [],
+            "transcriptome_path": "",
+            "transcriptome_paths": [],
+            "invalid_transcriptome_paths": [],
+        }
 
     project = Project.query.get(str(project_id).strip())
     assert_owned(project, "Project")
-    assets = ProjectAsset.query.filter(ProjectAsset.project_id == str(project_id).strip()).order_by(ProjectAsset.uploaded_at.desc()).all()
+    assets = _project_asset_service().list_assets(str(project_id).strip())
     pep_paths: List[str] = []
     profile_paths: List[str] = []
+    transcriptome_paths: List[str] = []
     for asset in assets:
         storage_path = _resolve_registered_asset_path(
             str(getattr(asset, "project_id", "") or project_id).strip(),
@@ -411,14 +486,21 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
             pep_paths.append(storage_path)
         if _is_project_profile_asset(asset):
             profile_paths.append(storage_path)
+        if _is_project_transcriptome_asset(asset):
+            transcriptome_paths.append(storage_path)
 
     readable_profiles = [path for path in profile_paths if _is_readable_table_asset(path)]
     invalid_profiles = [path for path in profile_paths if path not in readable_profiles]
+    readable_transcriptomes = [path for path in transcriptome_paths if _is_readable_table_asset(path)]
+    invalid_transcriptomes = [path for path in transcriptome_paths if path not in readable_transcriptomes]
     return {
         "pep_paths": list(dict.fromkeys(pep_paths)),
         "profile_paths": list(dict.fromkeys(profile_paths)),
         "profile_path": (readable_profiles or [""])[0],
         "invalid_profile_paths": invalid_profiles,
+        "transcriptome_paths": list(dict.fromkeys(transcriptome_paths)),
+        "transcriptome_path": (readable_transcriptomes or [""])[0],
+        "invalid_transcriptome_paths": invalid_transcriptomes,
     }
 
 
@@ -433,10 +515,7 @@ def _collect_project_cached_usage_assets(project_id: Optional[str]) -> List[Dict
         ProjectAsset = None
 
     if ProjectAsset is not None:
-        rows = ProjectAsset.query.filter(
-            ProjectAsset.project_id == str(project_id).strip(),
-            ProjectAsset.asset_type == "cached_usage",
-        ).order_by(ProjectAsset.uploaded_at.desc()).all()
+        rows = _project_asset_service().list_assets(str(project_id).strip(), asset_type="cached_usage")
         for asset in rows:
             storage_path = _resolve_registered_asset_path(
                 str(getattr(asset, "project_id", "") or project_id).strip(),
@@ -516,6 +595,141 @@ def _resolve_project_cached_usage_path(data: Dict[str, Any], *, preferred: str) 
     return ""
 
 
+def _pep_tra_candidates_from_output_base(output_base: Path) -> List[Path]:
+    output_base = Path(output_base)
+    candidates: List[Path] = [
+        output_base / "Pep_shared" / "TRA.csv",
+        output_base / "Pep_shared_cate" / "Pep_shared" / "TRA.csv",
+    ]
+    if output_base.exists() and output_base.is_dir():
+        candidates.extend(sorted(output_base.glob("*/Pep_shared_cate/Pep_shared/TRA.csv")))
+        candidates.extend(sorted(output_base.glob("*/arrage_pep/Pep_shared_cate/Pep_shared/TRA.csv")))
+    seen: set[str] = set()
+    unique: List[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def _pep_output_base_candidates_from_path(path: Path) -> List[Path]:
+    path = Path(path)
+    base = path if path.is_dir() else path.parent
+    candidates = [base, *list(base.parents)]
+    valid: List[Path] = []
+    for candidate in candidates:
+        if (candidate / "Pep_shared").exists() or (candidate / "pep_analysis_metadata.json").exists():
+            valid.append(candidate)
+    return valid or candidates[:4]
+
+
+def _resolve_pep_analysis_tra_source(data: Dict[str, Any]) -> Dict[str, Any]:
+    source_job_id = str(data.get("source_job_id") or "").strip()
+    project_id = str(data.get("project_id") or "").strip()
+    candidates: List[Dict[str, Any]] = []
+
+    def _add_output_base(output_base: Any, *, source_kind: str, job_id: str = "", metadata: Optional[Dict[str, Any]] = None) -> None:
+        raw = str(output_base or "").strip()
+        if not raw:
+            return
+        base = Path(raw)
+        if base.is_file():
+            base = base.parent
+        candidates.append({
+            "output_base": str(base),
+            "source_kind": source_kind,
+            "source_job_id": job_id,
+            "metadata": metadata or {},
+        })
+
+    def _add_tra_path(path_value: Any, *, source_kind: str, job_id: str = "", metadata: Optional[Dict[str, Any]] = None) -> None:
+        raw = str(path_value or "").strip()
+        if not raw:
+            return
+        candidates.append({
+            "tra_path": raw,
+            "source_kind": source_kind,
+            "source_job_id": job_id,
+            "metadata": metadata or {},
+        })
+
+    if source_job_id:
+        pep_result = _try_find_script_task_result(source_job_id)
+        result = pep_result.get("result") if pep_result else {}
+        if isinstance(result, dict):
+            metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+            _add_output_base(result.get("output_base") or metadata.get("output_base"), source_kind="job", job_id=source_job_id, metadata=metadata)
+            intermediate = metadata.get("intermediate_paths") if isinstance(metadata.get("intermediate_paths"), dict) else {}
+            for tra_candidate in intermediate.get("tra_candidates") or []:
+                _add_tra_path(tra_candidate, source_kind="job_metadata", job_id=source_job_id, metadata=metadata)
+
+    if project_id:
+        try:
+            rows = _project_asset_service().list_assets(project_id, asset_type="processed_result")
+            for row in rows:
+                meta = getattr(row, "metadata_json", None) or {}
+                if str(meta.get("analysis_type") or "").strip() != "pep-analysis":
+                    continue
+                nested = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
+                merged_meta = {**nested, **meta}
+                job_id = str(meta.get("job_id") or nested.get("job_id") or "").strip()
+                if source_job_id and job_id and job_id != source_job_id:
+                    continue
+                _add_output_base(
+                    meta.get("output_base") or nested.get("output_base") or getattr(row, "storage_path", ""),
+                    source_kind="project_result",
+                    job_id=job_id,
+                    metadata=merged_meta,
+                )
+                intermediate = nested.get("intermediate_paths") if isinstance(nested.get("intermediate_paths"), dict) else {}
+                for tra_candidate in intermediate.get("tra_candidates") or []:
+                    _add_tra_path(tra_candidate, source_kind="project_result_metadata", job_id=job_id, metadata=merged_meta)
+        except Exception:
+            logger.warning("Failed to inspect project PEP result assets for %s", project_id, exc_info=True)
+
+        cached_assets = _collect_project_cached_usage_assets(project_id)
+        for asset in cached_assets:
+            meta = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
+            if str(meta.get("source_module") or "").strip() != "pep-analysis":
+                continue
+            job_id = str(meta.get("source_job_id") or "").strip()
+            if source_job_id and job_id and job_id != source_job_id:
+                continue
+            for key in ("pep_shared_TRA_path", "pep_shared_cate_TRA_path"):
+                _add_tra_path(meta.get(key), source_kind="cached_usage", job_id=job_id, metadata=meta)
+            for key in ("pep_output_base", "output_base"):
+                _add_output_base(meta.get(key), source_kind="cached_usage", job_id=job_id, metadata=meta)
+            storage_path = str(asset.get("storage_path") or meta.get("storage_path") or "").strip()
+            if storage_path:
+                for base in _pep_output_base_candidates_from_path(Path(storage_path)):
+                    _add_output_base(base, source_kind="cached_usage_path", job_id=job_id, metadata=meta)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        direct_path = str(candidate.get("tra_path") or "").strip()
+        possible_paths = [Path(direct_path)] if direct_path else _pep_tra_candidates_from_output_base(Path(candidate.get("output_base") or ""))
+        for path in possible_paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            if path.exists() and path.is_file():
+                return {
+                    "path": str(path.resolve()),
+                    "dataframe": _robust_read_csv(path),
+                    "source_job_id": candidate.get("source_job_id") or source_job_id,
+                    "source_kind": candidate.get("source_kind") or "pep_analysis",
+                    "output_base": str(candidate.get("output_base") or path.parent.parent),
+                }
+
+    raise ValidationError(
+        message="未找到项目中可用于 MAIT/NKT 的 PEP 共享分析 TRA.csv，请先运行 PEP 共享分析并包含 TRA 链，或手动选择 TRA CSV。",
+        details={"source_job_id": source_job_id, "project_id": project_id},
+    )
+
+
 def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict[str, Any]:
     """Resolve Script Hub PEP/Profile inputs through one project-first policy."""
     project_id = str(data.get("project_id") or "").strip()
@@ -544,12 +758,28 @@ def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict
         "profile_path": profile_path,
         "profile_paths": [profile_path] if profile_path else [],
         "invalid_profile_paths": [],
+        "transcriptome_path": "",
+        "transcriptome_paths": [],
+        "invalid_transcriptome_paths": [],
     }
 
 
 def _profile_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
     value = _request_registered_assets(data, *keys)["profile_path"] or ""
     return str(PathAccessService.validate_read_path(value)) if value else None
+
+
+def _transcriptome_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
+    project_id = str(data.get("project_id") or "").strip()
+    if project_id:
+        value = _collect_project_script_hub_assets(project_id).get("transcriptome_path") or ""
+        if value:
+            return str(PathAccessService.validate_read_path(value))
+    for key in keys:
+        value = str(data.get(key) or "").strip()
+        if value:
+            return str(PathAccessService.validate_read_path(value))
+    return None
 
 
 def _pep_paths_from_request(data: Dict[str, Any]) -> List[str]:
@@ -744,6 +974,7 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
                 "selected_chains": data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else [],
                 "sample_col": str(data.get("sample_col") or "sample").strip() or "sample",
                 "species": str(data.get("species") or "human").strip() or "human",
+                "distribution_category_col": str(data.get("distribution_category_col") or "").strip(),
             }
         return _build_script_cache_context(
             project_id=project_id,
@@ -756,12 +987,58 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
         )
 
     if module_name == "volcano":
+        input_mode = str(data.get("input_mode") or "usage").strip().lower()
+        if input_mode == "expression":
+            expression_path = _transcriptome_path_from_request(
+                data,
+                "expression_path",
+                "transcriptome_path",
+                "profile_path",
+                "datapoint_path",
+            ) or ""
+            return _build_script_cache_context(
+                project_id=project_id,
+                module_name=module_name,
+                input_paths=[{"asset_type": "transcriptome", "path": expression_path}],
+                config_json={
+                    "input_mode": input_mode,
+                    "group_prefix": str(data.get("group_prefix") or "tpm_").strip(),
+                    "comparisons": _parse_group_comparisons(data.get("comparisons")),
+                    "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+                    "logfc_cutoff": float(data.get("logfc_cutoff") or 1.0),
+                },
+            )
         data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
         return _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
             input_paths=[{"asset_type": "cached_usage", "path": data_dir}],
             config_json={"pvalue_threshold": float(data.get("pvalue_threshold") or 0.05)},
+        )
+
+    if module_name == "go-kegg-enrichment":
+        expression_path = _transcriptome_path_from_request(
+            data,
+            "expression_path",
+            "transcriptome_path",
+            "profile_path",
+            "datapoint_path",
+        ) or ""
+        return _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[{"asset_type": "transcriptome", "path": expression_path}],
+            config_json={
+                "group_prefix": str(data.get("group_prefix") or "tpm_").strip(),
+                "comparisons": _parse_group_comparisons(data.get("comparisons")),
+                "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+                "logfc_cutoff": float(data.get("logfc_cutoff") or 1.0),
+                "enrich_pvalue_cutoff": float(data.get("enrich_pvalue_cutoff") or 0.05),
+                "p_adjust_method": str(data.get("p_adjust_method") or "none").strip(),
+                "show_category": int(data.get("show_category") or 20),
+                "simplify_go": _as_bool(data.get("simplify_go"), True),
+                "do_gsea": _as_bool(data.get("do_gsea"), True),
+            },
         )
 
     if module_name == "umapin":
@@ -814,11 +1091,19 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
         tra_path = str(data.get("tra_path") or "").strip()
         source_job_id = str(data.get("source_job_id") or "").strip()
         profile_path = _profile_path_from_request(data, "profile_path") or ""
+        resolved_tra_path = tra_path
+        resolved_source_job_id = source_job_id
+        if tra_source == "pep_analysis" and tra_path and Path(tra_path).exists() and Path(tra_path).is_file():
+            resolved_tra_path = str(PathAccessService.validate_read_path(tra_path))
+        elif tra_source == "pep_analysis":
+            resolved = _resolve_pep_analysis_tra_source(data)
+            resolved_tra_path = resolved["path"]
+            resolved_source_job_id = str(resolved.get("source_job_id") or source_job_id)
         return _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
             input_paths=[
-                {"asset_type": "tra", "path": tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_result", "source_job_id": source_job_id},
+                {"asset_type": "tra", "path": resolved_tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_tra", "path": resolved_tra_path, "source_job_id": resolved_source_job_id},
                 {"asset_type": "profile", "path": profile_path},
             ],
             config_json={
@@ -868,6 +1153,55 @@ def _mongo_result_to_script_result(doc: Dict[str, Any], module_name: str) -> Dic
         if key.endswith("_urls") or key in {"png_urls", "csv_urls", "selected_chains", "sample_count", "profile_path"}:
             result.setdefault(key, value)
     return _sanitize_nan(result)
+
+
+def _try_find_script_task_result(job_id: str) -> Optional[Dict[str, Any]]:
+    job_id = str(job_id or "").strip()
+    if not job_id:
+        return None
+
+    task = _get_task_state(job_id)
+    if task:
+        return {"job_id": job_id, "task": task, "result": task.get("result") if isinstance(task.get("result"), dict) else task}
+
+    try:
+        job = get_script_hub_job_service().get_job(job_id)
+    except Exception:
+        job = None
+    if job:
+        return {"job_id": job_id, "task": job, "result": job.get("result") if isinstance(job.get("result"), dict) else job}
+
+    try:
+        from flask_app.services.mongo_service import results_col
+        doc = results_col().find_one({"job_id": job_id, "analysis_type": "pep-analysis", "status": "completed"})
+        if doc:
+            return {"job_id": job_id, "task": doc, "result": _mongo_result_to_script_result(doc, "pep-analysis")}
+    except Exception:
+        logger.warning("Failed to query PEP result by job id %s", job_id, exc_info=True)
+
+    try:
+        from flask_app.models.database import ProjectAsset
+        asset = ProjectAsset.query.filter(ProjectAsset.asset_type == "processed_result").all()
+        for row in asset:
+            meta = getattr(row, "metadata_json", None) or {}
+            if str(meta.get("analysis_type") or "").strip() != "pep-analysis":
+                continue
+            if str(meta.get("job_id") or "").strip() != job_id:
+                continue
+            return {
+                "job_id": job_id,
+                "task": meta,
+                "result": {
+                    "module": "pep-analysis",
+                    "job_id": job_id,
+                    "output_base": meta.get("output_base") or getattr(row, "storage_path", "") or "",
+                    "metadata": meta.get("metadata") if isinstance(meta.get("metadata"), dict) else meta,
+                },
+            }
+    except Exception:
+        logger.warning("Failed to query SQL PEP result asset by job id %s", job_id, exc_info=True)
+
+    return None
 
 
 def _find_reusable_script_result(cache_context: Dict[str, Any], module_name: str) -> Optional[Dict[str, Any]]:
@@ -1052,7 +1386,8 @@ def _complete_script_task(
     meta: Optional[Dict[str, Any]] = None,
 ) -> None:
     task_context = _get_task_state(task_id) or {}
-    if task_context.get("status") == "cancelled":
+    if task_context.get("status") == "cancelled" or _script_task_cancel_requested(task_id):
+        _mark_script_task_cancelled(task_id)
         return
     project_id = str(task_context.get("project_id") or "").strip()
     analysis_signature = str(task_context.get("analysis_signature") or "").strip()
@@ -1723,7 +2058,13 @@ def list_modules():
                     "key": "volcano",
                     "label": "火山图分析",
                     "status": "available",
-                    "description": "对 VJ usage 数据做两组间差异比较，生成火山图（log2FC vs -log10 p-value）。",
+                    "description": "对 VJ usage 或表达矩阵做两组间差异比较，生成火山图（log2FC vs -log10 p-value）。",
+                },
+                {
+                    "key": "go-kegg-enrichment",
+                    "label": "GO/KEGG 富集分析",
+                    "status": "available",
+                    "description": "参考 G0_KEGG_enrichment：表达矩阵差异分析、火山图、GO/KEGG ORA 与 GSEA。",
                 },
                 {
                     "key": "umapin",
@@ -1763,13 +2104,23 @@ def inspect_data_selection():
         discovery = _inspect_data_selection_payload(pep_paths, profile_path)
         invalid_profiles = project_assets.get("invalid_profile_paths", []) if project_id else []
         registered_profiles = project_assets.get("profile_paths", []) if project_id else []
+        invalid_transcriptomes = project_assets.get("invalid_transcriptome_paths", []) if project_id else []
+        registered_transcriptomes = project_assets.get("transcriptome_paths", []) if project_id else []
         if registered_profiles:
             discovery["registered_profile_paths"] = registered_profiles[:20]
+        if registered_transcriptomes:
+            discovery["registered_transcriptome_paths"] = registered_transcriptomes[:20]
+            discovery["transcriptome_path"] = project_assets.get("transcriptome_path") or registered_transcriptomes[0]
         if invalid_profiles and not profile_path:
             discovery["warnings"].append(
                 "项目已注册 Profile 资产无效或为空，请在项目资产页删除后重新注册有效的 Profile 文件。"
             )
             discovery["invalid_profile_paths"] = invalid_profiles[:5]
+        if invalid_transcriptomes and not project_assets.get("transcriptome_path"):
+            discovery["warnings"].append(
+                "项目已注册转录组表达矩阵无效或为空，请在项目资产页删除后重新注册有效的表达矩阵。"
+            )
+            discovery["invalid_transcriptome_paths"] = invalid_transcriptomes[:5]
         return jsonify(_sanitize_nan({"success": True, **discovery}))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_data_selection: %s", exc.message)
@@ -2143,6 +2494,230 @@ def _build_and_save_viewer(output_base, result, metadata, *, title, subtitle, dl
     result["metadata_url"] = f"/api/script-hub/results/{job_id_str}/metadata.json"
 
 
+def _build_topclone_viewer(output_base: Path, result: Dict[str, Any], metadata: Dict[str, Any]) -> None:
+    import html as _html
+    import json as _json
+
+    output_base = Path(output_base)
+    chain_pattern = re.compile(r"top(?P<topn>\d+)(?P<chain>TRA|TRB|TRG|TRD|IGH|IGK|IGL)", re.IGNORECASE)
+    cards: List[Dict[str, str]] = []
+    chains_seen: List[str] = []
+    top_seen: List[str] = []
+    classes_seen: List[str] = []
+
+    for url in result.get("png_urls") or []:
+        rel = _result_relative_path_from_url(output_base.name, str(url)) or str(url)
+        parts = [part for part in rel.replace("\\", "/").split("/") if part]
+        filename = parts[-1] if parts else str(url).rsplit("/", 1)[-1]
+        stem = filename.rsplit(".", 1)[0]
+        match = chain_pattern.search(stem)
+        chain = match.group("chain").upper() if match else "ALL"
+        top_n = match.group("topn") if match else "all"
+        class_col = parts[-2] if len(parts) >= 2 else (metadata.get("group_field") or "plot")
+        if class_col.lower() in {"ungrouped", "boxplot", "boxplots"}:
+            class_col = metadata.get("group_field") or class_col
+        title = stem
+        cards.append({
+            "src": str(url),
+            "title": title,
+            "chain": chain,
+            "top_n": top_n,
+            "class_col": str(class_col),
+        })
+        if chain not in chains_seen:
+            chains_seen.append(chain)
+        if top_n not in top_seen:
+            top_seen.append(top_n)
+        if str(class_col) not in classes_seen:
+            classes_seen.append(str(class_col))
+
+    top_seen.sort(key=lambda value: int(value) if str(value).isdigit() else 999999)
+    default_chain = (metadata.get("chains") or chains_seen or ["ALL"])[0]
+    default_top = "10" if "10" in top_seen else (top_seen[0] if top_seen else "all")
+    default_class = classes_seen[0] if classes_seen else ""
+
+    def _options(values: List[str], selected: str) -> str:
+        return "".join(
+            '<option value="' + _html.escape(str(value)) + '"' + (" selected" if str(value) == str(selected) else "") + ">"
+            + _html.escape(str(value)) + "</option>"
+            for value in values
+        )
+
+    dl_sections = []
+    for key, label in (
+        ("topclone_csv_url", "TopClone CSV"),
+        ("csv_urls", "BoxPlot CSV"),
+        ("pvalue_urls", "P-value CSV"),
+        ("cdr3_urls", "Top CDR3 CSV"),
+        ("zip_url", "ZIP"),
+    ):
+        urls = result.get(key) or []
+        if isinstance(urls, str):
+            urls = [urls] if urls else []
+        links = []
+        for url in urls:
+            name = str(url).rsplit("/", 1)[-1] if "/" in str(url) else str(url)
+            links.append({"url": str(url), "name": name})
+        if links:
+            dl_sections.append({"label": label, "links": links})
+
+    downloads_html = ""
+    for section in dl_sections:
+        links_html = "".join(
+            '<a class="download-link" href="' + _html.escape(link["url"]) + '" download>'
+            + _html.escape(link["name"]) + "</a>"
+            for link in section["links"]
+        )
+        downloads_html += '<section class="download-section"><h2>' + _html.escape(section["label"]) + '</h2><div class="download-grid">' + links_html + "</div></section>"
+
+    cards_json = _json.dumps(cards, ensure_ascii=False).replace("</", "<\\/")
+    chains_json = _json.dumps(chains_seen or [default_chain], ensure_ascii=False)
+    tops_json = _json.dumps(top_seen or [default_top], ensure_ascii=False)
+    classes_json = _json.dumps(classes_seen or [default_class], ensure_ascii=False)
+
+    viewer_path = output_base / "viewer.html"
+    viewer_path.write_text(f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TopClone Analysis Results</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif; background: #f4f7fa; color: #172033; line-height: 1.55; }}
+    .page {{ max-width: 1240px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
+    .back-link {{ display: inline-flex; color: #11597c; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
+    .back-link:hover {{ text-decoration: underline; }}
+    .header, .controls, .plot-panel, .download-section {{ background: #fff; border: 1px solid #dee6ed; border-radius: 12px; }}
+    .header {{ padding: 1.35rem 1.55rem; margin-bottom: 1rem; }}
+    .header h1 {{ font-size: 1.3rem; margin-bottom: .35rem; }}
+    .meta {{ color: #5f7082; font-size: .86rem; }}
+    .stats {{ display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }}
+    .stat-item {{ flex: 1 1 130px; min-width: 120px; background: #f7fafc; border: 1px solid #e1e9f0; border-radius: 8px; padding: .7rem .85rem; }}
+    .stat-item strong {{ display: block; color: #607287; font-size: .72rem; margin-bottom: .2rem; }}
+    .stat-item span {{ font-weight: 700; }}
+    .controls {{ display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; padding: .95rem 1.05rem; margin-bottom: 1rem; }}
+    .control-group {{ display: flex; flex-direction: column; gap: .28rem; }}
+    .control-group label {{ color: #607287; font-size: .72rem; font-weight: 700; text-transform: uppercase; }}
+    .control-group select {{ min-width: 150px; border: 1px solid #c4d1dc; border-radius: 8px; background: #fff; padding: .5rem .65rem; font-size: .9rem; }}
+    .counter {{ margin-left: auto; color: #607287; font-size: .82rem; }}
+    .plot-panel {{ min-height: 340px; overflow: hidden; }}
+    .plot-card {{ display: none; }}
+    .plot-card.is-active {{ display: block; }}
+    .plot-head {{ display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; border-bottom: 1px solid #edf2f6; background: #fbfdfe; padding: .75rem .9rem; }}
+    .plot-head strong {{ display: block; font-size: .88rem; }}
+    .plot-head span {{ color: #607287; font-size: .74rem; }}
+    .plot-card img {{ display: block; width: 100%; max-height: 660px; object-fit: contain; background: #fafbfc; }}
+    .empty {{ padding: 3rem 1rem; text-align: center; color: #7d8fa1; }}
+    .download-section {{ padding: 1rem; margin-top: 1rem; }}
+    .download-section h2 {{ font-size: .92rem; margin-bottom: .55rem; }}
+    .download-grid {{ display: flex; flex-wrap: wrap; gap: .45rem; }}
+    .download-link {{ border: 1px solid #c4d1dc; border-radius: 8px; color: #11597c; padding: .42rem .65rem; text-decoration: none; font-size: .82rem; }}
+    .download-link:hover {{ background: #eef6fb; }}
+    @media (max-width: 640px) {{ .controls {{ align-items: stretch; }} .control-group, .control-group select {{ width: 100%; }} .counter {{ margin-left: 0; }} }}
+  </style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="javascript:history.back()">&#8592; Back</a>
+  <div class="header">
+    <h1>TopClone Analysis Results</h1>
+    <div class="meta">Mode: {_html.escape(str(metadata.get("mode", "")))} | Chains: {_html.escape(", ".join(metadata.get("chains", [])))}</div>
+    <div class="stats">
+      <div class="stat-item"><strong>Samples</strong><span>{_html.escape(str(metadata.get("sample_count", "-")))}</span></div>
+      <div class="stat-item"><strong>Chains</strong><span>{_html.escape(str(len(metadata.get("chains", []))))}</span></div>
+      <div class="stat-item"><strong>Top N</strong><span>{_html.escape(", ".join(str(v) for v in metadata.get("top_clone_values", [])))}</span></div>
+      <div class="stat-item"><strong>Plots</strong><span>{_html.escape(str(len(cards)))}</span></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="control-group"><label for="chainSelect">Chain</label><select id="chainSelect">{_options(chains_seen or [default_chain], str(default_chain))}</select></div>
+    <div class="control-group"><label for="topSelect">Top N</label><select id="topSelect">{_options(top_seen or [default_top], str(default_top))}</select></div>
+    <div class="control-group"><label for="classSelect">Group field</label><select id="classSelect">{_options(classes_seen or [default_class], str(default_class))}</select></div>
+    <span class="counter" id="counter"></span>
+  </div>
+  <div class="plot-panel" id="plotPanel"><div class="empty">No TopClone plots available.</div></div>
+  {downloads_html}
+</div>
+<script>
+(function() {{
+  const cards = {cards_json};
+  const chains = {chains_json};
+  const topNs = {tops_json};
+  const classes = {classes_json};
+  const chainSelect = document.getElementById('chainSelect');
+  const topSelect = document.getElementById('topSelect');
+  const classSelect = document.getElementById('classSelect');
+  const plotPanel = document.getElementById('plotPanel');
+  const counter = document.getElementById('counter');
+
+  function fillOptions(select, values, selected) {{
+    const current = selected || select.value;
+    select.innerHTML = '';
+    values.forEach((value) => {{
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      if (String(value) === String(current)) opt.selected = true;
+      select.appendChild(opt);
+    }});
+    if (!select.value && select.options.length) select.options[0].selected = true;
+  }}
+
+  function filtered() {{
+    return cards.filter((card) => (
+      String(card.chain) === String(chainSelect.value)
+      && String(card.top_n) === String(topSelect.value)
+      && String(card.class_col) === String(classSelect.value)
+    ));
+  }}
+
+  function refreshDependentOptions() {{
+    const chain = chainSelect.value;
+    const validTopNs = topNs.filter((topN) => cards.some((card) => String(card.chain) === String(chain) && String(card.top_n) === String(topN)));
+    fillOptions(topSelect, validTopNs.length ? validTopNs : topNs, topSelect.value);
+    const topN = topSelect.value;
+    const validClasses = classes.filter((cls) => cards.some((card) => String(card.chain) === String(chain) && String(card.top_n) === String(topN) && String(card.class_col) === String(cls)));
+    fillOptions(classSelect, validClasses.length ? validClasses : classes, classSelect.value);
+  }}
+
+  function render() {{
+    refreshDependentOptions();
+    const matches = filtered();
+    if (!matches.length) {{
+      plotPanel.innerHTML = '<div class="empty">No plot for the selected chain and Top N.</div>';
+      counter.textContent = '0 plots';
+      return;
+    }}
+    plotPanel.innerHTML = matches.map((card, index) => (
+      '<article class="plot-card ' + (index === 0 ? 'is-active' : '') + '">'
+      + '<div class="plot-head"><div><strong>' + escapeHtml(card.title) + '</strong><span>' + escapeHtml(card.chain + ' | top' + card.top_n + ' | ' + card.class_col) + '</span></div></div>'
+      + '<a href="' + escapeAttr(card.src) + '" target="_blank" rel="noopener"><img src="' + escapeAttr(card.src) + '" alt="' + escapeAttr(card.title) + '"></a>'
+      + '</article>'
+    )).join('');
+    counter.textContent = matches.length + ' plot' + (matches.length === 1 ? '' : 's');
+  }}
+
+  function escapeHtml(value) {{
+    return String(value || '').replace(/[&<>"']/g, (ch) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[ch]));
+  }}
+  function escapeAttr(value) {{ return escapeHtml(value); }}
+
+  chainSelect.addEventListener('change', render);
+  topSelect.addEventListener('change', render);
+  classSelect.addEventListener('change', render);
+  render();
+}})();
+</script>
+</body>
+</html>""", encoding="utf-8")
+    job_id_str = output_base.name
+    result["viewer_url"] = f"/api/script-hub/results/{job_id_str}/viewer.html"
+    metadata_path = output_base / "metadata.json"
+    metadata_path.write_text(_json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    result["metadata_url"] = f"/api/script-hub/results/{job_id_str}/metadata.json"
+
+
 def _result_url_exists(output_base: Path, url: str) -> bool:
     if not url:
         return False
@@ -2160,23 +2735,76 @@ def _result_file_url(output_base: Path, file_path: Path) -> str:
     return f"/api/script-hub/results/{output_base.name}/{rel.as_posix()}"
 
 
+def _result_url_to_path(output_base: Path, url: str) -> Optional[Path]:
+    marker = f"/api/script-hub/results/{output_base.name}/"
+    if not url or marker not in str(url):
+        return None
+    rel = str(url).split(marker, 1)[1].strip("/")
+    if not rel:
+        return None
+    path = output_base / Path(*rel.split("/"))
+    return path if path.exists() and path.is_file() else None
+
+
+def _script_hub_zip_category(file_path: Path) -> Optional[str]:
+    suffix = file_path.suffix.lower()
+    if file_path.name == "viewer.html":
+        return "viewer"
+    if suffix == ".png":
+        return "figures"
+    if suffix in {".csv", ".tsv", ".xlsx", ".xls"}:
+        return "tables"
+    if suffix in {".txt", ".log"}:
+        return "logs"
+    if suffix == ".json":
+        return "metadata"
+    if suffix in {".html"}:
+        return "reports"
+    return None
+
+
+def _iter_script_hub_result_files(output_base: Path, result: Dict[str, Any]) -> List[Path]:
+    files: List[Path] = []
+    seen: set[str] = set()
+
+    def add_path(path: Optional[Path]) -> None:
+        if path is None or not path.exists() or not path.is_file():
+            return
+        if path.suffix.lower() in {".zip", ".pdf", ".svg", ".jpg", ".jpeg", ".webp"}:
+            return
+        if _script_hub_zip_category(path) is None:
+            return
+        resolved = str(path.resolve())
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        files.append(path)
+
+    for key, value in result.items():
+        if not (str(key).endswith("_url") or str(key).endswith("_urls")):
+            continue
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            if isinstance(item, str):
+                add_path(_result_url_to_path(output_base, item))
+
+    for file_path in sorted(output_base.rglob("*")):
+        add_path(file_path)
+
+    return sorted(files, key=lambda path: path.relative_to(output_base).as_posix())
+
+
 def _ensure_result_zip(output_base: Path, result: Dict[str, Any], *, zip_name: str) -> str:
-    existing_url = str(result.get("zip_url") or "")
-    if _result_url_exists(output_base, existing_url):
-        return existing_url
-
-    existing_zips = sorted(path for path in output_base.glob("*.zip") if path.is_file())
-    if existing_zips:
-        return _result_file_url(output_base, existing_zips[0])
-
     zip_path = output_base / zip_name
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file_path in sorted(output_base.rglob("*")):
-            if not file_path.is_file():
+        for file_path in _iter_script_hub_result_files(output_base, result):
+            if file_path.resolve() == zip_path.resolve():
                 continue
-            if file_path.resolve() == zip_path.resolve() or file_path.suffix.lower() == ".zip":
+            category = _script_hub_zip_category(file_path)
+            if not category:
                 continue
-            zf.write(file_path, file_path.relative_to(output_base).as_posix())
+            arcname = f"{category}/{file_path.relative_to(output_base).as_posix()}"
+            zf.write(file_path, arcname)
     return _result_file_url(output_base, zip_path)
 
 
@@ -2298,7 +2926,7 @@ def _generate_pep_csv_preview_images(output_base: Path, csv_paths: List[str], *,
             ax.tick_params(axis="x", labelrotation=90, labelsize=6)
             ax.tick_params(axis="y", labelsize=6)
             fig.tight_layout()
-            fig.savefig(out_path, bbox_inches="tight")
+            save_publication_png(fig, out_path)
             plt.close(fig)
             urls.append(f"/api/script-hub/results/{job_id}/{out_path.relative_to(output_base).as_posix()}")
         except Exception as exc:
@@ -2314,21 +2942,17 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     job_id = str(result.get("job_id") or output_base.name)
     image_sections = [
         ("Differential heatmaps", _pep_viewer_items(result.get("heatmap_image_urls") or [], "Differential heatmaps", job_id)),
+        ("CDR3 classification proportions", _pep_viewer_items(result.get("proportion_plot_urls") or [], "CDR3 classification proportions", job_id)),
         ("CDR3 arrangement heatmaps", _pep_viewer_items(result.get("arrange_heatmap_urls") or [], "CDR3 arrangement heatmaps", job_id)),
         ("Unique CDR3 heatmaps", _pep_viewer_items(result.get("plot_heatmap_urls") or [], "Unique CDR3 heatmaps", job_id)),
     ]
     all_images = [item for _, items in image_sections for item in items]
-    chain_order = [str(chain).upper() for chain in (metadata.get("selected_chains") or []) if str(chain).strip()]
-    for item in all_images:
-        chain = item.get("chain") or "Other"
-        if chain not in chain_order:
-            chain_order.append(chain)
-    if not chain_order:
-        chain_order = ["ALL"]
-    default_chain = next((chain for chain in chain_order if chain != "ALL"), chain_order[0])
-    chain_tabs_html = "".join(
-        '<button type="button" class="chain-tab' + (" is-active" if chain == default_chain else "") + '" data-chain="' + _html.escape(chain) + '">' + _html.escape(chain) + '</button>'
-        for chain in chain_order
+    visible_sections = [(name, items) for name, items in image_sections if items]
+    default_section = visible_sections[0][0] if visible_sections else ""
+    section_options_html = "".join(
+        '<option value="' + _html.escape(section_name) + '"' + (" selected" if section_name == default_section else "") + ">"
+        + _html.escape(section_name) + " (" + str(len(items)) + ")</option>"
+        for section_name, items in visible_sections
     )
 
     def _download_links(key: str) -> str:
@@ -2355,16 +2979,16 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
         if not items:
             continue
         cards = "".join(
-            '<article class="plot-card" data-chain="' + _html.escape(item["chain"]) + '">'
+            '<article class="plot-card" data-section="' + _html.escape(section_name) + '">'
             '<a href="' + _html.escape(item["url"]) + '" target="_blank" rel="noopener">'
             '<img src="' + _html.escape(item["url"]) + '" alt="' + _html.escape(item["title"]) + '" loading="lazy"></a>'
             '<div class="plot-meta"><strong>' + _html.escape(item["title"]) + '</strong>'
-            '<span>' + _html.escape(item["group"]) + '</span></div>'
+            '<span>' + _html.escape(item["chain"]) + ' / ' + _html.escape(item["group"]) + '</span></div>'
             '</article>'
             for item in items
         )
         sections_html.append(
-            '<section class="viewer-section" data-section="' + _html.escape(section_name) + '"><div class="section-head"><h2>' + _html.escape(section_name) + '</h2>'
+            '<section class="viewer-section' + (" is-hidden" if section_name != default_section else "") + '" data-section="' + _html.escape(section_name) + '"><div class="section-head"><h2>' + _html.escape(section_name) + '</h2>'
             '<span>' + str(len(items)) + ' images</span></div><div class="plot-grid">' + cards + '</div></section>'
         )
 
@@ -2426,10 +3050,9 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     .stat { border: 1px solid #e3e9f0; border-radius: 6px; padding: 10px 12px; background: #f9fbfd; }
     .stat span { display: block; color: #68788d; font-size: 12px; margin-bottom: 4px; }
     .stat strong { font-size: 20px; }
-    .chain-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
-    .chain-tab { border: 1px solid #cbd7e3; background: #fff; color: #26364a; border-radius: 6px; padding: 7px 12px; cursor: pointer; font-weight: 650; }
-    .chain-tab:hover { background: #eef7fb; }
-    .chain-tab.is-active { background: #0f5f86; border-color: #0f5f86; color: #fff; }
+    .viewer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+    .viewer-toolbar label { color: #53677f; font-size: 13px; font-weight: 650; }
+    .viewer-toolbar select { min-width: min(100%, 320px); border: 1px solid #cbd7e3; border-radius: 6px; padding: 8px 10px; background: #fff; color: #26364a; font-weight: 650; }
     .viewer-section { background: #ffffff; border: 1px solid #dde5ee; border-radius: 8px; padding: 18px; margin-bottom: 16px; }
     .viewer-section.is-hidden, .plot-card.is-hidden { display: none; }
     .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -2451,8 +3074,6 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     .download-grid a:hover { background: #eef7fb; }
     .warning { margin: 0 0 16px; border: 1px solid #f1c36d; background: #fff8e6; border-radius: 8px; padding: 12px 14px; color: #6b4d07; }
     .warning ul { margin: 8px 0 0 18px; padding: 0; }
-    .empty-chain { display: none; background: #fff; border: 1px solid #dde5ee; border-radius: 8px; padding: 18px; margin-bottom: 16px; color: #68788d; }
-    .empty-chain.is-visible { display: block; }
     .empty p { color: #68788d; }
     @media (max-width: 720px) { .plot-grid { grid-template-columns: 1fr; } .page { padding: 14px 10px 32px; } }
   </style>
@@ -2464,9 +3085,8 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
       <p>Chains: """ + _html.escape(", ".join(metadata.get("selected_chains") or [])) + """ | Group fields: """ + _html.escape(", ".join(metadata.get("group_fields") or [])) + """</p>
       <div class="stats">""" + stats_html + """</div>
     </section>
-    <nav class="chain-tabs" aria-label="Chain filter">""" + chain_tabs_html + """</nav>
+    """ + ('<div class="viewer-toolbar"><label for="pepImageCategorySelect">Image category</label><select id="pepImageCategorySelect">' + section_options_html + '</select></div>' if section_options_html else "") + """
     """ + warning_html + """
-    <section class="empty-chain" id="emptyChainNotice">No images for the selected chain.</section>
     """ + "".join(sections_html) + """
     <section class="downloads">
       <h2>CSV Downloads</h2>
@@ -2475,32 +3095,17 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
   </main>
   <script>
   (function() {
-    var activeChain = """ + json.dumps(default_chain) + """;
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('.chain-tab[data-chain]'));
-    var cards = Array.prototype.slice.call(document.querySelectorAll('.plot-card[data-chain]'));
+    var select = document.getElementById('pepImageCategorySelect');
     var sections = Array.prototype.slice.call(document.querySelectorAll('.viewer-section[data-section]'));
-    var empty = document.getElementById('emptyChainNotice');
-    function applyChain(chain) {
-      activeChain = chain;
-      tabs.forEach(function(tab) { tab.classList.toggle('is-active', tab.dataset.chain === chain); });
-      var visibleCount = 0;
-      cards.forEach(function(card) {
-        var match = card.dataset.chain === chain || (chain !== 'ALL' && card.dataset.chain === 'ALL');
-        card.classList.toggle('is-hidden', !match);
-        if (match) visibleCount += 1;
-      });
+    function applyCategory(category) {
       sections.forEach(function(section) {
-        var hasVisible = Array.prototype.some.call(section.querySelectorAll('.plot-card'), function(card) {
-          return !card.classList.contains('is-hidden');
-        });
-        section.classList.toggle('is-hidden', !hasVisible);
+        section.classList.toggle('is-hidden', section.dataset.section !== category);
       });
-      if (empty) empty.classList.toggle('is-visible', visibleCount === 0);
     }
-    tabs.forEach(function(tab) {
-      tab.addEventListener('click', function() { applyChain(tab.dataset.chain); });
-    });
-    applyChain(activeChain);
+    if (select) {
+      select.addEventListener('change', function() { applyCategory(select.value); });
+      applyCategory(select.value);
+    }
   })();
   </script>
 </body>
@@ -2530,18 +3135,20 @@ def _write_unified_viewer(
             if cat and cat not in seen:
                 seen.add(cat)
                 all_categories.append(cat)
+    default_category = all_categories[0] if all_categories else ""
 
     cards = []
     for group in image_groups:
         for item in group.get("items", []):
             src = _html.escape(str(item.get("src", "")))
             title_text = _html.escape(str(item.get("title", src.rsplit("/", 1)[-1] if "/" in src else src)))
-            category = _html.escape(str(item.get("category", "")))
+            raw_category = str(item.get("category", "")).strip()
+            category = _html.escape(raw_category)
             is_sig = item.get("sig", False)
             badge_class = "is-sig" if is_sig else "is-ns"
             badge_text = "Significant" if is_sig else "NS"
             cards.append(
-                '<article class="plot-card" data-category="' + category + '" data-sig="'
+                '<article class="plot-card' + (" is-hidden" if raw_category != default_category else "") + '" data-category="' + category + '" data-sig="'
                 + ("1" if is_sig else "0") + '">'
                 '<div class="plot-head"><div><strong>' + title_text + '</strong><span>' + category + '</span></div>'
                 '<em class="' + badge_class + '">' + badge_text + '</em></div>'
@@ -2551,14 +3158,13 @@ def _write_unified_viewer(
 
     cards_html = "".join(cards) if cards else '<div class="empty-txt">No output available.</div>'
 
-    chip_html = "".join(
-        '<span class="filter-chip is-active" data-category="' + _html.escape(c) + '">' + _html.escape(c) + '</span>'
+    category_select_html = "".join(
+        '<option value="' + _html.escape(c) + '"' + (" selected" if c == default_category else "") + ">"
+        + _html.escape(c) + "</option>"
         for c in all_categories
     )
-    if all_categories:
-        chip_html += '<span class="filter-chip is-active" data-category="__all__">All</span>'
-    else:
-        chip_html = '<span class="filter-chip is-active">(no categories)</span>'
+    if not category_select_html:
+        category_select_html = '<option value="">(no categories)</option>'
 
     stats_html = "".join(
         '<div class="stat-item"><strong>' + _html.escape(s["label"]) + '</strong><span>' + _html.escape(s["value"]) + '</span></div>'
@@ -2599,9 +3205,8 @@ def _write_unified_viewer(
     .sig-toggle { display: inline-flex; align-items: center; gap: .45rem; padding: .52rem 1rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .84rem; font-weight: 600; transition: all .15s; user-select: none; }
     .sig-toggle:hover { border-color: #6fa3c4; }
     .sig-toggle.is-active { border-color: #0b6b5f; background: #ecfbf6; color: #0b6b5f; }
-    .filter-chip { display: inline-flex; align-items: center; padding: .38rem .72rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .8rem; transition: all .15s; user-select: none; }
-    .filter-chip:hover { border-color: #6fa3c4; }
-    .filter-chip.is-active { border-color: #11597c; background: #d8ecfa; box-shadow: 0 0 0 1px #11597c; font-weight: 680; }
+    .category-filter { display: inline-flex; align-items: center; gap: .45rem; color: #5f7d94; font-size: .82rem; font-weight: 650; }
+    .category-filter select { min-width: min(100vw - 2rem, 280px); border: 1px solid #c5d4e0; border-radius: 10px; background: #fff; color: #1e293b; padding: .52rem .72rem; font-weight: 650; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .85rem; }
     .plot-card { background: #fff; border-radius: 14px; border: 1px solid #dee6ed; overflow: hidden; transition: transform .15s, box-shadow .15s; }
     .plot-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.07); }
@@ -2631,8 +3236,9 @@ def _write_unified_viewer(
   </div>
   <div class="toolbar">
     <button class="sig-toggle" id="sigToggle">Show significant only</button>
-    <span style="color:#8397a8;font-size:.76rem;margin-left:.35rem;">Filter:</span>
-    <div id="catChips">""" + chip_html + """</div>
+    <label class="category-filter" for="categorySelect">Image category
+      <select id="categorySelect">""" + category_select_html + """</select>
+    </label>
   </div>
   <div class="grid" id="plotGrid">""" + cards_html + """</div>
   """ + download_html + """
@@ -2641,30 +3247,27 @@ def _write_unified_viewer(
 (function() {
   var cards = document.querySelectorAll('.plot-card');
   var sigToggle = document.getElementById('sigToggle');
-  var catChips = document.querySelectorAll('#catChips .filter-chip[data-category]');
+  var categorySelect = document.getElementById('categorySelect');
   var sigOnly = false;
-  var activeCat = '__all__';
+  var activeCat = categorySelect ? categorySelect.value : '';
   function applyFilters() {
     cards.forEach(function(card) {
       var ms = !sigOnly || card.dataset.sig === '1';
-      var mc = activeCat === '__all__' || card.dataset.category === activeCat;
+      var mc = !activeCat || card.dataset.category === activeCat;
       card.classList.toggle('is-hidden', !ms || !mc);
     });
   }
-  sigToggle.addEventListener('click', function() {
+  if (sigToggle) sigToggle.addEventListener('click', function() {
     sigOnly = !sigOnly;
     sigToggle.classList.toggle('is-active', sigOnly);
     sigToggle.textContent = sigOnly ? 'Showing significant only' : 'Show significant only';
     applyFilters();
   });
-  catChips.forEach(function(chip) {
-    chip.addEventListener('click', function() {
-      activeCat = chip.dataset.category;
-      catChips.forEach(function(c) { c.classList.remove('is-active'); });
-      chip.classList.add('is-active');
-      applyFilters();
-    });
+  if (categorySelect) categorySelect.addEventListener('change', function() {
+    activeCat = categorySelect.value;
+    applyFilters();
   });
+  applyFilters();
 })();
 </script>
 </body>
@@ -2684,6 +3287,7 @@ def _run_topclone_task(
     group_field: Optional[str] = None,
     group_order: Optional[str] = None,
     pvalue_threshold: float = 0.05,
+    selected_chains: Optional[List[str]] = None,
     output_name: Optional[str] = None,
     module_name: str = "topclone",
     app_context_app: Optional[Any] = None,
@@ -2702,6 +3306,7 @@ def _run_topclone_task(
             group_field=group_field,
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
+            selected_chains=selected_chains,
             output_name=output_name,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id,
@@ -2720,6 +3325,7 @@ def _run_topclone_task(
             "png_urls": [],
             "pvalue_urls": [],
             "csv_urls": [],
+            "cdr3_urls": [],
             "per_sample_count": len(report.per_sample_files),
             "metadata": report.metadata,
         }
@@ -2727,6 +3333,12 @@ def _run_topclone_task(
         if report.topclone_csv_path:
             rel = Path(report.topclone_csv_path).relative_to(report.output_base)
             result["topclone_csv_url"] = f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}"
+
+        cdr3_root = report.output_base / "top_cdr3_sequences"
+        if cdr3_root.exists():
+            for cdr3_csv in sorted(cdr3_root.rglob("*.csv")):
+                rel = cdr3_csv.relative_to(report.output_base)
+                result["cdr3_urls"].append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
 
         if report.boxplot_report:
             bp = report.boxplot_report
@@ -2743,14 +3355,8 @@ def _run_topclone_task(
                 rel = bp.viewer_path.relative_to(report.output_base)
                 result["viewer_url"] = f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}"
 
-        # Generate viewer.html for TopClone
-        _build_and_save_viewer(report.output_base, result, report.metadata,
-            title="TopClone Analysis Results",
-            subtitle="Mode: " + str(report.metadata.get("mode", "")) + " | Chains: " + ", ".join(report.metadata.get("chains", [])),
-            dl_extras=[("topclone_csv_url", "topclone.csv", "TopClone CSV"),
-                       ("csv_urls", None, "BoxPlot CSV"),
-                       ("pvalue_urls", None, "P-value CSV"),
-                       ("cdr3_urls", None, "CDR3 Sequences")])
+        result["zip_url"] = f"/api/script-hub/results/{report.job_id}/topclone_results.zip"
+        _build_topclone_viewer(report.output_base, result, report.metadata)
         _normalize_script_result(
             result,
             report.output_base,
@@ -2833,6 +3439,11 @@ def run_topclone():
         group_field = str(data.get("group_field") or "").strip() or None
         group_order = str(data.get("group_order") or "").strip() or None
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
+        selected_chains = [
+            _normalize_chain(str(chain))
+            for chain in (data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else [])
+            if str(chain or "").strip()
+        ]
         output_name = str(data.get("output_name") or "").strip() or None
 
         if not pep_data_path:
@@ -2853,6 +3464,7 @@ def run_topclone():
                 "group_field": group_field,
                 "group_order": group_order,
                 "pvalue_threshold": pvalue_threshold,
+                "selected_chains": selected_chains,
             },
         )
         if not _force_rerun_requested(data):
@@ -2884,6 +3496,7 @@ def run_topclone():
             group_field=group_field,
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
+            selected_chains=selected_chains or None,
             output_name=output_name,
             module_name=module_name,
             app_context_app=current_app._get_current_object() if project_id else None,
@@ -3244,6 +3857,10 @@ def inspect_pgen_analysis():
             "profile_columns": discovery["profile_columns"],
             "sample_column_candidates": [c for c in discovery["profile_columns"] if str(c).strip().lower() == "sample"]
                 or discovery["profile_columns"][:1],
+            "distribution_category_candidates": [
+                c for c in discovery["profile_columns"]
+                if str(c).strip().lower() != "sample"
+            ],
             "sonnia": sonnia_status,
             "warnings": discovery["warnings"],
         }))
@@ -3267,6 +3884,7 @@ def run_pgen_analysis():
         selected_chains = data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else []
         species = str(data.get("species") or "human").strip().lower() or "human"
         sample_col = str(data.get("sample_col") or "sample").strip() or "sample"
+        distribution_category_col = str(data.get("distribution_category_col") or "").strip() or None
         output_name = str(data.get("output_name") or "").strip() or None
         project_id = str(data.get("project_id") or "").strip() or None
 
@@ -3288,6 +3906,7 @@ def run_pgen_analysis():
                 "selected_chains": selected_chains,
                 "species": species,
                 "sample_col": sample_col,
+                "distribution_category_col": distribution_category_col or "",
             },
         )
         if not _force_rerun_requested(data):
@@ -3317,6 +3936,7 @@ def run_pgen_analysis():
             selected_chains=selected_chains,
             species=species,
             sample_col=sample_col,
+            distribution_category_col=distribution_category_col,
             output_name=output_name,
             app_context_app=current_app._get_current_object() if project_id else None,
         )
@@ -3339,6 +3959,7 @@ def _run_pgen_analysis_task(
     selected_chains: List[str],
     species: str = "human",
     sample_col: str = "sample",
+    distribution_category_col: Optional[str] = None,
     output_name: Optional[str] = None,
     app_context_app: Optional[Any] = None,
 ) -> None:
@@ -3352,6 +3973,7 @@ def _run_pgen_analysis_task(
             selected_chains=selected_chains,
             species=species,
             sample_col=sample_col,
+            distribution_category_col=distribution_category_col,
             output_name=output_name,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id,
@@ -3373,7 +3995,6 @@ def _run_pgen_analysis_task(
             "detail_urls": [_url(p) for p in report.detail_paths],
             "csv_urls": [_url(p) for p in report.csv_paths],
             "png_urls": [_url(p) for p in report.png_paths],
-            "pdf_urls": [_url(p) for p in report.pdf_paths],
             "zip_url": _url(report.zip_path),
             "metadata_url": f"/api/script-hub/results/{report.job_id}/pgen_analysis_metadata.json",
             "metadata": report.metadata,
@@ -3387,7 +4008,6 @@ def _run_pgen_analysis_task(
             dl_extras=[
                 ("csv_urls", None, "Pgen Summary CSV"),
                 ("detail_urls", None, "Per-sample Pgen Detail CSV"),
-                ("pdf_urls", None, "Figure PDF"),
             ],
             zip_name="pgen_analysis_results.zip",
         )
@@ -3482,6 +4102,11 @@ def _cache_pep_usage_assets(
                 "usage_types": usage_type_dirs,
                 "pep_data_dir": pep_data_dir,
                 "profile_path": profile_path,
+                "pep_output_base": str(output_dir),
+                "pep_shared_dir": str(output_dir / "Pep_shared"),
+                "pep_shared_TRA_path": str(output_dir / "Pep_shared" / "TRA.csv") if (output_dir / "Pep_shared" / "TRA.csv").exists() else "",
+                "pep_shared_cate_dir": str(output_dir / group_field / "Pep_shared_cate" / "Pep_shared") if group_field else "",
+                "pep_shared_cate_TRA_path": str(output_dir / group_field / "Pep_shared_cate" / "Pep_shared" / "TRA.csv") if group_field and (output_dir / group_field / "Pep_shared_cate" / "Pep_shared" / "TRA.csv").exists() else "",
                 "volcano_data_dir": str(storage_path / "1VJusage") if (storage_path / "1VJusage").exists() else str(storage_path),
                 "usage_1vj_path": str(storage_path / "1VJusage") if (storage_path / "1VJusage").exists() else "",
                 "umapin_data_path": str(output_dir / "usage" / "df_1VJusage_all.csv") if scope == "usage" and (output_dir / "usage" / "df_1VJusage_all.csv").exists() else "",
@@ -3501,6 +4126,9 @@ def _cache_pep_usage_assets(
             "usage_types": usage_types,
             "pep_data_dir": pep_data_dir,
             "profile_path": profile_path,
+            "pep_output_base": str(output_dir),
+            "pep_shared_dir": str(output_dir / "Pep_shared"),
+            "pep_shared_TRA_path": str(output_dir / "Pep_shared" / "TRA.csv") if (output_dir / "Pep_shared" / "TRA.csv").exists() else "",
             "df_vj_all_path": str(output_dir / "usage" / "df_VJ_all.csv") if (output_dir / "usage" / "df_VJ_all.csv").exists() else "",
             "df_1vj_all_path": str(output_dir / "usage" / "df_1VJusage_all.csv") if (output_dir / "usage" / "df_1VJusage_all.csv").exists() else "",
             "umapin_data_path": str(output_dir / "usage" / "df_1VJusage_all.csv") if (output_dir / "usage" / "df_1VJusage_all.csv").exists() else "",
@@ -3619,6 +4247,7 @@ def _run_pep_analysis_task(
             "heatmap_csv_urls": [_url(p) for p in report.heatmap_csv_paths],
             "classification_urls": [_url(p) for p in report.classification_paths],
             "proportion_urls": [_url(p) for p in report.proportion_paths],
+            "proportion_plot_urls": [_url(p) for p in getattr(report, "proportion_plot_paths", [])],
             "arrange_heatmap_urls": [_url(p) for p in report.arrange_heatmap_paths],
             "plot_heatmap_urls": [_url(p) for p in report.plot_heatmap_paths],
             "zip_url": _url(report.zip_path),
@@ -3626,7 +4255,7 @@ def _run_pep_analysis_task(
             "metadata": report.metadata,
         }
         result["png_urls"] = [
-            url for url in result["heatmap_image_urls"] + result["arrange_heatmap_urls"] + result["plot_heatmap_urls"]
+            url for url in result["heatmap_image_urls"] + result["proportion_plot_urls"] + result["arrange_heatmap_urls"] + result["plot_heatmap_urls"]
             if str(url).lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".svg"))
         ]
         _write_pep_analysis_viewer(report.output_base, result, report.metadata)
@@ -3642,6 +4271,7 @@ def _run_pep_analysis_task(
                 ("heatmap_csv_urls", None, "Heatmap CSV"),
                 ("classification_urls", None, "Classification CSV"),
                 ("proportion_urls", None, "Proportion CSV"),
+                ("proportion_plot_urls", None, "Proportion Plots"),
             ],
             zip_name="pep_analysis_results.zip",
         )
@@ -3701,7 +4331,11 @@ def get_script_hub_task_status(task_id: str):
     else:
         _sync_job_state(task_id, task)
         job = get_script_hub_job_service().get_job(task_id) or {}
-        task = {**job, **task, "module": job.get("module") or task.get("module")}
+        if job.get("cancel_requested") or job.get("status") == "cancelled":
+            task = _mark_script_task_cancelled(task_id)
+            task = {**task, **job, "status": "cancelled", "module": job.get("module") or task.get("module")}
+        else:
+            task = {**job, **task, "module": job.get("module") or task.get("module")}
     if task is None:
         return jsonify({"success": False, "error": "TASK_NOT_FOUND", "message": "Task not found"}), 404
     job_id = str(task.get("job_id") or task_id)
@@ -3737,6 +4371,7 @@ def create_script_hub_job():
         "pgen-analysis": run_pgen_analysis,
         "umap": run_umap,
         "volcano": run_volcano,
+        "go-kegg-enrichment": run_go_kegg_enrichment,
         "umapin": run_umapin,
         "ml-analysis": run_ml_analysis,
         "mait-nkt": run_mait_nkt,
@@ -3854,6 +4489,11 @@ def _run_umap_task(
             rel = Path(c).relative_to(report.output_base)
             csv_urls.append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
 
+        pdf_urls = []
+        for p in report.pdf_paths:
+            rel = Path(p).relative_to(report.output_base)
+            pdf_urls.append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
+
         zip_url = ""
         if report.zip_path:
             zp = Path(report.zip_path)
@@ -3866,6 +4506,7 @@ def _run_umap_task(
             "job_id": report.job_id,
             "output_base": str(report.output_base),
             "png_urls": png_urls,
+            "pdf_urls": pdf_urls,
             "csv_urls": csv_urls,
             "zip_url": zip_url,
             "metadata": report.metadata,
@@ -3876,14 +4517,14 @@ def _run_umap_task(
             report.metadata,
             title="UMAP Analysis Results",
             subtitle="Profile: " + str(report.metadata.get("datapoint_path") or datapoint_path),
-            dl_extras=[("csv_urls", None, "UMAP CSV")],
+            dl_extras=[("csv_urls", None, "UMAP CSV"), ("pdf_urls", None, "UMAP PDF")],
             zip_name="umap_results.zip",
         )
         history = (_get_task_state(task_id) or {}).get("history", [])
         _complete_script_task(
             task_id,
             module_name=module_name,
-            detail=f"UMAP generated {len(report.png_paths)} plots",
+            detail=report.metadata.get("message") or f"UMAP generated {len(report.png_paths)} plots",
             result=result,
             history=history,
             app_context_app=app_context_app,
@@ -4032,10 +4673,62 @@ def _usage_union_columns(data_dir: Path) -> List[str]:
     return columns
 
 
+def _parse_group_comparisons(raw_value: Any) -> List[List[str]]:
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if not text:
+            return []
+        pairs = []
+        for line in re.split(r"[\n;]+", text):
+            line = line.strip()
+            if not line:
+                continue
+            if "_vs_" in line:
+                left, right = line.split("_vs_", 1)
+            elif "," in line:
+                left, right = line.split(",", 1)
+            else:
+                continue
+            pairs.append([left.strip(), right.strip()])
+        return [pair for pair in pairs if pair[0] and pair[1] and pair[0] != pair[1]]
+    if isinstance(raw_value, list):
+        pairs = []
+        for item in raw_value:
+            if isinstance(item, dict):
+                left = str(item.get("group1") or "").strip()
+                right = str(item.get("group2") or "").strip()
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                left = str(item[0] or "").strip()
+                right = str(item[1] or "").strip()
+            else:
+                continue
+            if left and right and left != right:
+                pairs.append([left, right])
+        return pairs
+    return []
+
+
 @script_hub_bp.route("/volcano/inspect", methods=["POST"])
 def inspect_volcano():
     try:
         data = request.get_json() or {}
+        input_mode = str(data.get("input_mode") or "usage").strip().lower()
+        if input_mode == "expression":
+            expression_path = _transcriptome_path_from_request(
+                data,
+                "expression_path",
+                "transcriptome_path",
+                "profile_path",
+                "datapoint_path",
+            ) or ""
+            if not expression_path:
+                raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
+            group_prefix = str(data.get("group_prefix") or "tpm_").strip()
+            inspect = VolcanoService.inspect_expression_matrix(expression_path, group_prefix=group_prefix)
+            return jsonify({"success": True, "input_mode": "expression", **inspect})
+
         data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
         base_path = str(data.get("base_path") or "").strip()
 
@@ -4073,24 +4766,42 @@ def _run_volcano_task(
     *,
     results_root: Path,
     data_dir: str,
+    input_mode: str = "usage",
+    expression_path: str = "",
+    group_prefix: str = "tpm_",
+    comparisons: Optional[List[List[str]]] = None,
     pvalue_threshold: float = 0.05,
+    logfc_cutoff: float = 1.0,
     module_name: str = "volcano",
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
-        _record_stage(task_id, 5, "火山图分析", f"扫描 {data_dir}", {"module": module_name})
+        _record_stage(task_id, 5, "火山图分析", f"扫描 {expression_path or data_dir}", {"module": module_name})
 
         local_data_dir = data_dir
 
         service = VolcanoService(output_parent=results_root / _RESULT_DIR)
-        report = service.generate_report(
-            data_dir=local_data_dir,
-            pvalue_threshold=pvalue_threshold,
-            progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
-                task_id, float(progress or 0.0), stage, detail,
-                {"module": module_name, **(meta or {})}
+        if input_mode == "expression":
+            report = service.generate_expression_report(
+                expression_path=expression_path,
+                group_prefix=group_prefix,
+                comparisons=comparisons or None,
+                pvalue_threshold=pvalue_threshold,
+                logfc_cutoff=logfc_cutoff,
+                progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
+                    task_id, float(progress or 0.0), stage, detail,
+                    {"module": module_name, **(meta or {})}
+                )
             )
-        )
+        else:
+            report = service.generate_report(
+                data_dir=local_data_dir,
+                pvalue_threshold=pvalue_threshold,
+                progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
+                    task_id, float(progress or 0.0), stage, detail,
+                    {"module": module_name, **(meta or {})}
+                )
+            )
 
         png_urls = []
         for p in report.png_paths:
@@ -4113,14 +4824,14 @@ def _run_volcano_task(
         # Generate viewer.html for Volcano
         _build_and_save_viewer(report.output_base, result, report.metadata,
             title="Volcano Plot Results",
-            subtitle="Data: " + str(report.metadata.get("data_dir", "")),
+            subtitle="Data: " + str(report.metadata.get("expression_path") or report.metadata.get("data_dir", "")),
             dl_extras=[("csv_urls", None, "Volcano CSV")])
         _normalize_script_result(
             result,
             report.output_base,
             report.metadata,
             title="Volcano Plot Results",
-            subtitle="Data: " + str(report.metadata.get("data_dir", "")),
+            subtitle="Data: " + str(report.metadata.get("expression_path") or report.metadata.get("data_dir", "")),
             dl_extras=[("csv_urls", None, "Volcano CSV")],
             zip_name="volcano_results.zip",
         )
@@ -4148,17 +4859,39 @@ def run_volcano():
     try:
         data = request.get_json() or {}
         module_name = "volcano"
-        data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
-        if not data_dir:
-            raise ValidationError(message="data_dir is required", details={"field": "data_dir"})
-
+        input_mode = str(data.get("input_mode") or "usage").strip().lower()
+        data_dir = ""
+        expression_path = ""
+        group_prefix = str(data.get("group_prefix") or "tpm_").strip()
+        comparisons = _parse_group_comparisons(data.get("comparisons"))
+        if input_mode == "expression":
+            expression_path = _transcriptome_path_from_request(
+                data,
+                "expression_path",
+                "transcriptome_path",
+                "profile_path",
+                "datapoint_path",
+            ) or ""
+            if not expression_path:
+                raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
+        else:
+            data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
+            if not data_dir:
+                raise ValidationError(message="data_dir is required", details={"field": "data_dir"})
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
+        logfc_cutoff = float(data.get("logfc_cutoff") or 1.0)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
-            input_paths=[{"asset_type": "cached_usage", "path": data_dir}],
-            config_json={"pvalue_threshold": pvalue_threshold},
+            input_paths=[{"asset_type": "transcriptome" if input_mode == "expression" else "cached_usage", "path": expression_path or data_dir}],
+            config_json={
+                "input_mode": input_mode,
+                "group_prefix": group_prefix if input_mode == "expression" else "",
+                "comparisons": comparisons if input_mode == "expression" else [],
+                "pvalue_threshold": pvalue_threshold,
+                "logfc_cutoff": logfc_cutoff if input_mode == "expression" else None,
+            },
         )
         if not _force_rerun_requested(data):
             reused_response = _try_reuse_script_result(cache_context, module_name)
@@ -4175,7 +4908,194 @@ def run_volcano():
             _run_volcano_task, task_id,
             results_root=_resolve_results_root(),
             data_dir=data_dir,
+            input_mode=input_mode,
+            expression_path=expression_path,
+            group_prefix=group_prefix,
+            comparisons=comparisons,
             pvalue_threshold=pvalue_threshold,
+            logfc_cutoff=logfc_cutoff,
+            module_name=module_name,
+            app_context_app=current_app._get_current_object() if project_id else None,
+        )
+        return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}", "analysis_signature": cache_context.get("analysis_signature", "")})
+    except ValidationError as exc:
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
+
+
+# ---- GO / KEGG Enrichment ----
+
+@script_hub_bp.route("/go-kegg-enrichment/inspect", methods=["POST"])
+def inspect_go_kegg_enrichment():
+    try:
+        data = request.get_json() or {}
+        expression_path = _transcriptome_path_from_request(
+            data,
+            "expression_path",
+            "transcriptome_path",
+            "profile_path",
+            "datapoint_path",
+        ) or ""
+        if not expression_path:
+            raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
+        group_prefix = str(data.get("group_prefix") or "tpm_").strip()
+        inspect = GoKeggEnrichmentService.inspect_expression_matrix(expression_path, group_prefix=group_prefix)
+        return jsonify({"success": True, **inspect})
+    except ValidationError as exc:
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+    except Exception as exc:
+        logger.error("Error inspecting GO/KEGG inputs: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "SCRIPT_HUB_INSPECT_ERROR", "message": str(exc)}), 500
+
+
+def _run_go_kegg_enrichment_task(
+    task_id: str,
+    *,
+    results_root: Path,
+    expression_path: str,
+    group_prefix: str = "tpm_",
+    comparisons: Optional[List[List[str]]] = None,
+    pvalue_threshold: float = 0.05,
+    logfc_cutoff: float = 1.0,
+    enrich_pvalue_cutoff: float = 0.05,
+    p_adjust_method: str = "none",
+    show_category: int = 20,
+    simplify_go: bool = True,
+    do_gsea: bool = True,
+    output_name: Optional[str] = None,
+    module_name: str = "go-kegg-enrichment",
+    app_context_app: Optional[Any] = None,
+) -> None:
+    try:
+        _record_stage(task_id, 4, "GO/KEGG", f"读取表达矩阵 {expression_path}", {"module": module_name})
+        service = GoKeggEnrichmentService(output_parent=results_root / _RESULT_DIR)
+        report = service.generate_report(
+            expression_path=expression_path,
+            group_prefix=group_prefix,
+            comparisons=comparisons or None,
+            pvalue_threshold=pvalue_threshold,
+            logfc_cutoff=logfc_cutoff,
+            enrich_pvalue_cutoff=enrich_pvalue_cutoff,
+            p_adjust_method=p_adjust_method,
+            show_category=show_category,
+            simplify_go=simplify_go,
+            do_gsea=do_gsea,
+            output_name=output_name,
+            progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
+                task_id, float(progress or 0.0), stage, detail,
+                {"module": module_name, **(meta or {})}
+            ),
+        )
+
+        def _url(path_value: str) -> str:
+            path = Path(path_value)
+            rel = path.relative_to(report.output_base)
+            return f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}"
+
+        result = {
+            "module": module_name,
+            "job_id": report.job_id,
+            "output_base": str(report.output_base),
+            "png_urls": [_url(p) for p in report.png_paths],
+            "csv_urls": [_url(p) for p in report.csv_paths],
+            "log_url": _url(report.log_path),
+            "zip_url": _url(report.zip_path),
+            "metadata": report.metadata,
+        }
+        _normalize_script_result(
+            result,
+            report.output_base,
+            report.metadata,
+            title="GO / KEGG Enrichment Results",
+            subtitle="Expression: " + str(report.metadata.get("expression_path", "")),
+            dl_extras=[("csv_urls", None, "CSV"), ("log_url", "go_kegg_enrichment.log", "Log")],
+            zip_name="go_kegg_enrichment_results.zip",
+        )
+
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _complete_script_task(
+            task_id,
+            module_name=module_name,
+            detail=f"GO/KEGG 富集分析完成，生成 {len(report.csv_paths)} 个表格和 {len(report.png_paths)} 张图",
+            result=result,
+            history=history,
+            app_context_app=app_context_app,
+            stage="完成",
+        )
+    except Exception as exc:
+        logger.error("GO/KEGG task failed: %s", exc, exc_info=True)
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _set_task_state(task_id, status="failed", progress=0.0, stage="失败",
+                        detail=str(exc), meta={"phase": "failed", "module": module_name},
+                        history=history[-80:])
+
+
+@script_hub_bp.route("/go-kegg-enrichment/run", methods=["POST"])
+def run_go_kegg_enrichment():
+    try:
+        data = request.get_json() or {}
+        module_name = "go-kegg-enrichment"
+        expression_path = _transcriptome_path_from_request(
+            data,
+            "expression_path",
+            "transcriptome_path",
+            "profile_path",
+            "datapoint_path",
+        ) or ""
+        if not expression_path:
+            raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
+        group_prefix = str(data.get("group_prefix") or "tpm_").strip()
+        comparisons = _parse_group_comparisons(data.get("comparisons"))
+        pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
+        logfc_cutoff = float(data.get("logfc_cutoff") or 1.0)
+        enrich_pvalue_cutoff = float(data.get("enrich_pvalue_cutoff") or 0.05)
+        p_adjust_method = str(data.get("p_adjust_method") or "none").strip() or "none"
+        show_category = int(data.get("show_category") or 20)
+        simplify_go = _as_bool(data.get("simplify_go"), True)
+        do_gsea = _as_bool(data.get("do_gsea"), True)
+        output_name = str(data.get("output_name") or "").strip() or None
+        project_id = str(data.get("project_id") or "").strip() or None
+        cache_context = _build_script_cache_context(
+            project_id=project_id,
+            module_name=module_name,
+            input_paths=[{"asset_type": "transcriptome", "path": expression_path}],
+            config_json={
+                "group_prefix": group_prefix,
+                "comparisons": comparisons,
+                "pvalue_threshold": pvalue_threshold,
+                "logfc_cutoff": logfc_cutoff,
+                "enrich_pvalue_cutoff": enrich_pvalue_cutoff,
+                "p_adjust_method": p_adjust_method,
+                "show_category": show_category,
+                "simplify_go": simplify_go,
+                "do_gsea": do_gsea,
+            },
+        )
+        if not _force_rerun_requested(data):
+            reused_response = _try_reuse_script_result(cache_context, module_name)
+            if reused_response:
+                return jsonify(reused_response)
+
+        task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+        _set_task_state(task_id, status="queued", progress=0.0, stage="排队中",
+                        detail="任务已创建", meta={"phase": "queued", "module": module_name},
+                        history=[_history_entry(0.0, "排队中", "任务已创建", {"phase": "queued", "module": module_name})],
+                        **cache_context)
+        _script_executor.submit(
+            _run_go_kegg_enrichment_task, task_id,
+            results_root=_resolve_results_root(),
+            expression_path=expression_path,
+            group_prefix=group_prefix,
+            comparisons=comparisons,
+            pvalue_threshold=pvalue_threshold,
+            logfc_cutoff=logfc_cutoff,
+            enrich_pvalue_cutoff=enrich_pvalue_cutoff,
+            p_adjust_method=p_adjust_method,
+            show_category=show_category,
+            simplify_go=simplify_go,
+            do_gsea=do_gsea,
+            output_name=output_name,
             module_name=module_name,
             app_context_app=current_app._get_current_object() if project_id else None,
         )
@@ -4618,7 +5538,6 @@ def _run_ml_analysis_task(
             "png_urls": _urls(report.png_paths),
             "csv_urls": _urls(report.csv_paths),
             "text_urls": _urls(report.text_paths),
-            "pdf_urls": _urls(report.pdf_paths),
             "metadata": report.metadata,
         }
         subtitle = (
@@ -4632,7 +5551,7 @@ def _run_ml_analysis_task(
             report.metadata,
             title="Machine Learning Analysis Results",
             subtitle=subtitle,
-            dl_extras=[("csv_urls", None, "ML CSV"), ("text_urls", None, "ML Text"), ("pdf_urls", None, "ML PDF")],
+            dl_extras=[("csv_urls", None, "ML CSV"), ("text_urls", None, "ML Text")],
         )
         _normalize_script_result(
             result,
@@ -4640,7 +5559,7 @@ def _run_ml_analysis_task(
             report.metadata,
             title="Machine Learning Analysis Results",
             subtitle=subtitle,
-            dl_extras=[("csv_urls", None, "ML CSV"), ("text_urls", None, "ML Text"), ("pdf_urls", None, "ML PDF")],
+            dl_extras=[("csv_urls", None, "ML CSV"), ("text_urls", None, "ML Text")],
             zip_name="ml_analysis_results.zip",
         )
 
@@ -4857,15 +5776,20 @@ def get_script_hub_result_file(job_id: str, relative_path: str):
         if target_relative.is_absolute() or ".." in target_relative.parts:
             raise ValidationError(message="Invalid result path", details={"relative_path": relative_path})
 
-        result_root = _resolve_results_root() / _RESULT_DIR / job_id
-        target_path = (result_root / target_relative).resolve()
-        if result_root.resolve() not in target_path.parents and target_path != result_root.resolve():
-            raise ValidationError(message="Invalid result path", details={"relative_path": relative_path})
-        if not target_path.exists() or not target_path.is_file():
+        target_path: Optional[Path] = None
+        for result_root in candidate_job_roots(_resolve_results_root(), _RESULT_DIR, job_id):
+            result_root = result_root.resolve()
+            candidate_path = (result_root / target_relative).resolve()
+            if result_root not in candidate_path.parents and candidate_path != result_root:
+                continue
+            if candidate_path.exists() and candidate_path.is_file():
+                target_path = candidate_path
+                break
+        if target_path is None:
             raise ValidationError(message="Result file not found", details={"relative_path": relative_path})
-        if target_path.name not in _RESULT_FILES and target_path.suffix.lower() not in {".csv", ".html", ".json", ".zip", ".png", ".jpg", ".pdf", ".txt"}:
+        if target_path.name not in _RESULT_FILES and target_path.suffix.lower() not in {".csv", ".html", ".json", ".zip", ".png", ".jpg", ".pdf", ".txt", ".log"}:
             raise ValidationError(message="Unsupported result file", details={"relative_path": relative_path})
-        as_attachment = target_path.suffix.lower() in {".zip", ".pdf", ".txt"}
+        as_attachment = target_path.suffix.lower() in {".zip", ".pdf", ".txt", ".log"}
         return send_file(target_path, as_attachment=as_attachment)
     except ValidationError as exc:
         logger.warning("Validation error serving script hub result file: %s", exc.message)
@@ -4889,30 +5813,20 @@ def inspect_mait_nkt():
         # Resolve TRA data source
         tra_df = None
         resolved_tra_path = ""
-        if tra_source == "pep_analysis" and source_job_id:
-            # Find the PEP analysis job output
-            pep_result = _try_find_script_task_result(source_job_id)
-            if pep_result and "output_base" in pep_result.get("result", {}):
-                pep_output = Path(pep_result["result"]["output_base"])
-                candidates = [
-                    pep_output / "Pep_shared" / "TRA.csv",
-                    pep_output / "Pep_shared_cate" / "Pep_shared" / "TRA.csv",
-                ]
-                for cand in candidates:
-                    if cand.exists():
-                        resolved_tra_path = str(cand)
-                        tra_df = _robust_read_csv(cand)
-                        break
-                if tra_df is None:
-                    raise ValidationError(
-                        message="PEP 分析结果中未找到 Pep_shared/TRA.csv",
-                        details={"source_job_id": source_job_id},
-                    )
-            else:
-                raise ValidationError(
-                    message="PEP 分析任务未找到或已完成",
-                    details={"source_job_id": source_job_id},
-                )
+        resolved_source_job_id = source_job_id
+        resolved_source_kind = tra_source
+        resolved_output_base = ""
+        if tra_source == "pep_analysis" and tra_path and Path(tra_path).exists() and Path(tra_path).is_file():
+            resolved_tra_path = str(PathAccessService.validate_read_path(tra_path))
+            resolved_source_kind = "pep_analysis_resolved_path"
+            tra_df = _robust_read_csv(Path(resolved_tra_path))
+        elif tra_source == "pep_analysis":
+            resolved = _resolve_pep_analysis_tra_source(data)
+            resolved_tra_path = resolved["path"]
+            resolved_source_job_id = str(resolved.get("source_job_id") or source_job_id)
+            resolved_source_kind = str(resolved.get("source_kind") or "pep_analysis")
+            resolved_output_base = str(resolved.get("output_base") or "")
+            tra_df = resolved["dataframe"]
         elif tra_path:
             dp = Path(tra_path)
             if not dp.exists() or not dp.is_file():
@@ -4949,6 +5863,9 @@ def inspect_mait_nkt():
             "success": True,
             "tra_source": tra_source,
             "resolved_tra_path": resolved_tra_path,
+            "source_job_id": resolved_source_job_id,
+            "source_kind": resolved_source_kind,
+            "pep_output_base": resolved_output_base,
             "sample_columns": sample_cols,
             "sample_count": len(sample_cols),
             "has_category_row": has_category_row,
@@ -4981,11 +5898,20 @@ def run_mait_nkt():
             raise ValidationError(message="group_field is required", details={"field": "group_field"})
 
         project_id = str(data.get("project_id") or "").strip() or None
+        resolved_tra_path = tra_path
+        resolved_source_job_id = source_job_id
+        if tra_source == "pep_analysis" and tra_path and Path(tra_path).exists() and Path(tra_path).is_file():
+            resolved_tra_path = str(PathAccessService.validate_read_path(tra_path))
+        elif tra_source == "pep_analysis":
+            resolved = _resolve_pep_analysis_tra_source(data)
+            resolved_tra_path = resolved["path"]
+            resolved_source_job_id = str(resolved.get("source_job_id") or source_job_id)
+
         cache_context = _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
             input_paths=[
-                {"asset_type": "tra", "path": tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_result", "source_job_id": source_job_id},
+                {"asset_type": "tra", "path": resolved_tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_tra", "path": resolved_tra_path, "source_job_id": resolved_source_job_id},
                 {"asset_type": "profile", "path": profile_path},
             ],
             config_json={"group_field": group_field, "group_order": group_order, "tra_source": tra_source},
@@ -5015,11 +5941,12 @@ def run_mait_nkt():
             task_id,
             results_root=Path(current_app.config.get("RESULTS_FOLDER", "flask_app/data/results")),
             tra_source=tra_source,
-            tra_path=tra_path,
-            source_job_id=source_job_id,
+            tra_path=resolved_tra_path,
+            source_job_id=resolved_source_job_id,
             profile_path=profile_path,
             group_field=group_field,
             group_order=group_order,
+            project_id=project_id,
             app_context_app=current_app._get_current_object() if project_id else None,
         )
 
@@ -5049,29 +5976,25 @@ def _run_mait_nkt_task(
     profile_path: str,
     group_field: str,
     group_order: Optional[str],
+    project_id: Optional[str] = None,
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
         _record_stage(task_id, 2, "Loading", "Reading TRA data")
         tra_df = None
         resolved_tra_path = tra_path
-        if tra_source == "pep_analysis" and source_job_id:
-            pep_result = _try_find_script_task_result(source_job_id)
-            if not pep_result:
-                raise ValidationError(message="PEP analysis job not found", details={"source_job_id": source_job_id})
-            pep_output = Path(pep_result["result"]["output_base"])
-            candidates = [
-                pep_output / "Pep_shared" / "TRA.csv",
-                pep_output / "Pep_shared_cate" / "Pep_shared" / "TRA.csv",
-            ]
-            tra_df = None
-            for cand in candidates:
-                if cand.exists():
-                    tra_df = _robust_read_csv(cand)
-                    resolved_tra_path = str(cand)
-                    break
-            if tra_df is None:
-                raise ValidationError(message="PEP analysis result does not contain Pep_shared/TRA.csv")
+        if tra_source == "pep_analysis":
+            dp = Path(tra_path) if tra_path else None
+            if dp and dp.exists() and dp.is_file():
+                tra_df = _robust_read_csv(dp)
+                resolved_tra_path = str(dp)
+            else:
+                resolved = _resolve_pep_analysis_tra_source({
+                    "project_id": project_id or "",
+                    "source_job_id": source_job_id,
+                })
+                tra_df = resolved["dataframe"]
+                resolved_tra_path = resolved["path"]
         else:
             dp = Path(tra_path)
             if not dp.exists():

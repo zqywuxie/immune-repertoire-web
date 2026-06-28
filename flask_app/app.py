@@ -145,6 +145,8 @@ def create_app(config_name=None):
     # Initialize database
     with app.app_context():
         db.create_all()
+        from flask_app.services.schema_compatibility import ensure_schema_compatibility
+        ensure_schema_compatibility()
 
     # Initialize persistent background job service
     from flask_app.services.background_job_service import init_background_job_service
