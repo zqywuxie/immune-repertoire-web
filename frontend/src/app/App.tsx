@@ -1,6 +1,6 @@
 import { Activity, Boxes, Database, FlaskConical, GitBranch, ListChecks, RefreshCw, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { listJobModules, listJobs, submitJob } from "../shared/api/jobs";
+import { getJobResults, listJobModules, listJobs, submitJob, type JobResultsResponse } from "../shared/api/jobs";
 import {
   getProject,
   listProjectAssets,
@@ -44,6 +44,9 @@ export function App() {
   const [forceRerun, setForceRerun] = useState(false);
   const [jobSubmitState, setJobSubmitState] = useState<LoadState>("idle");
   const [jobSubmitMessage, setJobSubmitMessage] = useState("");
+  const [jobResults, setJobResults] = useState<JobResultsResponse | null>(null);
+  const [jobResultsState, setJobResultsState] = useState<LoadState>("idle");
+  const [jobResultsMessage, setJobResultsMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -162,10 +165,29 @@ export function App() {
           ? `Reused cached result ${payload.result_id || payload.job_id}.`
           : `Submitted job ${payload.job_id}.`
       );
+      if (payload.job_id) {
+        await handleInspectJobResults(payload.job_id);
+      }
       setDetailRefreshKey((key) => key + 1);
     } catch (err) {
       setJobSubmitState("error");
       setJobSubmitMessage(err instanceof Error ? err.message : "Job submission failed");
+    }
+  };
+
+  const handleInspectJobResults = async (jobId: string) => {
+    setJobResultsState("loading");
+    setJobResultsMessage("");
+    try {
+      const payload = await getJobResults(jobId);
+      setJobResults(payload);
+      setJobResultsState("ready");
+      if (payload.status !== "completed") {
+        setJobResultsMessage(`Job is ${payload.status}; results may still be incomplete.`);
+      }
+    } catch (err) {
+      setJobResultsState("error");
+      setJobResultsMessage(err instanceof Error ? err.message : "Unable to load job results");
     }
   };
 
@@ -348,7 +370,13 @@ export function App() {
                 payloadText={jobPayloadText}
                 state={jobSubmitState}
               />
-              <JobList jobs={selectedJobs} emptyLabel="No jobs found for the selected project." loading={detailState === "loading"} />
+              <JobResultsPanel message={jobResultsMessage} payload={jobResults} state={jobResultsState} />
+              <JobList
+                jobs={selectedJobs}
+                emptyLabel="No jobs found for the selected project."
+                loading={detailState === "loading"}
+                onInspectResults={handleInspectJobResults}
+              />
             </>
           )}
         </section>
@@ -484,7 +512,66 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function JobList({ jobs, emptyLabel, loading }: { jobs: JobSummary[]; emptyLabel: string; loading: boolean }) {
+function JobResultsPanel({
+  message,
+  payload,
+  state
+}: {
+  message: string;
+  payload: JobResultsResponse | null;
+  state: LoadState;
+}) {
+  if (state === "idle" && !payload) {
+    return null;
+  }
+  return (
+    <div className="job-results-panel">
+      <div className="job-results-heading">
+        <div>
+          <p className="eyebrow">Job results</p>
+          <h4>{payload?.job.module || "No job selected"}</h4>
+        </div>
+        <span>{payload?.status || state}</span>
+      </div>
+      {message && <p className={state === "error" ? "upload-message is-error" : "upload-message"}>{message}</p>}
+      {state === "loading" && <div className="job-row skeleton" />}
+      {payload && (
+        <div className="job-results-grid">
+          <div>
+            <strong>Outputs</strong>
+            {payload.outputs.length === 0 && <p className="empty">No output links registered yet.</p>}
+            {payload.outputs.map((output) => (
+              <a href={output.url} key={`${output.kind}-${output.url}`} rel="noreferrer" target="_blank">
+                {output.label}
+              </a>
+            ))}
+          </div>
+          <div>
+            <strong>Registered assets</strong>
+            {payload.assets.length === 0 && <p className="empty">No result assets registered yet.</p>}
+            {payload.assets.map((asset) => (
+              <a href={asset.preview_url || "#"} key={asset.id} rel="noreferrer" target="_blank">
+                {asset.original_name}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JobList({
+  jobs,
+  emptyLabel,
+  loading,
+  onInspectResults
+}: {
+  jobs: JobSummary[];
+  emptyLabel: string;
+  loading: boolean;
+  onInspectResults?: (jobId: string) => void;
+}) {
   return (
     <div className="job-list">
       {jobs.map((job) => (
@@ -494,6 +581,11 @@ function JobList({ jobs, emptyLabel, loading }: { jobs: JobSummary[]; emptyLabel
             <span>{job.stage || job.detail || job.status}</span>
           </div>
           <meter min={0} max={100} value={Number(job.progress || 0)} />
+          {onInspectResults && (
+            <button onClick={() => onInspectResults(job.job_id || job.id)} type="button">
+              Results
+            </button>
+          )}
         </article>
       ))}
       {loading && Array.from({ length: 4 }).map((_, index) => <div className="job-row skeleton" key={index} />)}

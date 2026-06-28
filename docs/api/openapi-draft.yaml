@@ -378,6 +378,50 @@ paths:
                     type: boolean
                   job:
                     $ref: "#/components/schemas/Job"
+  /api/jobs/{job_id}/results:
+    get:
+      tags: [Jobs]
+      summary: Get normalized job result outputs
+      description: >
+        Returns the persistent job record, raw result payload, normalized output
+        links, and project result assets registered for the job.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job result bundle
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, job, status, result, outputs, assets]
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: "#/components/schemas/Job"
+                  status:
+                    type: string
+                  result:
+                    type: object
+                    additionalProperties: true
+                  outputs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobOutput"
+                  assets:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/Asset"
+                        - type: object
+                          properties:
+                            preview_url:
+                              type: string
+                            download_url:
+                              type: string
+        "404":
+          description: Job not found
   /api/jobs/{job_id}/cancel:
     post:
       tags: [Jobs]
@@ -587,6 +631,16 @@ components:
           type: string
           format: date-time
           nullable: true
+    JobOutput:
+      type: object
+      required: [label, url, kind]
+      properties:
+        label:
+          type: string
+        url:
+          type: string
+        kind:
+          type: string
     Pagination:
       type: object
       properties:

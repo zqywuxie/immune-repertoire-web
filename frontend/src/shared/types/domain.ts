@@ -48,3 +48,9 @@ export interface JobModule {
   key: string;
   label: string;
 }
+
+export interface JobOutput {
+  label: string;
+  url: string;
+  kind: string;
+}

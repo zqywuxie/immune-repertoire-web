@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { JobModule, JobSummary } from "../types/domain";
+import type { JobModule, JobOutput, JobSummary, ProjectAsset } from "../types/domain";
 
 export interface JobListResponse {
   success: boolean;
@@ -34,6 +34,15 @@ export interface SubmitJobResponse {
   result?: Record<string, unknown>;
 }
 
+export interface JobResultsResponse {
+  success: boolean;
+  job: JobSummary;
+  status: string;
+  result: Record<string, unknown>;
+  outputs: JobOutput[];
+  assets: Array<ProjectAsset & { preview_url?: string; download_url?: string }>;
+}
+
 export function listJobs(params: { projectId?: string; status?: string; limit?: number } = {}) {
   return apiClient.get<JobListResponse>("/api/jobs", {
     project_id: params.projectId,
@@ -57,6 +66,10 @@ export function submitJob({ module, payload, projectId, forceRerun }: SubmitJobP
 
 export function getJob(jobId: string) {
   return apiClient.get<JobDetailResponse>(`/api/jobs/${jobId}`);
+}
+
+export function getJobResults(jobId: string) {
+  return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`);
 }
 
 export function cancelJob(jobId: string) {

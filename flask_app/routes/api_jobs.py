@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, current_app, jsonify, request
 from flask_login import login_user
 
-from flask_app.models.database import User
+from flask_app.models.database import ProjectAsset, User
 from flask_app.services.background_job_service import TERMINAL_STATUSES, get_background_job_service
 from flask_app.services.user_scope import current_user_id, is_admin
 
@@ -182,6 +182,58 @@ def _find_reusable_charts_result(cache_context: Dict[str, Any]) -> Optional[Dict
 
 def _can_access_job(job: Dict[str, Any]) -> bool:
     return is_admin() or job.get("user_id") in {None, current_user_id()}
+
+
+def _append_output(outputs: List[Dict[str, Any]], seen: set[str], *, label: str, url: str, kind: str) -> None:
+    url = str(url or "").strip()
+    if not url or url in seen:
+        return
+    seen.add(url)
+    outputs.append({
+        "label": label,
+        "url": url,
+        "kind": kind,
+    })
+
+
+def _collect_result_outputs(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    outputs: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    _append_output(outputs, seen, label="Viewer", url=result.get("viewer_url", ""), kind="html")
+    _append_output(outputs, seen, label="Bundle", url=result.get("zip_url", ""), kind="zip")
+    for item in result.get("chart_results") or []:
+        if not isinstance(item, dict):
+            continue
+        module = str(item.get("module") or item.get("name") or "Result")
+        _append_output(outputs, seen, label=f"{module} viewer", url=item.get("viewer_url", ""), kind="html")
+        _append_output(outputs, seen, label=f"{module} bundle", url=item.get("zip_url", ""), kind="zip")
+    for item in result.get("files") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("name") or item.get("kind") or "File")
+        _append_output(outputs, seen, label=label, url=item.get("url", ""), kind=str(item.get("kind") or "file"))
+    return outputs
+
+
+def _job_result_assets(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+    project_id = str(job.get("project_id") or "").strip()
+    if not project_id:
+        return []
+    candidates = ProjectAsset.query.filter(
+        ProjectAsset.project_id == project_id,
+        ProjectAsset.asset_type == "processed_result",
+    ).order_by(ProjectAsset.uploaded_at.desc()).limit(100).all()
+    matched: List[Dict[str, Any]] = []
+    job_id = str(job.get("job_id") or job.get("id") or "").strip()
+    module = str(job.get("module") or "").strip()
+    for asset in candidates:
+        metadata = asset.metadata_json or {}
+        if metadata.get("job_id") == job_id or metadata.get("task_id") == job_id or metadata.get("analysis_type") == module:
+            item = asset.to_dict()
+            item["preview_url"] = f"/api/projects/{asset.project_id}/assets/{asset.id}/preview"
+            item["download_url"] = f"/api/projects/{asset.project_id}/assets/{asset.id}/download"
+            matched.append(item)
+    return matched
 
 
 def _call_json_endpoint(module: str, payload: Dict[str, Any], user_id: int | None) -> Dict[str, Any]:
@@ -469,6 +521,31 @@ def get_job(job_id: str):
     except Exception as exc:
         current_app.logger.error("Failed to get background job %s: %s", job_id, exc, exc_info=True)
         return _json_error("JOB_GET_ERROR", "Failed to load background job.", detail=str(exc))
+
+
+@jobs_bp.route("/<job_id>/results", methods=["GET"])
+def get_job_results(job_id: str):
+    try:
+        job = get_background_job_service().get_job(job_id)
+        if job is None:
+            return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+        if not _can_access_job(job):
+            return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        outputs = _collect_result_outputs(result)
+        assets = _job_result_assets(job)
+        return jsonify({
+            "success": True,
+            "job": job,
+            "status": job.get("status"),
+            "result": result,
+            "outputs": outputs,
+            "assets": assets,
+        })
+    except Exception as exc:
+        current_app.logger.error("Failed to get background job results %s: %s", job_id, exc, exc_info=True)
+        return _json_error("JOB_RESULTS_ERROR", "Failed to load background job results.", detail=str(exc))
 
 
 @jobs_bp.route("/<job_id>/cancel", methods=["POST"])

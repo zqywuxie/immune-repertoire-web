@@ -319,6 +319,78 @@ meter {
   height: 10px;
 }
 
+.job-row button {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--forest);
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.job-row button:hover {
+  border-color: var(--forest);
+  background: #eef5ef;
+}
+
+.job-results-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: #fffdf7;
+}
+
+.job-results-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-results-heading h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.job-results-heading span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.job-results-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.job-results-grid div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-results-grid strong {
+  font-size: 0.86rem;
+}
+
+.job-results-grid a {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  color: var(--forest);
+  padding: 8px 10px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-results-grid a:hover {
+  border-color: var(--forest);
+  background: #eef5ef;
+}
+
 .notice {
   border-left: 5px solid var(--copper);
   background: #fff4ec;
@@ -547,5 +619,14 @@ meter {
 
   .job-submit-grid {
     grid-template-columns: 1fr;
+  }
+
+  .job-results-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .job-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
