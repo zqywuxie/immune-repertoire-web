@@ -1,13 +1,14 @@
 import { Activity, Boxes, Database, FlaskConical, GitBranch, ListChecks, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { listJobs } from "../shared/api/jobs";
-import { getProject, listProjectAssets, listProjects, type Pagination } from "../shared/api/projects";
+import { getProject, listProjectAssets, listProjects, type Pagination, uploadProjectAssets } from "../shared/api/projects";
 import type { JobSummary, ProjectAsset, ProjectSummary } from "../shared/types/domain";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type DetailTab = "assets" | "results" | "jobs";
 
 const assetPageSize = 8;
+const uploadAssetTypes = ["profile", "pep", "transcriptome", "sample_summary", "group_spec", "ppt_template", "pdf_source", "raw_archive"];
 
 export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -22,6 +23,11 @@ export function App() {
   const [detailRefreshKey, setDetailRefreshKey] = useState(0);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [detailState, setDetailState] = useState<LoadState>("idle");
+  const [uploadAssetType, setUploadAssetType] = useState("profile");
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [uploadState, setUploadState] = useState<LoadState>("idle");
+  const [uploadMessage, setUploadMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -94,6 +100,27 @@ export function App() {
   }, [projects, jobs]);
 
   const selectedJobs = selectedProjectId ? jobs.filter((job) => !job.project_id || job.project_id === selectedProjectId) : jobs;
+
+  const handleUpload = async () => {
+    if (!selectedProjectId || uploadFiles.length === 0) return;
+    setUploadState("loading");
+    setUploadMessage("");
+    try {
+      const payload = await uploadProjectAssets(selectedProjectId, {
+        assetType: uploadAssetType,
+        files: uploadFiles,
+        replaceExisting
+      });
+      setUploadState("ready");
+      setUploadMessage(`${payload.assets.length} asset${payload.assets.length === 1 ? "" : "s"} uploaded.`);
+      setUploadFiles([]);
+      setAssetPage(1);
+      setDetailRefreshKey((key) => key + 1);
+    } catch (err) {
+      setUploadState("error");
+      setUploadMessage(err instanceof Error ? err.message : "Upload failed");
+    }
+  };
 
   return (
     <main className="shell">
@@ -232,6 +259,18 @@ export function App() {
           {detailState === "error" && <div className="notice">{error}</div>}
           {detailTab === "assets" && (
             <>
+              <AssetUploadForm
+                assetType={uploadAssetType}
+                disabled={!selectedProjectId || uploadState === "loading"}
+                files={uploadFiles}
+                message={uploadMessage}
+                onAssetTypeChange={setUploadAssetType}
+                onFilesChange={setUploadFiles}
+                onReplaceExistingChange={setReplaceExisting}
+                onSubmit={handleUpload}
+                replaceExisting={replaceExisting}
+                state={uploadState}
+              />
               <AssetTable assets={assets} emptyLabel={detailState === "loading" ? "Loading assets..." : "No assets registered for this project."} />
               <PaginationControls pagination={assetPagination} page={assetPage} onPageChange={setAssetPage} />
             </>
@@ -243,6 +282,62 @@ export function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function AssetUploadForm({
+  assetType,
+  disabled,
+  files,
+  message,
+  onAssetTypeChange,
+  onFilesChange,
+  onReplaceExistingChange,
+  onSubmit,
+  replaceExisting,
+  state
+}: {
+  assetType: string;
+  disabled: boolean;
+  files: File[];
+  message: string;
+  onAssetTypeChange: (value: string) => void;
+  onFilesChange: (files: File[]) => void;
+  onReplaceExistingChange: (value: boolean) => void;
+  onSubmit: () => void;
+  replaceExisting: boolean;
+  state: LoadState;
+}) {
+  return (
+    <div className="upload-strip">
+      <label>
+        <span>Asset type</span>
+        <select disabled={disabled} onChange={(event) => onAssetTypeChange(event.target.value)} value={assetType}>
+          {uploadAssetTypes.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="file-picker">
+        <span>Files</span>
+        <input
+          disabled={disabled}
+          multiple
+          onChange={(event) => onFilesChange(Array.from(event.target.files || []))}
+          type="file"
+        />
+      </label>
+      <label className="check-row">
+        <input checked={replaceExisting} disabled={disabled} onChange={(event) => onReplaceExistingChange(event.target.checked)} type="checkbox" />
+        <span>Replace existing singleton assets</span>
+      </label>
+      <button disabled={disabled || files.length === 0} onClick={onSubmit} type="button">
+        {state === "loading" ? "Uploading..." : `Upload ${files.length || ""}`.trim()}
+      </button>
+      {message && <p className={state === "error" ? "upload-message is-error" : "upload-message"}>{message}</p>}
+    </div>
   );
 }
 

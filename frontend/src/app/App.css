@@ -313,6 +313,71 @@ meter {
   color: #fff7df;
 }
 
+.upload-strip {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  background: #f3eadb;
+  border: 1px solid var(--line);
+}
+
+.upload-strip label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.upload-strip select,
+.upload-strip input[type="file"] {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--ink);
+  padding: 7px 9px;
+}
+
+.upload-strip button {
+  min-height: 38px;
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: #fff7df;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.upload-strip button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.check-row {
+  align-self: center;
+  flex-direction: row !important;
+  align-items: center;
+  text-transform: none !important;
+}
+
+.check-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.upload-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--forest);
+}
+
+.upload-message.is-error {
+  color: var(--copper);
+}
+
 .pagination-bar {
   min-height: 44px;
   display: flex;
@@ -376,6 +441,10 @@ meter {
   }
 
   .split {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-strip {
     grid-template-columns: 1fr;
   }
 }

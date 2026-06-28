@@ -16,6 +16,10 @@ export interface AssetListResponse {
   pagination?: Pagination;
 }
 
+export interface AssetUploadResponse {
+  assets: ProjectAsset[];
+}
+
 export interface ResultListResponse {
   success: boolean;
   results: ProjectAsset[];
@@ -42,6 +46,33 @@ export function listProjectAssets(projectId: string, options: { assetType?: stri
     asset_type: options.assetType,
     page: options.page,
     page_size: options.pageSize
+  });
+}
+
+export function uploadProjectAssets(
+  projectId: string,
+  options: {
+    assetType: string;
+    files: File[];
+    replaceExisting?: boolean;
+  }
+) {
+  const formData = new FormData();
+  formData.set("asset_type", options.assetType);
+  formData.set("replace_existing", options.replaceExisting ? "true" : "false");
+  formData.set("relative_paths", JSON.stringify(options.files.map((file) => file.webkitRelativePath || file.name)));
+  options.files.forEach((file) => formData.append("files", file, file.name));
+
+  return fetch(`/api/projects/${projectId}/assets`, {
+    method: "POST",
+    credentials: "include",
+    body: formData
+  }).then(async (response) => {
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.message || response.statusText);
+    }
+    return payload as AssetUploadResponse;
   });
 }
 
