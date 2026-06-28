@@ -397,6 +397,26 @@ meter {
   cursor: not-allowed;
 }
 
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.asset-actions a {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--forest);
+  padding: 6px 9px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.asset-actions a:hover {
+  border-color: var(--forest);
+  background: #eef5ef;
+}
+
 .line-skeleton,
 .skeleton {
   display: block;

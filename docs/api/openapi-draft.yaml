@@ -213,6 +213,36 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Asset"
+  /api/projects/{project_id}/assets/{asset_id}/preview:
+    get:
+      tags: [Assets]
+      summary: Preview a project asset inline
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/projects/{project_id}/assets/{asset_id}/download:
+    get:
+      tags: [Assets]
+      summary: Download a project asset
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
   /api/jobs:
     get:
       tags: [Jobs]
@@ -333,6 +363,12 @@ components:
         type: string
     JobId:
       name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+    AssetId:
+      name: asset_id
       in: path
       required: true
       schema:

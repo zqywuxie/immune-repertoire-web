@@ -1,7 +1,15 @@
 import { Activity, Boxes, Database, FlaskConical, GitBranch, ListChecks, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { listJobs } from "../shared/api/jobs";
-import { getProject, listProjectAssets, listProjects, type Pagination, uploadProjectAssets } from "../shared/api/projects";
+import {
+  getProject,
+  listProjectAssets,
+  listProjects,
+  projectAssetDownloadUrl,
+  projectAssetPreviewUrl,
+  type Pagination,
+  uploadProjectAssets
+} from "../shared/api/projects";
 import type { JobSummary, ProjectAsset, ProjectSummary } from "../shared/types/domain";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -271,12 +279,20 @@ export function App() {
                 replaceExisting={replaceExisting}
                 state={uploadState}
               />
-              <AssetTable assets={assets} emptyLabel={detailState === "loading" ? "Loading assets..." : "No assets registered for this project."} />
+              <AssetTable
+                assets={assets}
+                emptyLabel={detailState === "loading" ? "Loading assets..." : "No assets registered for this project."}
+                projectId={selectedProjectId}
+              />
               <PaginationControls pagination={assetPagination} page={assetPage} onPageChange={setAssetPage} />
             </>
           )}
           {detailTab === "results" && (
-            <AssetTable assets={results} emptyLabel={detailState === "loading" ? "Loading results..." : "No processed results registered for this project."} />
+            <AssetTable
+              assets={results}
+              emptyLabel={detailState === "loading" ? "Loading results..." : "No processed results registered for this project."}
+              projectId={selectedProjectId}
+            />
           )}
           {detailTab === "jobs" && <JobList jobs={selectedJobs} emptyLabel="No jobs found for the selected project." loading={detailState === "loading"} />}
         </section>
@@ -368,7 +384,7 @@ function JobList({ jobs, emptyLabel, loading }: { jobs: JobSummary[]; emptyLabel
   );
 }
 
-function AssetTable({ assets, emptyLabel }: { assets: ProjectAsset[]; emptyLabel: string }) {
+function AssetTable({ assets, emptyLabel, projectId }: { assets: ProjectAsset[]; emptyLabel: string; projectId: string }) {
   return (
     <div className="table-shell">
       <table>
@@ -378,6 +394,7 @@ function AssetTable({ assets, emptyLabel }: { assets: ProjectAsset[]; emptyLabel
             <th>Type</th>
             <th>Size</th>
             <th>Uploaded</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -387,11 +404,21 @@ function AssetTable({ assets, emptyLabel }: { assets: ProjectAsset[]; emptyLabel
               <td>{asset.asset_type}</td>
               <td>{formatSize(asset.size)}</td>
               <td>{formatDate(asset.uploaded_at)}</td>
+              <td>
+                <div className="asset-actions">
+                  <a href={projectAssetPreviewUrl(projectId, asset.id)} rel="noreferrer" target="_blank">
+                    Preview
+                  </a>
+                  <a href={projectAssetDownloadUrl(projectId, asset.id)}>
+                    Download
+                  </a>
+                </div>
+              </td>
             </tr>
           ))}
           {assets.length === 0 && (
             <tr>
-              <td colSpan={4}>{emptyLabel}</td>
+              <td colSpan={5}>{emptyLabel}</td>
             </tr>
           )}
         </tbody>

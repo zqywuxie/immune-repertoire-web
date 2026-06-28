@@ -105,6 +105,8 @@ GET  /api/projects
 GET  /api/projects/{project_id}
 GET  /api/projects/{project_id}/assets
 POST /api/projects/{project_id}/assets
+GET  /api/projects/{project_id}/assets/{asset_id}/preview
+GET  /api/projects/{project_id}/assets/{asset_id}/download
 GET  /api/projects/{project_id}/results
 GET  /api/jobs
 POST /api/jobs

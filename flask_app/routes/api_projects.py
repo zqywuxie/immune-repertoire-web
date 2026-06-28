@@ -67,6 +67,25 @@ def _paginate_items(items: List[Dict[str, Any]], *, page: int, page_size: int) -
     }
 
 
+def _resolve_asset_file(asset: ProjectAsset) -> Path:
+    target_path = Path(asset.storage_path)
+    if target_path.exists() and target_path.is_file():
+        return target_path
+
+    metadata = asset.metadata_json or {}
+    fallback_candidates = [
+        metadata.get('report_path'),
+        metadata.get('viewer_path'),
+        metadata.get('file_path'),
+    ]
+    for candidate in fallback_candidates:
+        fallback_path = Path(str(candidate or ''))
+        if fallback_path.exists() and fallback_path.is_file():
+            return fallback_path
+
+    raise StorageError(message="Asset file is not available", details={'asset_id': asset.id})
+
+
 def _mongo_cached_usage_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
     metadata = doc.get('metadata_json') if isinstance(doc.get('metadata_json'), dict) else {}
     merged_metadata = {
@@ -334,19 +353,31 @@ def download_project_asset(project_id: str, asset_id: str):
     if asset is None:
         raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
 
-    target_path = Path(asset.storage_path)
-    if not target_path.exists() or not target_path.is_file():
-        metadata = asset.metadata_json or {}
-        fallback_path = Path(str(metadata.get('report_path') or ''))
-        if fallback_path.exists() and fallback_path.is_file():
-            target_path = fallback_path
-        else:
-            raise StorageError(message="Asset file is not available for direct download", details={'asset_id': asset.id})
+    target_path = _resolve_asset_file(asset)
 
     return send_file(
         target_path,
         as_attachment=True,
         download_name=asset.original_name or target_path.name,
+    )
+
+
+@project_api_bp.route('/projects/<project_id>/assets/<asset_id>/preview', methods=['GET'])
+def preview_project_asset(project_id: str, asset_id: str):
+    _project_service().get_project(project_id)
+    asset = ProjectAsset.query.filter(
+        ProjectAsset.id == asset_id,
+        ProjectAsset.project_id == project_id,
+    ).first()
+    if asset is None:
+        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+
+    target_path = _resolve_asset_file(asset)
+    return send_file(
+        target_path,
+        as_attachment=False,
+        download_name=asset.original_name or target_path.name,
+        mimetype=asset.mime_type,
     )
 
 

@@ -76,6 +76,14 @@ export function uploadProjectAssets(
   });
 }
 
+export function projectAssetPreviewUrl(projectId: string, assetId: string) {
+  return `/api/projects/${projectId}/assets/${assetId}/preview`;
+}
+
+export function projectAssetDownloadUrl(projectId: string, assetId: string) {
+  return `/api/projects/${projectId}/assets/${assetId}/download`;
+}
+
 export function listProjectResults(projectId: string, options: { analysisType?: string; page?: number; pageSize?: number } = {}) {
   return apiClient.get<ResultListResponse>(`/api/projects/${projectId}/results`, {
     analysis_type: options.analysisType,
