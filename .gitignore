@@ -20,6 +20,14 @@ flask_app/data/*.db
 *.swp
 *.swo
 
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
 # OS
 .DS_Store
 Thumbs.db

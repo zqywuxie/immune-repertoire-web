@@ -63,6 +63,12 @@ class Config:
     REQUIRE_LOGIN = os.environ.get('REQUIRE_LOGIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
     AUTH_REGISTER_ENABLED = os.environ.get('AUTH_REGISTER_ENABLED', 'true').lower() not in {'0', 'false', 'no', 'off'}
     AUTH_FIRST_USER_ADMIN = os.environ.get('AUTH_FIRST_USER_ADMIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
+    FRONTEND_ORIGINS = [
+        item.strip().rstrip('/')
+        for item in os.environ.get('FRONTEND_ORIGINS', '').split(',')
+        if item.strip()
+    ]
+    API_CORS_ALLOW_CREDENTIALS = os.environ.get('API_CORS_ALLOW_CREDENTIALS', 'true').lower() not in {'0', 'false', 'no', 'off'}
     USER_DATA_ROOT = Path(os.environ.get('USER_DATA_ROOT', str(BASE_DIR / 'data' / 'users')))
     DEFAULT_USER_ALLOWED_PATHS = [
         item.strip()

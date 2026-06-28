@@ -119,6 +119,8 @@ def create_app(config_name=None):
 
     @app.before_request
     def require_login_for_application():
+        if request.method == 'OPTIONS' and request.path.startswith('/api/'):
+            return '', 204
         if not app.config.get('REQUIRE_LOGIN', True):
             return None
         endpoint = request.endpoint or ''
@@ -135,6 +137,22 @@ def create_app(config_name=None):
     def inject_auth_context():
         from flask_login import current_user
         return {'current_user': current_user}
+
+    @app.after_request
+    def add_api_cors_headers(response):
+        origin = str(request.headers.get('Origin') or '').rstrip('/')
+        allowed_origins = set(app.config.get('FRONTEND_ORIGINS') or [])
+        if origin and origin in allowed_origins and request.path.startswith('/api/'):
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Vary'] = 'Origin'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = request.headers.get(
+                'Access-Control-Request-Headers',
+                'Content-Type, Authorization',
+            )
+            if app.config.get('API_CORS_ALLOW_CREDENTIALS', True):
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
     
     # Register error handlers
     register_error_handlers(app)
