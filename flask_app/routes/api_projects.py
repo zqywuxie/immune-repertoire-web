@@ -41,6 +41,32 @@ def _parse_csv_values(raw_value: str | None) -> List[str]:
     return [item.strip() for item in str(raw_value or '').split(',') if item.strip()]
 
 
+def _pagination_args(default_page_size: int = 50, max_page_size: int = 200) -> tuple[int, int]:
+    try:
+        page = int(request.args.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', default_page_size))
+    except (TypeError, ValueError):
+        page_size = default_page_size
+    page = max(1, page)
+    page_size = min(max(1, page_size), max_page_size)
+    return page, page_size
+
+
+def _paginate_items(items: List[Dict[str, Any]], *, page: int, page_size: int) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
+    total = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return items[start:end], {
+        'page': page,
+        'page_size': page_size,
+        'total': total,
+        'total_pages': (total + page_size - 1) // page_size if total else 0,
+    }
+
+
 def _mongo_cached_usage_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
     metadata = doc.get('metadata_json') if isinstance(doc.get('metadata_json'), dict) else {}
     merged_metadata = {
@@ -202,21 +228,25 @@ def delete_project(project_id: str):
 def list_project_assets(project_id: str):
     project = _project_service().get_project(project_id)
     asset_type = request.args.get('asset_type', '').strip()
+    page, page_size = _pagination_args()
     assets = _asset_service().list_assets(project.id, asset_type=asset_type)
     payload_assets = [asset.to_dict() for asset in assets]
     if not asset_type or asset_type == 'processed_result':
         payload_assets = _merge_mongo_results(project.id, payload_assets)
         if asset_type == 'processed_result':
             payload_assets = [asset for asset in payload_assets if asset.get('asset_type') == 'processed_result']
-    return jsonify({'assets': payload_assets})
+    paged_assets, pagination = _paginate_items(payload_assets, page=page, page_size=page_size)
+    return jsonify({'assets': paged_assets, 'pagination': pagination})
 
 
 @project_api_bp.route('/projects/<project_id>/results', methods=['GET'])
 def list_project_results(project_id: str):
     project = _project_service().get_project(project_id)
     analysis_type = request.args.get('analysis_type', '').strip()
+    page, page_size = _pagination_args()
     assets = _merge_mongo_results(project.id, [], analysis_type=analysis_type)
-    return jsonify({'success': True, 'results': assets})
+    paged_assets, pagination = _paginate_items(assets, page=page, page_size=page_size)
+    return jsonify({'success': True, 'results': paged_assets, 'pagination': pagination})
 
 
 @project_api_bp.route('/projects/<project_id>/assets', methods=['POST'])

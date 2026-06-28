@@ -202,6 +202,15 @@ th {
   text-transform: uppercase;
 }
 
+tbody tr:hover {
+  background: #f4efe4;
+}
+
+tbody tr.is-selected {
+  background: #e6eee8;
+  box-shadow: inset 5px 0 0 var(--forest);
+}
+
 .job-list {
   display: flex;
   flex-direction: column;
@@ -237,6 +246,90 @@ meter {
   border-left: 5px solid var(--copper);
   background: #fff4ec;
   padding: 12px 14px;
+}
+
+.detail-panel {
+  background: rgba(251, 250, 246, 0.96);
+  border: 1px solid var(--line);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.detail-header h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.subtle {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.icon-action {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.icon-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.tabs button,
+.pagination-bar button {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  color: var(--ink);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.tabs button.is-active {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: #fff7df;
+}
+
+.pagination-bar {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.pagination-bar div {
+  display: flex;
+  gap: 8px;
+}
+
+.pagination-bar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .line-skeleton,
