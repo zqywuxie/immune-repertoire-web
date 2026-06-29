@@ -170,6 +170,10 @@ paths:
       tags: [Assets]
       summary: Upload project assets
       x-status: ✅
+      description: >
+        Implemented in both Flask (multipart/form-data with storage_uri bridge)
+        and FastAPI (multipart + storage URI write). Accepts asset_type, files[],
+        optional relative_paths and replace_existing flag.
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       requestBody:
@@ -336,11 +340,11 @@ paths:
     post:
       tags: [Jobs]
       summary: Submit a unified background job
-      x-status: 🔄
+      x-status: ✅
       description: >
-        Current bridge endpoint for wrapping existing module-specific Flask
-        endpoints. Long-term workers should accept only job_id and read payload
-        from storage/database.
+        Implemented in both Flask (bridge endpoint) and FastAPI (DB insert +
+        21-module validation). Long-term workers should accept only job_id and
+        read payload from storage/database.
       requestBody:
         required: true
         content:

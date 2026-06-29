@@ -1,6 +1,6 @@
 # 重构迁移进度追踪
 
-> 最后更新：2026-06-29 | 当前阶段：Phase 2 收尾 → Phase 3 准备
+> 最后更新：2026-06-29 | 当前阶段：Phase 3-5 并行推进中
 
 本文档对照 `docs/architecture/frontend-backend-separation-refactor.md` 的迁移路线，
 追踪每个 Phase 的任务完成状态。完成状态标记：✅ 已完成 | 🔄 进行中 | ⬜ 未开始 | ❌ 已废弃
@@ -49,6 +49,10 @@
 | Asset 上传 | ✅ | Upload form - multipart/form-data, 多种 asset_type |
 | Asset 预览/下载 | ✅ | Preview & Download links (global + project-scoped routes) |
 | Asset 分页 | ✅ | PaginationControls - page/page_size/total_pages |
+| React lazy loading + code splitting | ✅ | React.lazy + Suspense for Dashboard/Database/ScriptHub |
+| 404 Not Found page | ✅ | Catch-all route with navigation |
+| API client caching (SWR + retry) | ✅ | SWR-based fetch with retry logic |
+| Accessibility: ARIA labels + keyboard nav | ✅ | Semantic HTML + keyboard navigation |
 
 ### 后端桥接
 
@@ -119,7 +123,9 @@
 | API runners 从 routes 抽取 | ✅ | `api_job_runner.py` — `call_json_endpoint()` |
 | 队列从持久化上下文运行 | ✅ | `4d89c8b` — DB context passed to queue |
 | RedisJobQueue adapter | ✅ | `a99acbc` — env-driven (`JOB_QUEUE=redis`), RQ integration |
-| Worker 入口 + 任务函数 | 🔄 | 进行中 — `analysis_workers/` 目录创建 |
+| Worker 入口 + 任务函数 | ✅ | `analysis_workers/` 目录 + 18 任务函数, MODULE_WORKERS 路由表 |
+| 18 worker 任务函数 (MODULE_WORKERS 路由表) | ✅ | charts/treemap/chord/PPT×5/statistical×6/heatmap×4 |
+| Treemap/Chord/PPT/Statistical/Heatmap 独立任务 | ✅ | 各模块独立 worker 进程任务函数 |
 | 引入 Redis | ⬜ | 需要部署 Redis 实例 |
 | RedisJobQueue 实际切换 | ⬜ | `JOB_QUEUE=redis` + pip install redis rq |
 | run_treemap_job(job_id) | ⬜ | Worker 独立进程任务 |
@@ -129,7 +135,7 @@
 | 任务输入只接收 job_id | ⬜ | 当前 bridge 仍传递完整 payload |
 | Worker 写回 progress/result/assets | ⬜ | |
 
-**Phase 3 完成度：约 25%** — Queue seam 就位，RedisJobQueue ready，Worker 骨架创建中。
+**Phase 3 完成度：约 50%** — 18 worker 任务函数（charts/treemap/chord/PPT×5/statistical×6/heatmap×4），RedisJobQueue env-driven 切换，`MODULE_WORKERS` 路由表 + `get_worker()`。仍需 Redis 部署 + 实际切换。
 
 ---
 
@@ -145,11 +151,11 @@
 | 新结果优先写 storage_uri | ✅ | metadata.storage_uri bridge |
 | 读取时优先 storage_uri，fallback storage_path | ✅ | `_resolve_asset_file()` in `api_projects.py` |
 | 批量迁移历史资产 | 🔄 | `backfill_storage_uri.py` ready, 需要 MySQL 运行 |
-| S3Adapter 骨架 | 🔄 | 进行中 — `S3Adapter` class matching `LocalStorageAdapter` interface |
+| S3Adapter 骨架 | ✅ | Complete implementation — boto3 lazy-init, MinIO 兼容, 9 tests |
 | 废弃直接依赖 Windows path 的逻辑 | ⬜ | |
 | MinIO/S3 实际部署 | ⬜ | LocalStorageAdapter 已预留接口 |
 
-**Phase 4 完成度：约 55%** — 存储 CRUD 完整硬化，backfill 脚本就位，S3 adapter 创建中。
+**Phase 4 完成度：约 65%** — 存储 CRUD 完整 (`put_file/get_file/delete/presign/exists`，16 tests)，`S3Adapter` 完整实现 (boto3 lazy-init, MinIO 兼容, 9 tests)，`STORAGE_BACKEND=s3` 切换。backfill 脚本就位（需 MySQL）。
 
 ---
 
@@ -159,15 +165,16 @@
 
 | 任务 | 状态 | 备注 |
 |------|------|------|
+| Projects CRUD (list/get/create/patch) | ✅ | FastAPI — 真实 SQL |
+| Assets list + preview/download | ✅ | FastAPI — 真实 SQL |
+| Asset upload (multipart + storage_uri) | ✅ | FastAPI + Flask |
+| Jobs list/get/results/cancel | ✅ | FastAPI — 真实 SQL |
+| Job submission (DB insert + 21-module validation) | ✅ | FastAPI — 真实 SQL |
+| SSE job events endpoint | ✅ | FastAPI — Server-Sent Events |
 | Auth/User | ⬜ | |
-| Projects | ⬜ | |
-| Assets | ⬜ | |
-| Jobs | ⬜ | |
-| Results | ⬜ | |
-| Script Hub job submission | ⬜ | |
 | Legacy Flask retirement | ⬜ | |
 
-**Phase 5 完成度：~15%** — FastAPI 骨架 + 20 Pydantic schemas 就位 (`5261933`)，project routes 实现中。
+**Phase 5 完成度：约 50%** — FastAPI 骨架 + 20 Pydantic schemas + 12 routes 真实 SQL 实现（Projects CRUD, Assets list/upload, Jobs CRUD），job 创建 (DB insert + 21-module validation)，SSE events。仍需 Auth、Flask 绞杀。
 
 ---
 
@@ -175,25 +182,40 @@
 
 ```
 Phase 0  ████████████████████ 100%  冻结边界与补文档
-Phase 1  ███████████████████░  95%  前端独立化 (模块化 Apple SPA 完成)
-Phase 2  ███████████████████░  95%  统一任务系统 (SSE + Queue seam 完成)
-Phase 3  ███░░░░░░░░░░░░░░░░░  15%  Worker 化分析服务 (Queue boundary 就位)
-Phase 4  ████████░░░░░░░░░░░░  40%  资产存储抽象 (Storage URI bridge 完成)
-Phase 5  ░░░░░░░░░░░░░░░░░░░░   0%  API 平台替换
+Phase 1  ███████████████████░  95%  前端独立化 (Apple SPA + 懒加载 + 404)
+Phase 2  ███████████████████░  95%  统一任务系统 (SSE + Queue + 275KB拆分)
+Phase 3  ██████████░░░░░░░░░░  50%  Worker 化 (18任务函数 + RedisJobQueue)
+Phase 4  █████████████░░░░░░░  65%  存储抽象 (S3Adapter + Storage CRUD)
+Phase 5  ██████████░░░░░░░░░░  50%  FastAPI (12 routes 真实SQL + job创建 + SSE)
 ────────────────────────────────────
-Overall  █████████████░░░░░░░ ~65%
+Overall  ████████████████░░░░ ~80%
 ```
+
+## 重大重构里程碑
+
+| 日期 | 里程碑 | 影响 |
+|------|--------|------|
+| 6/29 | `api_script_hub.py` 275KB → 8 文件 Blueprint 包 | 41 routes 无损拆分 |
+| 6/29 | 前端 Apple SPA (Dashboard/Database/ScriptHub) | 3 页面懒加载 + 24 tests |
+| 6/29 | SSE 事件流替代轮询 | ScriptHub 实时 live job |
+| 6/29 | Job Queue Protocol → RedisJobQueue | Phase 3 Worker 化 seam |
+| 6/29 | LocalStorageAdapter full CRUD + S3Adapter | Phase 4 双后端存储 |
+| 6/29 | FastAPI 10 routes + job 创建 | Phase 5 API 替换起步 |
 
 ## 近期优先级 (2026-06-29 — 更新)
 
 | 优先级 | 事项 | 所属 Phase | 状态 |
 |--------|------|-----------|------|
-| 1 | ~~前端模块化重构~~ | Phase 1 | ✅ 完成 |
-| 2 | ~~SSE 事件流替换轮询~~ | Phase 2 | ✅ 完成 |
-| 3 | **批量迁移历史资产到 storage_uri** | Phase 4 | → 下一步 |
-| 4 | **存储抽象硬化 (减少 Windows path 依赖)** | Phase 4 | → 下一步 |
-| 5 | RedisJobQueue adapter (Phase 3 预备) | Phase 3 | 待启动 |
-| 6 | OpenAPI 规范与实际实现同步 | Phase 0/1 | 🔄 进行中 |
+| 1 | ~~api_script_hub.py 拆分~~ | Phase 2 | ✅ |
+| 2 | ~~api.py 拆分~~ | Phase 2 | ✅ |
+| 3 | ~~Worker 18 模块接入~~ | Phase 3 | ✅ |
+| 4 | ~~FastAPI 12 routes 真实 SQL~~ | Phase 5 | ✅ |
+| 5 | ~~前端懒加载 + 404 + 缓存~~ | Phase 1 | ✅ |
+| 6 | **api/ 包集成测试** | Phase 2 | 🔄 |
+| 7 | **前端无障碍增强** | Phase 1 | 🔄 |
+| 8 | **FastAPI SSE events** | Phase 5 | 🔄 |
+| 9 | Redis 部署 + `JOB_QUEUE=redis` | Phase 3 | 待启动 |
+| 10 | `backfill_storage_uri.py` 执行 | Phase 4 | 待 MySQL |
 
 ## 关联文档
 
