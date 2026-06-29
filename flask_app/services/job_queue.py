@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Protocol
+from typing import Any, Callable, Protocol
 
 from flask_app.services.background_job_service import BackgroundJobService, get_background_job_service
 
@@ -27,6 +27,26 @@ from flask_app.services.background_job_service import BackgroundJobService, get_
 class JobQueue(Protocol):
     def submit(self, job_id: str, runner: Callable[..., Any], **kwargs: Any) -> None:
         """Submit a job runner to the configured queue backend."""
+
+
+def _job_module(job_id: str, explicit_module: str = "") -> str:
+    module = str(explicit_module or "").strip()
+    if module:
+        return module
+    job = get_background_job_service().get_job(job_id)
+    return str((job or {}).get("module") or "").strip()
+
+
+def _worker_for_module(module: str) -> Callable[[str], Any] | None:
+    if not module:
+        return None
+    try:
+        from analysis_workers.main import get_worker
+        from analysis_workers.tasks.generic import run_generic_job
+    except ImportError:
+        return None
+    worker = get_worker(module)
+    return worker if worker is not run_generic_job else None
 
 
 @dataclass
@@ -37,22 +57,11 @@ class ThreadPoolJobQueue:
 
     def submit(self, job_id: str, runner: Callable[..., Any], **kwargs: Any) -> None:
         """Submit a job runner. If runner is the generic run_api_job, try to use a module-specific worker."""
-        # Check if we can use a module-specific worker for better stage/progress tracking
-        module = kwargs.get("module", "")
-        if module:
-            try:
-                from analysis_workers.main import get_worker as get_module_worker
-                worker = get_module_worker(module)
-                # If get_worker returned something other than run_generic_job, use it
-                from analysis_workers.tasks.generic import run_generic_job
-                if worker is not run_generic_job:
-                    # BackgroundJobService.submit always passes a JobContext as the
-                    # first positional arg.  Module workers accept only job_id, so
-                    # wrap with a lambda that extracts job_id from the context.
-                    self.service.submit(job_id, lambda ctx: worker(ctx.job_id))
-                    return
-            except ImportError:
-                pass  # Fall back to generic runner
+        module = _job_module(job_id, kwargs.pop("module", ""))
+        worker = _worker_for_module(module)
+        if worker is not None:
+            self.service.submit(job_id, lambda ctx: worker(ctx.job_id))
+            return
 
         # Default: use the provided runner (backwards compatible)
         self.service.submit(job_id, runner, **kwargs)
@@ -85,7 +94,12 @@ class RedisJobQueue:
     def submit(self, job_id: str, runner: Callable[..., Any], **kwargs: Any) -> None:
         if self._queue is None:
             raise RuntimeError("RedisJobQueue is not connected — check REDIS_URL")
-        self._queue.enqueue(runner, job_id=job_id, **kwargs)
+        module = _job_module(job_id, kwargs.pop("module", ""))
+        if module:
+            from analysis_workers.main import execute
+            self._queue.enqueue(execute, module, job_id)
+            return
+        self._queue.enqueue(runner, job_id)
 
 
 def get_job_queue() -> JobQueue:

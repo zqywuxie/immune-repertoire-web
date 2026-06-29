@@ -127,15 +127,15 @@
 | 18 worker 任务函数 (MODULE_WORKERS 路由表) | ✅ | charts/treemap/chord/PPT×5/statistical×6/heatmap×4 |
 | Treemap/Chord/PPT/Statistical/Heatmap 独立任务 | ✅ | 各模块独立 worker 进程任务函数 |
 | 引入 Redis | ✅ | Docker redis:7-alpine, port 6379, RQ 验证通过 |
-| RedisJobQueue 实际切换 | ⬜ | `JOB_QUEUE=redis` + pip install redis rq |
+| RedisJobQueue 实际切换 | ✅ | `JOB_QUEUE=redis` 入队 `analysis_workers.main.execute(module, job_id)` |
 | run_treemap_job(job_id) | ⬜ | Worker 独立进程任务 |
 | run_chord_job(job_id) | ⬜ | |
 | run_ppt_job(job_id) | ⬜ | |
 | run_combined_analysis_job(job_id) | ⬜ | |
-| 任务输入只接收 job_id | ⬜ | 当前 bridge 仍传递完整 payload |
+| 任务输入只接收 job_id | ✅ | API 创建 job 持久化 payload；worker/Redis 只传 `module + job_id`，任务从 DB 读上下文 |
 | Worker 写回 progress/result/assets | ⬜ | |
 
-**Phase 3 完成度：约 90%** — Docker Redis 7-alpine 运行中，21 个模块专用 worker，RQ 入队验证通过 (`JOB_QUEUE=redis`)，`MODULE_WORKERS` + `get_worker()` + `execute()` 完整调度链。运行 `rq worker analysis-jobs` 即可启动背景任务处理。
+**Phase 3 完成度：约 93%** — Docker Redis 7-alpine 运行中，21 个模块专用 worker，RQ 入队验证通过 (`JOB_QUEUE=redis`)，`MODULE_WORKERS` + `get_worker()` + `execute()` 完整调度链。Flask API 已通过队列适配器投递 `module + job_id`，运行 `rq worker analysis-jobs` 即可启动背景任务处理。
 
 ---
 
@@ -184,7 +184,7 @@
 Phase 0  ████████████████████ 100%  冻结边界与补文档
 Phase 1  ███████████████████░  97%  前端独立化 (Apple SPA + 懒加载 + 404 + 缓存 + 无障碍)
 Phase 2  ███████████████████░  98%  统一任务系统 (446KB拆分 + SSE + Queue + job_id契约)
-Phase 3  ██████████████████░░  90%  Worker 化 (Docker Redis + 21 Workers + RQ入队验证)
+Phase 3  ██████████████████░░  93%  Worker 化 (Docker Redis + 21 Workers + Redis dispatcher)
 Phase 4  █████████████████░░░  85%  存储抽象 (S3Adapter + backfill完成 + 路径配置化)
 Phase 5  █████████████░░░░░░░  65%  FastAPI (24 routes + 去Flask独立化 + SSE + 17 tests)
 ────────────────────────────────────

@@ -134,6 +134,53 @@ def test_redis_job_queue_enqueue():
     assert True
 
 
+def test_redis_job_queue_enqueues_worker_dispatcher_for_known_module():
+    from analysis_workers.main import execute
+    from flask_app.services.job_queue import RedisJobQueue
+
+    class FakeRqQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    queue = object.__new__(RedisJobQueue)
+    queue.redis_url = "redis://example.invalid/0"
+    queue._queue = FakeRqQueue()
+
+    def runner(context):
+        return {"ok": True}
+
+    queue.submit("job-redis-1", runner, module="analysis.execute")
+
+    assert queue._queue.calls == [
+        (execute, ("analysis.execute", "job-redis-1"), {})
+    ]
+
+
+def test_redis_job_queue_falls_back_to_job_id_runner_without_module():
+    from analysis_workers.tasks.generic import run_generic_job
+    from flask_app.services.job_queue import RedisJobQueue
+
+    class FakeRqQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    queue = object.__new__(RedisJobQueue)
+    queue.redis_url = "redis://example.invalid/0"
+    queue._queue = FakeRqQueue()
+
+    queue.submit("job-redis-2", run_generic_job)
+
+    assert queue._queue.calls == [
+        (run_generic_job, ("job-redis-2",), {})
+    ]
+
+
 def test_get_job_queue_redis_backend_requires_redis_package(monkeypatch):
     monkeypatch.setenv("JOB_QUEUE", "redis")
     import sys
