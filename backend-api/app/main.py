@@ -13,8 +13,36 @@ from .core.config import settings
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Immune Repertoire Platform API",
-        version="0.1.0",
-        description="Unified API for the Immune Repertoire analysis platform.",
+        description="""
+## Immune Repertoire Platform API
+
+Unified REST API for the Immune Repertoire analysis platform.
+
+### Migration Status (Phase 5 — 2026-06-29)
+
+| Domain    | Status |
+|-----------|--------|
+| Projects  | ✅ Real SQL |
+| Assets    | ✅ Real SQL (list/preview/download/upload) |
+| Jobs      | ✅ Real SQL (CRUD + SSE events + submission) |
+| System    | ✅ Health + Info |
+| Auth      | 🔄 Placeholder (Flask bridge) |
+
+### Backends
+
+- **Flask** — current production backend at `:5000`
+- **FastAPI** — this API, migrating routes from Flask
+
+### Storage
+
+- Default: local filesystem (`local://` URIs)
+- Optional: S3/MinIO (`STORAGE_BACKEND=s3`)
+        """.strip(),
+        version="0.2.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        contact={"name": "Immune Repertoire Team"},
+        license_info={"name": "Proprietary"},
     )
 
     app.add_middleware(
