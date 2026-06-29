@@ -7,7 +7,7 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from flask import has_app_context
@@ -20,7 +20,7 @@ TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _history_entry(progress: float, stage: str, detail: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -117,7 +117,7 @@ class BackgroundJobService:
         clean = dict(updates or {})
         clean.pop("success", None)
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if job is None:
                 job = AnalysisJob(
                     id=job_id,
@@ -195,7 +195,7 @@ class BackgroundJobService:
         meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if job is None:
                 raise ValueError(f"Job not found: {job_id}")
             if job.cancel_requested or job.status in TERMINAL_STATUSES:
@@ -233,7 +233,7 @@ class BackgroundJobService:
 
     def cancel_job(self, job_id: str, detail: str = "Job cancelled by user.") -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if job is None:
                 return None
             if job.status in TERMINAL_STATUSES:
@@ -250,7 +250,7 @@ class BackgroundJobService:
 
     def request_cancel(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if job is None:
                 return None
             job.cancel_requested = True
@@ -266,7 +266,7 @@ class BackgroundJobService:
 
     def get_job(self, job_id: str, *, include_payload: bool = True) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if not job:
                 return None
             data = job.to_dict()
@@ -321,7 +321,7 @@ class BackgroundJobService:
 
     def delete_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = AnalysisJob.query.get(job_id)
+            job = db.session.get(AnalysisJob, job_id)
             if job is None:
                 return None
             data = job.to_dict()

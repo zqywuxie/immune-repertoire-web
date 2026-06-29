@@ -1,7 +1,7 @@
 """Unified background job result API tests."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 os.environ.setdefault("FLASK_CONFIG", "testing")
 
@@ -39,7 +39,7 @@ def test_job_results_include_outputs_and_registered_assets():
             mime_type="application/octet-stream",
             size=0,
             metadata_json={"job_id": "job_results_1", "analysis_type": "charts.combined"},
-            uploaded_at=datetime.utcnow(),
+            uploaded_at=datetime.now(timezone.utc).replace(tzinfo=None),
         ))
         db.session.commit()
 
