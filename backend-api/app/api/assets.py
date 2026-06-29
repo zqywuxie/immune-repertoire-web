@@ -84,14 +84,109 @@ async def upload_project_assets(
     project_id: str = Path(...),
     asset_type: str = Form(...),
     files: list[UploadFile] = File(...),
+    replace_existing: str = Form("false"),
+    relative_paths: str = Form("[]"),
+    db: Session = Depends(get_db),
 ):
-    """Upload project assets — proxied to Flask for now."""
-    # File upload handling requires Flask's multipart processing.
-    # The FastAPI phase keeps this as a forward proxy until Phase 5 completion.
-    raise HTTPException(
-        status_code=501,
-        detail="Asset upload is still served by Flask. Use /api/projects/{project_id}/assets on Flask.",
-    )
+    """Upload project assets with storage_uri generation."""
+    import json
+    import os
+    import uuid
+    import mimetypes
+    from datetime import datetime, timezone
+    from pathlib import Path as FilePath
+
+    # Parse relative paths
+    try:
+        paths = json.loads(relative_paths) if relative_paths else []
+    except json.JSONDecodeError:
+        paths = []
+
+    if not isinstance(paths, list):
+        paths = []
+
+    uploaded: list[dict] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    replace = replace_existing.lower() in ("true", "1", "yes")
+
+    # Determine storage root from env or default
+    storage_root = os.environ.get("STORAGE_ROOT", "")
+    base_dir = FilePath(storage_root) if storage_root else FilePath("flask_app/data/projects")
+    project_dir = base_dir / project_id / "assets" / asset_type
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    from flask_app.services.storage_adapter import get_storage_adapter
+    storage = get_storage_adapter()
+
+    for idx, file in enumerate(files):
+        asset_id = str(uuid.uuid4())
+        content = await file.read()
+        if not content:
+            continue
+
+        # Determine file name
+        rel_path = paths[idx] if idx < len(paths) else ""
+        if rel_path:
+            safe_name = rel_path.replace("\\", "/").split("/")[-1] or (file.filename or f"upload_{idx}")
+        else:
+            safe_name = file.filename or f"upload_{idx}"
+
+        # Resolve target path
+        target_path = project_dir / safe_name
+
+        # Replace existing if requested
+        if replace and target_path.exists():
+            target_path.unlink()
+
+        # Write file
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(content)
+        file_size = len(content)
+
+        # Generate storage_uri
+        storage_uri = storage.uri_for_path(target_path)
+
+        # Guess mime type
+        mime_type, _ = mimetypes.guess_type(safe_name)
+
+        # Insert into DB
+        db.execute(
+            text(
+                """INSERT INTO project_assets
+                   (id, project_id, asset_type, original_name, storage_path, mime_type, size,
+                    metadata_json, uploaded_at)
+                   VALUES
+                   (:id, :project_id, :asset_type, :original_name, :storage_path, :mime_type, :size,
+                    :metadata_json, :uploaded_at)"""
+            ),
+            {
+                "id": asset_id,
+                "project_id": project_id,
+                "asset_type": asset_type,
+                "original_name": safe_name,
+                "storage_path": str(target_path),
+                "mime_type": mime_type,
+                "size": file_size,
+                "metadata_json": json.dumps({"storage_uri": storage_uri}),
+                "uploaded_at": now,
+            },
+        )
+        db.commit()
+
+        uploaded.append({
+            "id": asset_id,
+            "project_id": project_id,
+            "asset_type": asset_type,
+            "original_name": safe_name,
+            "storage_path": str(target_path),
+            "storage_uri": storage_uri,
+            "mime_type": mime_type,
+            "size": file_size,
+            "metadata": {"storage_uri": storage_uri},
+            "uploaded_at": now.isoformat(),
+        })
+
+    return {"assets": uploaded}
 
 
 @router.get("/assets/{asset_id}/preview")
