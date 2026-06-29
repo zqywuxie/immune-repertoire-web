@@ -1,18 +1,26 @@
 openapi: 3.1.0
 info:
   title: Immune Repertoire Platform API
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Draft contract for the frontend/backend separation migration. The current
-    implementation is still served by Flask, while this document defines the
-    stable project, asset, job, and result surface that the standalone frontend
+    Stable API contract for the frontend/backend separation migration. The current
+    implementation is served by Flask (bridge phase), while this document defines
+    the stable project, asset, job, and result surface that the standalone frontend
     should consume.
+
+    **Implementation status (2026-06-29):**
+    - ✅ Implemented in Flask → see `flask_app/routes/api_projects.py`, `api_jobs.py`
+    - 🔄 Bridge implementation (Flask forwarding to module routes)
+    - ⬜ Planned, not yet implemented
+
+    See `docs/migration-progress.md` for detailed phase tracking.
 servers:
   - url: http://127.0.0.1:5000
     description: Local Flask API
   - url: http://127.0.0.1:5173
     description: Vite dev server proxy
 tags:
+  - name: System
   - name: Projects
   - name: Assets
   - name: Jobs
@@ -22,6 +30,7 @@ paths:
     get:
       tags: [System]
       summary: Get application metadata
+      x-status: ✅
       responses:
         "200":
           description: Application information
@@ -38,6 +47,7 @@ paths:
     get:
       tags: [Projects]
       summary: List projects for the current user
+      x-status: ✅
       parameters:
         - name: name
           in: query
@@ -67,6 +77,7 @@ paths:
     post:
       tags: [Projects]
       summary: Create a project
+      x-status: ✅
       requestBody:
         required: true
         content:
@@ -84,6 +95,7 @@ paths:
     get:
       tags: [Projects]
       summary: Get project detail with preview assets and samples
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       responses:
@@ -96,6 +108,7 @@ paths:
     patch:
       tags: [Projects]
       summary: Update a project
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       requestBody:
@@ -115,6 +128,7 @@ paths:
     get:
       tags: [Assets]
       summary: List project assets
+      x-status: ✅
       description: >
         Migration rule: this endpoint must become paginated before it is treated
         as the long-term stable asset list endpoint.
@@ -155,6 +169,7 @@ paths:
     post:
       tags: [Assets]
       summary: Upload project assets
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       requestBody:
@@ -192,6 +207,7 @@ paths:
     get:
       tags: [Results]
       summary: List reusable project analysis results
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - name: analysis_type
@@ -217,6 +233,7 @@ paths:
     get:
       tags: [Assets]
       summary: Preview a project asset inline (legacy project-scoped route)
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/AssetId"
@@ -232,6 +249,7 @@ paths:
     get:
       tags: [Assets]
       summary: Download a project asset (legacy project-scoped route)
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/AssetId"
@@ -247,6 +265,7 @@ paths:
     get:
       tags: [Assets]
       summary: Preview an asset inline
+      x-status: ✅
       description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
       parameters:
         - $ref: "#/components/parameters/AssetId"
@@ -262,6 +281,7 @@ paths:
     get:
       tags: [Assets]
       summary: Download an asset
+      x-status: ✅
       description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
       parameters:
         - $ref: "#/components/parameters/AssetId"
@@ -277,6 +297,7 @@ paths:
     get:
       tags: [Jobs]
       summary: List background jobs
+      x-status: ✅
       parameters:
         - name: project_id
           in: query
@@ -315,6 +336,7 @@ paths:
     post:
       tags: [Jobs]
       summary: Submit a unified background job
+      x-status: 🔄
       description: >
         Current bridge endpoint for wrapping existing module-specific Flask
         endpoints. Long-term workers should accept only job_id and read payload
@@ -369,6 +391,7 @@ paths:
     get:
       tags: [Jobs]
       summary: List frontend-visible background job modules
+      x-status: ✅
       responses:
         "200":
           description: Job modules
@@ -394,6 +417,7 @@ paths:
     get:
       tags: [Jobs]
       summary: Get a background job
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/JobId"
       responses:
@@ -408,10 +432,44 @@ paths:
                     type: boolean
                   job:
                     $ref: "#/components/schemas/Job"
+  /api/jobs/{job_id}/events:
+    get:
+      tags: [Jobs]
+      summary: Stream job lifecycle events via SSE
+      description: >
+        Server-Sent Events stream delivering job status updates in real-time.
+        Emits "update" events on each poll cycle and a terminal "completed"
+        event when the job reaches a final status.  Clients reconnect on
+        connection loss.
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - name: interval
+          in: query
+          schema:
+            type: number
+            minimum: 0.2
+            maximum: 30.0
+            default: 1.0
+        - name: max_events
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 300
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
   /api/jobs/{job_id}/results:
     get:
       tags: [Jobs]
       summary: Get normalized job result outputs
+      x-status: ✅
       description: >
         Returns the persistent job record, raw result payload, normalized output
         links, and project result assets registered for the job.
@@ -456,6 +514,7 @@ paths:
     post:
       tags: [Jobs]
       summary: Request job cancellation
+      x-status: ✅
       parameters:
         - $ref: "#/components/parameters/JobId"
       responses:
