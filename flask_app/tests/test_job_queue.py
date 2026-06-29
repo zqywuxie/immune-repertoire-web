@@ -7,6 +7,7 @@ os.environ.setdefault("FLASK_CONFIG", "testing")
 from flask_app.app import create_app
 from flask_app.models.database import db
 from flask_app.routes import api_jobs
+from flask_app.services import api_job_runner
 from flask_app.services.background_job_service import JobContext, get_background_job_service
 from flask_app.services.job_queue import ThreadPoolJobQueue
 
@@ -54,7 +55,7 @@ def test_create_job_uses_queue_adapter(monkeypatch):
     assert response.status_code == 200
     assert payload["success"] is True
     assert captured == [
-        (payload["job_id"], "_run_api_job", {})
+        (payload["job_id"], "run_api_job", {})
     ]
 
 
@@ -66,7 +67,7 @@ def test_api_job_runner_loads_context_from_persisted_job(monkeypatch):
         calls.append((module, payload, user_id))
         return {"success": True}
 
-    monkeypatch.setattr(api_jobs, "_call_json_endpoint", fake_call_json_endpoint)
+    monkeypatch.setattr(api_job_runner, "call_json_endpoint", fake_call_json_endpoint)
 
     with app.app_context():
         service = get_background_job_service()
@@ -78,7 +79,7 @@ def test_api_job_runner_loads_context_from_persisted_job(monkeypatch):
         )
         context = JobContext(service, job["job_id"])
 
-        result = api_jobs._run_api_job(context)
+        result = api_job_runner.run_api_job(context)
         db.session.remove()
 
     assert result == {
