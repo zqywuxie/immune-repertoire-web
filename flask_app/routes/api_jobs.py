@@ -285,7 +285,18 @@ def _call_json_endpoint(module: str, payload: Dict[str, Any], user_id: int | Non
         return _normalize_response(view_func())
 
 
-def _run_api_job(context, *, module: str, payload: Dict[str, Any], user_id: int | None) -> Dict[str, Any]:
+def _load_job_context(job_id: str) -> Dict[str, Any]:
+    job = get_background_job_service().get_job(job_id)
+    if not job:
+        raise RuntimeError(f"Job not found: {job_id}")
+    return job
+
+
+def _run_api_job(context) -> Dict[str, Any]:
+    job = _load_job_context(context.job_id)
+    module = str(job.get("module") or "").strip()
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    user_id = job.get("user_id")
     context.update(5, "Preparing", f"Preparing {module}")
     context.raise_if_cancelled()
     context.update(15, "Running", f"Executing {module}")
@@ -316,7 +327,10 @@ def _wait_child_job(context, child_id: str, label: str, start: float, span: floa
     raise RuntimeError(f"{label} did not complete before timeout")
 
 
-def _run_combined_charts_job(context, *, payload: Dict[str, Any], user_id: int | None) -> Dict[str, Any]:
+def _run_combined_charts_job(context) -> Dict[str, Any]:
+    job = _load_job_context(context.job_id)
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    user_id = job.get("user_id")
     selected = [str(item) for item in payload.get("selected_modules") or ["heatmap", "treemap", "chord"]]
     samples = payload.get("samples") or []
     chains = payload.get("selected_chains") or []
@@ -490,10 +504,7 @@ def create_job():
     )
     runner = _run_combined_charts_job if module == "charts.combined" else _run_api_job
     queue = get_job_queue()
-    if module == "charts.combined":
-        queue.submit(job["job_id"], runner, payload=payload, user_id=user_id)
-    else:
-        queue.submit(job["job_id"], runner, module=module, payload=payload, user_id=user_id)
+    queue.submit(job["job_id"], runner)
     return jsonify({
         "success": True,
         "job_id": job["job_id"],
