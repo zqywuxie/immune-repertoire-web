@@ -29,6 +29,20 @@ from .tasks.ppt import (
     run_ppt_comparison_scan_job,
     run_ppt_comparison_generate_job,
 )
+from .tasks.statistical import (
+    run_statistical_analyze_job,
+    run_statistical_boxplot_job,
+    run_statistical_analyze_multiple_job,
+    run_statistical_summary_boxplot_job,
+    run_statistical_analyze_batch_job,
+    run_statistical_analyze_direct_job,
+)
+from .tasks.heatmap import (
+    run_heatmap_generate_job,
+    run_heatmap_pipeline_report_job,
+    run_heatmap_report_job,
+    run_heatmap_export_cdr3_job,
+)
 
 # Module -> worker function mapping (used by RedisJobQueue / RQ)
 MODULE_WORKERS = {
@@ -40,6 +54,16 @@ MODULE_WORKERS = {
     "ppt.render-slides": run_ppt_render_slides_job,
     "ppt-comparison.scan-heatmaps": run_ppt_comparison_scan_job,
     "ppt-comparison.generate": run_ppt_comparison_generate_job,
+    "statistical.analyze": run_statistical_analyze_job,
+    "statistical.boxplot": run_statistical_boxplot_job,
+    "statistical.analyze-multiple": run_statistical_analyze_multiple_job,
+    "statistical.summary-boxplot": run_statistical_summary_boxplot_job,
+    "statistical.analyze-batch": run_statistical_analyze_batch_job,
+    "statistical.analyze-direct": run_statistical_analyze_direct_job,
+    "auto-heatmap.generate-heatmap": run_heatmap_generate_job,
+    "auto-heatmap.generate-pipeline-report": run_heatmap_pipeline_report_job,
+    "auto-heatmap.generate-heatmap-report": run_heatmap_report_job,
+    "auto-heatmap.export-shared-cdr3": run_heatmap_export_cdr3_job,
 }
 
 # Fallback for all other modules
@@ -61,6 +85,16 @@ __all__ = [
     "run_ppt_render_slides_job",
     "run_ppt_comparison_scan_job",
     "run_ppt_comparison_generate_job",
+    "run_statistical_analyze_job",
+    "run_statistical_boxplot_job",
+    "run_statistical_analyze_multiple_job",
+    "run_statistical_summary_boxplot_job",
+    "run_statistical_analyze_batch_job",
+    "run_statistical_analyze_direct_job",
+    "run_heatmap_generate_job",
+    "run_heatmap_pipeline_report_job",
+    "run_heatmap_report_job",
+    "run_heatmap_export_cdr3_job",
     "MODULE_WORKERS",
     "get_worker",
 ]
