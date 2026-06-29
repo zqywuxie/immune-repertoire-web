@@ -64,10 +64,13 @@ def _is_debug() -> bool:
 class RequestLogMiddleware:
     """Lightweight request logging middleware."""
 
+    def __init__(self, app):
+        self.app = app
+
     async def __call__(self, scope, receive, send):
         import time
         if scope["type"] != "http":
-            await self.app(scope, receive, send)  # type: ignore
+            await self.app(scope, receive, send)
             return
 
         start = time.monotonic()
@@ -82,7 +85,7 @@ class RequestLogMiddleware:
                     print(f"  [{method}] {path} → {status} ({elapsed_ms:.0f}ms)")
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)  # type: ignore
+        await self.app(scope, receive, send_wrapper)
 
 
 def register_error_handlers(app):
@@ -90,4 +93,4 @@ def register_error_handlers(app):
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_middleware(RequestLogMiddleware.__class__, dispatch=RequestLogMiddleware().__call__)
+    app.add_middleware(RequestLogMiddleware)
