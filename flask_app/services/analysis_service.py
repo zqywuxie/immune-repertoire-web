@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+
+from flask_app.services.path_config import RESULTS_DIR
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
@@ -115,7 +117,7 @@ class AnalysisService:
     def init_app(self, app):
         """Initialize with Flask application."""
         self.app = app
-        self.results_folder = app.config.get('RESULTS_FOLDER', 'data/results')
+        self.results_folder = app.config.get('RESULTS_FOLDER', str(RESULTS_DIR))
         
         # Ensure results folder exists
         Path(self.results_folder).mkdir(parents=True, exist_ok=True)

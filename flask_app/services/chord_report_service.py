@@ -23,6 +23,8 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from flask_app.services.path_config import RESULTS_DIR
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import matplotlib
@@ -1288,7 +1290,7 @@ _chord_report_service: Optional[ChordReportService] = None
 
 def get_chord_report_service(results_root: Optional[Path] = None) -> ChordReportService:
     global _chord_report_service
-    resolved_root = Path(results_root or Path.cwd() / "data" / "results").resolve()
+    resolved_root = Path(results_root or RESULTS_DIR).resolve()
     if _chord_report_service is None or _chord_report_service.results_root != resolved_root:
         _chord_report_service = ChordReportService(results_root=resolved_root)
     return _chord_report_service

@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.path_config import UPLOADS_DIR
 from flask_app.services.ppt_service import PPTService
 
 from ._common import _get_owned_file, logger
@@ -89,7 +90,7 @@ def upload_folder():
         return jsonify({'error': 'No files provided'}), 400
     
     # Create upload directory
-    upload_base = Path(current_app.config.get('UPLOAD_FOLDER', 'data/uploads'))
+    upload_base = Path(current_app.config.get('UPLOAD_FOLDER', str(UPLOADS_DIR)))
     upload_id = str(uuid.uuid4())[:8]
     upload_dir = upload_base / f'similarity_{upload_id}'
     upload_dir.mkdir(parents=True, exist_ok=True)

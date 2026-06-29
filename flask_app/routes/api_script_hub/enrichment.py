@@ -17,6 +17,7 @@ from flask_app.services.ml_analysis_service import MLAnalysisService
 from flask_app.services.mait_nkt_service import MaitNktService
 from flask_app.services.figure_style import save_publication_png
 from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.path_config import RESULTS_DIR
 from ._common import (
     _ALLOWED_MODULES,
     _RESULT_DIR,
@@ -1449,7 +1450,7 @@ def run_mait_nkt():
         _script_executor.submit(
             _run_mait_nkt_task,
             task_id,
-            results_root=Path(current_app.config.get("RESULTS_FOLDER", "flask_app/data/results")),
+            results_root=Path(current_app.config.get("RESULTS_FOLDER", str(RESULTS_DIR))),
             tra_source=tra_source,
             tra_path=resolved_tra_path,
             source_job_id=resolved_source_job_id,
