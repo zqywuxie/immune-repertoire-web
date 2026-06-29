@@ -1,6 +1,7 @@
 import { Routes, Route, Outlet } from "react-router-dom";
 import { Database, FlaskConical, LayoutDashboard } from "lucide-react";
 import { Rail } from "../shared/components/Rail";
+import { ErrorBoundary } from "../shared/components/ErrorBoundary";
 import { Dashboard } from "./Dashboard";
 import { DatabasePage } from "./Database";
 import { ScriptHub } from "./ScriptHub";
@@ -20,7 +21,9 @@ export function App() {
           <div className="shell">
             <Rail links={NAV_LINKS} />
             <main className="page-wrap">
-              <Outlet />
+              <ErrorBoundary>
+                <Outlet />
+              </ErrorBoundary>
             </main>
           </div>
         }
