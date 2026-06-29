@@ -115,21 +115,21 @@
 
 | 任务 | 状态 | 备注 |
 |------|------|------|
-| Job Queue Protocol 边界 | ✅ | `job_queue.py` — `ThreadPoolJobQueue` 实现，`JobQueue` Protocol |
+| Job Queue Protocol 边界 | ✅ | `job_queue.py` — `ThreadPoolJobQueue` + `JobQueue` Protocol |
 | API runners 从 routes 抽取 | ✅ | `api_job_runner.py` — `call_json_endpoint()` |
 | 队列从持久化上下文运行 | ✅ | `4d89c8b` — DB context passed to queue |
+| RedisJobQueue adapter | ✅ | `a99acbc` — env-driven (`JOB_QUEUE=redis`), RQ integration |
+| Worker 入口 + 任务函数 | 🔄 | 进行中 — `analysis_workers/` 目录创建 |
 | 引入 Redis | ⬜ | 需要部署 Redis 实例 |
-| 选择 Celery/RQ/Arq | ⬜ | 建议 Arq (async Python) 或 RQ (简单) |
-| 实现 RedisJobQueue adapter | ⬜ | 替换 `ThreadPoolJobQueue`，复用 `JobQueue` Protocol |
-| run_script_hub_job(job_id) | ⬜ | |
-| run_treemap_job(job_id) | ⬜ | |
+| RedisJobQueue 实际切换 | ⬜ | `JOB_QUEUE=redis` + pip install redis rq |
+| run_treemap_job(job_id) | ⬜ | Worker 独立进程任务 |
 | run_chord_job(job_id) | ⬜ | |
 | run_ppt_job(job_id) | ⬜ | |
 | run_combined_analysis_job(job_id) | ⬜ | |
 | 任务输入只接收 job_id | ⬜ | 当前 bridge 仍传递完整 payload |
 | Worker 写回 progress/result/assets | ⬜ | |
 
-**Phase 3 完成度：约 15%** — Job Queue seam 已就位，Runner 已服务化，可平滑切换到 Redis backend。
+**Phase 3 完成度：约 25%** — Queue seam 就位，RedisJobQueue ready，Worker 骨架创建中。
 
 ---
 
@@ -140,15 +140,16 @@
 | 任务 | 状态 | 备注 |
 |------|------|------|
 | 保留 storage_path，新增 storage_uri | ✅ | `a33e3cc` - metadata.storage_uri → API 映射 |
-| LocalStorageAdapter | ✅ | `flask_app/services/storage_adapter.py` |
-| 新上传文件同时写入两列 | 🔄 | 进行中 |
-| 新结果优先写 storage_uri | 🔄 | 进行中 |
-| 读取时优先 storage_uri，fallback storage_path | ✅ | `_resolve_asset_file()` 在 `api_projects.py` |
-| 批量迁移历史资产 | ⬜ | |
+| LocalStorageAdapter | ✅ | Full CRUD: `put_file`/`get_file`/`delete`/`presign`/`exists` |
+| 新上传文件同时写入两列 | ✅ | `project_asset_service.py` — storage_uri set on upload |
+| 新结果优先写 storage_uri | ✅ | metadata.storage_uri bridge |
+| 读取时优先 storage_uri，fallback storage_path | ✅ | `_resolve_asset_file()` in `api_projects.py` |
+| 批量迁移历史资产 | 🔄 | `backfill_storage_uri.py` ready, 需要 MySQL 运行 |
+| S3Adapter 骨架 | 🔄 | 进行中 — `S3Adapter` class matching `LocalStorageAdapter` interface |
 | 废弃直接依赖 Windows path 的逻辑 | ⬜ | |
-| MinIO/S3 adapter | ⬜ | LocalStorageAdapter 已预留接口 |
+| MinIO/S3 实际部署 | ⬜ | LocalStorageAdapter 已预留接口 |
 
-**Phase 4 完成度：约 40%** — 基础已经打好了，storage_uri 兼容层到位，批量迁移待执行。
+**Phase 4 完成度：约 55%** — 存储 CRUD 完整硬化，backfill 脚本就位，S3 adapter 创建中。
 
 ---
 
@@ -166,7 +167,7 @@
 | Script Hub job submission | ⬜ | |
 | Legacy Flask retirement | ⬜ | |
 
-**Phase 5 完成度：0%** — 尚未启动；建议等 Phase 3-4 稳定后再启动
+**Phase 5 完成度：~15%** — FastAPI 骨架 + 20 Pydantic schemas 就位 (`5261933`)，project routes 实现中。
 
 ---
 

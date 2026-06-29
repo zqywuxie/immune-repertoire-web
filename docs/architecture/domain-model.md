@@ -126,8 +126,30 @@ them behind feature API modules instead of calling them from components.
 
 ## Phase 1 Acceptance Checklist
 
-- `frontend/` exists and can call the Flask API through `/api`.
-- Project and job data are loaded through typed API modules.
-- `docs/api/openapi-draft.yaml` covers the stable frontend surface.
-- CORS or dev proxy supports a standalone frontend during local development.
-- Existing Flask templates remain usable while pages migrate gradually.
+> 最后更新：2026-06-29 — 参见 `docs/migration-progress.md` 追踪详细进度
+
+- [x] `frontend/` exists and can call the Flask API through `/api`. _(`6682c1a`)_
+- [x] Project and job data are loaded through typed API modules. _(`client.ts`, `projects.ts`, `jobs.ts`, `domain.ts`)_
+- [x] `docs/api/openapi-draft.yaml` covers the stable frontend surface. _(v0.1.0, 已覆盖 projects/assets/jobs/results)_
+- [x] CORS or dev proxy supports a standalone frontend during local development. _(Vite dev server proxy → Flask `http://127.0.0.1:5173`)_
+- [x] Existing Flask templates remain usable while pages migrate gradually. _(绞杀者模式：`flask_app/templates/` 与 `frontend/` 并行运行)_
+
+### Phase 1 已实现的核心功能 (beyond checklist)
+
+| 功能 | 提交 | 说明 |
+|------|------|------|
+| Migration Console SPA | `6682c1a` | 单页开发桥梁，展示项目/资产/任务/结果 |
+| Asset 上传流程 | `1c71b0f` | multipart/form-data 上传 + asset_type 分类 |
+| Asset 分页列表 | `10db451` | page/page_size/total_pages 分页 |
+| Asset 预览/下载 (project-scoped) | `78d9d78` | preview/download 双路由 |
+| Asset 预览/下载 (global) | `a270b15` | 独立于 project_id 的稳定 asset 路由 |
+| Job 提交桥接 | `3b67f31` | 统一 POST /api/jobs → 内部转发到 20+ 模块 |
+| Job 结果端点 | `8dec5df` | 规范化 outputs + registered assets |
+| Storage URI adapter | `a33e3cc` | local:// URI + metadata.storage_uri 兼容桥接 |
+
+### Phase 0 完成状态
+
+- [x] API endpoint 梳理 → OpenAPI 草案
+- [x] 稳定接口标记 → `docs/architecture/domain-model.md` Stable Frontend Surface
+- [x] 技术栈确定 → Vite 6 + React 19 + TypeScript 5.7
+- [x] 目录结构确定 → `frontend/src/{app,shared/{api,types}}`
