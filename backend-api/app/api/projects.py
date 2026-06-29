@@ -171,3 +171,32 @@ async def update_project(
     # Return the updated row
     result = db.execute(text("SELECT * FROM projects WHERE id = :id"), {"id": project_id})
     return _to_summary(result.fetchone())
+
+
+@router.get("/projects/{project_id}/results")
+async def list_project_results(
+    project_id: str = Path(...),
+    analysis_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """List reusable project analysis results."""
+    conditions = ["project_id = :project_id", "asset_type = 'processed_result'"]
+    params: dict = {"project_id": project_id}
+
+    if analysis_type:
+        conditions.append("JSON_EXTRACT(metadata_json, '$.analysis_type') = :analysis_type")
+        params["analysis_type"] = analysis_type
+
+    sql = f"SELECT * FROM project_assets WHERE {' AND '.join(conditions)} ORDER BY uploaded_at DESC LIMIT 100"
+    rows = db.execute(text(sql), params).fetchall()
+
+    from .assets import _to_asset
+
+    results = []
+    for row in rows:
+        asset = _to_asset(row, project_id=project_id)
+        asset["preview_url"] = f"/api/assets/{row[0]}/preview"
+        asset["download_url"] = f"/api/assets/{row[0]}/download"
+        results.append(asset)
+
+    return {"success": True, "results": results}

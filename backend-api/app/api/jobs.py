@@ -259,6 +259,32 @@ async def cancel_job(job_id: str = Path(...), db: Session = Depends(get_db)):
     return {"success": True, "job": _to_job(row)}
 
 
+@router.delete("/jobs/{job_id}")
+async def delete_job(job_id: str = Path(...), db: Session = Depends(get_db)):
+    """Delete a job (terminal jobs only)."""
+    result = db.execute(
+        text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
+        {"jid": job_id},
+    )
+    row = result.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_data = _to_job(row)
+    if job_data["status"] not in ("completed", "failed", "cancelled", "interrupted"):
+        raise HTTPException(
+            status_code=409,
+            detail="Running or queued jobs must be cancelled before deletion.",
+        )
+
+    db.execute(
+        text("DELETE FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
+        {"jid": job_id},
+    )
+    db.commit()
+    return {"success": True, "deleted_job": job_data}
+
+
 @router.get("/jobs/{job_id}/events")
 async def stream_job_events(
     job_id: str = Path(...),
