@@ -3,7 +3,7 @@ Custom exception classes for the Immune Repertoire Analysis Web Application.
 Provides structured error handling with error codes and messages.
 Requirements: 1.3, 13.4
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 
@@ -21,7 +21,7 @@ class AppException(Exception):
     ):
         self.message = message or self.__class__.message
         self.details = details or {}
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
         super().__init__(self.message)
     
     def to_dict(self) -> Dict[str, Any]:

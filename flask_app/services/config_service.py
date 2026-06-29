@@ -157,7 +157,7 @@ class ConfigService:
         if config_id is None:
             config_id = self.DEFAULT_CONFIG_ID
         
-        config_record = UserConfig.query.get(config_id)
+        config_record = db.session.get(UserConfig, config_id)
         
         if config_record and config_record.config_data:
             return UserConfiguration.from_dict(config_record.config_data)
@@ -188,7 +188,7 @@ class ConfigService:
         config_data = config.to_dict()
         
         # Check if config exists
-        config_record = UserConfig.query.get(config_id)
+        config_record = db.session.get(UserConfig, config_id)
         
         if config_record:
             # Update existing config
@@ -268,7 +268,7 @@ class ConfigService:
             self.reset_config(config_id)
             return True
         
-        config_record = UserConfig.query.get(config_id)
+        config_record = db.session.get(UserConfig, config_id)
         
         if not config_record:
             return False
