@@ -43,6 +43,11 @@ from .tasks.heatmap import (
     run_heatmap_report_job,
     run_heatmap_export_cdr3_job,
 )
+from .tasks.analysis import (
+    run_analysis_execute_job,
+    run_analysis_batch_job,
+    run_analysis_execute_unified_job,
+)
 
 # Module -> worker function mapping (used by RedisJobQueue / RQ)
 MODULE_WORKERS = {
@@ -64,6 +69,9 @@ MODULE_WORKERS = {
     "auto-heatmap.generate-pipeline-report": run_heatmap_pipeline_report_job,
     "auto-heatmap.generate-heatmap-report": run_heatmap_report_job,
     "auto-heatmap.export-shared-cdr3": run_heatmap_export_cdr3_job,
+    "analysis.execute": run_analysis_execute_job,
+    "analysis.batch": run_analysis_batch_job,
+    "analysis.execute-unified": run_analysis_execute_unified_job,
 }
 
 # Fallback for all other modules
@@ -95,6 +103,9 @@ __all__ = [
     "run_heatmap_pipeline_report_job",
     "run_heatmap_report_job",
     "run_heatmap_export_cdr3_job",
+    "run_analysis_execute_job",
+    "run_analysis_batch_job",
+    "run_analysis_execute_unified_job",
     "MODULE_WORKERS",
     "get_worker",
 ]
