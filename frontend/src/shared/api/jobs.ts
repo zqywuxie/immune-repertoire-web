@@ -43,6 +43,12 @@ export interface JobResultsResponse {
   assets: Array<ProjectAsset & { preview_url?: string; download_url?: string }>;
 }
 
+export interface JobEventResponse {
+  success: boolean;
+  job: JobSummary;
+  status: string;
+}
+
 export function listJobs(params: { projectId?: string; status?: string; limit?: number } = {}) {
   return apiClient.get<JobListResponse>("/api/jobs", {
     project_id: params.projectId,
@@ -70,6 +76,10 @@ export function getJob(jobId: string) {
 
 export function getJobResults(jobId: string) {
   return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`);
+}
+
+export function jobEventsUrl(jobId: string) {
+  return `/api/jobs/${jobId}/events`;
 }
 
 export function cancelJob(jobId: string) {

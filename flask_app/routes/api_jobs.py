@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_login import login_user
 
 from flask_app.models.database import ProjectAsset, User
@@ -80,6 +80,38 @@ def _json_error(error_code: str, message: str, status_code: int = 500, **details
     if details:
         payload["details"] = details
     return jsonify(payload), status_code
+
+
+def _sse_event(event: str, data: Dict[str, Any], *, event_id: str = "") -> str:
+    parts = []
+    if event_id:
+        parts.append(f"id: {event_id}")
+    if event:
+        parts.append(f"event: {event}")
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    for line in payload.splitlines() or [""]:
+        parts.append(f"data: {line}")
+    return "\n".join(parts) + "\n\n"
+
+
+def _sse_comment(value: str) -> str:
+    return f": {value}\n\n"
+
+
+def _event_stream_interval() -> float:
+    try:
+        requested = float(request.args.get("interval", 1.0))
+    except (TypeError, ValueError):
+        requested = 1.0
+    return max(0.2, min(requested, 30.0))
+
+
+def _event_stream_max_events() -> int:
+    try:
+        requested = int(request.args.get("max_events", 300))
+    except (TypeError, ValueError):
+        requested = 300
+    return max(1, min(requested, 1000))
 
 
 def _analysis_input_descriptor(path_value: str, asset_type: str) -> Dict[str, Any]:
@@ -521,6 +553,61 @@ def get_job(job_id: str):
     except Exception as exc:
         current_app.logger.error("Failed to get background job %s: %s", job_id, exc, exc_info=True)
         return _json_error("JOB_GET_ERROR", "Failed to load background job.", detail=str(exc))
+
+
+@jobs_bp.route("/<job_id>/events", methods=["GET"])
+def stream_job_events(job_id: str):
+    service = get_background_job_service()
+    job = service.get_job(job_id)
+    if job is None:
+        return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+    if not _can_access_job(job):
+        return jsonify({"success": False, "error": "JOB_NOT_FOUND", "message": "Job not found"}), 404
+
+    interval = _event_stream_interval()
+    max_events = _event_stream_max_events()
+
+    @stream_with_context
+    def generate():
+        last_payload = ""
+        sent_events = 0
+        while sent_events < max_events:
+            current = service.get_job(job_id)
+            if current is None:
+                yield _sse_event("error", {
+                    "success": False,
+                    "error": "JOB_NOT_FOUND",
+                    "message": "Job not found",
+                }, event_id=job_id)
+                break
+
+            status = str(current.get("status") or "")
+            event_name = "completed" if status in TERMINAL_STATUSES else "update"
+            payload = {
+                "success": True,
+                "job": current,
+                "status": status,
+            }
+            serialized = json.dumps(payload, ensure_ascii=False, default=str)
+            if serialized != last_payload:
+                yield _sse_event(event_name, payload, event_id=job_id)
+                last_payload = serialized
+                sent_events += 1
+            else:
+                yield _sse_comment("heartbeat")
+
+            if status in TERMINAL_STATUSES:
+                break
+            time.sleep(interval)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @jobs_bp.route("/<job_id>/results", methods=["GET"])

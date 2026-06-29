@@ -69,3 +69,41 @@ def test_job_results_missing_job_returns_404():
     assert response.status_code == 404
     assert payload["success"] is False
     assert payload["error"] == "JOB_NOT_FOUND"
+
+
+def test_job_events_stream_completed_job_once():
+    app = create_app("testing")
+
+    with app.app_context():
+        db.session.add(AnalysisJob(
+            id="job_events_done",
+            job_type="api_request",
+            module="charts.combined",
+            status="completed",
+            progress=100,
+            stage="Completed",
+            detail="Task completed",
+            result={"viewer_url": "/reports/job_events_done/index.html"},
+        ))
+        db.session.commit()
+
+        response = app.test_client().get("/api/jobs/job_events_done/events?max_events=2")
+        body = response.get_data(as_text=True)
+        db.session.remove()
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    assert "event: completed" in body
+    assert '"job_id": "job_events_done"' in body
+    assert '"status": "completed"' in body
+
+
+def test_job_events_missing_job_returns_404():
+    app = create_app("testing")
+
+    response = app.test_client().get("/api/jobs/missing/events")
+    payload = response.get_json()
+
+    assert response.status_code == 404
+    assert payload["success"] is False
+    assert payload["error"] == "JOB_NOT_FOUND"

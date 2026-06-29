@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useApi } from "../shared/hooks/useApi";
+import { useJobEvents } from "../shared/hooks/useJobEvents";
 import { usePolling } from "../shared/hooks/usePolling";
 import { listJobs, listJobModules, getJobResults } from "../shared/api/jobs";
 import { listProjects } from "../shared/api/projects";
@@ -16,6 +17,7 @@ export function ScriptHub() {
     result: JobResultsResponse | null;
     loading: boolean;
   }>({ result: null, loading: false });
+  const liveJob = useJobEvents(resultJobId);
 
   const modulesState = useApi(() => listJobModules(), []);
   const modules =
@@ -65,6 +67,31 @@ export function ScriptHub() {
     setResultState({ result: data, loading: false });
   }, []);
 
+  useEffect(() => {
+    if (!resultJobId || !liveJob.event) return;
+    const event = liveJob.event;
+    if (event.status === "completed") {
+      setResultState((current) => ({ ...current, loading: true }));
+      getJobResults(resultJobId)
+        .then((data) => setResultState({ result: data, loading: false }))
+        .catch(() => setResultState((current) => ({ ...current, loading: false })));
+      return;
+    }
+    setResultState((current) => {
+      if (!current.result) {
+        return { result: null, loading: true };
+      }
+      return {
+        result: {
+          ...current.result,
+          job: event.job,
+          status: event.status,
+        },
+        loading: false,
+      };
+    });
+  }, [liveJob.event, resultJobId]);
+
   return (
     <>
       <PageHeader
@@ -112,12 +139,31 @@ export function ScriptHub() {
 
       {resultState.result && (
         <div>
-          <h3 style={{ marginBottom: "var(--spacing-md)" }}>Job Result</h3>
+          <h3 style={{ marginBottom: "var(--spacing-md)" }}>
+            Job Result
+            {liveJob.connected && (
+              <span
+                style={{
+                  marginLeft: "var(--spacing-sm)",
+                  color: "var(--success)",
+                  fontSize: "0.75rem",
+                  fontWeight: 500,
+                }}
+              >
+                live
+              </span>
+            )}
+          </h3>
           <JobResultPanel
             result={resultState.result}
             loading={resultState.loading}
           />
         </div>
+      )}
+      {liveJob.error && (
+        <p style={{ color: "var(--text-tertiary)", fontSize: "0.8rem" }}>
+          {liveJob.error}
+        </p>
       )}
 
       <div>
