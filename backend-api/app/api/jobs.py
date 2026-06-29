@@ -2,7 +2,11 @@
 
 from typing import Optional
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -253,3 +257,85 @@ async def cancel_job(job_id: str = Path(...), db: Session = Depends(get_db)):
     db.commit()
 
     return {"success": True, "job": _to_job(row)}
+
+
+@router.get("/jobs/{job_id}/events")
+async def stream_job_events(
+    job_id: str = Path(...),
+    interval: float = Query(1.0, ge=0.2, le=30.0),
+    max_events: int = Query(300, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """Stream job lifecycle events via Server-Sent Events.
+
+    Emits "update" events on each poll cycle and a terminal "completed"
+    event when the job reaches a final status. The stream closes
+    automatically when the job is terminal.
+    """
+    terminal_statuses = {"completed", "failed", "cancelled", "interrupted"}
+
+    async def event_generator():
+        last_payload = ""
+        sent_events = 0
+
+        while sent_events < max_events:
+            # Re-query the job from DB each cycle
+            result = db.execute(
+                text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
+                {"jid": job_id},
+            )
+            row = result.fetchone()
+            if row is None:
+                yield _sse_message("error", json.dumps({
+                    "success": False,
+                    "error": "JOB_NOT_FOUND",
+                    "message": "Job not found",
+                }))
+                break
+
+            job_data = _to_job(row)
+            status = job_data.get("status", "")
+
+            event_name = "completed" if status in terminal_statuses else "update"
+            payload = json.dumps(
+                {"success": True, "job": job_data, "status": status},
+                default=str,
+                ensure_ascii=False,
+            )
+
+            if payload != last_payload:
+                yield _sse_message(event_name, payload)
+                last_payload = payload
+                sent_events += 1
+            else:
+                yield _sse_comment("heartbeat")
+
+            if status in terminal_statuses:
+                break
+
+            await asyncio.sleep(interval)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _sse_message(event: str, data: str) -> str:
+    """Format an SSE message with optional event type."""
+    parts = []
+    if event:
+        parts.append(f"event: {event}")
+    for line in data.splitlines() or [""]:
+        parts.append(f"data: {line}")
+    return "\n".join(parts) + "\n\n"
+
+
+def _sse_comment(value: str) -> str:
+    """Format an SSE comment (invisible to client, keeps connection alive)."""
+    return f": {value}\n\n"
