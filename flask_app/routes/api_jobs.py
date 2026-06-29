@@ -12,6 +12,7 @@ from flask_login import login_user
 
 from flask_app.models.database import ProjectAsset, User
 from flask_app.services.background_job_service import TERMINAL_STATUSES, get_background_job_service
+from flask_app.services.job_queue import get_job_queue
 from flask_app.services.user_scope import current_user_id, is_admin
 
 
@@ -488,10 +489,11 @@ def create_job():
         project_id=project_id,
     )
     runner = _run_combined_charts_job if module == "charts.combined" else _run_api_job
+    queue = get_job_queue()
     if module == "charts.combined":
-        service.submit(job["job_id"], runner, payload=payload, user_id=user_id)
+        queue.submit(job["job_id"], runner, payload=payload, user_id=user_id)
     else:
-        service.submit(job["job_id"], runner, module=module, payload=payload, user_id=user_id)
+        queue.submit(job["job_id"], runner, module=module, payload=payload, user_id=user_id)
     return jsonify({
         "success": True,
         "job_id": job["job_id"],
