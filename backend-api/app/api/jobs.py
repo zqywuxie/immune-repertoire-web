@@ -78,18 +78,82 @@ async def list_jobs(
 
 
 @router.post("/jobs", response_model=SubmitJobResponse)
-async def submit_job(body: SubmitJobRequest):
-    """Submit a unified background job — proxied to Flask for now."""
-    raise HTTPException(
-        status_code=501,
-        detail="Job submission is still served by Flask. Use POST /api/jobs on Flask.",
+async def submit_job(body: SubmitJobRequest, db: Session = Depends(get_db)):
+    """Submit a unified background job."""
+    import uuid
+    from datetime import datetime, timezone
+
+    # Validate module
+    ALLOWED_MODULES = {
+        "charts.combined", "treemap.generate", "chord.generate",
+        "analysis.execute", "analysis.batch", "analysis.execute-unified",
+        "statistical.analyze", "statistical.boxplot", "statistical.analyze-multiple",
+        "statistical.summary-boxplot", "statistical.analyze-batch", "statistical.analyze-direct",
+        "auto-heatmap.generate-heatmap", "auto-heatmap.generate-pipeline-report",
+        "auto-heatmap.generate-heatmap-report", "auto-heatmap.export-shared-cdr3",
+        "ppt.scan-images", "ppt.load-image", "ppt.render-slides",
+        "ppt-comparison.scan-heatmaps", "ppt-comparison.generate",
+    }
+
+    if body.module not in ALLOWED_MODULES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported job module: {body.module}",
+        )
+
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Insert into analysis_jobs
+    db.execute(
+        text(
+            """INSERT INTO analysis_jobs
+               (id, job_id, job_type, module, status, progress, payload, result,
+                project_id, user_id, created_at, updated_at)
+               VALUES
+               (:id, :job_id, :job_type, :module, :status, :progress, :payload, :result,
+                :project_id, :user_id, :created_at, :updated_at)"""
+        ),
+        {
+            "id": job_id,
+            "job_id": job_id,
+            "job_type": "api_request",
+            "module": body.module,
+            "status": "queued",
+            "progress": 0,
+            "payload": body.payload,
+            "result": {},
+            "project_id": body.project_id or None,
+            "user_id": None,
+            "created_at": now,
+            "updated_at": now,
+        },
     )
+    db.commit()
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "task_id": job_id,
+        "status_url": f"/api/jobs/{job_id}",
+        "status": "queued",
+    }
 
 
 @router.get("/jobs/modules", response_model=JobModulesResponse)
 async def list_job_modules():
     """List frontend-visible job modules."""
-    return {"modules": [{"key": "charts.combined", "label": "综合图表"}]}
+    return {
+        "modules": [
+            {"key": "charts.combined", "label": "综合图表"},
+            {"key": "treemap.generate", "label": "Treemap"},
+            {"key": "chord.generate", "label": "Chord 弦图"},
+            {"key": "statistical.analyze", "label": "统计分析"},
+            {"key": "statistical.boxplot", "label": "箱线图"},
+            {"key": "auto-heatmap.generate-heatmap", "label": "热力图"},
+            {"key": "ppt.render-slides", "label": "PPT 生成"},
+        ]
+    }
 
 
 @router.get("/jobs/{job_id}")
