@@ -213,7 +213,7 @@ def list_parameter_templates():
     
     Requirements: 12.4
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     analysis_type = request.args.get('analysis_type')
     
@@ -234,7 +234,7 @@ def get_parameter_template(template_id):
     
     Requirements: 12.4
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     service = get_parameter_template_service()
     template = service.get_template(template_id)
@@ -263,7 +263,7 @@ def create_parameter_template():
     
     Requirements: 12.4
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     data = request.get_json()
     
@@ -327,7 +327,7 @@ def update_parameter_template(template_id):
     
     Requirements: 12.4
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     data = request.get_json()
     
@@ -385,7 +385,7 @@ def delete_parameter_template(template_id):
     
     Requirements: 12.4
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     service = get_parameter_template_service()
     success = service.delete_template(template_id)
@@ -404,7 +404,7 @@ def get_default_parameters(analysis_type):
     
     Requirements: 12.3
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     service = get_parameter_template_service()
     
@@ -439,7 +439,7 @@ def validate_parameters():
     
     Requirements: 12.3
     """
-    from services.parameter_template_service import get_parameter_template_service
+    from flask_app.services.parameter_template_service import get_parameter_template_service
     
     data = request.get_json()
     

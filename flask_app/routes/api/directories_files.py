@@ -21,7 +21,7 @@ def suggest_field_mapping_get():
     Suggest field mapping for a file and analysis type.
     GET /api/field-mapping/suggest?file_id=xxx&analysis_type=xxx
     """
-    from services.field_mapping import FieldMappingService
+    from flask_app.services.field_mapping import FieldMappingService
     
     file_id = request.args.get('file_id')
     analysis_type = request.args.get('analysis_type')

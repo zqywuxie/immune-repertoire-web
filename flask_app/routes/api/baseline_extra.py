@@ -49,9 +49,9 @@ def calculate_baseline_differences():
         }
     }
     """
-    from models.database import SampleGroup, File
-    from services.grouping_service import get_grouping_service
-    from services.file_parser import FileParserService
+    from flask_app.models.database import SampleGroup, File
+    from flask_app.services.grouping_service import get_grouping_service
+    from flask_app.services.file_parser import FileParserService
     from pathlib import Path
     
     data = request.get_json()
@@ -203,9 +203,9 @@ def get_baseline_value():
         "baseline_values": {"field1": value1, ...}
     }
     """
-    from models.database import SampleGroup, File
-    from services.grouping_service import get_grouping_service
-    from services.file_parser import FileParserService
+    from flask_app.models.database import SampleGroup, File
+    from flask_app.services.grouping_service import get_grouping_service
+    from flask_app.services.file_parser import FileParserService
     from pathlib import Path
     
     data = request.get_json()
@@ -318,7 +318,7 @@ def get_file_fields(file_id):
         "all_columns": ["col1", "col2", ...]
     }
     """
-    from services.analysis.modules.field_analyzer import FieldAnalyzerModule
+    from flask_app.services.analysis.modules.field_analyzer import FieldAnalyzerModule
     from pathlib import Path
     
     # Get file record
@@ -418,7 +418,7 @@ def analyze_field_data():
         }
     }
     """
-    from services.analysis.modules.field_analyzer import FieldAnalyzerModule, ChartConfig
+    from flask_app.services.analysis.modules.field_analyzer import FieldAnalyzerModule, ChartConfig
     from pathlib import Path
     import pandas as pd
     

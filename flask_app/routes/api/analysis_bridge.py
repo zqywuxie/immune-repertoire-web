@@ -31,8 +31,8 @@ def create_analysis():
         "chart_config": {...}
     }
     """
-    from services.analysis_service import get_analysis_service
-    from services.field_mapping import FieldMappingService
+    from flask_app.services.analysis_service import get_analysis_service
+    from flask_app.services.field_mapping import FieldMappingService
     
     data = request.get_json()
 
@@ -188,7 +188,7 @@ def get_analysis(analysis_id):
     
     Requirements: 8.4
     """
-    from services.analysis_service import get_analysis_service
+    from flask_app.services.analysis_service import get_analysis_service
     
     _get_owned_analysis(analysis_id)
     service = get_analysis_service()
@@ -205,7 +205,7 @@ def get_analysis_status(analysis_id):
     
     Requirements: 8.2
     """
-    from services.analysis_service import get_analysis_service
+    from flask_app.services.analysis_service import get_analysis_service
     
     _get_owned_analysis(analysis_id)
     service = get_analysis_service()
@@ -222,7 +222,7 @@ def get_analysis_data_table(analysis_id, table_name):
     
     Requirements: 8.4
     """
-    from services.analysis_service import get_analysis_service
+    from flask_app.services.analysis_service import get_analysis_service
     
     _get_owned_analysis(analysis_id)
     service = get_analysis_service()
@@ -239,7 +239,7 @@ def retry_analysis(analysis_id):
     
     Requirements: 8.3
     """
-    from services.analysis_service import get_analysis_service
+    from flask_app.services.analysis_service import get_analysis_service
     
     _get_owned_analysis(analysis_id)
     service = get_analysis_service()
@@ -259,7 +259,7 @@ def cancel_analysis(analysis_id):
     
     Requirements: 8.3
     """
-    from services.analysis_service import get_analysis_service
+    from flask_app.services.analysis_service import get_analysis_service
     
     _get_owned_analysis(analysis_id)
     service = get_analysis_service()
@@ -277,7 +277,7 @@ def get_analysis_image(analysis_id, result_name):
     Get a specific image from analysis results.
     GET /api/analysis/{analysis_id}/image/{result_name}
     """
-    from models.database import Analysis, AnalysisResult
+    from flask_app.models.database import Analysis, AnalysisResult
     from exceptions import AnalysisNotFoundError
     from pathlib import Path
     
@@ -324,7 +324,7 @@ def download_analysis_result(analysis_id):
     
     Requirements: 3.3, 3.4, 3.5, 6.1, 6.2, 6.3, 6.4
     """
-    from services.export_service import get_export_service
+    from flask_app.services.export_service import get_export_service
     from exceptions import AnalysisNotFoundError
     
     result_name = request.args.get('result_name')
@@ -383,7 +383,7 @@ def get_available_exports(analysis_id):
     
     Requirements: 6.1, 6.2, 6.3
     """
-    from services.export_service import get_export_service
+    from flask_app.services.export_service import get_export_service
     
     export_service = get_export_service()
     exports = export_service.get_available_exports(analysis_id)
@@ -412,7 +412,7 @@ def merge_analysis_images(analysis_id):
     Returns merged image as PNG download.
     """
     from PIL import Image
-    from models.database import Analysis, AnalysisResult
+    from flask_app.models.database import Analysis, AnalysisResult
     from exceptions import AnalysisNotFoundError
     import math
     
@@ -559,7 +559,7 @@ def get_analysis_types():
     Get available analysis types.
     GET /api/analysis/types
     """
-    from services.analysis_service import AnalysisType
+    from flask_app.services.analysis_service import AnalysisType
     
     types = [
         {

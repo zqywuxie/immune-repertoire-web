@@ -294,7 +294,7 @@ def generate_sequencing_depth_ppt():
         "sample_count": 11
     }
     """
-    from services.sequencing_depth_ppt import SequencingDepthPPTService
+    from flask_app.services.sequencing_depth_ppt import SequencingDepthPPTService
     
     data = request.get_json()
     
@@ -387,7 +387,7 @@ def generate_sequencing_depth_visualization():
         "sample_count": 11
     }
     """
-    from services.sequencing_depth_viz import SequencingDepthVisualizationService
+    from flask_app.services.sequencing_depth_viz import SequencingDepthVisualizationService
     
     data = request.get_json()
     
@@ -480,7 +480,7 @@ def generate_sequencing_reads_bar_chart():
         "sample_count": 11
     }
     """
-    from services.sequencing_reads_chart import SequencingReadsChartService
+    from flask_app.services.sequencing_reads_chart import SequencingReadsChartService
     
     data = request.get_json()
     

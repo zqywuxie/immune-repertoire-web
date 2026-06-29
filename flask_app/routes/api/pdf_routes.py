@@ -41,7 +41,7 @@ def extract_pdf_tables():
         "table_data": {headers: [...], rows: [...], tab_separated: "..."}
     }
     """
-    from services.analysis.modules.pdf_extractor import (
+    from flask_app.services.analysis.modules.pdf_extractor import (
         PDFExtractor,
         PDFExtractorError,
         PDFFileNotFoundError as PDFNotFound,
@@ -464,7 +464,7 @@ def list_pdf_images(file_id):
         "total_count": 10
     }
     """
-    from services.analysis.modules.pdf_extractor import (
+    from flask_app.services.analysis.modules.pdf_extractor import (
         PDFExtractor,
         PDFExtractorError,
         PDFImageExtractionError
@@ -529,7 +529,7 @@ def extract_pdf_images():
         "error_messages": {"filename2.pdf": "error message"}
     }
     """
-    from services.analysis.modules.pdf_extractor import (
+    from flask_app.services.analysis.modules.pdf_extractor import (
         PDFExtractor,
         PDFExtractorError,
         PDFImageExtractionError
@@ -642,7 +642,7 @@ def upload_pdf():
         "file_size": 1024000
     }
     """
-    from services.pdf_extractor import PDFExtractorService
+    from flask_app.services.pdf_extractor import PDFExtractorService
     
     # Check if file is present
     if 'file' not in request.files:
@@ -771,7 +771,7 @@ def extract_pdf_to_folders():
         "errors": []
     }
     """
-    from services.pdf_extractor import PDFExtractorService
+    from flask_app.services.pdf_extractor import PDFExtractorService
     
     data = request.get_json()
     
@@ -864,7 +864,7 @@ def detect_pdf_samples(file_id):
         "samples": ["Sample1", "Sample2", "Sample3"]
     }
     """
-    from services.pdf_extractor import PDFExtractorService
+    from flask_app.services.pdf_extractor import PDFExtractorService
     
     # Get file record
     file_record = _get_owned_file(file_id)

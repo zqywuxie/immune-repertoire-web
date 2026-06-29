@@ -81,8 +81,8 @@ def create_mapping_template():
         "analysis_type": "similarity_heatmap"
     }
     """
-    from models.database import MappingTemplate
-    from services.field_mapping import FieldMappingService
+    from flask_app.models.database import MappingTemplate
+    from flask_app.services.field_mapping import FieldMappingService
     
     data = request.get_json()
     
@@ -162,7 +162,7 @@ def list_mapping_templates():
     
     Requirements: 11.3
     """
-    from models.database import MappingTemplate
+    from flask_app.models.database import MappingTemplate
     
     analysis_type = request.args.get('analysis_type')
     
@@ -196,7 +196,7 @@ def get_mapping_template(template_id):
     
     Requirements: 11.3
     """
-    from models.database import MappingTemplate
+    from flask_app.models.database import MappingTemplate
     from exceptions import MappingTemplateNotFoundError
     
     template = MappingTemplate.query.get(template_id)
@@ -226,7 +226,7 @@ def delete_mapping_template(template_id):
     
     Requirements: 11.3
     """
-    from models.database import MappingTemplate
+    from flask_app.models.database import MappingTemplate
     from exceptions import MappingTemplateNotFoundError
     
     template = MappingTemplate.query.get(template_id)
@@ -268,8 +268,8 @@ def suggest_mapping():
         "analysis_type": "similarity_heatmap"
     }
     """
-    from models.database import MappingTemplate
-    from services.field_mapping import FieldMappingService
+    from flask_app.models.database import MappingTemplate
+    from flask_app.services.field_mapping import FieldMappingService
     
     data = request.get_json()
     
@@ -350,7 +350,7 @@ def validate_mapping():
         "columns": ["col1", "col2", ...]
     }
     """
-    from services.field_mapping import FieldMappingService
+    from flask_app.services.field_mapping import FieldMappingService
     from exceptions import MappingIncompleteError
     
     data = request.get_json()
@@ -416,7 +416,7 @@ def get_required_fields(analysis_type):
     
     Requirements: 11.2
     """
-    from services.field_mapping import FieldMappingService
+    from flask_app.services.field_mapping import FieldMappingService
     
     # Validate analysis type
     if analysis_type not in FieldMappingService.get_supported_analysis_types():

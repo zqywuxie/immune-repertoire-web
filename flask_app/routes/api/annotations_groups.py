@@ -24,7 +24,7 @@ def get_annotations(analysis_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     result_id = request.args.get('result_id')
     
@@ -57,7 +57,7 @@ def create_annotation(analysis_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     data = request.get_json()
     
@@ -109,7 +109,7 @@ def get_annotation(annotation_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     service = get_annotation_service()
     annotation = service.get_annotation(annotation_id)
@@ -139,7 +139,7 @@ def update_annotation(annotation_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     data = request.get_json()
     
@@ -173,7 +173,7 @@ def delete_annotation(annotation_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     service = get_annotation_service()
     success = service.delete_annotation(annotation_id)
@@ -195,7 +195,7 @@ def clear_annotations(analysis_id):
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     result_id = request.args.get('result_id')
     
@@ -217,7 +217,7 @@ def get_annotation_types():
     
     Requirements: 12.5
     """
-    from services.annotation_service import get_annotation_service
+    from flask_app.services.annotation_service import get_annotation_service
     
     service = get_annotation_service()
     types = service.get_supported_types()
@@ -253,7 +253,7 @@ def create_sample_group():
         "file_id": "uuid"  // optional, for associating with a file
     }
     """
-    from models.database import SampleGroup, File
+    from flask_app.models.database import SampleGroup, File
     
     data = request.get_json()
     
@@ -334,7 +334,7 @@ def list_sample_groups():
     
     Requirements: 16.1
     """
-    from models.database import SampleGroup
+    from flask_app.models.database import SampleGroup
     
     file_id = request.args.get('file_id')
     
@@ -369,7 +369,7 @@ def get_sample_group(group_id):
     
     Requirements: 16.1
     """
-    from models.database import SampleGroup
+    from flask_app.models.database import SampleGroup
     
     group = SampleGroup.query.get(group_id)
     
@@ -405,7 +405,7 @@ def update_sample_group(group_id):
     
     Requirements: 16.1
     """
-    from models.database import SampleGroup
+    from flask_app.models.database import SampleGroup
     
     group = SampleGroup.query.get(group_id)
     
@@ -471,7 +471,7 @@ def delete_sample_group(group_id):
     
     Requirements: 16.1
     """
-    from models.database import SampleGroup
+    from flask_app.models.database import SampleGroup
     
     group = SampleGroup.query.get(group_id)
     
@@ -514,9 +514,9 @@ def calculate_group_averages():
         "sample_column": "sample"  // optional, defaults to "sample"
     }
     """
-    from models.database import SampleGroup, File
-    from services.grouping_service import get_grouping_service
-    from services.file_parser import FileParserService
+    from flask_app.models.database import SampleGroup, File
+    from flask_app.services.grouping_service import get_grouping_service
+    from flask_app.services.file_parser import FileParserService
     from pathlib import Path
     
     data = request.get_json()
