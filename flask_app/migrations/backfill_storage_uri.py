@@ -20,7 +20,7 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_project_root))
 
-from flask_app import create_app
+from flask_app.app import create_app
 from flask_app.models.database import ProjectAsset, db
 from flask_app.services.storage_adapter import get_storage_adapter
 

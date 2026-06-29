@@ -9,7 +9,7 @@ from flask_app.models.database import db
 from flask_app.routes import api_jobs
 from flask_app.services import api_job_runner
 from flask_app.services.background_job_service import JobContext, get_background_job_service
-from flask_app.services.job_queue import ThreadPoolJobQueue
+from flask_app.services.job_queue import ThreadPoolJobQueue, get_job_queue
 
 
 class FakeBackgroundJobService:
@@ -88,3 +88,26 @@ def test_api_job_runner_loads_context_from_persisted_job(monkeypatch):
         "data": {"success": True},
     }
     assert calls == [("analysis.execute", {"file_id": "file-1"}, 42)]
+
+
+def test_get_job_queue_defaults_to_threadpool(monkeypatch):
+    monkeypatch.delenv("JOB_QUEUE", raising=False)
+    queue = get_job_queue()
+    assert isinstance(queue, ThreadPoolJobQueue)
+
+
+def test_get_job_queue_redis_backend_requires_redis_package(monkeypatch):
+    monkeypatch.setenv("JOB_QUEUE", "redis")
+    import sys
+    monkeypatch.setitem(sys.modules, "redis", None)
+    monkeypatch.setitem(sys.modules, "rq", None)
+    try:
+        get_job_queue()
+    except ImportError as exc:
+        assert "redis" in str(exc).lower()
+
+
+def test_get_job_queue_unknown_backend_falls_back_to_threadpool(monkeypatch):
+    monkeypatch.setenv("JOB_QUEUE", "kafka")
+    queue = get_job_queue()
+    assert isinstance(queue, ThreadPoolJobQueue)
