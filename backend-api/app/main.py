@@ -27,6 +27,9 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix="/api")
 
+    from .core.error_handlers import register_error_handlers
+    register_error_handlers(app)
+
     return app
 
 

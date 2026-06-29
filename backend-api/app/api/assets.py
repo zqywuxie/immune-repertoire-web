@@ -115,9 +115,6 @@ async def upload_project_assets(
     project_dir = base_dir / project_id / "assets" / asset_type
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    from flask_app.services.storage_adapter import get_storage_adapter
-    storage = get_storage_adapter()
-
     for idx, file in enumerate(files):
         asset_id = str(uuid.uuid4())
         content = await file.read()
@@ -143,8 +140,8 @@ async def upload_project_assets(
         target_path.write_bytes(content)
         file_size = len(content)
 
-        # Generate storage_uri
-        storage_uri = storage.uri_for_path(target_path)
+        # Generate storage_uri (local:/// format, no Flask dependency)
+        storage_uri = f"local:///{target_path.resolve().as_posix()}"
 
         # Guess mime type
         mime_type, _ = mimetypes.guess_type(safe_name)
@@ -197,13 +194,12 @@ async def preview_asset(asset_id: str = Path(...), db: Session = Depends(get_db)
     if row is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    from flask_app.services.storage_adapter import get_storage_adapter
+    from ..core.storage import get_storage_resolver
 
     asset = _to_asset(row)
-    storage = get_storage_adapter()
-    try:
-        path = storage.get_file(asset.get("storage_uri") or asset["storage_path"])
-    except FileNotFoundError:
+    storage = get_storage_resolver()
+    path = storage.resolve_asset_path(asset)
+    if path is None:
         raise HTTPException(status_code=404, detail="Asset file not available")
 
     media_type = asset.get("mime_type") or "application/octet-stream"
@@ -218,13 +214,12 @@ async def download_asset(asset_id: str = Path(...), db: Session = Depends(get_db
     if row is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    from flask_app.services.storage_adapter import get_storage_adapter
+    from ..core.storage import get_storage_resolver
 
     asset = _to_asset(row)
-    storage = get_storage_adapter()
-    try:
-        path = storage.get_file(asset.get("storage_uri") or asset["storage_path"])
-    except FileNotFoundError:
+    storage = get_storage_resolver()
+    path = storage.resolve_asset_path(asset)
+    if path is None:
         raise HTTPException(status_code=404, detail="Asset file not available")
 
     return FileResponse(
