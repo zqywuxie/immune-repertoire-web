@@ -23,6 +23,7 @@ sys.path.insert(0, str(_project_root))
 from flask_app.app import create_app
 from flask_app.models.database import ProjectAsset, db
 from flask_app.services.storage_adapter import get_storage_adapter
+from sqlalchemy.orm.attributes import flag_modified
 
 
 def backfill_storage_uris(
@@ -47,16 +48,19 @@ def backfill_storage_uris(
     skipped = 0
     errors = 0
 
-    offset = 0
-    batch_size = 500
+    batch_size = 100
 
+    # Use ID-based pagination to avoid MySQL sort buffer issues
+    last_id = ""
     while True:
-        batch = query.order_by(ProjectAsset.uploaded_at.asc()).offset(offset).limit(batch_size).all()
+        batch_query = query.filter(ProjectAsset.id > last_id).order_by(ProjectAsset.id.asc()).limit(batch_size)
+        batch = batch_query.all()
         if not batch:
             break
 
         for asset in batch:
             processed += 1
+            last_id = asset.id
             if limit and processed > limit:
                 break
 
@@ -82,6 +86,7 @@ def backfill_storage_uris(
             if not dry_run:
                 metadata["storage_uri"] = derived_uri
                 asset.metadata_json = metadata
+                flag_modified(asset, "metadata_json")
 
             updated += 1
             if processed % 100 == 0 or (limit and processed >= (limit or 0)):
@@ -90,7 +95,6 @@ def backfill_storage_uris(
         if not dry_run:
             db.session.commit()
 
-        offset += batch_size
         if limit and processed >= limit:
             break
 
