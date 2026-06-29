@@ -242,7 +242,7 @@ def register_blueprints(app):
     from flask_app.routes.api_statistical import statistical_bp
     from flask_app.routes.api_auto_heatmap import auto_heatmap_bp
     from flask_app.routes.api_chord import chord_bp
-    from flask_app.routes.api_script_hub import script_hub_bp
+    from flask_app.routes.api_script_hub import register_script_hub_routes
     from flask_app.routes.api_treemap import treemap_bp
     from flask_app.routes.api_jobs import jobs_bp
 
@@ -273,8 +273,8 @@ def register_blueprints(app):
     app.register_blueprint(auto_heatmap_bp)
     # Register chord diagram analysis API blueprint
     app.register_blueprint(chord_bp)
-    # Register script hub API blueprint
-    app.register_blueprint(script_hub_bp)
+    # Register script hub API blueprint (modular package)
+    register_script_hub_routes(app)
     # Register treemap analysis API blueprint
     app.register_blueprint(treemap_bp)
 
