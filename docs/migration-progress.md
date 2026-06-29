@@ -150,12 +150,12 @@
 | 新上传文件同时写入两列 | ✅ | `project_asset_service.py` — storage_uri set on upload |
 | 新结果优先写 storage_uri | ✅ | metadata.storage_uri bridge |
 | 读取时优先 storage_uri，fallback storage_path | ✅ | `_resolve_asset_file()` in `api_projects.py` |
-| 批量迁移历史资产 | 🔄 | `backfill_storage_uri.py` ready, 需要 MySQL 运行 |
+| 批量迁移历史资产 | ✅ | `backfill_storage_uri.py` — 12/12 资产 `local://` URI 回填完成 |
 | S3Adapter 骨架 | ✅ | Complete implementation — boto3 lazy-init, MinIO 兼容, 9 tests |
-| 废弃直接依赖 Windows path 的逻辑 | ⬜ | |
-| MinIO/S3 实际部署 | ⬜ | LocalStorageAdapter 已预留接口 |
+| 废弃直接依赖 Windows path 的逻辑 | ✅ | `path_config.py` — 9 处硬编码替换 |
+| MinIO/S3 实际部署 | ⬜ | |
 
-**Phase 4 完成度：约 65%** — 存储 CRUD 完整 (`put_file/get_file/delete/presign/exists`，16 tests)，`S3Adapter` 完整实现 (boto3 lazy-init, MinIO 兼容, 9 tests)，`STORAGE_BACKEND=s3` 切换。backfill 脚本就位（需 MySQL）。
+**Phase 4 完成度：约 85%** — 存储 CRUD + S3Adapter + 路径配置中心化 + backfill 执行完成。只剩 MinIO/S3 实际部署。
 
 ---
 
@@ -185,7 +185,7 @@ Phase 0  ████████████████████ 100%  冻�
 Phase 1  ███████████████████░  97%  前端独立化 (Apple SPA + 懒加载 + 404 + 缓存 + 无障碍)
 Phase 2  ███████████████████░  98%  统一任务系统 (446KB拆分 + SSE + Queue + job_id契约)
 Phase 3  ██████████████████░░  90%  Worker 化 (Docker Redis + 21 Workers + RQ入队验证)
-Phase 4  ██████████████░░░░░░  72%  存储抽象 (S3Adapter + Storage CRUD + 路径配置化)
+Phase 4  █████████████████░░░  85%  存储抽象 (S3Adapter + backfill完成 + 路径配置化)
 Phase 5  █████████████░░░░░░░  65%  FastAPI (24 routes + 去Flask独立化 + SSE + 17 tests)
 ────────────────────────────────────
 Overall  █████████████████░░░ ~88%
