@@ -196,26 +196,23 @@ Overall  ████████████████░░░░ ~80%
 | 日期 | 里程碑 | 影响 |
 |------|--------|------|
 | 6/29 | `api_script_hub.py` 275KB → 8 文件 Blueprint 包 | 41 routes 无损拆分 |
+| 6/29 | `api.py` 171KB → 10 文件 Blueprint 包 | 81 routes 无损拆分 |
 | 6/29 | 前端 Apple SPA (Dashboard/Database/ScriptHub) | 3 页面懒加载 + 24 tests |
 | 6/29 | SSE 事件流替代轮询 | ScriptHub 实时 live job |
-| 6/29 | Job Queue Protocol → RedisJobQueue | Phase 3 Worker 化 seam |
-| 6/29 | LocalStorageAdapter full CRUD + S3Adapter | Phase 4 双后端存储 |
-| 6/29 | FastAPI 10 routes + job 创建 | Phase 5 API 替换起步 |
+| 6/29 | Job Queue Protocol → RedisJobQueue + MODULE_WORKERS | Phase 3 21 Workers |
+| 6/29 | LocalStorageAdapter full CRUD + S3Adapter | Phase 4 双后端 |
+| 6/29 | 路径配置中心化 `path_config.py` | 9 处硬编码路径替换 |
+| 6/29 | FastAPI 20 routes + 去Flask依赖独立化 | Phase 5 零 Flask 导入 |
+| 6/29 | 94 tests 全通过 (Flask 53 + FastAPI 17 + 前端 24) | CI 安全网 |
 
-## 近期优先级 (2026-06-29 — 更新)
+## 最终优先级 (只剩外部依赖)
 
-| 优先级 | 事项 | 所属 Phase | 状态 |
-|--------|------|-----------|------|
-| 1 | ~~api_script_hub.py 拆分~~ | Phase 2 | ✅ |
-| 2 | ~~api.py 拆分~~ | Phase 2 | ✅ |
-| 3 | ~~Worker 18 模块接入~~ | Phase 3 | ✅ |
-| 4 | ~~FastAPI 12 routes 真实 SQL~~ | Phase 5 | ✅ |
-| 5 | ~~前端懒加载 + 404 + 缓存~~ | Phase 1 | ✅ |
-| 6 | **api/ 包集成测试** | Phase 2 | 🔄 |
-| 7 | **前端无障碍增强** | Phase 1 | 🔄 |
-| 8 | **FastAPI SSE events** | Phase 5 | 🔄 |
-| 9 | Redis 部署 + `JOB_QUEUE=redis` | Phase 3 | 待启动 |
-| 10 | `backfill_storage_uri.py` 执行 | Phase 4 | 待 MySQL |
+| 优先级 | 事项 | 依赖 |
+|--------|------|------|
+| 1 | Redis 部署 + `JOB_QUEUE=redis` | Redis 服务 |
+| 2 | `backfill_storage_uri.py` 执行 | MySQL 可用 |
+| 3 | FastAPI 代理部署 | 运维配置 |
+| 4 | MinIO/S3 实际部署 | 基础设施 |
 
 ## 关联文档
 
