@@ -100,6 +100,40 @@ def test_get_job_queue_defaults_to_threadpool(monkeypatch):
     assert isinstance(queue, ThreadPoolJobQueue)
 
 
+def test_redis_job_queue_integration():
+    """Integration test: RedisJobQueue initializes with real Redis connection."""
+    try:
+        from redis import Redis
+        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r.ping()
+    except Exception:
+        import pytest
+        pytest.skip("Redis not available — skipping integration test")
+
+    from flask_app.services.job_queue import RedisJobQueue
+    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
+    assert q.redis_url == "redis://127.0.0.1:6379/0"
+    assert q._queue is not None  # RQ Queue initialized
+
+
+def test_redis_job_queue_enqueue():
+    """Integration test: enqueue a real worker task via RedisJobQueue."""
+    try:
+        from redis import Redis
+        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r.ping()
+    except Exception:
+        import pytest
+        pytest.skip("Redis not available — skipping integration test")
+
+    from flask_app.services.job_queue import RedisJobQueue
+    from analysis_workers.tasks.generic import run_generic_job
+    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
+    q.submit("test-integration-job-id", run_generic_job)
+    # Job was enqueued without error
+    assert True
+
+
 def test_get_job_queue_redis_backend_requires_redis_package(monkeypatch):
     monkeypatch.setenv("JOB_QUEUE", "redis")
     import sys

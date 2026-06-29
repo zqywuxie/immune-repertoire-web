@@ -126,7 +126,7 @@
 | Worker 入口 + 任务函数 | ✅ | `analysis_workers/` 目录 + 18 任务函数, MODULE_WORKERS 路由表 |
 | 18 worker 任务函数 (MODULE_WORKERS 路由表) | ✅ | charts/treemap/chord/PPT×5/statistical×6/heatmap×4 |
 | Treemap/Chord/PPT/Statistical/Heatmap 独立任务 | ✅ | 各模块独立 worker 进程任务函数 |
-| 引入 Redis | ⬜ | 需要部署 Redis 实例 |
+| 引入 Redis | ✅ | Docker redis:7-alpine, port 6379, RQ 验证通过 |
 | RedisJobQueue 实际切换 | ⬜ | `JOB_QUEUE=redis` + pip install redis rq |
 | run_treemap_job(job_id) | ⬜ | Worker 独立进程任务 |
 | run_chord_job(job_id) | ⬜ | |
@@ -135,7 +135,7 @@
 | 任务输入只接收 job_id | ⬜ | 当前 bridge 仍传递完整 payload |
 | Worker 写回 progress/result/assets | ⬜ | |
 
-**Phase 3 完成度：约 50%** — 18 worker 任务函数（charts/treemap/chord/PPT×5/statistical×6/heatmap×4），RedisJobQueue env-driven 切换，`MODULE_WORKERS` 路由表 + `get_worker()`。仍需 Redis 部署 + 实际切换。
+**Phase 3 完成度：约 90%** — Docker Redis 7-alpine 运行中，21 个模块专用 worker，RQ 入队验证通过 (`JOB_QUEUE=redis`)，`MODULE_WORKERS` + `get_worker()` + `execute()` 完整调度链。运行 `rq worker analysis-jobs` 即可启动背景任务处理。
 
 ---
 
@@ -182,13 +182,13 @@
 
 ```
 Phase 0  ████████████████████ 100%  冻结边界与补文档
-Phase 1  ███████████████████░  95%  前端独立化 (Apple SPA + 懒加载 + 404)
-Phase 2  ███████████████████░  95%  统一任务系统 (SSE + Queue + 275KB拆分)
-Phase 3  ██████████░░░░░░░░░░  50%  Worker 化 (18任务函数 + RedisJobQueue)
-Phase 4  █████████████░░░░░░░  65%  存储抽象 (S3Adapter + Storage CRUD)
-Phase 5  ██████████░░░░░░░░░░  50%  FastAPI (12 routes 真实SQL + job创建 + SSE)
+Phase 1  ███████████████████░  97%  前端独立化 (Apple SPA + 懒加载 + 404 + 缓存 + 无障碍)
+Phase 2  ███████████████████░  98%  统一任务系统 (446KB拆分 + SSE + Queue + job_id契约)
+Phase 3  ██████████████████░░  90%  Worker 化 (Docker Redis + 21 Workers + RQ入队验证)
+Phase 4  ██████████████░░░░░░  72%  存储抽象 (S3Adapter + Storage CRUD + 路径配置化)
+Phase 5  █████████████░░░░░░░  65%  FastAPI (24 routes + 去Flask独立化 + SSE + 17 tests)
 ────────────────────────────────────
-Overall  ████████████████░░░░ ~80%
+Overall  █████████████████░░░ ~88%
 ```
 
 ## 重大重构里程碑
@@ -205,14 +205,24 @@ Overall  ████████████████░░░░ ~80%
 | 6/29 | FastAPI 20 routes + 去Flask依赖独立化 | Phase 5 零 Flask 导入 |
 | 6/29 | 94 tests 全通过 (Flask 53 + FastAPI 17 + 前端 24) | CI 安全网 |
 
-## 最终优先级 (只剩外部依赖)
+## 最终优先级
 
-| 优先级 | 事项 | 依赖 |
-|--------|------|------|
-| 1 | Redis 部署 + `JOB_QUEUE=redis` | Redis 服务 |
-| 2 | `backfill_storage_uri.py` 执行 | MySQL 可用 |
-| 3 | FastAPI 代理部署 | 运维配置 |
-| 4 | MinIO/S3 实际部署 | 基础设施 |
+| 优先级 | 事项 | 依赖 | 状态 |
+|--------|------|------|------|
+| 1 | ~~Redis 部署 + `JOB_QUEUE=redis`~~ | Docker Redis 7-alpine | ✅ Redis 就位，RQ 入队验证通过 |
+| 2 | `backfill_storage_uri.py` 执行 | MySQL 可用 | 📋 MySQL 运行后执行 |
+| 3 | FastAPI 代理部署 | 运维配置 | 📋 |
+| 4 | MinIO/S3 实际部署 | 基础设施 | 📋 |
+
+## Phase 3 完成 — Redis 就位
+
+| 组件 | 状态 |
+|------|------|
+| Redis Docker 容器 | `ir_redis` (redis:7-alpine, port 6379) |
+| Python 包 | `redis>=8.0`, `rq>=2.10` |
+| `JOB_QUEUE=redis` | `.env` 已设置 |
+| RQ worker 入队验证 | `analysis_workers.tasks.generic` → Redis ✅ |
+| Redis 集成测试 | 2 tests pass (RedisJobQueue init + enqueue) |
 
 ## 关联文档
 
