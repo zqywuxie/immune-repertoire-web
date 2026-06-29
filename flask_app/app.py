@@ -236,7 +236,7 @@ def register_blueprints(app):
     """Register Flask blueprints for routes."""
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.pages import pages_bp
-    from flask_app.routes.api import api_bp
+    from flask_app.routes.api import register_api_routes
     from flask_app.routes.api_projects import project_api_bp
     from flask_app.routes.api_analysis import analysis_bp
     from flask_app.routes.api_statistical import statistical_bp
@@ -258,7 +258,7 @@ def register_blueprints(app):
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(pages_bp)
-    app.register_blueprint(api_bp, url_prefix='/api')
+    register_api_routes(app)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(project_api_bp)
     # Register the new analysis blueprint
