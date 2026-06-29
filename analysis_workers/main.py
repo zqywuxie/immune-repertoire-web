@@ -83,6 +83,15 @@ def get_worker(module: str):
     return MODULE_WORKERS.get(module, _DEFAULT_WORKER)
 
 
+def execute(module: str, job_id: str):
+    """Execute a job by module and job_id — called by queue adapters.
+
+    Returns the worker's return value (dict with success/error).
+    """
+    worker = get_worker(module)
+    return worker(job_id)
+
+
 __all__ = [
     "run_charts_job",
     "run_generic_job",
@@ -108,4 +117,5 @@ __all__ = [
     "run_analysis_execute_unified_job",
     "MODULE_WORKERS",
     "get_worker",
+    "execute",
 ]

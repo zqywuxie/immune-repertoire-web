@@ -264,7 +264,7 @@ def create_job():
         project_id=project_id,
     )
     queue = get_job_queue()
-    queue.submit(job["job_id"], get_job_runner(module))
+    queue.submit(job["job_id"], get_job_runner(module), module=module)
     return jsonify({
         "success": True,
         "job_id": job["job_id"],

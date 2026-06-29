@@ -27,11 +27,15 @@ def test_thread_pool_job_queue_delegates_to_background_service():
     def runner():
         return {"ok": True}
 
+    # Known module with a specific worker → dispatches via module worker
     queue.submit("job-1", runner, module="charts.combined", payload={"a": 1})
 
-    assert service.calls == [
-        ("job-1", runner, {"module": "charts.combined", "payload": {"a": 1}})
-    ]
+    assert len(service.calls) == 1
+    call_job_id, call_func, call_kwargs = service.calls[0]
+    assert call_job_id == "job-1"
+    # Should be the module-specific worker lambda, not the original runner
+    assert call_func is not runner
+    assert call_kwargs == {}
 
 
 def test_create_job_uses_queue_adapter(monkeypatch):
@@ -55,7 +59,7 @@ def test_create_job_uses_queue_adapter(monkeypatch):
     assert response.status_code == 200
     assert payload["success"] is True
     assert captured == [
-        (payload["job_id"], "run_api_job", {})
+        (payload["job_id"], "run_api_job", {"module": "analysis.execute"})
     ]
 
 

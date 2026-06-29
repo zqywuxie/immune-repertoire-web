@@ -36,6 +36,25 @@ class ThreadPoolJobQueue:
     service: BackgroundJobService
 
     def submit(self, job_id: str, runner: Callable[..., Any], **kwargs: Any) -> None:
+        """Submit a job runner. If runner is the generic run_api_job, try to use a module-specific worker."""
+        # Check if we can use a module-specific worker for better stage/progress tracking
+        module = kwargs.get("module", "")
+        if module:
+            try:
+                from analysis_workers.main import get_worker as get_module_worker
+                worker = get_module_worker(module)
+                # If get_worker returned something other than run_generic_job, use it
+                from analysis_workers.tasks.generic import run_generic_job
+                if worker is not run_generic_job:
+                    # BackgroundJobService.submit always passes a JobContext as the
+                    # first positional arg.  Module workers accept only job_id, so
+                    # wrap with a lambda that extracts job_id from the context.
+                    self.service.submit(job_id, lambda ctx: worker(ctx.job_id))
+                    return
+            except ImportError:
+                pass  # Fall back to generic runner
+
+        # Default: use the provided runner (backwards compatible)
         self.service.submit(job_id, runner, **kwargs)
 
 
