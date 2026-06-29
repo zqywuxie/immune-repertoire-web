@@ -18,7 +18,7 @@ export function PageHeader({ title, subtitle, children }: PageHeaderProps) {
       }}
     >
       <div>
-        <h2 style={{ margin: 0 }}>{title}</h2>
+        <h1 style={{ margin: 0 }}>{title}</h1>
         {subtitle && (
           <p
             style={{

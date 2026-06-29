@@ -35,7 +35,7 @@ export function Pagination({
         {Math.max(total_pages, 1)}
       </span>
       <div style={{ display: "flex", gap: "var(--spacing-xs)" }}>
-        <PageBtn disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+        <PageBtn disabled={page <= 1} onClick={() => onPageChange(page - 1)} ariaLabel="Previous page">
           ←
         </PageBtn>
         {pages.map((p) => (
@@ -43,6 +43,7 @@ export function Pagination({
             key={p}
             active={p === page}
             onClick={() => onPageChange(p)}
+            ariaLabel={`Page ${p}`}
           >
             {p}
           </PageBtn>
@@ -50,6 +51,7 @@ export function Pagination({
         <PageBtn
           disabled={page >= total_pages}
           onClick={() => onPageChange(page + 1)}
+          ariaLabel="Next page"
         >
           →
         </PageBtn>
@@ -63,16 +65,20 @@ function PageBtn({
   disabled,
   active,
   onClick,
+  ariaLabel,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   active?: boolean;
   onClick: () => void;
+  ariaLabel?: string;
 }) {
   return (
     <button
       disabled={disabled}
       onClick={onClick}
+      aria-label={ariaLabel}
+      aria-current={active ? "page" : undefined}
       style={{
         minWidth: "36px",
         height: "36px",

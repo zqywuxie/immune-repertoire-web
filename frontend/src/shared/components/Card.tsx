@@ -4,14 +4,16 @@ type CardProps = {
   children: ReactNode;
   onClick?: () => void;
   className?: string;
+  ariaLabel?: string;
 };
 
-export function Card({ children, onClick, className = "" }: CardProps) {
+export function Card({ children, onClick, className = "", ariaLabel }: CardProps) {
   return (
     <div
       className={`card ${className}`}
       onClick={onClick}
       role={onClick ? "button" : undefined}
+      aria-label={ariaLabel}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={
         onClick

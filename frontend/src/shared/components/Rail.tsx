@@ -54,6 +54,8 @@ export function Rail({ links }: { links: RailLink[] }) {
           to={to}
           end={to === "/"}
           aria-label={label}
+          aria-current="page"
+          title={label}
           style={({ isActive }) => ({
             width: "44px",
             height: "44px",

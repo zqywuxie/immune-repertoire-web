@@ -50,6 +50,7 @@ export function AssetTable({
             {["Name", "Type", "Size", "Uploaded", "Actions"].map((h) => (
               <th
                 key={h}
+                scope="col"
                 style={{
                   textAlign: "left",
                   padding: "12px 16px",
