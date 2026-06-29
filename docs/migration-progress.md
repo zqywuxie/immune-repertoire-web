@@ -171,10 +171,10 @@
 | Jobs list/get/results/cancel | ✅ | FastAPI — 真实 SQL |
 | Job submission (DB insert + 21-module validation) | ✅ | FastAPI — 真实 SQL |
 | SSE job events endpoint | ✅ | FastAPI — Server-Sent Events |
-| Auth/User | ⬜ | |
+| Auth/User | ✅ | FastAPI migration API token bridge；`/api/auth/me` + business route dependency |
 | Legacy Flask retirement | ⬜ | |
 
-**Phase 5 完成度：约 50%** — FastAPI 骨架 + 20 Pydantic schemas + 12 routes 真实 SQL 实现（Projects CRUD, Assets list/upload, Jobs CRUD），job 创建 (DB insert + 21-module validation)，SSE events。仍需 Auth、Flask 绞杀。
+**Phase 5 完成度：约 60%** — FastAPI 骨架 + 20 Pydantic schemas + 12 routes 真实 SQL实现（Projects CRUD, Assets list/upload, Jobs CRUD），job 创建 (DB insert + 21-module validation)，SSE events，并已具备迁移期 API token 认证。仍需 repository/service 层与 Flask 绞杀。
 
 ---
 
@@ -186,7 +186,7 @@ Phase 1  ███████████████████░  97%  前�
 Phase 2  ███████████████████░  98%  统一任务系统 (446KB拆分 + SSE + Queue + job_id契约)
 Phase 3  ██████████████████░░  93%  Worker 化 (Docker Redis + 21 Workers + Redis dispatcher)
 Phase 4  █████████████████░░░  85%  存储抽象 (S3Adapter + backfill完成 + 路径配置化)
-Phase 5  █████████████░░░░░░░  65%  FastAPI (24 routes + 去Flask独立化 + SSE + 17 tests)
+Phase 5  ██████████████░░░░░░  70%  FastAPI (24 routes + API token auth + SSE + 23 tests)
 ────────────────────────────────────
 Overall  █████████████████░░░ ~88%
 ```

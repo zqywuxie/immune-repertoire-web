@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 os.environ["API_DEBUG"] = "1"
 
 from app.main import app
+from app.core.config import settings
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -125,3 +126,62 @@ class TestSystemRoutes:
         """GET /api/info — will be 404 since no such route exists yet."""
         response = client.get("/api/info")
         assert response.status_code in (200, 404)
+
+
+class TestAuthRoutes:
+    """Test migration-phase FastAPI auth behavior."""
+
+    def test_auth_me_defaults_to_disabled_migration_principal(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "")
+
+        response = client.get("/api/auth/me")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["authenticated"] is False
+        assert data["subject"] == "migration-anonymous"
+        assert data["auth_mode"] == "disabled"
+
+    def test_auth_me_requires_token_when_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "secret-token")
+
+        response = client.get("/api/auth/me")
+
+        assert response.status_code == 401
+
+    def test_auth_me_accepts_bearer_token(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "secret-token")
+
+        response = client.get(
+            "/api/auth/me",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is True
+
+    def test_auth_me_accepts_x_api_key(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "secret-token")
+
+        response = client.get(
+            "/api/auth/me",
+            headers={"X-API-Key": "secret-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["auth_mode"] == "api_token"
+
+    def test_stable_business_routes_require_token_when_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "secret-token")
+
+        response = client.get("/api/jobs/modules")
+
+        assert response.status_code == 401
+
+    def test_stable_business_routes_accept_token_when_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "auth_token", "secret-token")
+
+        response = client.get("/api/jobs/modules", headers={"X-API-Key": "secret-token"})
+
+        assert response.status_code == 200
+        assert "modules" in response.json()

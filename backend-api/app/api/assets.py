@@ -7,10 +7,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..core.auth import require_current_user
 from ..core.database import get_db
 from ..schemas.domain import Asset, AssetListResponse, AssetUploadResponse, Pagination
 
-router = APIRouter(tags=["Assets"])
+router = APIRouter(tags=["Assets"], dependencies=[Depends(require_current_user)])
 
 _COL = {
     "id": 0, "project_id": 1, "asset_type": 2, "original_name": 3,

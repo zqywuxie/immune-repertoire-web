@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..core.auth import require_current_user
 from ..core.database import get_db
 from ..schemas.domain import (
     ProjectCreate,
@@ -21,7 +22,7 @@ from ..schemas.domain import (
     ProjectUpdate,
 )
 
-router = APIRouter(tags=["Projects"])
+router = APIRouter(tags=["Projects"], dependencies=[Depends(require_current_user)])
 
 # DB column indices for SELECT * FROM projects
 # Adjust these if your schema differs — check flask_app/models/database.py

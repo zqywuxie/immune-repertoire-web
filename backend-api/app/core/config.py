@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "mysql+pymysql://root:@127.0.0.1:3306/immune_repertoire"
     cors_origins: list[str] = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    auth_token: str = ""
 
 
 @lru_cache

@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..core.auth import require_current_user
 from ..core.database import get_db
 from ..schemas.domain import (
     JobListResponse,
@@ -20,7 +21,7 @@ from ..schemas.domain import (
     SubmitJobResponse,
 )
 
-router = APIRouter(tags=["Jobs"])
+router = APIRouter(tags=["Jobs"], dependencies=[Depends(require_current_user)])
 
 
 def _to_job(row) -> dict:
