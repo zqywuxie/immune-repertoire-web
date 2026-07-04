@@ -22,6 +22,7 @@ from ._common import (
     _mark_script_task_cancelled,
     _normalize_chain,
     _normalize_script_result,
+    _pep_tra_candidates_from_output_base,
     _read_header_columns,
     _resolve_project_cached_usage_path,
     _resolve_results_root,
@@ -32,8 +33,25 @@ from ._common import (
     _script_tasks,
     _set_task_state,
     _sync_job_state,
+    _validate_selected_samples_against_group_values,
     get_script_hub_job_service,
     logger,
+)
+from .boxplot import run_boxplot
+from .enrichment import (
+    run_go_kegg_enrichment,
+    run_mait_nkt,
+    run_ml_analysis,
+    run_umap,
+    run_umapin,
+    run_volcano,
+)
+from .modules_config import run_db_alignment
+from .profile_analysis import (
+    run_pep_analysis,
+    run_pgen_analysis,
+    run_profile,
+    run_topclone,
 )
 
 bp = Blueprint("script_hub_tasks", __name__)
@@ -98,7 +116,68 @@ def create_script_hub_job():
             "error": "INVALID_MODULE",
             "message": f"Unsupported Script Hub module: {module_name or '-'}",
         }), 400
+    group_error = _validate_required_group_field(module_name, data)
+    if group_error:
+        return jsonify({
+            "success": False,
+            "error": "MISSING_GROUP_FIELD",
+            "message": "Please select group field / 请选择分组字段",
+            "details": group_error,
+        }), 400
+    cache_error = _validate_required_cache_inputs(module_name, data)
+    if cache_error:
+        return jsonify({
+            "success": False,
+            "error": "MISSING_CACHE_INPUT",
+            "message": cache_error.get("message") or "Please select required cache input",
+            "details": cache_error,
+        }), 400
+    try:
+        _validate_selected_samples_against_group_values(data)
+    except ValidationError as exc:
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
     return runner()
+
+
+def _validate_required_group_field(module_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    required_keys = {
+        "db-alignment": ["categories"],
+        "profile": ["grouptype_fields", "group_fields", "grouping_begin"],
+        "boxplot": ["grouptype_fields", "classification_begin"],
+        "pep-analysis": ["group_fields", "grouptype_fields"],
+        "pgen-analysis": ["distribution_category_col", "group_field"],
+        "topclone": ["group_field"],
+        "umap": ["group_field", "classification_begin"],
+        "umapin": ["category_col"],
+        "ml-analysis": ["label_col"],
+        "mait-nkt": ["group_field"],
+    }.get(module_name, [])
+    if not required_keys:
+        return {}
+    for key in required_keys:
+        value = data.get(key)
+        if isinstance(value, list) and any(str(item or "").strip() for item in value):
+            return {}
+        if not isinstance(value, list) and str(value or "").strip():
+            return {}
+    return {"module": module_name, "accepted_fields": required_keys}
+
+
+def _validate_required_cache_inputs(module_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    if module_name == "volcano" and str(data.get("input_mode") or "").strip() == "usage":
+        if not str(data.get("data_dir") or "").strip():
+            return {"module": module_name, "field": "data_dir", "message": "Please select PEP VJ usage cache / 请选择 PEP VJ usage 缓存"}
+    if module_name == "umapin" and not str(data.get("data_path") or "").strip():
+        return {"module": module_name, "field": "data_path", "message": "Please select PEP UMAPin cache / 请选择 PEP UMAPin 缓存"}
+    if module_name == "mait-nkt":
+        tra_source = str(data.get("tra_source") or "upload").strip()
+        if tra_source == "pep_analysis" and not str(data.get("tra_path") or data.get("source_job_id") or "").strip():
+            return {"module": module_name, "field": "tra_path", "message": "Please select PEP TRA cache / 请选择 PEP TRA 缓存"}
+        if tra_source == "upload" and not str(data.get("tra_path") or "").strip():
+            return {"module": module_name, "field": "tra_path", "message": "Please enter TRA CSV path / 请输入 TRA CSV 路径"}
+        if data.get("mait_nkt_inspect_ok") is False:
+            return {"module": module_name, "field": "mait_nkt_inspect_ok", "message": "MAIT/NKT inspect failed. Please select a valid TRA source before running / MAIT/NKT 检查失败，请先选择有效 TRA 来源"}
+    return {}
 
 
 @bp.route("/jobs/<job_id>", methods=["GET"])
@@ -133,6 +212,280 @@ def cancel_script_hub_job(job_id: str):
             job = dict(task, job_id=job_id, task_id=task_id)
     get_script_hub_job_service().upsert_job(job_id, job)
     return jsonify({"success": True, "job": _sanitize_nan(job)})
+
+
+@bp.route("/pep-cache-candidates", methods=["GET"])
+def list_pep_cache_candidates():
+    project_id = str(request.args.get("project_id") or "").strip()
+    cache_type = str(request.args.get("cache_type") or "").strip().lower()
+    if not project_id:
+        return jsonify({"success": True, "candidates": []})
+
+    accepted = _pep_cache_type_filter(cache_type)
+    candidates = _build_pep_cache_candidates(project_id)
+    if accepted:
+        candidates = [item for item in candidates if item.get("cache_type") in accepted]
+    candidates.sort(key=lambda item: (item.get("status") != "available", str(item.get("created_at") or ""), str(item.get("label") or "")))
+    return jsonify({"success": True, "candidates": _sanitize_nan(candidates)})
+
+
+def _pep_cache_type_filter(cache_type: str) -> set[str]:
+    mapping = {
+        "volcano": {"vj_usage"},
+        "vj_usage": {"vj_usage"},
+        "usage": {"usage", "vj_usage"},
+        "umapin": {"umapin_table", "vj_usage"},
+        "umapin_table": {"umapin_table"},
+        "mait-nkt": {"tra_shared"},
+        "mait": {"tra_shared"},
+        "tra": {"tra_shared"},
+        "tra_shared": {"tra_shared"},
+        "ml-analysis": {"profile", "vj_usage", "umapin_table"},
+        "ml-profile": {"profile"},
+        "ml-vj": {"vj_usage", "umapin_table"},
+        "profile": {"profile"},
+    }
+    return mapping.get(cache_type, set())
+
+
+def _build_pep_cache_candidates(project_id: str) -> List[Dict[str, Any]]:
+    assets = _collect_project_cached_usage_assets(project_id)
+    seen: set[str] = set()
+    candidates: List[Dict[str, Any]] = []
+
+    def append_manifest_candidate(candidate: Dict[str, Any]) -> None:
+        key = f"{candidate.get('cache_type')}|{candidate.get('usage_type')}|{str(candidate.get('path') or '').lower()}"
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(candidate)
+
+    for manifest_candidate in _build_pep_manifest_cache_candidates(project_id):
+        append_manifest_candidate(manifest_candidate)
+
+    def add_candidate(
+        path_value: Any,
+        *,
+        asset: Dict[str, Any],
+        meta: Dict[str, Any],
+        cache_type: str,
+        usage_type: str,
+        label: str = "",
+    ) -> None:
+        raw = str(path_value or "").strip()
+        if not raw:
+            return
+        path = Path(raw)
+        key = f"{cache_type}|{usage_type}|{str(path).lower()}"
+        if key in seen:
+            return
+        seen.add(key)
+        file_count = _pep_cache_file_count(path)
+        source_job_id = str(meta.get("source_job_id") or meta.get("job_id") or "").strip()
+        chain_values = meta.get("chains") if isinstance(meta.get("chains"), list) else []
+        candidates.append({
+            "id": f"{asset.get('id') or source_job_id or 'pep-cache'}:{len(candidates) + 1}",
+            "asset_id": asset.get("id"),
+            "job_id": source_job_id,
+            "source": asset.get("source") or meta.get("source") or "project",
+            "source_module": meta.get("source_module") or "pep-analysis",
+            "cache_type": cache_type,
+            "usage_type": usage_type,
+            "label": label or _pep_cache_label(source_job_id, usage_type, cache_type),
+            "path": str(path.resolve()) if path.exists() else raw,
+            "path_summary": _pep_cache_path_summary(path),
+            "file_count": file_count,
+            "status": "available" if file_count > 0 else "missing",
+            "chains": chain_values,
+            "group_field": meta.get("group_field") or "",
+            "group_fields": meta.get("group_fields") if isinstance(meta.get("group_fields"), list) else [],
+            "created_at": asset.get("created_at") or meta.get("created_at") or "",
+        })
+
+    for asset in assets:
+        meta = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
+        if str(meta.get("source_module") or "pep-analysis").strip() != "pep-analysis":
+            continue
+        storage_path = str(asset.get("storage_path") or meta.get("storage_path") or "").strip()
+        usage_types = meta.get("usage_types") if isinstance(meta.get("usage_types"), dict) else {}
+        for usage_name, usage_path in usage_types.items():
+            usage_key = str(usage_name or "").strip()
+            cache_type = "vj_usage" if "VJ" in usage_key.upper() else "usage"
+            add_candidate(usage_path, asset=asset, meta=meta, cache_type=cache_type, usage_type=usage_key)
+
+        for key, usage_type in (
+            ("volcano_data_dir", "VJ usage"),
+            ("usage_1vj_path", "1VJusage"),
+            ("usage_0vj_path", "0VJusage"),
+        ):
+            add_candidate(meta.get(key), asset=asset, meta=meta, cache_type="vj_usage", usage_type=usage_type)
+
+        for key, usage_type in (
+            ("umapin_data_path", "VJ summary"),
+            ("df_vj_all_path", "df_VJ_all"),
+            ("df_VJ_all_path", "df_VJ_all"),
+            ("df_1vj_all_path", "df_1VJusage_all"),
+        ):
+            add_candidate(meta.get(key), asset=asset, meta=meta, cache_type="umapin_table", usage_type=usage_type)
+
+        for key, usage_type in (
+            ("pep_shared_TRA_path", "TRA shared"),
+            ("pep_shared_cate_TRA_path", "TRA shared by group"),
+        ):
+            add_candidate(meta.get(key), asset=asset, meta=meta, cache_type="tra_shared", usage_type=usage_type)
+
+        for base_key in ("pep_output_base", "output_base", "output_dir"):
+            base_raw = str(meta.get(base_key) or "").strip()
+            if not base_raw:
+                continue
+            for tra_path in _pep_tra_candidates_from_output_base(Path(base_raw)):
+                add_candidate(tra_path, asset=asset, meta=meta, cache_type="tra_shared", usage_type="TRA shared")
+
+        if storage_path:
+            base = Path(storage_path)
+            for usage_dir in (base, base / "1VJusage", base / "0VJusage", base.parent / "0VJusage", base.parent / "1VJusage"):
+                add_candidate(usage_dir, asset=asset, meta=meta, cache_type="vj_usage", usage_type=usage_dir.name or "VJ usage")
+
+    return candidates
+
+
+def _build_pep_manifest_cache_candidates(project_id: str) -> List[Dict[str, Any]]:
+    registry_entries = _read_pep_cache_registry(project_id)
+    candidates: List[Dict[str, Any]] = []
+    for entry in registry_entries:
+        manifest = _read_pep_cache_manifest(entry)
+        if not manifest:
+            continue
+        output_files = manifest.get("output_files") if isinstance(manifest.get("output_files"), dict) else {}
+        chains = manifest.get("chains") if isinstance(manifest.get("chains"), list) else []
+        group_fields = manifest.get("group_fields") if isinstance(manifest.get("group_fields"), list) else []
+        base = {
+            "asset_id": manifest.get("cache_id") or entry.get("cache_id") or "",
+            "job_id": manifest.get("job_id") or entry.get("job_id") or "",
+            "source": "cache_manifest",
+            "source_module": "pep-analysis",
+            "chains": chains,
+            "group_fields": group_fields,
+            "group_field": group_fields[0] if group_fields else "",
+            "created_at": manifest.get("created_at") or entry.get("created_at") or "",
+            "sample_count": manifest.get("sample_count") or entry.get("sample_count") or 0,
+            "data_types": _pep_manifest_data_types(manifest),
+            "available_for": [
+                key for key, enabled in (manifest.get("downstream") or {}).items()
+                if enabled
+            ],
+            "status": "available",
+        }
+
+        profile_path = str(manifest.get("profile_path") or "").strip()
+        if profile_path:
+            candidates.append(_manifest_candidate(base, profile_path, "profile", "Profile", "Profile metadata"))
+
+        usage_types = output_files.get("usage_types") if isinstance(output_files.get("usage_types"), dict) else {}
+        for usage_type, path_value in usage_types.items():
+            usage_key = str(usage_type or "").strip()
+            cache_type = "vj_usage" if "VJ" in usage_key.upper() else "usage"
+            candidates.append(_manifest_candidate(base, path_value, cache_type, usage_key, usage_key))
+
+        umapin_tables = output_files.get("umapin_tables") if isinstance(output_files.get("umapin_tables"), dict) else {}
+        for usage_type, path_value in umapin_tables.items():
+            if str(path_value or "").strip():
+                candidates.append(_manifest_candidate(base, path_value, "umapin_table", usage_type, usage_type))
+
+        pep_shared = output_files.get("pep_shared") if isinstance(output_files.get("pep_shared"), dict) else {}
+        if pep_shared.get("TRA"):
+            candidates.append(_manifest_candidate(base, pep_shared.get("TRA"), "tra_shared", "TRA shared", "TRA shared"))
+
+    return candidates
+
+
+def _manifest_candidate(base: Dict[str, Any], path_value: Any, cache_type: str, usage_type: str, label: str) -> Dict[str, Any]:
+    raw = str(path_value or "").strip()
+    path = Path(raw)
+    job_id = str(base.get("job_id") or "")
+    file_count = _pep_cache_file_count(path)
+    status = "available" if file_count > 0 else "missing"
+    if cache_type == "profile" and path.exists() and path.is_file():
+        file_count = 1
+        status = "available"
+    return {
+        **base,
+        "id": f"{base.get('asset_id') or job_id or 'pep-cache'}:{cache_type}:{usage_type}",
+        "cache_type": cache_type,
+        "usage_type": usage_type,
+        "label": f"{job_id or 'PEP cache'} {label}",
+        "path": str(path.resolve()) if path.exists() else raw,
+        "path_summary": _pep_cache_path_summary(path),
+        "file_count": file_count,
+        "status": status,
+    }
+
+
+def _read_pep_cache_registry(project_id: str) -> List[Dict[str, Any]]:
+    registry_path = _resolve_results_root() / _RESULT_DIR / "cache_registry.json"
+    entries: List[Dict[str, Any]] = []
+    try:
+        if registry_path.exists():
+            loaded = json.loads(registry_path.read_text(encoding="utf-8"))
+            raw_entries = loaded.get("entries") if isinstance(loaded, dict) else loaded
+            if isinstance(raw_entries, list):
+                entries = [item for item in raw_entries if isinstance(item, dict)]
+    except Exception:
+        logger.warning("Failed to read PEP cache registry %s", registry_path, exc_info=True)
+    project_key = str(project_id or "").strip()
+    return [
+        item for item in entries
+        if not str(item.get("project_id") or "").strip() or str(item.get("project_id") or "").strip() == project_key
+    ]
+
+
+def _read_pep_cache_manifest(entry: Dict[str, Any]) -> Dict[str, Any]:
+    for value in (entry.get("manifest_path"), Path(str(entry.get("output_base") or "")) / "cache_manifest.json"):
+        path = Path(str(value or ""))
+        try:
+            if path.exists() and path.is_file():
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                return loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            logger.warning("Failed to read PEP cache manifest %s", path, exc_info=True)
+    return {}
+
+
+def _pep_manifest_data_types(manifest: Dict[str, Any]) -> List[str]:
+    values = []
+    if manifest.get("has_profile"):
+        values.append("Profile")
+    if manifest.get("has_vj_usage"):
+        values.append("VJ usage")
+    if manifest.get("has_mait_nkt_tra"):
+        values.append("TRA")
+    return values
+
+
+def _pep_cache_label(source_job_id: str, usage_type: str, cache_type: str) -> str:
+    prefix = source_job_id or "PEP cache"
+    if cache_type == "tra_shared":
+        return f"{prefix} TRA"
+    if cache_type == "umapin_table":
+        return f"{prefix} UMAPin"
+    return f"{prefix} {usage_type or 'usage'}"
+
+
+def _pep_cache_file_count(path: Path) -> int:
+    try:
+        if path.exists() and path.is_file():
+            return 1 if path.suffix.lower() in {".csv", ".gz", ".tsv", ".xlsx"} else 0
+        if path.exists() and path.is_dir():
+            return len([item for item in path.iterdir() if item.is_file() and item.name.lower().endswith((".csv", ".csv.gz", ".tsv", ".tsv.gz", ".xlsx"))])
+    except OSError:
+        return 0
+    return 0
+
+
+def _pep_cache_path_summary(path: Path) -> str:
+    parts = [part for part in path.parts if part not in ("\\", "/")]
+    return str(Path(*parts[-4:])) if parts else str(path)
+
 
 @bp.route("/cached-usage/<asset_id>/inspect", methods=["GET"])
 def inspect_cached_usage(asset_id: str):

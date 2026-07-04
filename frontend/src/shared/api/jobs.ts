@@ -49,6 +49,21 @@ export interface JobEventResponse {
   status: string;
 }
 
+export interface DeleteJobResponse {
+  success: boolean;
+  deleted_job?: JobSummary;
+  deleted_children?: number;
+  deleted_assets?: string[];
+  deleted_paths?: string[];
+  skipped_paths?: string[];
+  errors?: string[];
+}
+
+export interface BulkDeleteJobsResponse {
+  success: boolean;
+  results: Array<DeleteJobResponse & { job_id: string; error?: string }>;
+}
+
 export function listJobs(params: { projectId?: string; status?: string; limit?: number } = {}) {
   return apiClient.get<JobListResponse>("/api/jobs", {
     project_id: params.projectId,
@@ -67,6 +82,9 @@ export function submitJob({ module, payload, projectId, forceRerun }: SubmitJobP
     payload,
     project_id: projectId,
     force_rerun: forceRerun
+  }).then((response) => {
+    apiClient.invalidatePath("/api/jobs");
+    return response;
   });
 }
 
@@ -83,5 +101,26 @@ export function jobEventsUrl(jobId: string) {
 }
 
 export function cancelJob(jobId: string) {
-  return apiClient.post<JobDetailResponse>(`/api/jobs/${jobId}/cancel`);
+  return apiClient.post<JobDetailResponse>(`/api/jobs/${jobId}/cancel`).then((response) => {
+    apiClient.invalidatePath("/api/jobs");
+    return response;
+  });
+}
+
+export function deleteJob(jobId: string, params: { deleteResults?: boolean } = {}) {
+  const query = params.deleteResults ? "?delete_results=1" : "";
+  return apiClient.delete<DeleteJobResponse>(`/api/jobs/${jobId}${query}`).then((response) => {
+    apiClient.invalidatePath("/api/jobs");
+    return response;
+  });
+}
+
+export function bulkDeleteJobs(jobIds: string[], params: { deleteResults?: boolean } = {}) {
+  return apiClient.post<BulkDeleteJobsResponse>("/api/jobs/bulk-delete", {
+    job_ids: jobIds,
+    delete_results: Boolean(params.deleteResults),
+  }).then((response) => {
+    apiClient.invalidatePath("/api/jobs");
+    return response;
+  });
 }

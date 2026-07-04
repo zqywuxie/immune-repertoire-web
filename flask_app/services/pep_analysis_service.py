@@ -1,8 +1,13 @@
 """
 Pep CDR3 Sharing Analysis service.
-Implements steps 2-7 of the Pep_260213 pipeline:
+Implements steps 2-8 of the Pep_260213 pipeline:
   Step 2: CDR3 sharing matrix + V/J/VJ usage matrices
-  Steps 3-7: Group-dependent analyses (categorization, heatmap, classification, arrangement)
+  Step 3: Add profile group category to shared matrices
+  Step 4: Add profile group category to usage matrices
+  Step 5: Differential usage heatmaps
+  Step 6: CDR3 classification statistics
+  Step 7: CDR3 arrangement heatmaps
+  Step 8: Unique CDR3 heatmaps and summary heatmap
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ from __future__ import annotations
 import csv
 import heapq
 import json
+import logging
 import os
 import re
 import threading
@@ -29,6 +35,8 @@ import pandas as pd
 import seaborn as sns
 from scipy.stats import mannwhitneyu
 
+logger = logging.getLogger(__name__)
+
 from flask_app.services.figure_style import (
     MUTED_BLUE_RED_CMAP,
     MUTED_DIVERGING_CMAP,
@@ -44,6 +52,24 @@ _PLOT_LOCK = threading.Lock()
 REFERENCE_CATEGORY_ORDER = ["before", "after"]
 REFERENCE_STEP8_SECTION_CATEGORIES = [("T1DM__count", "T1DM unique")]
 PEP_MAX_ARRANGE_HEATMAP_ROWS = 3000
+PEP_STEP_SCRIPTS = {
+    1: ("step1_move_file", "1.move_file.ipynb"),
+    2: ("step2_pep_shared", "2.Pep_shared.py"),
+    3: ("step3_add_cate_shared", "3.add_cate_shared.py"),
+    4: ("step4_add_cate_usage", "4.add_cate_usage.py"),
+    5: ("step5_heatmap", "5.Heat_map_Thread.py"),
+    6: ("step6_pep_statistication", "6.Pep_statistication.py"),
+    7: ("step7_cdr3_arrage_heatmap", "7.CDR3_arrage_heatmap_ver1.0.py"),
+    8: ("step8_unique_cdr3_heatmap", "8.plot_heatmap.py"),
+}
+PEP_GROUP_STEP_FRACTIONS = {
+    3: (0.00, 0.13),
+    4: (0.13, 0.27),
+    5: (0.27, 0.62),
+    6: (0.62, 0.81),
+    7: (0.81, 0.92),
+    8: (0.92, 1.00),
+}
 
 def _try_read_csv(filepath, **kwargs):
     """Read CSV/TSV with encoding fallback."""
@@ -86,6 +112,21 @@ def _infer_chain_from_path(path: Path) -> str:
         ):
             return chain
     return ""
+
+
+def _pep_sample_name_from_path(path: Path, chain: str) -> str:
+    stem = _strip_table_suffix(path.name)
+    for suffix in (f"__{chain}", f"_{chain}", f"-{chain}"):
+        if stem.upper().endswith(suffix.upper()):
+            return stem[:-len(suffix)]
+    return stem
+
+
+def _sample_match_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"\.(csv|tsv|txt|gz|xlsx?)$", "", text)
+    text = re.sub(r"(__|-|_)?(tra|trb|trg|trd|igh|igk|igl)$", "", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
 
 
 def _is_table_file(path: Path) -> bool:
@@ -170,6 +211,8 @@ class PepAnalysisService:
         min_sample_threshold: int = 3,
         output_name: Optional[str] = None,
         optional_steps: Optional[set] = None,
+        selected_samples: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
         progress_callback=None,
     ) -> PepAnalysisReport:
         pep_dir = Path(pep_data_dir)
@@ -182,6 +225,18 @@ class PepAnalysisService:
 
         profile_df = _try_read_csv(profile_file, low_memory=False)
         profile_df.fillna(0, inplace=True)
+        selected_sample_keys = {
+            _sample_match_key(sample)
+            for sample in (selected_samples or [])
+            if _sample_match_key(sample)
+        }
+        if selected_sample_keys and not profile_df.empty:
+            sample_col = profile_df.columns[0]
+            profile_df = profile_df[
+                profile_df[sample_col].map(_sample_match_key).isin(selected_sample_keys)
+            ].copy()
+            if profile_df.empty:
+                raise ValueError("No Profile rows matched the selected Pep Analysis samples")
 
         for gf in group_fields:
             if gf not in profile_df.columns:
@@ -196,26 +251,107 @@ class PepAnalysisService:
         output_base = self.output_parent / job_id
         output_base.mkdir(parents=True, exist_ok=True)
 
-        total_steps = 2 + len(group_fields) * 5  # step2 + (3-7) per group
-        current_step = [0]
+        group_index = {field: index for index, field in enumerate(group_fields)}
+        group_span = 63.0 / max(len(group_fields), 1)
+        last_progress = [0.0]
+
+        def _step_int(meta: Dict[str, Any]) -> Optional[int]:
+            raw_step = meta.get("step")
+            if isinstance(raw_step, int):
+                return raw_step
+            text = str(raw_step or "").strip()
+            return int(text) if text.isdigit() else None
+
+        def _progress_fraction(meta: Dict[str, Any]) -> float:
+            try:
+                processed = float(meta.get("processed", 0))
+                total = float(meta.get("total", 0))
+            except (TypeError, ValueError):
+                return 0.0
+            if total <= 0:
+                return 0.0
+            return max(0.0, min(1.0, processed / total))
+
+        def _weighted_pct(meta: Dict[str, Any], fallback: float) -> float:
+            if meta.get("absolute_pct"):
+                return fallback
+            step = _step_int(meta)
+            fraction = _progress_fraction(meta)
+            if step == 1:
+                return 1.0 + 4.0 * fraction
+            if step == 2:
+                return 5.0 + 30.0 * fraction
+            if step in PEP_GROUP_STEP_FRACTIONS:
+                gf = str(meta.get("group_field") or group_fields[0] if group_fields else "").strip()
+                idx = group_index.get(gf, 0)
+                start_frac, end_frac = PEP_GROUP_STEP_FRACTIONS[step]
+                return 35.0 + idx * group_span + group_span * (
+                    start_frac + (end_frac - start_frac) * fraction
+                )
+            return fallback
+
+        def _enrich_meta(meta: Optional[Dict]) -> Dict[str, Any]:
+            clean_meta = dict(meta or {})
+            step = _step_int(clean_meta)
+            if step in PEP_STEP_SCRIPTS:
+                step_key, script = PEP_STEP_SCRIPTS[step]
+                clean_meta.setdefault("step_key", step_key)
+                clean_meta.setdefault("script", script)
+            clean_meta.setdefault("module", "pep-analysis")
+            return clean_meta
+
+        def _emit(pct: float, msg: str, meta: Optional[Dict] = None):
+            clean_meta = _enrich_meta(meta)
+            weighted = _weighted_pct(clean_meta, pct)
+            if weighted < 100:
+                weighted = min(weighted, 98.0)
+            weighted = max(last_progress[0], weighted)
+            last_progress[0] = weighted
+            if progress_callback:
+                progress_callback(weighted, "Pep Analysis", msg, clean_meta)
 
         def _progress(msg: str, meta: Optional[Dict] = None):
-            current_step[0] += 1
-            pct = min(5 + int(current_step[0] / max(total_steps, 1) * 93), 98)
-            if progress_callback:
-                progress_callback(pct, "Pep Analysis", msg, meta or {})
+            fallback = min(last_progress[0] + 0.5, 98.0)
+            _emit(fallback, msg, meta)
 
         def _status(pct: float, msg: str, meta: Optional[Dict] = None):
-            if progress_callback:
-                progress_callback(pct, "Pep Analysis", msg, meta or {})
+            _emit(pct, msg, meta)
 
         # ---- Step 2: CDR3 sharing analysis (per chain, GROUP-INDEPENDENT) ----
-        _progress("Step 2: Scanning pep files by chain", {"step": 2})
+        _status(
+            1,
+            "Step 1: Preparing PEP inputs (1.move_file.ipynb equivalent)",
+            {"step": 1, "stage": "step1_prepare_inputs", "processed": 0, "total": 1},
+        )
+        _status(
+            5,
+            "Step 1: Input validation complete",
+            {"step": 1, "stage": "step1_prepare_inputs", "processed": 1, "total": 1},
+        )
+        _progress(
+            "Step 2: Scanning pep files by chain",
+            {"step": 2, "stage": "step2_scan_pep_files", "processed": 0, "total": max(len(chains), 1)},
+        )
         chain_files: Dict[str, List[str]] = {chain: [] for chain in chains}
         for file_path in sorted(path for path in pep_dir.rglob("*") if path.is_file() and _is_table_file(path)):
             chain = _infer_chain_from_path(file_path)
             if chain in chains:
+                if selected_sample_keys:
+                    sample_name = _pep_sample_name_from_path(file_path, chain)
+                    if _sample_match_key(sample_name) not in selected_sample_keys:
+                        continue
                 chain_files.setdefault(chain, []).append(str(file_path))
+        if selected_sample_keys:
+            _status(
+                12,
+                f"Step 2: selected sample filter kept {sum(len(items) for items in chain_files.values())} pep files",
+                {
+                    "step": 2,
+                    "stage": "step2_filter_selected_samples",
+                    "selected_sample_count": len(selected_sample_keys),
+                    "chain_file_counts": {chain: len(chain_files.get(chain, [])) for chain in chains},
+                },
+            )
 
         shared_matrix_paths: List[str] = []
         usage_paths: List[str] = []
@@ -224,7 +360,16 @@ class PepAnalysisService:
             files = chain_files.get(chain, [])
             if not files:
                 continue
-            _progress(f"Step 2: CDR3 sharing for {chain} ({len(files)} files)", {"step": 2, "chain": chain})
+            _progress(
+                f"Step 2: CDR3 sharing for {chain} ({len(files)} files)",
+                {
+                    "step": 2,
+                    "stage": "step2_read_files",
+                    "chain": chain,
+                    "processed": chains.index(chain),
+                    "total": max(len(chains), 1),
+                },
+            )
 
             def _step2_progress(
                 processed: int,
@@ -251,11 +396,13 @@ class PepAnalysisService:
                     {
                         "step": 2,
                         "chain": chain_name,
+                        "stage": f"step2_{phase}",
                         "phase": phase,
                         "processed": processed,
                         "total": total,
                         "current_file": current_file,
                         "label": label,
+                        "absolute_pct": True,
                     },
                 )
 
@@ -270,6 +417,7 @@ class PepAnalysisService:
 
         # ---- Which optional steps to run? ----
         requested_optional = {5, 6, 7, 8} if optional_steps is None else set(optional_steps)
+        requested_optional = {step for step in requested_optional if step in {5, 6, 7, 8}}
         run_optional = set(requested_optional)
         if 7 in run_optional or 8 in run_optional:
             # Steps 7/8 read Step 6's arrage_pep outputs, so Step 6 is a dependency.
@@ -377,11 +525,21 @@ class PepAnalysisService:
 
             if 5 in run_optional:
                 optional_tasks[5] = lambda: self._run_step5_for_group(
-                    chains, usage_cate_base, field_dir, pvalue_threshold
+                    chains, usage_cate_base, field_dir, pvalue_threshold,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 5 [{gf}]: {message}",
+                        {"step": 5, "group_field": gf, "stage": "step5_heatmap", **(meta or {})},
+                    ),
                 )
             if 6 in run_optional:
                 optional_tasks[6] = lambda: self._run_step6_for_group(
-                    chains, pep_shared_cate_dir, field_dir, min_sample_threshold
+                    chains, pep_shared_cate_dir, field_dir, min_sample_threshold,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 6 [{gf}]: {message}",
+                        {"step": 6, "group_field": gf, "stage": "step6_pep_statistication", **(meta or {})},
+                    ),
                 )
 
             if optional_tasks:
@@ -408,9 +566,25 @@ class PepAnalysisService:
 
             dependent_tasks = {}
             if 7 in run_optional:
-                dependent_tasks[7] = lambda: self._run_step7_for_group(chains, field_dir)
+                dependent_tasks[7] = lambda: self._run_step7_for_group(
+                    chains,
+                    field_dir,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 7 [{gf}]: {message}",
+                        {"step": 7, "group_field": gf, "stage": "step7_cdr3_arrage_heatmap", **(meta or {})},
+                    ),
+                )
             if 8 in run_optional:
-                dependent_tasks[8] = lambda: self._run_step8_for_group(chains, field_dir)
+                dependent_tasks[8] = lambda: self._run_step8_for_group(
+                    chains,
+                    field_dir,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 8 [{gf}]: {message}",
+                        {"step": 8, "group_field": gf, "stage": "step8_unique_cdr3_heatmap", **(meta or {})},
+                    ),
+                )
 
             if dependent_tasks:
                 _progress(f"Steps {sorted(dependent_tasks.keys())} [{gf}]: Running after Step 6 dependency",
@@ -425,6 +599,10 @@ class PepAnalysisService:
                         try:
                             result = future.result()
                             optional_task_results[step_num] = result
+                            _progress(
+                                f"Step {step_num} [{gf}]: completed",
+                                {"step": step_num, "group_field": gf},
+                            )
                         except Exception as exc:
                             _progress(f"Step {step_num} [{gf}]: failed — {exc}",
                                       {"step": step_num, "group_field": gf, "error": str(exc)})
@@ -467,6 +645,70 @@ class PepAnalysisService:
             if combined_path and str(combined_path) not in usage_paths:
                 usage_paths.append(str(combined_path))
 
+        step_output_counts = {
+            1: {
+                "input_paths": sum(len(items) for items in chain_files.values()),
+                "profile_files": 1 if profile_file.exists() else 0,
+            },
+            2: {
+                "shared_csv": len(shared_matrix_paths),
+                "usage_csv": len(usage_paths),
+            },
+            3: {
+                "shared_cate_csv": len([
+                    path for gf in group_fields
+                    for path in (output_base / gf / "Pep_shared_cate" / "Pep_shared").glob("*.csv")
+                ]),
+            },
+            4: {
+                "usage_cate_csv": len([
+                    path for gf in group_fields
+                    for path in (output_base / gf / "usage_cate" / "usage").rglob("*.csv")
+                ]),
+            },
+            5: {
+                "heatmap_images": len(heatmap_image_paths),
+                "heatmap_csv": len(heatmap_csv_paths),
+            },
+            6: {
+                "classification_csv": len(classification_paths),
+                "proportion_csv": len(proportion_paths),
+                "proportion_images": len(proportion_plot_paths),
+            },
+            7: {
+                "arrange_heatmap_images": len(arrange_heatmap_paths),
+            },
+            8: {
+                "unique_cdr3_heatmap_images": len(plot_heatmap_paths),
+            },
+        }
+
+        step_skip_reasons: Dict[int, str] = {}
+        for optional_step in (5, 6, 7, 8):
+            if optional_step not in run_optional:
+                step_skip_reasons[optional_step] = "Step was not selected in optional_steps."
+        if 5 in run_optional and not any(step_output_counts[5].values()):
+            step_skip_reasons[5] = "No categorized usage CSV files were available for Step 5 heatmaps."
+        if 6 in run_optional and not any(step_output_counts[6].values()):
+            step_skip_reasons[6] = "No categorized Pep_shared CSV files were available for Step 6 statistics."
+        if 7 in run_optional and not any(step_output_counts[7].values()):
+            step_skip_reasons[7] = "No Step 6 arrage_pep CSV outputs were available for Step 7 heatmaps."
+        if 8 in run_optional and not any(step_output_counts[8].values()):
+            step_skip_reasons[8] = "No Step 6 arrage_pep CSV outputs were available for Step 8 heatmaps."
+        step_summary = [
+            {
+                "step": step,
+                "step_key": PEP_STEP_SCRIPTS[step][0],
+                "script": PEP_STEP_SCRIPTS[step][1],
+                "status": "completed" if any(step_output_counts.get(step, {}).values()) or step in {1, 2, 3, 4} else "skipped",
+                "mode": "asset" if step == 1 else ("required" if step in {2, 3, 4} else "optional"),
+                "skip_reason": step_skip_reasons.get(step, ""),
+                "output_counts": step_output_counts.get(step, {}),
+                "errors": [err for err in all_optional_step_errors if err.get("step") == step],
+            }
+            for step in range(1, 9)
+        ]
+
         # ---- Generate ZIP ----
         zip_path = output_base / "pep_analysis_results.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -478,17 +720,119 @@ class PepAnalysisService:
                     arcname = str(fp.relative_to(output_base))
                     zf.write(fp, arcname)
 
+        generated_at = datetime.now().isoformat()
+        profile_sample_col = profile_df.columns[0] if len(profile_df.columns) else ""
+        sample_list = (
+            profile_df[profile_sample_col].dropna().astype(str).tolist()
+            if profile_sample_col else sorted(selected_sample_keys)
+        )
+        output_files = {
+            "pep_shared": {
+                chain: str(output_base / "Pep_shared" / f"{chain}.csv")
+                for chain in chains
+                if (output_base / "Pep_shared" / f"{chain}.csv").exists()
+            },
+            "usage_types": {
+                usage_type: str(output_base / "usage" / usage_type)
+                for usage_type in ["0Vusage", "1Vusage", "0Jusage", "1Jusage", "0VJusage", "1VJusage"]
+                if (output_base / "usage" / usage_type).exists()
+            },
+            "umapin_tables": {
+                "df_VJ_all": str(df_vj_all_path) if df_vj_all_path else "",
+                "df_1VJusage_all": str(df_1vj_all_path) if df_1vj_all_path else "",
+            },
+            "group_dirs": {
+                gf: {
+                    "pep_shared_cate": str(output_base / gf / "Pep_shared_cate" / "Pep_shared"),
+                    "usage_cate": str(output_base / gf / "usage_cate" / "usage"),
+                    "arrage_pep": str(output_base / gf / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"),
+                    "plot_heatmap": str(output_base / gf / "plot_heatmap"),
+                }
+                for gf in group_fields
+            },
+        }
+        has_vj_usage = any(
+            Path(path).exists()
+            for key, path in output_files["usage_types"].items()
+            if "VJ" in key.upper()
+        ) or bool(df_vj_all_path or df_1vj_all_path)
+        has_tra = bool(output_files["pep_shared"].get("TRA"))
+        image_files = (
+            self._build_pep_image_manifest(output_base, heatmap_image_paths, 5, "Differential heatmaps", "heatmap", generated_at)
+            + self._build_pep_image_manifest(output_base, proportion_plot_paths, 6, "CDR3 classification proportions", "proportion", generated_at)
+            + self._build_pep_image_manifest(output_base, arrange_heatmap_paths, 7, "CDR3 arrangement heatmaps", "arrangement_heatmap", generated_at)
+            + self._build_pep_image_manifest(output_base, plot_heatmap_paths, 8, "Unique CDR3 heatmaps", "unique_cdr3_heatmap", generated_at)
+        )
+        available_steps = sorted({
+            int(item.get("step"))
+            for item in step_summary
+            if str(item.get("status") or "").lower() == "completed"
+            and str(item.get("step") or "").isdigit()
+        })
+        available_data_types = []
+        if profile_file.exists():
+            available_data_types.append("profile")
+        if has_vj_usage:
+            available_data_types.append("VJ usage")
+        if any(str(chain).upper() == "TRA" for chain in chains) or has_tra:
+            available_data_types.append("TRA")
+        if arrange_heatmap_paths:
+            available_data_types.append("Step7 images")
+        cache_manifest = {
+            "cache_id": job_id,
+            "analysis_type": "pep-analysis",
+            "created_at": generated_at,
+            "project_id": project_id or "",
+            "project_name": "",
+            "job_id": job_id,
+            "output_base": str(output_base),
+            "profile_path": str(profile_file),
+            "pep_data_dir": str(pep_dir),
+            "sample_list": sample_list,
+            "sample_count": len(sample_list),
+            "chains": chains,
+            "chain_list": chains,
+            "group_fields": group_fields,
+            "output_files": output_files,
+            "result_files": output_files,
+            "image_files": image_files,
+            "available_steps": available_steps,
+            "available_data_types": available_data_types,
+            "has_vj_usage": has_vj_usage,
+            "has_profile": profile_file.exists(),
+            "has_mait_nkt_tra": has_tra,
+            "has_ml_profile": profile_file.exists(),
+            "has_ml_vj": has_vj_usage,
+            "has_tra": has_tra,
+            "has_step7_images": bool(arrange_heatmap_paths),
+            "downstream": {
+                "mait-nkt": has_tra,
+                "volcano": has_vj_usage,
+                "umapin": has_vj_usage,
+                "ml-analysis": profile_file.exists() or has_vj_usage,
+            },
+            "step_summary": step_summary,
+            "skip_reasons": {
+                str(item["step"]): item.get("skip_reason", "")
+                for item in step_summary
+                if item.get("status") == "skipped" and item.get("skip_reason")
+            },
+        }
+
         metadata = {
             "job_id": job_id,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": generated_at,
             "pep_data_dir": str(pep_dir),
             "profile_path": str(profile_file),
             "group_fields": group_fields,
             "selected_chains": chains,
+            "selected_sample_count": len(selected_sample_keys),
             "pvalue_threshold": pvalue_threshold,
             "min_sample_threshold": min_sample_threshold,
             "optional_steps_requested": sorted(requested_optional),
             "optional_steps_run": sorted(run_optional),
+            "step_summary": step_summary,
+            "image_files": image_files,
             "output_counts": {
                 "shared_matrix": len(shared_matrix_paths),
                 "usage": len(usage_paths),
@@ -499,6 +843,20 @@ class PepAnalysisService:
                 "proportion_plot": len(proportion_plot_paths),
                 "arrange_heatmap": len(arrange_heatmap_paths),
                 "plot_heatmap": len(plot_heatmap_paths),
+            },
+            "step7": {
+                "input_dirs": [
+                    str(output_base / gf / "arrage_pep" / "Pep_shared_cate" / "Pep_shared")
+                    for gf in group_fields
+                ],
+                "output_dirs": [
+                    str(output_base / gf / "CDR3_arrage_heatmap")
+                    for gf in group_fields
+                ],
+                "image_count": len(arrange_heatmap_paths),
+                "image_files": [
+                    item for item in image_files if str(item.get("step") or "") == "7"
+                ],
             },
             "optional_step_errors": all_optional_step_errors,
             "chain_file_counts": {c: len(chain_files.get(c, [])) for c in chains},
@@ -523,7 +881,13 @@ class PepAnalysisService:
                     if path.exists()
                 ],
             },
+            "cache_manifest": cache_manifest,
+            "cache_manifest_path": str(output_base / "cache_manifest.json"),
         }
+        (output_base / "cache_manifest.json").write_text(
+            json.dumps(cache_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self._update_cache_registry(cache_manifest)
         (output_base / "pep_analysis_metadata.json").write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -550,6 +914,51 @@ class PepAnalysisService:
     # ============================================================
     # Step 2: CDR3 Sharing Analysis
     # ============================================================
+    @staticmethod
+    def _build_pep_image_manifest(
+        output_base: Path,
+        paths: List[str],
+        step: int,
+        data_category: str,
+        image_type: str,
+        created_at: str,
+    ) -> List[Dict[str, Any]]:
+        entries: List[Dict[str, Any]] = []
+        for raw_path in paths or []:
+            path = Path(str(raw_path or ""))
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                rel = path.relative_to(output_base).as_posix()
+            except Exception:
+                rel = path.name
+            parts = rel.split("/")
+            group_field = parts[0] if len(parts) > 2 else "Summary"
+            chain = path.stem.split("_", 1)[0].upper() if path.stem else ""
+            if path.name.upper().startswith("ALL_"):
+                chain = "ALL"
+            filter_dimensions = ["group_field", "chain", "image_type"]
+            if step == 7 or image_type == "arrangement_heatmap":
+                group_field = ""
+                filter_dimensions = ["chain"]
+            image_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"pep_step{step}_{rel}").strip("_")
+            entries.append({
+                "image_id": image_id,
+                "image_path": rel,
+                "image_name": path.name,
+                "analysis_type": "PEP",
+                "step": str(step),
+                "data_category": data_category,
+                "image_type": image_type,
+                "chain": chain,
+                "group": group_field,
+                "group_field": group_field,
+                "comparison": "",
+                "filter_dimensions": filter_dimensions,
+                "created_at": created_at,
+            })
+        return entries
+
     @staticmethod
     def _write_combined_usage(source_dir: Path, output_path: Path) -> Optional[Path]:
         if not source_dir.exists() or not source_dir.is_dir():
@@ -1103,61 +1512,205 @@ class PepAnalysisService:
     # Steps 5-8: Per-group optional helpers (called in parallel)
     # ============================================================
 
-    def _run_step5_for_group(self, chains, usage_cate_base, field_dir, pvalue_threshold):
+    def _run_step5_for_group(self, chains, usage_cate_base, field_dir, pvalue_threshold, progress_callback=None):
         """Step 5: Heatmap with Mann-Whitney U test for one group field."""
         images, csvs = [], []
         heatmap_base = field_dir / "heatmap"
         heatmap_base.mkdir(parents=True, exist_ok=True)
-        for usage_type in ["0Vusage", "1Vusage", "0Jusage", "1Jusage", "0VJusage", "1VJusage"]:
-            src_dir = usage_cate_base / usage_type
-            if src_dir.exists():
-                for chain in chains:
-                    src = src_dir / f"{chain}.csv"
-                    if src.exists():
-                        with _PLOT_LOCK:
-                            h_imgs, h_csvs = self._run_heatmap(
-                                src, heatmap_base / usage_type / chain, pvalue_threshold
-                            )
-                        images.extend(h_imgs)
-                        csvs.extend(h_csvs)
+        planned = [
+            (usage_type, chain, usage_cate_base / usage_type / f"{chain}.csv")
+            for usage_type in ["0Vusage", "1Vusage", "0Jusage", "1Jusage", "0VJusage", "1VJusage"]
+            for chain in chains
+            if (usage_cate_base / usage_type / f"{chain}.csv").exists()
+        ]
+        total = max(len(planned), 1)
+        if progress_callback:
+            progress_callback(
+                f"processing {len(planned)} usage files",
+                {"stage": "step5_load_usage_cate", "processed": 0, "total": total},
+            )
+        for index, (usage_type, chain, src) in enumerate(planned, start=1):
+            if progress_callback:
+                progress_callback(
+                    f"running heatmap {index}/{total} ({usage_type}, {chain})",
+                    {
+                        "stage": "step5_compute_mwu",
+                        "usage_type": usage_type,
+                        "chain": chain,
+                        "processed": index - 1,
+                        "total": total,
+                    },
+                )
+            with _PLOT_LOCK:
+                h_imgs, h_csvs = self._run_heatmap(
+                    src, heatmap_base / usage_type / chain, pvalue_threshold
+                )
+            images.extend(h_imgs)
+            csvs.extend(h_csvs)
+            if progress_callback:
+                progress_callback(
+                    f"heatmap complete {index}/{total} ({usage_type}, {chain})",
+                    {
+                        "stage": "step5_write_heatmap_png",
+                        "usage_type": usage_type,
+                        "chain": chain,
+                        "processed": index,
+                        "total": total,
+                    },
+                )
         return images, csvs
 
-    def _run_step6_for_group(self, chains, pep_shared_cate_dir, field_dir, min_sample_threshold):
+    def _run_step6_for_group(self, chains, pep_shared_cate_dir, field_dir, min_sample_threshold, progress_callback=None):
         """Step 6: CDR3 classification statistics for one group field."""
         arr_paths, prp_paths, prp_plot_paths = [], [], []
         arrage_base = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
         prop_base = field_dir / "prop_pep" / "Pep_shared_cate" / "Pep_shared"
         arrage_base.mkdir(parents=True, exist_ok=True)
         prop_base.mkdir(parents=True, exist_ok=True)
-        for chain in chains:
-            src = pep_shared_cate_dir / f"{chain}.csv"
-            if src.exists():
-                arr_path, prp_path = self._run_classification(
-                    src, arrage_base / f"{chain}.csv", prop_base / f"{chain}.csv",
-                    min_sample_threshold
+        planned = [(chain, pep_shared_cate_dir / f"{chain}.csv") for chain in chains if (pep_shared_cate_dir / f"{chain}.csv").exists()]
+        total = max(len(planned), 1)
+        if progress_callback:
+            progress_callback(
+                f"processing {len(planned)} shared files",
+                {"stage": "step6_load_shared_cate", "processed": 0, "total": total},
+            )
+        for index, (chain, src) in enumerate(planned, start=1):
+            if progress_callback:
+                progress_callback(
+                    f"running classification {index}/{total} ({chain})",
+                    {
+                        "stage": "step6_count_combinations",
+                        "chain": chain,
+                        "processed": index - 1,
+                        "total": total,
+                    },
                 )
-                if arr_path:
-                    arr_paths.append(arr_path)
-                if prp_path:
-                    prp_paths.append(prp_path)
+            arr_path, prp_path = self._run_classification(
+                src, arrage_base / f"{chain}.csv", prop_base / f"{chain}.csv",
+                min_sample_threshold
+            )
+            if arr_path:
+                arr_paths.append(arr_path)
+            if prp_path:
+                prp_paths.append(prp_path)
+            if progress_callback:
+                progress_callback(
+                    f"classification complete {index}/{total} ({chain})",
+                    {
+                        "stage": "step6_write_prop_pep",
+                        "chain": chain,
+                        "processed": index,
+                        "total": total,
+                    },
+                )
         return arr_paths, prp_paths, prp_plot_paths
 
-    def _run_step7_for_group(self, chains, field_dir):
+    def _run_step7_for_group(self, chains, field_dir, progress_callback=None):
         """Step 7: CDR3 arrangement heatmap for one group field."""
         paths = []
         arrange_dir = field_dir / "CDR3_arrage_heatmap"
         arrange_dir.mkdir(parents=True, exist_ok=True)
         arrage_src_base = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
-        for chain in chains:
-            arr_src = arrage_src_base / f"{chain}.csv"
-            if arr_src.exists():
+        planned = [(chain, arrage_src_base / f"{chain}.csv") for chain in chains if (arrage_src_base / f"{chain}.csv").exists()]
+        total = max(len(planned), 1)
+        if progress_callback:
+            progress_callback(
+                f"Step7 started: processing {len(planned)} arrage files",
+                {
+                    "stage": "step7_start",
+                    "processed": 0,
+                    "total": total,
+                    "input_dir": str(arrage_src_base),
+                    "output_dir": str(arrange_dir),
+                },
+            )
+        if not planned:
+            if progress_callback:
+                progress_callback(
+                    "skipped: no Step 6 arrage_pep CSV files found",
+                    {
+                        "stage": "step7_missing_dependency",
+                        "processed": 1,
+                        "total": 1,
+                        "input_dir": str(arrage_src_base),
+                        "output_dir": str(arrange_dir),
+                        "skip_reason": "missing_step6_arrage_pep",
+                    },
+                )
+            return paths
+        for index, (chain, arr_src) in enumerate(planned, start=1):
+            out_path = arrange_dir / f"{chain}.png"
+            if progress_callback:
+                progress_callback(
+                    f"plotting arrange heatmap {index}/{total} ({chain})",
+                    {
+                        "stage": "step7_plot_arrange_heatmap",
+                        "chain": chain,
+                        "processed": index - 1,
+                        "total": total,
+                        "input_path": str(arr_src),
+                        "output_path": str(out_path),
+                    },
+                )
+            try:
                 with _PLOT_LOCK:
-                    png_path = self._run_arrange_heatmap(arr_src, arrange_dir / f"{chain}.png")
-                if png_path:
-                    paths.append(png_path)
+                    png_path = self._run_arrange_heatmap(arr_src, out_path)
+            except Exception as exc:
+                logger.warning("Step7 arrange heatmap failed for %s: %s", arr_src, exc, exc_info=True)
+                png_path = None
+                if progress_callback:
+                    progress_callback(
+                        f"Step7 failed for {chain}: {exc}",
+                        {
+                            "stage": "step7_failed",
+                            "chain": chain,
+                            "processed": index,
+                            "total": total,
+                            "input_path": str(arr_src),
+                            "output_path": str(out_path),
+                            "error": str(exc),
+                        },
+                    )
+            if png_path:
+                paths.append(png_path)
+            elif progress_callback:
+                progress_callback(
+                    f"Step7 skipped {chain}: no drawable matrix",
+                    {
+                        "stage": "step7_no_image",
+                        "chain": chain,
+                        "processed": index,
+                        "total": total,
+                        "input_path": str(arr_src),
+                        "output_path": str(out_path),
+                        "skip_reason": "empty_or_invalid_step7_matrix",
+                    },
+                )
+            if progress_callback:
+                progress_callback(
+                    f"arrange heatmap complete {index}/{total} ({chain})",
+                    {
+                        "stage": "step7_write_arrange_heatmap",
+                        "chain": chain,
+                        "processed": index,
+                        "total": total,
+                        "generated_image_count": len(paths),
+                    },
+                )
+        if progress_callback:
+            progress_callback(
+                f"Step7 completed: generated {len(paths)} image(s)",
+                {
+                    "stage": "step7_complete",
+                    "processed": total,
+                    "total": total,
+                    "output_dir": str(arrange_dir),
+                    "generated_image_count": len(paths),
+                },
+            )
         return paths
 
-    def _run_step8_for_group(self, chains, field_dir):
+    def _run_step8_for_group(self, chains, field_dir, progress_callback=None):
         """Step 8: Plot heatmap (per-chain unique CDR3 heatmap + summary)."""
         paths = []
         arrage_base = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
@@ -1165,31 +1718,65 @@ class PepAnalysisService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         payloads = []
-        for chain in chains:
-            src = arrage_base / f"{chain}.csv"
-            if src.exists():
-                try:
-                    payload = self._read_plot_heatmap_data(src, chain)
-                    payloads.append(payload)
-                except Exception:
-                    continue
+        readable = [(chain, arrage_base / f"{chain}.csv") for chain in chains if (arrage_base / f"{chain}.csv").exists()]
+        total_read = max(len(readable), 1)
+        if progress_callback:
+            progress_callback(
+                f"reading {len(readable)} arrage files",
+                {"stage": "step8_read_arrage_data", "processed": 0, "total": total_read},
+            )
+        if not readable:
+            if progress_callback:
+                progress_callback(
+                    "skipped: no Step 6 arrage_pep CSV files found",
+                    {"stage": "step8_missing_dependency", "processed": 1, "total": 1, "skip_reason": "missing_step6_arrage_pep"},
+                )
+            return paths
+        for index, (chain, src) in enumerate(readable, start=1):
+            try:
+                payload = self._read_plot_heatmap_data(src, chain)
+                payloads.append(payload)
+            except Exception:
+                continue
+            if progress_callback:
+                progress_callback(
+                    f"read unique CDR3 data {index}/{total_read} ({chain})",
+                    {"stage": "step8_read_arrage_data", "chain": chain, "processed": index, "total": total_read},
+                )
 
         if not payloads:
             return paths
 
         vmax = self._get_plot_heatmap_vmax(payloads)
 
-        for payload in payloads:
+        total_plot = len(payloads) + 1
+        for index, payload in enumerate(payloads, start=1):
             with _PLOT_LOCK:
                 out_path = self._plot_chain_heatmap(payload, vmax, output_dir)
             if out_path:
                 paths.append(out_path)
+            chain_name = str(payload.get("chain") or "")
+            if progress_callback:
+                progress_callback(
+                    f"unique CDR3 heatmap complete {index}/{total_plot} ({chain_name})",
+                    {
+                        "stage": "step8_plot_chain_heatmap",
+                        "chain": chain_name,
+                        "processed": index,
+                        "total": total_plot,
+                    },
+                )
 
         # Summary across all chains
         with _PLOT_LOCK:
             summary_path = self._plot_summary_heatmap(payloads, vmax, output_dir)
         if summary_path:
             paths.append(summary_path)
+        if progress_callback:
+            progress_callback(
+                f"unique CDR3 summary heatmap complete {total_plot}/{total_plot}",
+                {"stage": "step8_plot_summary_heatmap", "chain": "ALL", "processed": total_plot, "total": total_plot},
+            )
 
         return paths
 
@@ -1506,19 +2093,18 @@ class PepAnalysisService:
     @staticmethod
     def _run_arrange_heatmap(src: Path, dst: Path) -> Optional[str]:
         df = _try_read_csv(src)
-        if df.shape[0] == 1:
+        if df.shape[0] <= 1 or df.shape[1] <= 1:
             return None
 
-        data_end = 0
-        for i, val in enumerate(df.iloc[0]):
-            if str(val).strip() == " ":
-                data_end = i
-                break
-        if data_end == 0:
+        data_end = PepAnalysisService._find_step7_sample_end_column(df)
+        if data_end <= 1:
             return None
 
         df_s = df[df.columns[1:data_end]].iloc[1:]
         df_s = df_s.apply(pd.to_numeric, errors="coerce").fillna(0)
+        df_s = df_s.dropna(axis=0, how="all").dropna(axis=1, how="all")
+        if df_s.empty:
+            return None
         df_s[df_s > 1] = 1
         if df_s.shape[0] > PEP_MAX_ARRANGE_HEATMAP_ROWS:
             df_s = df_s.iloc[:PEP_MAX_ARRANGE_HEATMAP_ROWS]
@@ -1531,7 +2117,7 @@ class PepAnalysisService:
             ax.get_yaxis().set_visible(False)
             plt.rcParams.update({"xtick.labelsize": 10})
             dst.parent.mkdir(parents=True, exist_ok=True)
-            save_publication_png(ax.figure, dst)
+            save_publication_png(ax.figure, dst, dpi=180)
             plt.clf()
             plt.close("all")
             return str(dst)
@@ -1540,9 +2126,76 @@ class PepAnalysisService:
             plt.close("all")
             return None
 
+    @staticmethod
+    def _find_step7_sample_end_column(df: pd.DataFrame) -> int:
+        """Find where sample columns end in Step7 arrage_pep CSVs.
+
+        The original script uses a blank marker row before summary/category columns.
+        Pandas may read that marker as a blank string, a single space, or NaN.
+        """
+        if df.empty or df.shape[1] <= 1:
+            return 0
+        first_row = df.iloc[0]
+        for index, value in enumerate(first_row):
+            if index == 0:
+                continue
+            if pd.isna(value) or str(value).strip() == "":
+                return index
+        lower_columns = [str(col).strip().lower() for col in df.columns]
+        for marker in ("all_num", "category"):
+            if marker in lower_columns:
+                return lower_columns.index(marker)
+        for index, column in enumerate(lower_columns):
+            if index > 0 and (column.endswith("__sum") or column in {"sum", "total"}):
+                return index
+        return len(df.columns)
+
     # ============================================================
     # Helpers
     # ============================================================
+    def _update_cache_registry(self, manifest: Dict[str, Any]) -> None:
+        registry_path = self.output_parent / "cache_registry.json"
+        output_base = str(manifest.get("output_base") or "")
+        entry = {
+            "cache_id": manifest.get("cache_id", ""),
+            "analysis_type": manifest.get("analysis_type", "pep-analysis"),
+            "created_at": manifest.get("created_at", ""),
+            "project_id": manifest.get("project_id", ""),
+            "project_name": manifest.get("project_name", ""),
+            "job_id": manifest.get("job_id", ""),
+            "output_base": output_base,
+            "manifest_path": str(Path(output_base) / "cache_manifest.json") if output_base else "",
+            "sample_count": manifest.get("sample_count", 0),
+            "chains": manifest.get("chains", []),
+            "chain_list": manifest.get("chain_list", manifest.get("chains", [])),
+            "group_fields": manifest.get("group_fields", []),
+            "available_steps": manifest.get("available_steps", []),
+            "available_data_types": manifest.get("available_data_types", []),
+            "has_vj_usage": bool(manifest.get("has_vj_usage")),
+            "has_profile": bool(manifest.get("has_profile")),
+            "has_tra": bool(manifest.get("has_tra", manifest.get("has_mait_nkt_tra"))),
+            "has_mait_nkt_tra": bool(manifest.get("has_mait_nkt_tra")),
+            "has_ml_profile": bool(manifest.get("has_ml_profile")),
+            "has_ml_vj": bool(manifest.get("has_ml_vj")),
+            "has_step7_images": bool(manifest.get("has_step7_images")),
+            "downstream": manifest.get("downstream", {}),
+        }
+        try:
+            existing: List[Dict[str, Any]] = []
+            if registry_path.exists():
+                loaded = json.loads(registry_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, list):
+                    existing = [item for item in loaded if isinstance(item, dict)]
+                elif isinstance(loaded, dict) and isinstance(loaded.get("entries"), list):
+                    existing = [item for item in loaded["entries"] if isinstance(item, dict)]
+            cache_id = str(entry.get("cache_id") or "")
+            entries = [item for item in existing if str(item.get("cache_id") or "") != cache_id]
+            entries.append(entry)
+            entries.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+            registry_path.write_text(json.dumps(entries[:200], ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logger.warning("Failed to update PEP cache registry at %s", registry_path, exc_info=True)
+
     @staticmethod
     def _allocate_job_id(name: str) -> str:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

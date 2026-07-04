@@ -1051,24 +1051,32 @@ def generate_heatmap_report():
         results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_similarity_heatmap_report_service(results_root=results_root)
 
+        extra_assets_writer = None
+        if isinstance(cdr3_export_request, dict):
+            def _write_cdr3_shared_assets(output_base: Path) -> Dict[str, Any]:
+                export_service = get_cdr3_export_service()
+                sample_data, top_n = _load_cdr3_export_sample_data(cdr3_export_request)
+                cdr3_output_dir = output_base / 'CDR3_Shared'
+                written_files = export_service.write_complete_export_directory(
+                    output_dir=cdr3_output_dir,
+                    sample_data=sample_data,
+                    include_summary=True,
+                    top_n=top_n,
+                )
+                return {
+                    'cdr3_shared_path': str(cdr3_output_dir.relative_to(output_base)),
+                    'cdr3_shared_file_count': len(written_files),
+                }
+
+            extra_assets_writer = _write_cdr3_shared_assets
+
         run_result = service.generate_report(
             heatmap_result=heatmap_result,
             output_name=data.get('output_name'),
             embed_images=_as_bool(data.get('embed_images'), False),
             context=report_context,
+            extra_assets_writer=extra_assets_writer,
         )
-
-        if isinstance(cdr3_export_request, dict):
-            export_service = get_cdr3_export_service()
-            sample_data, top_n = _load_cdr3_export_sample_data(cdr3_export_request)
-            cdr3_output_dir = run_result.output_base / 'CDR3_Shared_List'
-            export_service.write_complete_export_directory(
-                output_dir=cdr3_output_dir,
-                sample_data=sample_data,
-                include_summary=True,
-                top_n=top_n,
-            )
-            run_result.metadata['cdr3_shared_list_path'] = str(cdr3_output_dir.relative_to(run_result.output_base))
 
         archive_url = None
         archive_path = None

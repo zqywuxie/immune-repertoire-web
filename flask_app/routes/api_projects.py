@@ -1,5 +1,12 @@
 """
 Project, sample, and project-analysis integration APIs.
+
+.. attention:: **DEPRECATED — superseded by FastAPI** ``backend-api/app/api/projects.py`` + ``assets.py``.
+
+   New code should use ``/api/projects``, ``/api/projects/{id}/assets``,
+   ``/api/assets/{id}/preview|download`` via the FastAPI router.  This
+   blueprint is retained for legacy worker asset registration during
+   migration.
 """
 
 from __future__ import annotations
@@ -9,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, redirect, request, send_file
 
 from flask_app.exceptions import StorageError, ValidationError
 from flask_app.models.database import ProjectAsset
@@ -68,11 +75,12 @@ def _paginate_items(items: List[Dict[str, Any]], *, page: int, page_size: int) -
     }
 
 
-def _resolve_asset_file(asset: ProjectAsset) -> Path:
+def _resolve_asset_path(asset: ProjectAsset) -> Path:
     metadata = asset.metadata_json or {}
     fallback_candidates = [
         metadata.get('storage_uri'),
         asset.storage_path,
+        metadata.get('output_base'),
         metadata.get('report_path'),
         metadata.get('viewer_path'),
         metadata.get('file_path'),
@@ -80,10 +88,76 @@ def _resolve_asset_file(asset: ProjectAsset) -> Path:
     storage = get_storage_adapter()
     for candidate in fallback_candidates:
         fallback_path = storage.resolve(candidate)
-        if fallback_path and fallback_path.exists() and fallback_path.is_file():
+        if fallback_path and fallback_path.exists():
             return fallback_path
 
     raise StorageError(message="Asset file is not available", details={'asset_id': asset.id})
+
+
+def _preview_target(path: Path) -> Path:
+    if path.is_file():
+        return path
+    for name in ('viewer.html', 'index.html', 'report.html', 'metadata.html'):
+        candidate = path / name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    for pattern in ('*.html', '*.htm', '*.png', '*.jpg', '*.jpeg', '*.pdf', '*.csv', '*.json'):
+        candidate = next(path.glob(pattern), None)
+        if candidate and candidate.exists() and candidate.is_file():
+            return candidate
+    raise StorageError(message="No previewable result file found", details={'storage_path': str(path)})
+
+
+def _download_target(path: Path) -> Path:
+    if path.is_file():
+        return path
+    for name in (
+        'results.zip',
+        'script_hub_results.zip',
+        'pep_analysis_results.zip',
+        'boxplot_results.zip',
+        'topclone_results.zip',
+        'ml_analysis_results.zip',
+        'mait_nkt_results.zip',
+    ):
+        candidate = path / name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    candidate = next(path.glob('*.zip'), None)
+    if candidate and candidate.exists() and candidate.is_file():
+        return candidate
+    raise StorageError(message="No downloadable result archive found", details={'storage_path': str(path)})
+
+
+def _result_redirect_url(asset: ProjectAsset, *, as_attachment: bool) -> str:
+    if asset.asset_type != 'processed_result':
+        return ''
+    metadata = asset.metadata_json or {}
+    keys = ('zip_url',) if as_attachment else ('viewer_url', 'report_url')
+    for key in keys:
+        url = str(metadata.get(key) or '').strip()
+        if url:
+            return url
+    return ''
+
+
+def _mimetype_for_path(path: Path, fallback: str | None) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix in {'.html', '.htm'}:
+        return 'text/html; charset=utf-8'
+    if suffix == '.json':
+        return 'application/json'
+    if suffix == '.csv':
+        return 'text/csv; charset=utf-8'
+    if suffix == '.png':
+        return 'image/png'
+    if suffix in {'.jpg', '.jpeg'}:
+        return 'image/jpeg'
+    if suffix == '.pdf':
+        return 'application/pdf'
+    if suffix == '.zip':
+        return 'application/zip'
+    return fallback
 
 
 def _get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
@@ -104,12 +178,17 @@ def _get_asset(asset_id: str) -> ProjectAsset:
 
 
 def _send_asset_file(asset: ProjectAsset, *, as_attachment: bool):
-    target_path = _resolve_asset_file(asset)
+    redirect_url = _result_redirect_url(asset, as_attachment=as_attachment)
+    if redirect_url:
+        return redirect(redirect_url)
+
+    resolved_path = _resolve_asset_path(asset)
+    target_path = _download_target(resolved_path) if as_attachment else _preview_target(resolved_path)
     return send_file(
         target_path,
         as_attachment=as_attachment,
         download_name=asset.original_name or target_path.name,
-        mimetype=None if as_attachment else asset.mime_type,
+        mimetype=_mimetype_for_path(target_path, None if as_attachment else asset.mime_type),
     )
 
 
@@ -174,6 +253,8 @@ def _mongo_result_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
         'size': 0,
         'metadata': merged_metadata,
         'metadata_json': merged_metadata,
+        'preview_url': merged_metadata.get('viewer_url') or merged_metadata.get('report_url') or '',
+        'download_url': merged_metadata.get('zip_url') or '',
         'uploaded_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else None,
     }
 
@@ -305,6 +386,8 @@ def upload_project_assets(project_id: str):
     files = request.files.getlist('files')
     relative_paths_raw = request.form.get('relative_paths', '[]')
     replace_existing = str(request.form.get('replace_existing') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    asset_set = str(request.form.get('asset_set') or '').strip()
+    asset_metadata = {'asset_set': asset_set, 'group_label': asset_set} if asset_set else None
 
     try:
         relative_paths = json.loads(relative_paths_raw)
@@ -320,6 +403,7 @@ def upload_project_assets(project_id: str):
         file_storages=files,
         relative_paths=[str(item or '') for item in relative_paths],
         replace_existing=replace_existing,
+        metadata=asset_metadata,
     )
     return jsonify({'assets': [asset.to_dict() for asset in assets]}), 201
 

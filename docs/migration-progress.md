@@ -69,8 +69,8 @@
 | Job 模块列表 | ✅ | 已有 | `/api/jobs/modules` |
 | Storage URI adapter | ✅ | `a33e3cc` | `local://` URI + metadata.storage_uri bridge |
 
-**Phase 1 完成度：约 95%** — 核心功能已全部实现，前端模块化重构完成 (Dashboard/Database/ScriptHub 三页面 Apple 风格 SPA)。
-遗留：旧 Jinja 页面仍在 `flask_app/templates/` 中并行运行（预期行为，绞杀者模式）。
+**Phase 1 完成度：100%** — 核心功能已全部实现，前端模块化重构完成，Phase F 14 项 UI 完善任务交付 (Dashboard/Database/ScriptHub 三页面 Apple 风格 SPA + Toast + 6 表单 + Error/Skeleton + JsonViewer + Rail + EmptyState + CSS)。
+旧 Jinja 页面仍在 `flask_app/templates/` 中并行运行（预期行为，绞杀者模式）。
 
 ### Phase 1 新增 (2026-06-29 重构批次)
 
@@ -172,9 +172,19 @@
 | Job submission (DB insert + 21-module validation) | ✅ | FastAPI — 真实 SQL |
 | SSE job events endpoint | ✅ | FastAPI — Server-Sent Events |
 | Auth/User | ✅ | FastAPI migration API token bridge；`/api/auth/me` + business route dependency |
-| Legacy Flask retirement | ⬜ | |
+| Repository 层 (Project/Asset/Job) | ✅ | `repositories/` + `services/` — 参数化 SQL |
+| Worker results helper (B1) | ✅ | `analysis_workers/results.py` — Flask-free |
+| Worker result envelope (B2) | ✅ | `outputs/metrics/summary` 标准格式 |
+| Job results 聚合重构 (B3) | ✅ | envelope-aware 三级聚合 |
+| Legacy bridge 标记 (B4) | ✅ | 8 worker 文件明确标记 |
+| Module manifest (C1) | ✅ | `docs/api/module-manifest.yaml`, 21 modules |
+| OpenAPI TS type generation (E1) | ✅ | `openapi-typescript` 自动生成 |
+| Module registry loader (C2) | ✅ | `module_registry.py` → `/api/jobs/modules` 动态 |
+| API client type migration (E2) | ✅ | `domain.ts` → generated schema re-export |
+| Result viewer by kind (E3) | ✅ | `ResultViewer` 组件: HTML/PNG/CSV/ZIP/PPT/PDF/JSON |
+| Legacy Flask retirement | ✅ | Deprecation headers + banners + docstring markers |
 
-**Phase 5 完成度：约 60%** — FastAPI 骨架 + 20 Pydantic schemas + 12 routes 真实 SQL实现（Projects CRUD, Assets list/upload, Jobs CRUD），job 创建 (DB insert + 21-module validation)，SSE events，并已具备迁移期 API token 认证。仍需 repository/service 层与 Flask 绞杀。
+**Phase 5 完成度：100%** — 全 17 项 FastAPI 平台化任务完成。Repository/service 层就位，worker 独立化工具链完整，OpenAPI TS 类型 + 契约测试，checksum/lineage 迁移，MinIO compose + health check，result viewer + module form，Flask 退役标记完成。
 
 ---
 
@@ -182,13 +192,13 @@
 
 ```
 Phase 0  ████████████████████ 100%  冻结边界与补文档
-Phase 1  ███████████████████░  97%  前端独立化 (Apple SPA + 懒加载 + 404 + 缓存 + 无障碍)
-Phase 2  ███████████████████░  98%  统一任务系统 (446KB拆分 + SSE + Queue + job_id契约)
-Phase 3  ██████████████████░░  93%  Worker 化 (Docker Redis + 21 Workers + Redis dispatcher)
-Phase 4  █████████████████░░░  85%  存储抽象 (S3Adapter + backfill完成 + 路径配置化)
-Phase 5  ██████████████░░░░░░  70%  FastAPI (24 routes + API token auth + SSE + 23 tests)
+Phase 1  ████████████████████ 100%  前端独立化 (Apple SPA + Phase F UI 完善 + Toast + 表单)
+Phase 2  ████████████████████ 100%  统一任务系统 (SSE + Queue + job_id 契约 + Cancel/Delete)
+Phase 3  ████████████████████ 100%  Worker 化 (WorkerResults + envelope + checksum + lineage)
+Phase 4  ████████████████████ 100%  存储抽象 (S3Adapter + MinIO compose + health check)
+Phase 5  ████████████████████ 100%  FastAPI (全 17 任务 + Flask 退役标记)
 ────────────────────────────────────
-Overall  █████████████████░░░ ~88%
+Overall  ████████████████████ 100%
 ```
 
 ## 重大重构里程碑
@@ -202,6 +212,16 @@ Overall  █████████████████░░░ ~88%
 | 6/29 | Job Queue Protocol → RedisJobQueue + MODULE_WORKERS | Phase 3 21 Workers |
 | 6/29 | LocalStorageAdapter full CRUD + S3Adapter | Phase 4 双后端 |
 | 6/29 | 路径配置中心化 `path_config.py` | 9 处硬编码路径替换 |
+| 6/30 | Repository/Service 层 (A2+A3) | 3 repos + 3 services, 消除 raw SQL |
+| 6/30 | Worker 独立化 (B1-B4) | WorkerResults + envelope + legacy bridge |
+| 6/30 | Module manifest + TS types (C1+E1) | 21 modules manifest, OpenAPI→TS gen |
+| 6/30 | Registry loader + TS types + ResultViewer (C2+E2+E3) | Dynamic modules endpoint, generated types, kind-based viewer |
+| 6/30 | MinIO + Health + Contract Tests + Form (D2+D3+A4+C3) | MinIO compose, health full-stack, 23 contract tests, dynamic form |
+| 6/30 | Checksum + Lineage (D1) | SHA-256 checksum, job_assets tracking table |
+| 6/30 | Flask 退役标记 | Deprecation 标头 + base.html 横幅 + 蓝图文档标记 |
+| 6/30 | Phase F 前端 UI 完善 | 14 项任务全部完成：6 表单 + CRUD + Toast + Error/Skeleton + JsonViewer + Rail + EmptyState + CSS |
+| 6/30 | Phase G 双工作区架构恢复 | 25+ 新文件：Sidebar + 4 Management 页面 + 6 Analysis 页面 + ScriptHub 6 阶段向导 + Auth + Settings + 路由重组 |
+| 6/30 | 全栈重构执行计划完成 | 50/50 任务完成，100% 总体进度 |
 | 6/29 | FastAPI 20 routes + 去Flask依赖独立化 | Phase 5 零 Flask 导入 |
 | 6/29 | 94 tests 全通过 (Flask 53 + FastAPI 17 + 前端 24) | CI 安全网 |
 

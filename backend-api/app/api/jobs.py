@@ -1,13 +1,16 @@
-"""Job API — Phase 5 implementation."""
-
-from typing import Optional
+"""Job API — Phase 5 implementation with repository layer."""
 
 import asyncio
 import json
+import logging
+import sys
+import threading
+from pathlib import Path as FsPath
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path as ApiPath, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..core.auth import require_current_user
@@ -16,41 +19,20 @@ from ..schemas.domain import (
     JobListResponse,
     JobModulesResponse,
     JobResultsResponse,
-    JobSummary,
     SubmitJobRequest,
     SubmitJobResponse,
 )
+from ..services.job_service import JobService
 
 router = APIRouter(tags=["Jobs"], dependencies=[Depends(require_current_user)])
+logger = logging.getLogger(__name__)
+_dispatch_lock = threading.Lock()
+_dispatched_jobs: set[str] = set()
 
 
-def _to_job(row) -> dict:
-    """Map an analysis_jobs row to JobSummary fields."""
-    try:
-        return {
-            "id": str(row[0]) if row[0] else "",
-            "job_id": str(row[1]) if len(row) > 1 and row[1] else None,
-            "job_type": str(row[2]) if len(row) > 2 and row[2] else "",
-            "module": str(row[3]) if len(row) > 3 and row[3] else "",
-            "status": str(row[4]) if len(row) > 4 and row[4] else "queued",
-            "progress": float(row[5]) if len(row) > 5 and row[5] is not None else 0.0,
-            "stage": str(row[6]) if len(row) > 6 and row[6] else None,
-            "detail": str(row[7]) if len(row) > 7 and row[7] else None,
-            "payload": row[8] if len(row) > 8 and isinstance(row[8], dict) else {},
-            "result": row[9] if len(row) > 9 and isinstance(row[9], dict) else {},
-            "error": str(row[10]) if len(row) > 10 and row[10] else None,
-            "project_id": str(row[12]) if len(row) > 12 and row[12] else None,
-            "user_id": row[13] if len(row) > 13 and row[13] is not None else None,
-            "created_at": str(row[14]) if len(row) > 14 and row[14] else None,
-            "updated_at": str(row[15]) if len(row) > 15 and row[15] else None,
-            "started_at": str(row[16]) if len(row) > 16 and row[16] else None,
-            "completed_at": str(row[17]) if len(row) > 17 and row[17] else None,
-        }
-    except (IndexError, TypeError):
-        return {
-            "id": "", "job_type": "", "module": "", "status": "queued",
-            "progress": 0.0, "payload": {}, "result": {},
-        }
+class BulkDeleteJobsRequest(BaseModel):
+    job_ids: list[str] = Field(default_factory=list)
+    delete_results: bool = False
 
 
 @router.get("/jobs", response_model=JobListResponse)
@@ -62,24 +44,12 @@ async def list_jobs(
     db: Session = Depends(get_db),
 ):
     """List background jobs."""
-    conditions = ["1=1"]
-    params: dict = {}
-
-    if project_id:
-        conditions.append("project_id = :project_id")
-        params["project_id"] = project_id
-    if status:
-        conditions.append("status = :status")
-        params["status"] = status
-    if module:
-        conditions.append("module = :module")
-        params["module"] = module
-
-    sql = f"SELECT * FROM analysis_jobs WHERE {' AND '.join(conditions)} ORDER BY created_at DESC LIMIT :limit"
-    params["limit"] = limit
-    rows = db.execute(text(sql), params).fetchall()
-
-    return {"jobs": [_to_job(r) for r in rows]}
+    svc = JobService(db)
+    jobs = svc.list_jobs(
+        project_id=project_id, status=status, module=module, limit=limit
+    )
+    _resume_queued_jobs(jobs)
+    return {"success": True, "jobs": jobs}
 
 
 @router.post("/jobs", response_model=SubmitJobResponse)
@@ -88,53 +58,31 @@ async def submit_job(body: SubmitJobRequest, db: Session = Depends(get_db)):
     import uuid
     from datetime import datetime, timezone
 
-    # Validate module
-    ALLOWED_MODULES = {
-        "charts.combined", "treemap.generate", "chord.generate",
-        "analysis.execute", "analysis.batch", "analysis.execute-unified",
-        "statistical.analyze", "statistical.boxplot", "statistical.analyze-multiple",
-        "statistical.summary-boxplot", "statistical.analyze-batch", "statistical.analyze-direct",
-        "auto-heatmap.generate-heatmap", "auto-heatmap.generate-pipeline-report",
-        "auto-heatmap.generate-heatmap-report", "auto-heatmap.export-shared-cdr3",
-        "ppt.scan-images", "ppt.load-image", "ppt.render-slides",
-        "ppt-comparison.scan-heatmaps", "ppt-comparison.generate",
-    }
-
-    if body.module not in ALLOWED_MODULES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported job module: {body.module}",
-        )
+    svc = JobService(db)
+    svc.validate_module(body.module)
 
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    # Insert into analysis_jobs
-    db.execute(
-        text(
-            """INSERT INTO analysis_jobs
-               (id, job_id, job_type, module, status, progress, payload, result,
-                project_id, user_id, created_at, updated_at)
-               VALUES
-               (:id, :job_id, :job_type, :module, :status, :progress, :payload, :result,
-                :project_id, :user_id, :created_at, :updated_at)"""
-        ),
-        {
-            "id": job_id,
-            "job_id": job_id,
-            "job_type": "api_request",
-            "module": body.module,
-            "status": "queued",
-            "progress": 0,
-            "payload": body.payload,
-            "result": {},
-            "project_id": body.project_id or None,
-            "user_id": None,
-            "created_at": now,
-            "updated_at": now,
-        },
-    )
-    db.commit()
+    svc.submit_job({
+        "id": job_id,
+        "job_type": "api_request",
+        "module": body.module,
+        "status": "queued",
+        "progress": 0,
+        "payload": body.payload,
+        "result": {},
+        "project_id": body.project_id or None,
+        "user_id": None,
+        "created_at": now,
+        "updated_at": now,
+    })
+
+    try:
+        _start_background_job(body.module, job_id)
+    except RuntimeError as exc:
+        _mark_job_failed(job_id, f"Worker dispatch failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to start background job") from exc
 
     return {
         "success": True,
@@ -145,88 +93,278 @@ async def submit_job(body: SubmitJobRequest, db: Session = Depends(get_db)):
     }
 
 
+def _start_background_job(module: str, job_id: str) -> None:
+    """Start a repository job in a daemon worker thread."""
+    with _dispatch_lock:
+        if job_id in _dispatched_jobs:
+            return
+        _dispatched_jobs.add(job_id)
+
+    thread = threading.Thread(
+        target=_execute_job_background,
+        args=(module, job_id),
+        daemon=True,
+        name=f"analysis-job-{job_id[:8]}",
+    )
+    thread.start()
+
+
+def _execute_job_background(module: str, job_id: str) -> None:
+    """Execute a queued job using the shared analysis worker registry."""
+    try:
+        _mark_job_running(job_id)
+        _ensure_project_root_on_path()
+        from analysis_workers.main import execute
+
+        result = execute(module, job_id)
+        if isinstance(result, dict) and result.get("success") is False:
+            error = str(result.get("error") or "Worker returned failure")
+            logger.error("Background job %s failed: %s", job_id, error)
+            _mark_job_failed(job_id, error)
+    except Exception as exc:
+        logger.exception("Background job %s crashed before completion", job_id)
+        _mark_job_failed(job_id, str(exc))
+    finally:
+        with _dispatch_lock:
+            _dispatched_jobs.discard(job_id)
+
+
+def _resume_queued_jobs(jobs: list[dict]) -> None:
+    """Best-effort resume for queued jobs left behind after server restarts."""
+    for job in jobs:
+        if job.get("status") != "queued":
+            continue
+        job_id = str(job.get("job_id") or job.get("id") or "")
+        module = str(job.get("module") or "")
+        if not job_id or not module:
+            continue
+        try:
+            _start_background_job(module, job_id)
+        except RuntimeError as exc:
+            _mark_job_failed(job_id, f"Worker resume failed: {exc}")
+
+
+def _mark_job_running(job_id: str) -> None:
+    """Move a queued job to running before the worker bridge imports Flask."""
+    try:
+        from ..core.database import SessionLocal
+        from ..repositories.jobs import JobRepository
+
+        db = SessionLocal()
+        try:
+            JobRepository(db).update_status(
+                job_id,
+                status="running",
+                progress=1,
+                stage="Dispatching worker",
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Failed to mark background job %s as running", job_id)
+
+
+def _mark_job_failed(job_id: str, error: str) -> None:
+    """Best-effort fallback so dispatch failures do not leave jobs queued forever."""
+    try:
+        from ..core.database import SessionLocal
+        from ..repositories.jobs import JobRepository
+
+        db = SessionLocal()
+        try:
+            JobRepository(db).update_status(
+                job_id,
+                status="failed",
+                progress=100,
+                stage=f"Failed: {error[:200]}",
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Failed to mark background job %s as failed", job_id)
+
+
+def _ensure_project_root_on_path() -> None:
+    """Make top-level worker packages importable when FastAPI runs from backend-api."""
+    project_root = FsPath(__file__).resolve().parents[3]
+    root_str = str(project_root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+
 @router.get("/jobs/modules", response_model=JobModulesResponse)
 async def list_job_modules():
-    """List frontend-visible job modules."""
-    return {
-        "modules": [
-            {"key": "charts.combined", "label": "综合图表"},
-            {"key": "treemap.generate", "label": "Treemap"},
-            {"key": "chord.generate", "label": "Chord 弦图"},
-            {"key": "statistical.analyze", "label": "统计分析"},
-            {"key": "statistical.boxplot", "label": "箱线图"},
-            {"key": "auto-heatmap.generate-heatmap", "label": "热力图"},
-            {"key": "ppt.render-slides", "label": "PPT 生成"},
-        ]
-    }
+    """List frontend-visible job modules from the canonical manifest."""
+    from ..services.module_registry import get_module_registry
+
+    registry = get_module_registry()
+    return {"success": True, "modules": registry.list_for_frontend()}
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: str = Path(...), db: Session = Depends(get_db)):
+async def get_job(job_id: str = ApiPath(...), db: Session = Depends(get_db)):
     """Get a single job."""
-    result = db.execute(
-        text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"), {"jid": job_id}
-    )
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"success": True, "job": _to_job(row)}
+    svc = JobService(db)
+    job = svc.get_job_or_404(job_id)
+    return {"success": True, "job": job}
 
 
 @router.get("/jobs/{job_id}/results", response_model=JobResultsResponse)
-async def get_job_results(job_id: str = Path(...), db: Session = Depends(get_db)):
-    """Get normalized job result outputs."""
-    result = db.execute(
-        text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"), {"jid": job_id}
-    )
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+async def get_job_results(job_id: str = ApiPath(...), db: Session = Depends(get_db)):
+    """Get normalized job result outputs with envelope-aware aggregation.
 
-    job = _to_job(row)
-    job_result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    Priority order:
+    1. Envelope ``outputs`` array from the standard worker result envelope
+    2. Legacy ``viewer_url`` / ``zip_url`` keys (backward compat)
+    3. Registered ``project_assets`` rows linked to this job
+    """
+    from ..services.asset_service import AssetService
 
-    # Collect outputs from result
-    outputs = []
-    seen_urls = set()
-    for key in ["viewer_url", "zip_url"]:
-        url = job_result.get(key, "")
-        if url and url not in seen_urls:
-            seen_urls.add(url)
-            outputs.append({
-                "label": key.replace("_url", "").title(),
-                "url": url,
-                "kind": "html" if "viewer" in key else "zip",
-            })
+    svc = JobService(db)
+    job = svc.get_job_or_404(job_id)
+    raw_job_result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    job_result = _unwrap_result_payload(raw_job_result)
 
-    # Find registered assets
+    outputs: list[dict] = []
+    seen_outputs: set[str] = set()
+    seen_ids: set[str] = set()
+    module_label = _result_module_label(job_result, job.get("module", "Result"))
+
+    # ── 1. Envelope outputs (B2 standard format) ──────────────────
+    envelope_outputs = job_result.get("outputs")
+    if isinstance(envelope_outputs, list):
+        for entry in envelope_outputs:
+            if not isinstance(entry, dict):
+                continue
+            asset_id = str(entry.get("asset_id") or "")
+            if asset_id and asset_id in seen_ids:
+                continue
+            if asset_id:
+                seen_ids.add(asset_id)
+            _append_output(
+                outputs,
+                seen_outputs,
+                label=str(entry.get("label", "")),
+                url=str(entry.get("url", "")),
+                kind=str(entry.get("kind", "data")),
+                module=str(entry.get("module") or module_label),
+                category=str(entry.get("category") or ""),
+                download_url=str(entry.get("download_url") or ""),
+                asset_id=asset_id,
+            )
+
+    # ── 2. Legacy viewer_url / zip_url (backward compat) ─────────
+    for key in ["viewer_url", "zip_url", "metadata_url"]:
+        url = str(job_result.get(key, ""))
+        _append_output(
+            outputs,
+            seen_outputs,
+            label=key.replace("_url", "").title(),
+            url=url,
+            kind="html" if key == "viewer_url" else ("zip" if key == "zip_url" else "json"),
+            module=module_label,
+            category="Viewer" if key == "viewer_url" else ("Archive" if key == "zip_url" else "Metadata"),
+            download_url=url if key == "zip_url" else "",
+        )
+
+    chart_results = job_result.get("chart_results") or []
+    if isinstance(chart_results, list) and chart_results:
+        for item in chart_results:
+            if not isinstance(item, dict):
+                continue
+            child_module = str(item.get("label") or item.get("module") or item.get("name") or item.get("key") or module_label)
+            _append_output(
+                outputs,
+                seen_outputs,
+                label=f"{child_module} viewer",
+                url=str(item.get("viewer_url") or ""),
+                kind="html",
+                module=child_module,
+                category="Viewer",
+            )
+            _append_output(
+                outputs,
+                seen_outputs,
+                label=f"{child_module} bundle",
+                url=str(item.get("zip_url") or ""),
+                kind="zip",
+                module=child_module,
+                category="Archive",
+                download_url=str(item.get("zip_url") or ""),
+            )
+            _append_output(
+                outputs,
+                seen_outputs,
+                label=f"{child_module} metadata",
+                url=str(item.get("metadata_url") or ""),
+                kind="json",
+                module=child_module,
+                category="Metadata",
+            )
+
+    for key, category in [("png_urls", "Plots"), ("plot_urls", "Plots"), ("plot_heatmap_urls", "Heatmaps")]:
+        values = job_result.get(key)
+        if not isinstance(values, list):
+            continue
+        for index, url in enumerate(values, start=1):
+            _append_output(
+                outputs,
+                seen_outputs,
+                label=f"{category} {index}",
+                url=str(url or ""),
+                kind="image",
+                module=module_label,
+                category=category,
+            )
+
+    # ── 3. Registered project_assets linked to this job ──────────
     project_id = job.get("project_id") or ""
     assets = []
     if project_id:
-        asset_rows = db.execute(
-            text(
-                "SELECT * FROM project_assets WHERE project_id = :pid "
-                "AND asset_type = 'processed_result' ORDER BY uploaded_at DESC LIMIT 100"
-            ),
-            {"pid": project_id},
-        ).fetchall()
-        for ar in asset_rows:
-            try:
-                metadata_val = ar[7] if len(ar) > 7 else {}
-                asset_job_id = metadata_val.get("job_id", "") if isinstance(metadata_val, dict) else ""
-                if asset_job_id == job_id or str(ar[0]) == job_id:
-                    assets.append({
-                        "id": str(ar[0]),
-                        "project_id": project_id,
-                        "asset_type": str(ar[2]) if len(ar) > 2 else "",
-                        "original_name": str(ar[3]) if len(ar) > 3 else "",
-                        "storage_path": str(ar[4]) if len(ar) > 4 else "",
-                        "size": int(ar[6]) if len(ar) > 6 else 0,
-                        "preview_url": f"/api/assets/{ar[0]}/preview",
-                        "download_url": f"/api/assets/{ar[0]}/download",
-                    })
-            except (IndexError, TypeError):
-                continue
+        asset_svc = AssetService(db)
+        try:
+            all_results = asset_svc.find_project_results(project_id)
+        except Exception:
+            logger.warning(
+                "Failed to query result assets for job %s; returning viewer outputs without registered assets.",
+                job_id,
+                exc_info=True,
+            )
+            all_results = []
+        for ar in all_results:
+            meta = ar.get("metadata", {})
+            asset_job_id = str(meta.get("job_id", "")) if isinstance(meta, dict) else ""
+            ar_id = str(ar.get("id", ""))
+
+            if asset_job_id == job_id or ar_id == job_id:
+                preview_url = f"/api/assets/{ar_id}/preview"
+                download_url = f"/api/assets/{ar_id}/download"
+
+                # Also add to outputs if not already present
+                if ar_id not in seen_ids:
+                    seen_ids.add(ar_id)
+                    _append_output(
+                        outputs,
+                        seen_outputs,
+                        label=str(ar.get("original_name", "")),
+                        url=preview_url,
+                        kind=_kind_from_mime(ar.get("mime_type", "")),
+                        module=module_label,
+                        category="Registered Asset",
+                        download_url=download_url,
+                        asset_id=ar_id,
+                    )
+
+                assets.append({
+                    "id": ar_id,
+                    "project_id": project_id,
+                    "asset_type": str(ar.get("asset_type", "")),
+                    "original_name": str(ar.get("original_name", "")),
+                    "storage_path": str(ar.get("storage_path", "")),
+                    "size": int(ar.get("size", 0)),
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                })
 
     return {
         "success": True,
@@ -238,57 +376,151 @@ async def get_job_results(job_id: str = Path(...), db: Session = Depends(get_db)
     }
 
 
+def _append_output(
+    outputs: list[dict],
+    seen: set[str],
+    *,
+    label: str,
+    url: str,
+    kind: str,
+    module: str,
+    category: str = "",
+    download_url: str = "",
+    asset_id: str = "",
+) -> None:
+    url = str(url or "").strip()
+    download_url = str(download_url or "").strip()
+    raw_identity = url or download_url or str(asset_id or "").strip()
+    if not raw_identity:
+        return
+    identity = f"{module or ''}:{raw_identity}"
+    if identity in seen:
+        return
+    seen.add(identity)
+    kind = str(kind or _kind_from_url(identity)).strip().lower()
+    outputs.append({
+        "label": label,
+        "url": url or download_url,
+        "kind": kind,
+        "module": str(module or "Result"),
+        "category": str(category or _default_output_category(kind)),
+        "download_url": download_url or (url if kind == "zip" else ""),
+        "asset_id": str(asset_id or "").strip() or None,
+    })
+
+
+def _unwrap_result_payload(result: dict) -> dict:
+    """Return the actual analysis result from a worker envelope if present."""
+    if not isinstance(result, dict):
+        return {}
+    data = result.get("data")
+    if isinstance(data, dict) and (
+        data.get("viewer_url")
+        or data.get("zip_url")
+        or data.get("chart_results")
+        or data.get("outputs")
+        or data.get("files")
+    ):
+        return data
+    return result
+
+
+def _result_module_label(result: dict, fallback: str) -> str:
+    return str(
+        result.get("label")
+        or result.get("module")
+        or result.get("payload_module")
+        or result.get("analysis_type")
+        or fallback
+        or "Result"
+    )
+
+
+def _kind_from_url(url: str) -> str:
+    lower = str(url or "").split("?", 1)[0].lower()
+    if lower.endswith((".html", ".htm")):
+        return "html"
+    if lower.endswith((".png", ".jpg", ".jpeg", ".svg", ".webp")):
+        return "image"
+    if lower.endswith(".zip"):
+        return "zip"
+    if lower.endswith(".pdf"):
+        return "pdf"
+    if lower.endswith((".csv", ".tsv", ".xlsx", ".xls")):
+        return "csv"
+    if lower.endswith(".json"):
+        return "json"
+    if lower.endswith((".ppt", ".pptx")):
+        return "ppt"
+    return "data"
+
+
+def _default_output_category(kind: str) -> str:
+    kind = str(kind or "").lower()
+    if kind == "zip":
+        return "Archive"
+    if kind == "html":
+        return "Viewer"
+    if kind in {"png", "image"}:
+        return "Plots"
+    if kind == "json":
+        return "Metadata"
+    return kind.upper() if kind else "File"
+
+
+def _kind_from_mime(mime_type: str) -> str:
+    """Infer output kind from a MIME type string."""
+    if not mime_type:
+        return "data"
+    mime = mime_type.lower()
+    if "html" in mime:
+        return "html"
+    if "image" in mime or "png" in mime or "jpeg" in mime:
+        return "image"
+    if "csv" in mime or "excel" in mime:
+        return "csv"
+    if "zip" in mime:
+        return "zip"
+    if "pdf" in mime:
+        return "pdf"
+    if "json" in mime:
+        return "json"
+    if "powerpoint" in mime or "presentation" in mime:
+        return "ppt"
+    return "data"
+
+
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str = Path(...), db: Session = Depends(get_db)):
+async def cancel_job(job_id: str = ApiPath(...), db: Session = Depends(get_db)):
     """Request job cancellation."""
-    result = db.execute(
-        text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"), {"jid": job_id}
-    )
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+    svc = JobService(db)
+    job = svc.cancel_job(job_id)
+    return {"success": True, "job": job}
 
-    db.execute(
-        text(
-            "UPDATE analysis_jobs SET cancel_requested = 1, "
-            "updated_at = NOW() WHERE job_id = :jid OR id = :jid"
-        ),
-        {"jid": job_id},
-    )
-    db.commit()
 
-    return {"success": True, "job": _to_job(row)}
+@router.post("/jobs/bulk-delete")
+async def bulk_delete_jobs(body: BulkDeleteJobsRequest, db: Session = Depends(get_db)):
+    """Delete multiple terminal jobs, optionally including attached results."""
+    svc = JobService(db)
+    results = svc.bulk_delete_jobs(body.job_ids, delete_results=body.delete_results)
+    return {"success": True, "results": results}
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str = Path(...), db: Session = Depends(get_db)):
+async def delete_job(
+    job_id: str = ApiPath(...),
+    delete_results: bool = Query(False),
+    db: Session = Depends(get_db),
+):
     """Delete a job (terminal jobs only)."""
-    result = db.execute(
-        text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
-        {"jid": job_id},
-    )
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    job_data = _to_job(row)
-    if job_data["status"] not in ("completed", "failed", "cancelled", "interrupted"):
-        raise HTTPException(
-            status_code=409,
-            detail="Running or queued jobs must be cancelled before deletion.",
-        )
-
-    db.execute(
-        text("DELETE FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
-        {"jid": job_id},
-    )
-    db.commit()
-    return {"success": True, "deleted_job": job_data}
+    svc = JobService(db)
+    summary = svc.delete_job_with_results(job_id, delete_results=delete_results)
+    return {"success": True, **summary}
 
 
 @router.get("/jobs/{job_id}/events")
 async def stream_job_events(
-    job_id: str = Path(...),
+    job_id: str = ApiPath(...),
     interval: float = Query(1.0, ge=0.2, le=30.0),
     max_events: int = Query(300, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -306,13 +538,9 @@ async def stream_job_events(
         sent_events = 0
 
         while sent_events < max_events:
-            # Re-query the job from DB each cycle
-            result = db.execute(
-                text("SELECT * FROM analysis_jobs WHERE job_id = :jid OR id = :jid"),
-                {"jid": job_id},
-            )
-            row = result.fetchone()
-            if row is None:
+            svc = JobService(db)
+            job_data = svc.get_job(job_id)
+            if job_data is None:
                 yield _sse_message("error", json.dumps({
                     "success": False,
                     "error": "JOB_NOT_FOUND",
@@ -320,9 +548,7 @@ async def stream_job_events(
                 }))
                 break
 
-            job_data = _to_job(row)
             status = job_data.get("status", "")
-
             event_name = "completed" if status in terminal_statuses else "update"
             payload = json.dumps(
                 {"success": True, "job": job_data, "status": status},

@@ -34,6 +34,8 @@ from ._common import (
     _robust_read_csv,
     _sanitize_nan,
     _script_executor,
+    _selected_samples_by_group_from_request,
+    _selected_samples_from_request,
     _set_task_state,
     _suggest_profile_ranges,
     _suggest_umap_ranges,
@@ -355,6 +357,7 @@ def run_profile():
         grouping_begin = str(data.get("grouping_begin") or "").strip()
         grouping_over = str(data.get("grouping_over") or "").strip()
         grouptype_fields = data.get("grouptype_fields") if isinstance(data.get("grouptype_fields"), list) else None
+        group_order = str(data.get("group_order") or "").strip() or None
         param_begin = str(data.get("param_begin") or "").strip()
         param_over = str(data.get("param_over") or "").strip()
 
@@ -363,6 +366,8 @@ def run_profile():
 
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         output_name = str(data.get("output_name") or "").strip() or None
+        selected_samples = _selected_samples_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
             project_id=project_id,
@@ -372,9 +377,12 @@ def run_profile():
                 "grouping_begin": grouping_begin,
                 "grouping_over": grouping_over,
                 "grouptype_fields": grouptype_fields or [],
+                "group_order": group_order,
                 "param_begin": param_begin,
                 "param_over": param_over,
                 "pvalue_threshold": pvalue_threshold,
+                "selected_samples": selected_samples,
+                "selected_samples_by_group": selected_samples_by_group,
             },
         )
         if not _force_rerun_requested(data):
@@ -403,10 +411,13 @@ def run_profile():
             classification_begin=grouping_begin,
             classification_over=grouping_over,
             grouptype_fields=grouptype_fields,
+            group_order=group_order,
             param_begin=param_begin,
             param_over=param_over,
             pvalue_threshold=pvalue_threshold,
             output_name=output_name,
+            selected_samples=selected_samples,
+            selected_samples_by_group=selected_samples_by_group,
             module_name="profile",
             app_context_app=current_app._get_current_object() if project_id else None,
         )
@@ -470,6 +481,8 @@ def run_pep_analysis():
         profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path") or ""
         selected_chains = data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else []
         group_fields = data.get("group_fields") if isinstance(data.get("group_fields"), list) else []
+        selected_samples = _selected_samples_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
 
         if not pep_data_dir:
             raise ValidationError(message="pep_data_dir is required", details={"field": "pep_data_dir"})
@@ -484,6 +497,7 @@ def run_pep_analysis():
         min_sample_threshold = int(data.get("min_sample_threshold") or 3)
         optional_steps_raw = data.get("optional_steps") if isinstance(data.get("optional_steps"), list) else None
         optional_steps = {int(step) for step in optional_steps_raw if str(step).isdigit()} if optional_steps_raw is not None else None
+        optional_steps = {step for step in optional_steps if step in {5, 6, 7, 8}} if optional_steps is not None else None
         output_name = str(data.get("output_name") or "").strip() or None
         project_id = str(data.get("project_id") or "").strip() or None
         app_context_app = current_app._get_current_object() if project_id else None
@@ -497,6 +511,9 @@ def run_pep_analysis():
             config_json={
                 "selected_chains": selected_chains,
                 "group_fields": group_fields,
+                "group_order": str(data.get("group_order") or "").strip() or None,
+                "selected_samples": selected_samples,
+                "selected_samples_by_group": selected_samples_by_group,
                 "pvalue_threshold": pvalue_threshold,
                 "min_sample_threshold": min_sample_threshold,
                 "optional_steps": sorted(optional_steps) if optional_steps is not None else None,
@@ -532,6 +549,7 @@ def run_pep_analysis():
             min_sample_threshold=min_sample_threshold,
             optional_steps=optional_steps,
             output_name=output_name,
+            selected_samples=selected_samples,
             project_id=project_id,
             app_context_app=app_context_app
         )
@@ -924,6 +942,7 @@ def _run_pep_analysis_task(
     min_sample_threshold: int = 3,
     optional_steps: Optional[set] = None,
     output_name: Optional[str] = None,
+    selected_samples: Optional[List[str]] = None,
     project_id: Optional[str] = None,
     app_context_app: Optional[Any] = None
 ) -> None:
@@ -944,6 +963,8 @@ def _run_pep_analysis_task(
             min_sample_threshold=min_sample_threshold,
             optional_steps=optional_steps,
             output_name=output_name,
+            selected_samples=selected_samples,
+            project_id=project_id,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id,
                 float(progress or 0.0),

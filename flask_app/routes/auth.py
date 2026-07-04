@@ -1,4 +1,11 @@
-"""Authentication routes."""
+"""Authentication routes.
+
+.. attention:: **RETIRING — replaced by FastAPI token auth** ``backend-api/app/core/auth.py``.
+
+   Flask session-based login is being phased out in favor of FastAPI's
+   ``API_AUTH_TOKEN`` Bearer / X-API-Key mechanism.  The ``/auth/login``
+   and ``/auth/register`` Jinja pages will be removed.
+"""
 
 from __future__ import annotations
 

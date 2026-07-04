@@ -78,7 +78,9 @@ class RedisJobQueue:
     """
 
     redis_url: str = field(default_factory=lambda: os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
+    fallback: ThreadPoolJobQueue | None = None
     _queue: Any = field(default=None, init=False, repr=False)
+    _connection: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -89,12 +91,29 @@ class RedisJobQueue:
                 "RedisJobQueue requires the 'redis' and 'rq' packages. "
                 "Install them with: pip install redis rq"
             ) from exc
-        self._queue = Queue(connection=Redis.from_url(self.redis_url))
+        self._connection = Redis.from_url(self.redis_url)
+        self._connection.ping()
+        self._queue = Queue(connection=self._connection)
+
+    def _has_workers(self) -> bool:
+        try:
+            from rq import Worker  # type: ignore[import-untyped]
+
+            return int(Worker.count(connection=self._connection)) > 0
+        except Exception:
+            return False
 
     def submit(self, job_id: str, runner: Callable[..., Any], **kwargs: Any) -> None:
         if self._queue is None:
             raise RuntimeError("RedisJobQueue is not connected — check REDIS_URL")
         module = _job_module(job_id, kwargs.pop("module", ""))
+        if not self._has_workers() and self.fallback is not None:
+            get_background_job_service().upsert_job(job_id, {
+                "stage": "Starting local worker",
+                "detail": "No active RQ worker detected; running with in-process thread pool.",
+            })
+            self.fallback.submit(job_id, runner, module=module, **kwargs)
+            return
         if module:
             from analysis_workers.main import execute
             self._queue.enqueue(execute, module, job_id)
@@ -104,8 +123,12 @@ class RedisJobQueue:
 
 def get_job_queue() -> JobQueue:
     backend = os.environ.get("JOB_QUEUE", "").strip().lower()
+    threadpool = ThreadPoolJobQueue(get_background_job_service())
 
     if backend == "redis":
-        return RedisJobQueue()
+        try:
+            return RedisJobQueue(fallback=threadpool)
+        except Exception:
+            return threadpool
 
-    return ThreadPoolJobQueue(get_background_job_service())
+    return threadpool

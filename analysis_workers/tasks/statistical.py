@@ -1,4 +1,11 @@
-"""Statistical analysis worker tasks."""
+"""Statistical analysis worker tasks.
+
+.. attention:: **LEGACY BRIDGE**
+
+   These workers still call Flask endpoints via ``call_json_endpoint``
+   and require a Flask app context.  See ``analysis_workers/results.py``
+   for the standalone replacement pattern.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +28,11 @@ def _run_statistical_module(job_id: str, module: str, stage: str) -> Dict[str, A
         user_id = job.get("user_id")
 
         try:
-            service.upsert_job(job_id, status="running", progress=0, stage=stage)
+            service.upsert_job(job_id, {
+                "status": "running",
+                "progress": 0,
+                "stage": stage,
+            })
             data = call_json_endpoint(module, payload, user_id)
             service.complete_job(job_id, result=data)
             return {"success": True, "job_id": job_id}

@@ -15,6 +15,7 @@
   --success: #34c759;
   --warning: #ff9500;
   --danger: #ff3b30;
+  --info: #5ac8fa;
 
   /* ── Separators & shadows ── */
   --separator: rgba(60, 60, 67, 0.12);
@@ -30,7 +31,7 @@
 
   /* ── Layout ── */
   --rail-width: 72px;
-  --content-max: 1200px;
+  --content-max: 1760px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;

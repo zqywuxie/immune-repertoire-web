@@ -11,6 +11,16 @@ export interface ProjectDetail extends ProjectSummary {
   samples_preview?: unknown[];
 }
 
+export interface ProjectAssetStatus {
+  has_profile?: boolean;
+  has_datapoint?: boolean;
+  has_pep?: boolean;
+  has_sample_summary?: boolean;
+  has_group_spec?: boolean;
+  has_results?: boolean;
+  asset_set_count?: number;
+}
+
 export interface AssetListResponse {
   assets: ProjectAsset[];
   pagination?: Pagination;
@@ -55,11 +65,13 @@ export function uploadProjectAssets(
     assetType: string;
     files: File[];
     replaceExisting?: boolean;
+    assetSet?: string;
   }
 ) {
   const formData = new FormData();
   formData.set("asset_type", options.assetType);
   formData.set("replace_existing", options.replaceExisting ? "true" : "false");
+  if (options.assetSet) formData.set("asset_set", options.assetSet);
   formData.set("relative_paths", JSON.stringify(options.files.map((file) => file.webkitRelativePath || file.name)));
   options.files.forEach((file) => formData.append("files", file, file.name));
 
@@ -98,4 +110,21 @@ export function listProjectResults(projectId: string, options: { analysisType?: 
     page: options.page,
     page_size: options.pageSize
   });
+}
+
+export function projectExportUrl(
+  projectId: string,
+  options: {
+    includeAssets?: boolean;
+    includeResults?: boolean;
+    includeGroupSpecs?: boolean;
+    includeManifest?: boolean;
+  } = {}
+) {
+  const params = new URLSearchParams();
+  params.set("include_assets", String(options.includeAssets ?? true));
+  params.set("include_results", String(options.includeResults ?? true));
+  params.set("include_group_specs", String(options.includeGroupSpecs ?? true));
+  params.set("include_manifest", String(options.includeManifest ?? true));
+  return `/api/projects/${projectId}/export?${params.toString()}`;
 }

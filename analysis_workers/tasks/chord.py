@@ -1,4 +1,11 @@
-"""Chord diagram analysis worker task."""
+"""Chord diagram analysis worker task.
+
+.. attention:: **LEGACY BRIDGE**
+
+   This worker still calls Flask endpoints via ``call_json_endpoint``
+   and requires a Flask app context.  See ``analysis_workers/results.py``
+   for the standalone replacement pattern.
+"""
 
 from __future__ import annotations
 

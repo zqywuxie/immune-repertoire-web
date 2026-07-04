@@ -1,16 +1,30 @@
+/* ── Shell layout ─────────────────────────────────────────────────── */
+
 .shell {
   display: flex;
   min-height: 100vh;
+  width: 100%;
 }
 
 .page-wrap {
   flex: 1;
   min-width: 0;
-  padding: var(--spacing-3xl);
   max-width: var(--content-max);
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  padding: clamp(var(--spacing-lg), 2vw, var(--spacing-3xl));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xl);
+  overflow-x: hidden;
+}
+
+@media (min-width: 1920px) {
+  .page-wrap {
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 
 @media (max-width: 768px) {
@@ -20,5 +34,178 @@
 
   .page-wrap {
     padding: var(--spacing-lg);
+    margin-left: 0;
+    margin-right: 0;
+    max-width: 100%;
   }
+}
+
+@media (max-width: 520px) {
+  .page-wrap {
+    padding: var(--spacing-md);
+    gap: var(--spacing-lg);
+  }
+}
+
+/* ── Skeleton / breathe animation ─────────────────────────────────── */
+
+@keyframes breathe {
+  0%   { opacity: 0.35; }
+  50%  { opacity: 0.65; }
+  100% { opacity: 0.35; }
+}
+
+/* ── Toast animations ─────────────────────────────────────────────── */
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(40px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Shared component classes ─────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 8px 18px;
+  border-radius: var(--radius-control);
+  font-weight: 500;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: opacity var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.btn-secondary {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--separator);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-root);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-root);
+  border-color: var(--separator);
+}
+
+/* ── Shared form element classes ──────────────────────────────────── */
+
+.input {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--separator);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.input,
+.select,
+.textarea {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--separator);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.select {
+  cursor: pointer;
+}
+
+.textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+/* ── Shared label ─────────────────────────────────────────────────── */
+
+.field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* ── Error banner ─────────────────────────────────────────────────── */
+
+.error-banner {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-panel);
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
 }

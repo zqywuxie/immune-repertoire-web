@@ -2,10 +2,12 @@
 
 import uuid
 import zipfile
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from flask import Blueprint, current_app, jsonify, request
 
 from flask_app.exceptions import ValidationError
@@ -57,6 +59,83 @@ from ._common import (
 )
 from .profile_analysis import _suggest_profile_ranges, _suggest_umap_ranges
 bp = Blueprint("script_hub_enrichment", __name__)
+
+_MAIT_SAMPLE_COLUMNS = ("sample", "sample_id", "sample_name", "display_name")
+_MAIT_CDR3_COLUMNS = ("junction_aa", "cdr3_aa", "cdr3", "cdr3(pep)", "aa_sequence")
+_MAIT_COUNT_COLUMNS = ("count", "umi_count", "duplicate_count", "copies", "copy", "reads", "frequency")
+_MAIT_V_COLUMNS = ("v_call", "v_gene", "v")
+_MAIT_J_COLUMNS = ("j_call", "j_gene", "j")
+
+
+def _mait_column_lookup(df: pd.DataFrame) -> Dict[str, Any]:
+    return {str(col).strip().lower(): col for col in df.columns}
+
+
+def _first_existing_column(lookup: Dict[str, Any], candidates: tuple[str, ...]) -> Optional[Any]:
+    for name in candidates:
+        if name in lookup:
+            return lookup[name]
+    return None
+
+
+def _normalize_mait_tra_dataframe(tra_df: pd.DataFrame, source_label: str = "TRA Source") -> pd.DataFrame:
+    """Validate MAIT/NKT TRA input and normalize long tables to CDR3 x sample wide form."""
+    if tra_df is None or tra_df.empty:
+        raise ValidationError(
+            message="MAIT/NKT 分析需要 TRA 链数据。当前选择的数据源为空，请选择包含 TRA 的 PEP cache，或手动上传 TRA CSV。",
+            details={"source": source_label},
+        )
+
+    lookup = _mait_column_lookup(tra_df)
+    sample_col = _first_existing_column(lookup, _MAIT_SAMPLE_COLUMNS)
+    cdr3_col = _first_existing_column(lookup, _MAIT_CDR3_COLUMNS)
+    count_col = _first_existing_column(lookup, _MAIT_COUNT_COLUMNS)
+    v_col = _first_existing_column(lookup, _MAIT_V_COLUMNS)
+    j_col = _first_existing_column(lookup, _MAIT_J_COLUMNS)
+
+    if sample_col is not None and cdr3_col is not None:
+        work = tra_df[[sample_col, cdr3_col] + ([count_col] if count_col is not None else [])].copy()
+        work[sample_col] = work[sample_col].astype(str).str.strip()
+        work[cdr3_col] = work[cdr3_col].astype(str).str.strip()
+        work = work[(work[sample_col] != "") & (work[cdr3_col] != "") & (work[cdr3_col].str.lower() != "nan")]
+        if count_col is not None:
+            work["__mait_count__"] = pd.to_numeric(work[count_col], errors="coerce").fillna(0)
+        else:
+            work["__mait_count__"] = 1
+        if work.empty:
+            raise ValidationError(
+                message="MAIT/NKT 分析需要 TRA 链数据。当前 TRA Source 中没有有效的 sample/CDR3 记录。",
+                details={"source": source_label, "sample_column": str(sample_col), "cdr3_column": str(cdr3_col)},
+            )
+        wide = work.pivot_table(
+            index=cdr3_col,
+            columns=sample_col,
+            values="__mait_count__",
+            aggfunc="sum",
+            fill_value=0,
+        ).reset_index()
+        wide = wide.rename(columns={cdr3_col: "CDR3"})
+        wide.columns = [str(col) for col in wide.columns]
+        return wide
+
+    if tra_df.shape[1] > 1:
+        sample_columns = [str(col) for col in tra_df.columns[1:] if str(col).strip()]
+        if sample_columns:
+            return tra_df.copy()
+
+    raise ValidationError(
+        message="MAIT/NKT 分析需要 TRA 链数据。当前选择的数据源不包含可识别的 TRA 矩阵或 sample/junction_aa 字段。",
+        details={
+            "source": source_label,
+            "available_columns": [str(col) for col in tra_df.columns[:12]],
+            "accepted_sample_columns": list(_MAIT_SAMPLE_COLUMNS),
+            "accepted_cdr3_columns": list(_MAIT_CDR3_COLUMNS),
+            "accepted_count_columns": list(_MAIT_COUNT_COLUMNS),
+            "detected_v_column": str(v_col) if v_col is not None else "",
+            "detected_j_column": str(j_col) if j_col is not None else "",
+        },
+    )
+
 
 def _run_umap_task(
     task_id: str,
@@ -332,6 +411,29 @@ def _parse_group_comparisons(raw_value: Any) -> List[List[str]]:
     return []
 
 
+def _normalize_expression_group_label(value: Any, group_prefix: str = "tpm_") -> str:
+    label = str(value or "").strip()
+    if group_prefix and label.startswith(group_prefix):
+        label = label[len(group_prefix):]
+    label = re.sub(r"_\d+$", "", label).strip("_ ")
+    return label
+
+
+def _normalize_expression_comparisons(
+    comparisons: List[List[str]],
+    group_prefix: str = "tpm_",
+) -> List[List[str]]:
+    normalized: List[List[str]] = []
+    for left, right in comparisons:
+        clean_left = _normalize_expression_group_label(left, group_prefix)
+        clean_right = _normalize_expression_group_label(right, group_prefix)
+        if clean_left and clean_right and clean_left != clean_right:
+            pair = [clean_left, clean_right]
+            if pair not in normalized:
+                normalized.append(pair)
+    return normalized
+
+
 @bp.route("/volcano/inspect", methods=["POST"])
 def inspect_volcano():
     try:
@@ -485,8 +587,9 @@ def run_volcano():
         data_dir = ""
         expression_path = ""
         group_prefix = str(data.get("group_prefix") or "tpm_").strip()
-        comparisons = _parse_group_comparisons(data.get("comparisons"))
+        raw_comparisons = _parse_group_comparisons(data.get("comparisons"))
         if input_mode == "expression":
+            comparisons = _normalize_expression_comparisons(raw_comparisons, group_prefix)
             expression_path = _transcriptome_path_from_request(
                 data,
                 "expression_path",
@@ -497,6 +600,7 @@ def run_volcano():
             if not expression_path:
                 raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
         else:
+            comparisons = raw_comparisons
             data_dir = str(data.get("data_dir") or "").strip() or _resolve_project_cached_usage_path(data, preferred="volcano")
             if not data_dir:
                 raise ValidationError(message="data_dir is required", details={"field": "data_dir"})
@@ -668,7 +772,10 @@ def run_go_kegg_enrichment():
         if not expression_path:
             raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
         group_prefix = str(data.get("group_prefix") or "tpm_").strip()
-        comparisons = _parse_group_comparisons(data.get("comparisons"))
+        comparisons = _normalize_expression_comparisons(
+            _parse_group_comparisons(data.get("comparisons")),
+            group_prefix,
+        )
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         logfc_cutoff = float(data.get("logfc_cutoff") or 1.0)
         enrich_pvalue_cutoff = float(data.get("enrich_pvalue_cutoff") or 0.05)
@@ -1028,11 +1135,21 @@ def _ml_usage_feature_range(
     return values[start:end + 1]
 
 
+def _normalize_ml_mode(value: Any) -> str:
+    mode = str(value or "profile").strip().lower().replace("-", "_").replace("+", "_")
+    if mode in {"vj", "vj_usage", "usage"}:
+        return "vj"
+    if mode in {"profile_vj", "profile_usage", "profile_vj_usage"}:
+        return "profile_vj"
+    return "profile"
+
+
 @bp.route("/ml-analysis/inspect", methods=["POST"])
 def inspect_ml_analysis():
     try:
         data = request.get_json() or {}
         project_id = str(data.get("project_id") or "").strip()
+        mode = _normalize_ml_mode(data.get("mode"))
         profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path")
         if not profile_path:
             raise ValidationError(message="Profile file is required", details={"field": "profile_path"})
@@ -1045,7 +1162,9 @@ def inspect_ml_analysis():
         if not columns:
             raise ValidationError(message="No columns detected from Profile file", details={"profile_path": profile_path})
 
-        usage_path = str(data.get("usage_path") or "").strip() or _resolve_project_cached_usage_path(data, preferred="umapin")
+        usage_path = str(data.get("usage_path") or "").strip()
+        if mode in {"vj", "profile_vj"}:
+            usage_path = usage_path or _resolve_project_cached_usage_path(data, preferred="umapin")
         cached_usage_assets = _collect_project_cached_usage_assets(project_id) if project_id else []
         suggestions = _suggest_profile_ranges(columns)
         label_col = str(data.get("label_col") or "").strip() or _suggest_ml_label(columns)
@@ -1080,6 +1199,7 @@ def inspect_ml_analysis():
 
         return jsonify({
             "success": True,
+            "mode": mode,
             "profile_path": str(profile_file.resolve()),
             "usage_path": usage_path,
             "columns": columns,
@@ -1162,6 +1282,18 @@ def _run_ml_analysis_task(
             "text_urls": _urls(report.text_paths),
             "metadata": report.metadata,
         }
+        data_mode = str(report.metadata.get("data_mode") or report.metadata.get("mode") or mode)
+        result["viewer_items"] = [
+            {
+                "kind": "image",
+                "url": url,
+                "title": url.rsplit("/", 1)[-1],
+                "category": data_mode,
+                "data_mode": data_mode,
+            }
+            for url in result["png_urls"]
+        ]
+        report.metadata["viewer_items"] = result["viewer_items"]
         subtitle = (
             "Mode: " + str(report.metadata.get("mode", ""))
             + " | Label: " + str(report.metadata.get("label_col", ""))
@@ -1212,9 +1344,9 @@ def run_ml_analysis():
         if not profile_path:
             raise ValidationError(message="profile_path is required", details={"field": "profile_path"})
 
-        mode = str(data.get("mode") or "profile").strip().lower()
+        mode = _normalize_ml_mode(data.get("mode"))
         usage_path = str(data.get("usage_path") or "").strip()
-        if mode == "vj-usage":
+        if mode in {"vj", "profile_vj"}:
             usage_path = usage_path or _resolve_project_cached_usage_path(data, preferred="umapin")
             if not usage_path:
                 raise ValidationError(message="usage_path is required for VJ usage ML", details={"field": "usage_path"})
@@ -1235,18 +1367,19 @@ def run_ml_analysis():
             if not param_begin or not param_over:
                 raise ValidationError(message="param_begin and param_over are required for Profile ML", details={"fields": ["param_begin", "param_over"]})
             usage_feature_cols = []
-        if mode == "vj-usage":
-            if not param_begin or not param_over:
-                raise ValidationError(message="param_begin and param_over are required for VJ usage ML", details={"fields": ["param_begin", "param_over"]})
-            usage_feature_cols = _ml_usage_feature_range(
-                profile_path=profile_path,
-                usage_path=usage_path,
-                sample_col=sample_col,
-                param_begin=param_begin,
-                param_over=param_over,
-            )
-            if not usage_feature_cols:
-                raise ValidationError(message="No VJ usage features found in selected parameter range", details={"field": "param_begin,param_over"})
+        if mode == "profile_vj" and (not param_begin or not param_over):
+            raise ValidationError(message="param_begin and param_over are required for Profile + VJ ML", details={"fields": ["param_begin", "param_over"]})
+        if mode == "vj":
+            if param_begin and param_over:
+                usage_feature_cols = _ml_usage_feature_range(
+                    profile_path=profile_path,
+                    usage_path=usage_path,
+                    sample_col=sample_col,
+                    param_begin=param_begin,
+                    param_over=param_over,
+                )
+                if not usage_feature_cols:
+                    raise ValidationError(message="No VJ usage features found in selected parameter range", details={"field": "param_begin,param_over"})
         custom_threshold = float(data.get("custom_threshold") or 0.003)
         cv_splits = int(data.get("cv_splits") or 3)
         roc_cv_splits = int(data.get("roc_cv_splits") or 7)
@@ -1261,6 +1394,7 @@ def run_ml_analysis():
             ],
             config_json={
                 "mode": mode,
+                "data_mode": mode,
                 "label_col": label_col,
                 "sample_col": sample_col,
                 "param_begin": param_begin,
@@ -1350,6 +1484,8 @@ def inspect_mait_nkt():
                 details={"tra_source": tra_source},
             )
 
+        tra_df = _normalize_mait_tra_dataframe(tra_df, resolved_tra_path or tra_source)
+
         # Detect sample columns
         sample_cols = []
         has_category_row = False
@@ -1359,16 +1495,6 @@ def inspect_mait_nkt():
                 second_row = tra_df.iloc[0, 1:]
                 if _looks_like_category_row(second_row):
                     has_category_row = True
-
-        # Load profile for group values
-        profile_groups: Dict[str, Any] = {}
-        if profile_path:
-            pp = Path(profile_path)
-            if pp.exists():
-                pf = _robust_read_csv(pp)
-                for col in pf.columns:
-                    vals = sorted(set(str(v) for v in pf[col].dropna()))
-                    profile_groups[col] = vals
 
         return jsonify(_sanitize_nan({
             "success": True,
@@ -1380,7 +1506,6 @@ def inspect_mait_nkt():
             "sample_columns": sample_cols,
             "sample_count": len(sample_cols),
             "has_category_row": has_category_row,
-            "profile_groups": profile_groups,
         }))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_mait_nkt: %s", exc.message)
@@ -1400,32 +1525,51 @@ def run_mait_nkt():
         tra_path = str(data.get("tra_path") or "").strip()
         source_job_id = str(data.get("source_job_id") or "").strip()
         profile_path = _profile_path_from_request(data, "profile_path") or ""
-        group_field = str(data.get("group_field") or "").strip()
+        group_field = str(data.get("group_field") or "__all_samples__").strip() or "__all_samples__"
         group_order = str(data.get("group_order") or "").strip() or None
-
-        if not profile_path:
-            raise ValidationError(message="profile_path is required", details={"field": "profile_path"})
-        if not group_field:
-            raise ValidationError(message="group_field is required", details={"field": "group_field"})
 
         project_id = str(data.get("project_id") or "").strip() or None
         resolved_tra_path = tra_path
         resolved_source_job_id = source_job_id
+        resolved_tra_df = None
         if tra_source == "pep_analysis" and tra_path and Path(tra_path).exists() and Path(tra_path).is_file():
             resolved_tra_path = str(PathAccessService.validate_read_path(tra_path))
+            resolved_tra_df = _robust_read_csv(Path(resolved_tra_path))
         elif tra_source == "pep_analysis":
             resolved = _resolve_pep_analysis_tra_source(data)
             resolved_tra_path = resolved["path"]
             resolved_source_job_id = str(resolved.get("source_job_id") or source_job_id)
+            resolved_tra_df = resolved.get("dataframe")
+        elif resolved_tra_path:
+            dp = Path(resolved_tra_path)
+            if not dp.exists() or not dp.is_file():
+                raise ValidationError(
+                    message="MAIT/NKT 分析需要 TRA 链数据。当前选择的 TRA 文件不存在。",
+                    details={"file_path": resolved_tra_path},
+                )
+            resolved_tra_df = _robust_read_csv(dp)
+        else:
+            raise ValidationError(
+                message="MAIT/NKT 分析需要 TRA 链数据。请选择包含 TRA 的 PEP cache，或手动上传 TRA CSV。",
+                details={"tra_source": tra_source},
+            )
+
+        normalized_tra_df = _normalize_mait_tra_dataframe(resolved_tra_df, resolved_tra_path or tra_source)
 
         cache_context = _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
             input_paths=[
                 {"asset_type": "tra", "path": resolved_tra_path} if tra_source == "upload" else {"asset_type": "pep_analysis_tra", "path": resolved_tra_path, "source_job_id": resolved_source_job_id},
-                {"asset_type": "profile", "path": profile_path},
+                *([{"asset_type": "profile", "path": profile_path}] if profile_path else []),
             ],
-            config_json={"group_field": group_field, "group_order": group_order, "tra_source": tra_source},
+            config_json={
+                "group_field": group_field,
+                "group_order": group_order,
+                "tra_source": tra_source,
+                "source_job_id": resolved_source_job_id,
+                "tra_sample_count": max(len(normalized_tra_df.columns) - 1, 0),
+            },
         )
         if not _force_rerun_requested(data):
             cached = _try_reuse_script_result(cache_context, module_name)
@@ -1509,14 +1653,24 @@ def _run_mait_nkt_task(
         else:
             dp = Path(tra_path)
             if not dp.exists():
-                raise ValidationError(message="TRA file not found", details={"file_path": tra_path})
+                raise ValidationError(
+                    message="MAIT/NKT 分析需要 TRA 链数据。当前选择的 TRA 文件不存在。",
+                    details={"file_path": tra_path},
+                )
             tra_df = _robust_read_csv(dp)
 
-        _record_stage(task_id, 8, "Loading", "Reading profile data")
-        pp = Path(profile_path)
-        if not pp.exists():
-            raise ValidationError(message="Profile file not found", details={"file_path": profile_path})
-        profile_df = _robust_read_csv(pp)
+        tra_df = _normalize_mait_tra_dataframe(tra_df, resolved_tra_path or tra_source)
+
+        _record_stage(task_id, 8, "Loading", "Preparing grouping metadata")
+        if profile_path:
+            pp = Path(profile_path)
+            if not pp.exists():
+                raise ValidationError(message="Profile file not found", details={"file_path": profile_path})
+            profile_df = _robust_read_csv(pp)
+        else:
+            sample_columns = [str(col) for col in tra_df.columns[1:]] if len(tra_df.columns) > 1 else []
+            profile_df = pd.DataFrame({"sample": sample_columns, "__all_samples__": "All"})
+            group_field = "__all_samples__"
 
         group_order_list = None
         if group_order:
@@ -1558,7 +1712,7 @@ def _run_mait_nkt_task(
             report.output_base,
             report.metadata,
             title="MAIT/NKT 分析",
-            subtitle=f"分组字段: {group_field}",
+            subtitle=f"TRA Source: {tra_source}",
             dl_extras=[],
             zip_name="mait_nkt_results.zip",
         )

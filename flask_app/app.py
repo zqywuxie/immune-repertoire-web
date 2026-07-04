@@ -124,6 +124,9 @@ def create_app(config_name=None):
         if not app.config.get('REQUIRE_LOGIN', True):
             return None
         endpoint = request.endpoint or ''
+        # Let non-existent routes fall through to Flask's 404 handler
+        if not endpoint:
+            return None
         if endpoint.startswith('static') or endpoint.startswith('auth.'):
             return None
         if endpoint in {'api.health_check', 'api.app_info'}:
@@ -153,7 +156,28 @@ def create_app(config_name=None):
             if app.config.get('API_CORS_ALLOW_CREDENTIALS', True):
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
-    
+
+    # ── API auth endpoint (SPA bridge) ─────────────────────────────
+
+    @app.route("/api/auth/me")
+    def api_auth_me():
+        """Return current user principal for the SPA AuthContext.
+
+        When REQUIRE_LOGIN=false (local dev), returns a guest principal.
+        Otherwise returns the logged-in user or 401.
+        """
+        from flask_login import current_user
+        if not current_user.is_authenticated:
+            if not app.config.get("REQUIRE_LOGIN", True):
+                return jsonify({"username": "dev", "role": "guest", "auth_mode": "none"})
+            return jsonify({"error_code": "AUTH_REQUIRED", "message": "Authentication required"}), 401
+        return jsonify({
+            "user_id": current_user.get_id(),
+            "username": getattr(current_user, "username", str(current_user.get_id())),
+            "role": "admin" if getattr(current_user, "is_admin", False) else "user",
+            "auth_mode": "session",
+        })
+
     # Register error handlers
     register_error_handlers(app)
     
@@ -189,7 +213,24 @@ def create_app(config_name=None):
     # Initialize modular analysis system
     from flask_app.services.analysis.registry import init_analysis_registry
     init_analysis_registry()
-    
+
+    # ── Flask Retirement: RFC-8594 deprecation headers ───────────
+    _RETIRED_BLUEPRINTS = {"jobs", "api_projects"}
+    _JINJA_BLUEPRINTS = {"pages", "auth"}
+
+    @app.after_request
+    def _add_retirement_headers(response):
+        """Add Deprecation/Sunset headers to superseded blueprint routes."""
+        bps = getattr(request, "blueprints", None) or []
+        if any(b in _RETIRED_BLUEPRINTS for b in bps):
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Mon, 01 Sep 2026 00:00:00 GMT"
+            response.headers["Link"] = '</api/docs>; rel="deprecation"'
+        if any(b in _JINJA_BLUEPRINTS for b in bps):
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Mon, 01 Sep 2026 00:00:00 GMT"
+        return response
+
     return app
 
 
@@ -233,7 +274,19 @@ def register_error_handlers(app):
 
 
 def register_blueprints(app):
-    """Register Flask blueprints for routes."""
+    """Register Flask blueprints for routes.
+
+    .. attention:: **FLASK RETIREMENT IN PROGRESS (2026-06-30)**
+
+       ✅ Superseded: jobs_bp, project_api_bp (FastAPI equivalents exist).
+       ⬜ Jinja pages: auth_bp, pages_bp → React SPA (``frontend/``).
+       ⬜ Worker targets: analysis, statistical, heatmap, chord, treemap,
+          ppt, script-hub → inlining into ``analysis_workers/tasks/``.
+       ⬜ Sub-blueprints: api/ files/mappings/config/annotations — no
+          FastAPI equivalents yet.
+
+       See: ``docs/architecture/full-stack-refactor-execution-plan.md``
+    """
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.pages import pages_bp
     from flask_app.routes.api import register_api_routes

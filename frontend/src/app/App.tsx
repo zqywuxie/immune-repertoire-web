@@ -1,20 +1,35 @@
-import { Routes, Route, Outlet } from "react-router-dom";
+import { Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
-import { Database, FlaskConical, LayoutDashboard } from "lucide-react";
-import { Rail } from "../shared/components/Rail";
 import { ErrorBoundary } from "../shared/components/ErrorBoundary";
 import { Skeleton } from "../shared/components/Skeleton";
+import { Sidebar } from "../shared/components/Sidebar";
+import { WorkspaceProvider } from "../shared/context/WorkspaceContext";
+import { AuthProvider } from "../shared/context/AuthContext";
+import { ToastProvider } from "../shared/hooks/useToast";
+import { ProtectedRoute } from "../shared/components/ProtectedRoute";
 import "./App.css";
 
-const Dashboard = lazy(() => import("./Dashboard").then(m => ({ default: m.Dashboard })));
-const DatabasePage = lazy(() => import("./Database").then(m => ({ default: m.DatabasePage })));
-const ScriptHub = lazy(() => import("./ScriptHub").then(m => ({ default: m.ScriptHub })));
+// ── Lazy-loaded pages ──────────────────────────────────────────────────
 
-const NAV_LINKS = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/database", icon: Database, label: "Database" },
-  { to: "/scripthub", icon: FlaskConical, label: "Script Hub" },
-];
+// Management workspace
+const ManagementDashboard = lazy(() => import("../pages/management/ManagementDashboard").then(m => ({ default: m.ManagementDashboard })));
+const ProjectLibrary = lazy(() => import("../pages/management/ProjectLibrary").then(m => ({ default: m.ProjectLibrary })));
+const ProjectDetail = lazy(() => import("../pages/management/ProjectDetail").then(m => ({ default: m.ProjectDetail })));
+const SampleRegistry = lazy(() => import("../pages/management/SampleRegistry").then(m => ({ default: m.SampleRegistry })));
+
+// Analysis workspace
+const UnifiedAnalysis = lazy(() => import("../pages/analysis/UnifiedAnalysis").then(m => ({ default: m.UnifiedAnalysis })));
+const ScriptHubWizard = lazy(() => import("../pages/analysis/ScriptHubWizard").then(m => ({ default: m.ScriptHubWizard })));
+const JobMonitor = lazy(() => import("../pages/analysis/JobMonitor").then(m => ({ default: m.JobMonitor })));
+const StatisticalComparison = lazy(() => import("../pages/analysis/StatisticalComparison").then(m => ({ default: m.StatisticalComparison })));
+const PdfExtractor = lazy(() => import("../pages/analysis/PdfExtractor").then(m => ({ default: m.PdfExtractor })));
+const PptTools = lazy(() => import("../pages/analysis/PptTools").then(m => ({ default: m.PptTools })));
+
+// Auth & shared
+const Login = lazy(() => import("../pages/auth/Login").then(m => ({ default: m.Login })));
+const SettingsPage = lazy(() => import("../pages/Settings").then(m => ({ default: m.Settings })));
+
+// ── Layout ─────────────────────────────────────────────────────────────
 
 function PageLoader() {
   return (
@@ -27,33 +42,68 @@ function PageLoader() {
   );
 }
 
+function Shell() {
+  return (
+    <div className="shell">
+      <Sidebar />
+      <main className="page-wrap">
+        <ErrorBoundary>
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
+      </main>
+    </div>
+  );
+}
+
+// ── App ────────────────────────────────────────────────────────────────
+
 export function App() {
   return (
-    <Routes>
-      <Route
-        element={
-          <div className="shell">
-            <Rail links={NAV_LINKS} />
-            <main className="page-wrap">
-              <ErrorBoundary>
-                <Suspense fallback={<PageLoader />}>
-                  <Outlet />
-                </Suspense>
-              </ErrorBoundary>
-            </main>
-          </div>
-        }
-      >
-        <Route index element={<Dashboard />} />
-        <Route path="database" element={<DatabasePage />} />
-        <Route path="database/:projectId" element={<DatabasePage />} />
-        <Route path="scripthub" element={<ScriptHub />} />
-        <Route
-          path="*"
-          element={<NotFound />}
-        />
-      </Route>
-    </Routes>
+    <AuthProvider>
+      <WorkspaceProvider>
+        <ToastProvider>
+          <Routes>
+            {/* Login — outside shell */}
+            <Route path="/login" element={
+              <Suspense fallback={<PageLoader />}>
+                <Login />
+              </Suspense>
+            } />
+
+            {/* Shell layout — wraps all workspace pages */}
+            <Route element={<ProtectedRoute><Shell /></ProtectedRoute>}>
+              {/* Root redirect */}
+              <Route index element={<Navigate to="/management" replace />} />
+
+              {/* ── Management workspace ── */}
+              <Route path="management">
+                <Route index element={<ManagementDashboard />} />
+                <Route path="projects" element={<ProjectLibrary />} />
+                <Route path="projects/:projectId" element={<ProjectDetail />} />
+                <Route path="samples" element={<SampleRegistry />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+
+              {/* ── Analysis workspace ── */}
+              <Route path="analysis">
+                <Route index element={<UnifiedAnalysis />} />
+                <Route path="script-hub" element={<ScriptHubWizard />} />
+                <Route path="script-hub/jobs" element={<JobMonitor />} />
+                <Route path="statistical" element={<StatisticalComparison />} />
+                <Route path="pdf-extractor" element={<PdfExtractor />} />
+                <Route path="ppt-tools" element={<PptTools />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+
+              {/* 404 */}
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </WorkspaceProvider>
+    </AuthProvider>
   );
 }
 
@@ -85,7 +135,7 @@ function NotFound() {
         The page you're looking for doesn't exist or has been moved.
       </p>
       <a
-        href="/"
+        href="/management"
         style={{
           padding: "10px 24px",
           borderRadius: "var(--radius-control)",

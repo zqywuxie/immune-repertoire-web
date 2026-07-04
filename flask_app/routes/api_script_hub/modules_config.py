@@ -1,5 +1,7 @@
 """Modules listing, data-selection, and DB-alignment routes for the Script Hub API."""
 
+import random
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -40,6 +42,10 @@ from ._common import (
     _sanitize_nan,
     _script_executor,
     _set_task_state,
+    _selected_samples_from_request,
+    _selected_group_values_from_request,
+    _selected_samples_by_group_from_request,
+    _validate_selected_samples_against_group_values,
     _try_reuse_script_result,
     logger,
 )
@@ -55,9 +61,12 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
     sample_names: set[str] = set()
     file_preview: List[Dict[str, Any]] = []
     warnings: List[str] = []
+    pep_columns: List[str] = []
 
     for pep_file in pep_files:
         chain = _infer_wide_chain_from_filename(pep_file.name) or _chain_from_parent_dirs(pep_file)
+        if not pep_columns:
+            pep_columns = _read_table_columns(pep_file)
         if not chain:
             continue
         discovered_chains.add(chain)
@@ -69,6 +78,17 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
                 "chain": chain,
                 "sample": _sample_name_from_pep_file(pep_file, chain),
             })
+
+    random_pep_preview_file = None
+    if pep_files:
+        random_pep_file = random.choice(pep_files)
+        random_chain = _infer_wide_chain_from_filename(random_pep_file.name) or _chain_from_parent_dirs(random_pep_file)
+        random_pep_preview_file = {
+            "path": str(random_pep_file),
+            "filename": random_pep_file.name,
+            "chain": random_chain,
+            "sample": _sample_name_from_pep_file(random_pep_file, random_chain) if random_chain else "",
+        }
 
     resolved_profile = str(profile_path or "").strip()
     profile_candidates = [resolved_profile] if resolved_profile else []
@@ -95,7 +115,9 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
         "sample_count": len(sample_names),
         "samples": sorted(sample_names)[:50],
         "pep_file_count": len(pep_files),
+        "pep_columns": pep_columns,
         "pep_files_preview": file_preview,
+        "random_pep_preview_file": random_pep_preview_file,
         "warnings": warnings,
     }
 
@@ -218,6 +240,112 @@ def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], r
     }
 
 
+def _filter_discovery_samples(discovery: Dict[str, Any], selected_samples: List[str]) -> Dict[str, Any]:
+    selected = {str(item).strip() for item in selected_samples if str(item).strip()}
+    if not selected:
+        return discovery
+    selected_lookup = {_sample_match_key(item): item for item in selected}
+    samples = []
+    matched_keys: set[str] = set()
+    available_examples: List[Dict[str, Any]] = []
+    for sample in discovery.get("samples", []):
+        aliases = _db_alignment_sample_aliases(sample)
+        alias_keys = {_sample_match_key(alias) for alias in aliases if alias}
+        if len(available_examples) < 12:
+            available_examples.append({
+                "display_name": sample.get("display_name"),
+                "original_name": sample.get("original_name"),
+                "aliases": aliases[:8],
+            })
+        exact_matches = alias_keys.intersection(selected_lookup.keys())
+        loose_matches = {
+            selected_key for selected_key in selected_lookup.keys()
+            if any(_sample_key_loose_match(selected_key, alias_key) for alias_key in alias_keys)
+        }
+        if exact_matches or loose_matches:
+            matched_keys.update(exact_matches or loose_matches)
+            samples.append(sample)
+    if not samples:
+        raise ValidationError(
+            message="No DB alignment samples matched the selected sample list. Check sample name prefixes/suffixes or choose samples from detected DB alignment sample names.",
+            details={
+                "selected_samples": sorted(selected)[:30],
+                "selected_sample_keys": sorted(selected_lookup.keys())[:30],
+                "db_alignment_samples": available_examples,
+            },
+        )
+    unmatched = [selected_lookup[key] for key in selected_lookup.keys() if key not in matched_keys]
+    chains = sorted({
+        _normalize_chain(_infer_chain_from_filename(file_info.get("filename", "")))
+        for sample in samples
+        for file_info in sample.get("data_files", [])
+        if _normalize_chain(_infer_chain_from_filename(file_info.get("filename", ""))) in _SUPPORTED_CHAINS
+    })
+    return {
+        **discovery,
+        "samples": samples,
+        "sample_count": len(samples),
+        "pep_file_count": sum(len(sample.get("data_files", [])) for sample in samples),
+        "selected_chains": chains,
+        "selected_samples_requested": sorted(selected),
+        "selected_samples_unmatched": unmatched[:30],
+        "sample_preview": [
+            {
+                "sample_name": sample.get("display_name") or sample.get("original_name"),
+                "chains": [_normalize_chain(_infer_chain_from_filename(file_info.get("filename", ""))) for file_info in sample.get("data_files", [])],
+                "file_count": len(sample.get("data_files", [])),
+            }
+            for sample in samples[:20]
+        ],
+    }
+
+
+def _db_alignment_sample_aliases(sample: Dict[str, Any]) -> List[str]:
+    aliases = [
+        str(sample.get("display_name") or "").strip(),
+        str(sample.get("original_name") or "").strip(),
+        Path(str(sample.get("folder_path") or "")).name,
+    ]
+    for file_info in sample.get("data_files", []):
+        filename = str(file_info.get("filename") or "").strip()
+        if not filename:
+            continue
+        aliases.append(Path(filename).stem)
+        chain = _normalize_chain(_infer_chain_from_filename(filename))
+        if chain:
+            aliases.append(_sample_name_from_pep_file(Path(filename), chain))
+    return [item for item in unique_preserve_order(aliases) if item]
+
+
+def _sample_match_key(value: str) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"\.(csv|tsv|txt|gz|xlsx?)$", "", text)
+    text = re.sub(r"(__|-|_)?(tra|trb|trg|trd|igh|igk|igl)$", "", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _sample_key_loose_match(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 4:
+        return False
+    return left in right or right in left
+
+
+def unique_preserve_order(values: List[str]) -> List[str]:
+    seen = set()
+    result = []
+    for value in values:
+        key = str(value or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
 # ── Helper: build profile category preview ──
 
 def _build_profile_category_preview(
@@ -275,12 +403,14 @@ def _run_db_alignment_task(
     categories: List[str],
     contained_pathology: bool,
     pathology_values: List[str],
+    selected_samples: Optional[List[str]] = None,
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
         _record_stage(task_id, 5, "Inspect assets", "Scanning pep/Profile inputs for DB alignment", {"module": "db-alignment"})
 
         discovery = _discover_db_alignment_inputs(base_path, profile_path, field_mapping)
+        discovery = _filter_discovery_samples(discovery, selected_samples or [])
 
         _record_stage(
             task_id,
@@ -542,8 +672,12 @@ def run_db_alignment():
         output_name = str(data.get("output_name") or "").strip() or None
         profile_path = _profile_path_from_request(data, "profile_path")
         categories = [str(item).strip() for item in (data.get("categories") or []) if str(item).strip()]
+        if not categories:
+            raise ValidationError(message="Please select group field / 请选择分组字段", details={"field": "categories"})
         pathology_values = [str(item).strip() for item in (data.get("pathology_values") or []) if str(item).strip()]
         contained_pathology = _as_bool(data.get("contained_pathology"), False)
+        selected_samples = _selected_samples_from_request(data)
+        _validate_selected_samples_against_group_values(data)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
             project_id=project_id,
@@ -560,6 +694,9 @@ def run_db_alignment():
                 "categories": categories,
                 "contained_pathology": contained_pathology,
                 "pathology_values": pathology_values,
+                "selected_samples": selected_samples,
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
             },
         )
         if not _force_rerun_requested(data):
@@ -594,6 +731,7 @@ def run_db_alignment():
             categories=categories,
             contained_pathology=contained_pathology,
             pathology_values=pathology_values,
+            selected_samples=selected_samples,
             app_context_app=current_app._get_current_object() if project_id else None,
         )
 

@@ -568,6 +568,25 @@ def _resolve_project_cached_usage_path(data: Dict[str, Any], *, preferred: str) 
 
     preferred = str(preferred or "").strip().lower()
     candidates: List[str] = []
+    for manifest in _pep_cache_manifests_for_project(project_id):
+        output_files = manifest.get("output_files") if isinstance(manifest.get("output_files"), dict) else {}
+        usage_types = output_files.get("usage_types") if isinstance(output_files.get("usage_types"), dict) else {}
+        umapin_tables = output_files.get("umapin_tables") if isinstance(output_files.get("umapin_tables"), dict) else {}
+        if preferred == "umapin":
+            candidates.extend([
+                str(umapin_tables.get("df_1VJusage_all") or "").strip(),
+                str(umapin_tables.get("df_VJ_all") or "").strip(),
+                str(usage_types.get("1VJusage") or "").strip(),
+                str(usage_types.get("0VJusage") or "").strip(),
+            ])
+        elif preferred == "volcano":
+            candidates.extend([
+                str(usage_types.get("1VJusage") or "").strip(),
+                str(usage_types.get("0VJusage") or "").strip(),
+            ])
+        else:
+            candidates.extend(str(path or "").strip() for path in usage_types.values())
+
     assets = _collect_project_cached_usage_assets(project_id)
     assets.sort(key=lambda item: 0 if (item.get("metadata") or {}).get("usage_scope") == "usage_cate" else 1)
     for asset in assets:
@@ -629,6 +648,23 @@ def _resolve_pep_analysis_tra_source(data: Dict[str, Any]) -> Dict[str, Any]:
     source_job_id = str(data.get("source_job_id") or "").strip()
     project_id = str(data.get("project_id") or "").strip()
     candidates: List[Dict[str, Any]] = []
+
+    if project_id:
+        for manifest in _pep_cache_manifests_for_project(project_id):
+            job_id = str(manifest.get("job_id") or manifest.get("cache_id") or "").strip()
+            if source_job_id and job_id and job_id != source_job_id:
+                continue
+            output_files = manifest.get("output_files") if isinstance(manifest.get("output_files"), dict) else {}
+            pep_shared = output_files.get("pep_shared") if isinstance(output_files.get("pep_shared"), dict) else {}
+            tra_path = str(pep_shared.get("TRA") or "").strip()
+            if tra_path:
+                candidates.append({
+                    "tra_path": tra_path,
+                    "source_kind": "cache_manifest",
+                    "source_job_id": job_id,
+                    "output_base": manifest.get("output_base") or "",
+                    "metadata": manifest,
+                })
 
     def _add_output_base(output_base: Any, *, source_kind: str, job_id: str = "", metadata: Optional[Dict[str, Any]] = None) -> None:
         raw = str(output_base or "").strip()
@@ -786,6 +822,147 @@ def _pep_paths_from_request(data: Dict[str, Any]) -> List[str]:
     return [str(PathAccessService.validate_read_path(path)) for path in _request_registered_assets(data)["pep_paths"]]
 
 
+def _selected_samples_from_request(data: Dict[str, Any]) -> List[str]:
+    raw = data.get("selected_samples")
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item or "").strip()]
+
+
+def _selected_group_values_from_request(data: Dict[str, Any]) -> Dict[str, List[str]]:
+    raw = data.get("selected_group_values")
+    if not isinstance(raw, dict):
+        return {}
+    result: Dict[str, List[str]] = {}
+    for field, values in raw.items():
+        if not isinstance(values, list):
+            continue
+        clean_values = [str(item).strip() for item in values if str(item or "").strip()]
+        if clean_values:
+            result[str(field).strip()] = clean_values
+    return result
+
+
+def _selected_samples_by_group_from_request(data: Dict[str, Any]) -> Dict[str, Dict[str, List[str]]]:
+    raw = data.get("selected_samples_by_group")
+    if not isinstance(raw, dict):
+        return {}
+    result: Dict[str, Dict[str, List[str]]] = {}
+    for field, groups in raw.items():
+        if not isinstance(groups, dict):
+            continue
+        field_key = str(field).strip()
+        if not field_key:
+            continue
+        for group_value, samples in groups.items():
+            if not isinstance(samples, list):
+                continue
+            group_key = str(group_value).strip()
+            clean_samples = [str(item).strip() for item in samples if str(item or "").strip()]
+            if group_key:
+                result.setdefault(field_key, {})[group_key] = clean_samples
+    return result
+
+
+def _validate_selected_samples_against_group_values(data: Dict[str, Any]) -> None:
+    selected_samples = _selected_samples_from_request(data)
+    selected_group_values = _selected_group_values_from_request(data)
+    selected_samples_by_group = _selected_samples_by_group_from_request(data)
+    if not selected_group_values:
+        return
+    profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path")
+    if not profile_path:
+        raise ValidationError(message="profile_path is required for group value sample validation", details={"field": "profile_path"})
+    df = _robust_read_csv(Path(profile_path))
+    sample_col = _detect_profile_sample_column(df.columns.tolist())
+    if not sample_col:
+        raise ValidationError(message="Profile sample column not found", details={"available_columns": df.columns.tolist()})
+    valid_samples: set[str] = set()
+    missing_fields = [field for field in selected_group_values if field not in df.columns]
+    if missing_fields:
+        raise ValidationError(message="Selected group field not found in Profile", details={"missing_fields": missing_fields, "available_columns": df.columns.tolist()})
+    for field, values in selected_group_values.items():
+        allowed = {str(item).strip() for item in values if str(item).strip()}
+        field_df = df[[sample_col, field]].dropna(subset=[sample_col, field]).copy()
+        field_df[sample_col] = field_df[sample_col].astype(str).str.strip()
+        field_df[field] = field_df[field].astype(str).str.strip()
+        valid_samples.update(field_df[field_df[field].isin(allowed)][sample_col].tolist())
+        grouped_selected = selected_samples_by_group.get(field, {})
+        invalid_group_values = [group_value for group_value in grouped_selected if group_value not in allowed]
+        if invalid_group_values:
+            raise ValidationError(
+                message="Selected sample groups do not match selected group values",
+                details={
+                    "field": field,
+                    "invalid_group_values": invalid_group_values[:30],
+                    "selected_group_values": selected_group_values,
+                },
+            )
+        for group_value, group_samples in grouped_selected.items():
+            group_valid_samples = set(field_df[field_df[field] == group_value][sample_col].tolist())
+            invalid_group_samples = [sample for sample in group_samples if sample not in group_valid_samples]
+            if invalid_group_samples:
+                raise ValidationError(
+                    message="Selected samples do not belong to the requested group",
+                    details={
+                        "field": field,
+                        "group_value": group_value,
+                        "invalid_samples": invalid_group_samples[:30],
+                        "valid_sample_examples": sorted(group_valid_samples)[:30],
+                    },
+                )
+    if selected_samples:
+        invalid_samples = [sample for sample in selected_samples if sample not in valid_samples]
+        if invalid_samples:
+            raise ValidationError(
+                message="Selected samples do not match selected group values",
+                details={
+                    "invalid_samples": invalid_samples[:30],
+                    "selected_group_values": selected_group_values,
+                    "valid_sample_examples": sorted(valid_samples)[:30],
+                },
+            )
+
+
+def _detect_profile_sample_column(columns: List[str]) -> str:
+    lower_map = {str(col).strip().lower(): str(col) for col in columns}
+    for preferred in ("sample", "sample_id", "sample_name", "id"):
+        if preferred in lower_map:
+            return lower_map[preferred]
+    return ""
+
+
+def _pep_cache_manifests_for_project(project_id: str) -> List[Dict[str, Any]]:
+    registry_path = _resolve_results_root() / _RESULT_DIR / "cache_registry.json"
+    manifests: List[Dict[str, Any]] = []
+    try:
+        if not registry_path.exists():
+            return manifests
+        loaded = json.loads(registry_path.read_text(encoding="utf-8"))
+        entries = loaded.get("entries") if isinstance(loaded, dict) else loaded
+        if not isinstance(entries, list):
+            return manifests
+        project_key = str(project_id or "").strip()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_project = str(entry.get("project_id") or "").strip()
+            if entry_project and entry_project != project_key:
+                continue
+            manifest_path = str(entry.get("manifest_path") or "").strip()
+            if not manifest_path:
+                output_base = str(entry.get("output_base") or "").strip()
+                manifest_path = str(Path(output_base) / "cache_manifest.json") if output_base else ""
+            path = Path(manifest_path)
+            if path.exists() and path.is_file():
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(manifest, dict):
+                    manifests.append(manifest)
+    except Exception:
+        logger.warning("Failed to read PEP cache manifests from registry", exc_info=True)
+    return manifests
+
+
 def _primary_pep_path_from_request(data: Dict[str, Any], *keys: str) -> str:
     pep_paths = _pep_paths_from_request(data)
     if str(data.get("project_id") or "").strip():
@@ -897,6 +1074,9 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
                 "categories": [str(item).strip() for item in (data.get("categories") or []) if str(item).strip()],
                 "contained_pathology": _as_bool(data.get("contained_pathology"), False),
                 "pathology_values": [str(item).strip() for item in (data.get("pathology_values") or []) if str(item).strip()],
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
             },
         )
 
@@ -906,12 +1086,18 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
             "param_begin": str(data.get("param_begin") or "").strip(),
             "param_over": str(data.get("param_over") or "").strip(),
             "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
+            "selected_samples": _selected_samples_from_request(data),
+            "selected_group_values": _selected_group_values_from_request(data),
+            "selected_samples_by_group": _selected_samples_by_group_from_request(data),
         }
         if module_name == "profile":
             config_json.update({
                 "grouping_begin": str(data.get("grouping_begin") or "").strip(),
                 "grouping_over": str(data.get("grouping_over") or "").strip(),
                 "grouptype_fields": data.get("grouptype_fields") if isinstance(data.get("grouptype_fields"), list) else [],
+                "group_order": str(data.get("group_order") or "").strip() or None,
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
             })
         elif module_name == "boxplot":
             config_json.update({
@@ -950,6 +1136,9 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
                 "top_n": int(data.get("top_n") or 10),
                 "group_field": str(data.get("group_field") or "").strip() or None,
                 "group_order": str(data.get("group_order") or "").strip() or None,
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
                 "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
             },
         )
@@ -962,9 +1151,14 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
         if module_name == "pep-analysis":
             optional_steps_raw = data.get("optional_steps") if isinstance(data.get("optional_steps"), list) else None
             optional_steps = {int(step) for step in optional_steps_raw if str(step).isdigit()} if optional_steps_raw is not None else None
+            optional_steps = {step for step in optional_steps if step in {5, 6, 7, 8}} if optional_steps is not None else None
             config_json = {
                 "selected_chains": data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else [],
                 "group_fields": data.get("group_fields") if isinstance(data.get("group_fields"), list) else [],
+                "group_order": str(data.get("group_order") or "").strip() or None,
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
                 "pvalue_threshold": float(data.get("pvalue_threshold") or 0.05),
                 "min_sample_threshold": int(data.get("min_sample_threshold") or 3),
                 "optional_steps": sorted(optional_steps) if optional_steps is not None else None,
@@ -975,6 +1169,9 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
                 "sample_col": str(data.get("sample_col") or "sample").strip() or "sample",
                 "species": str(data.get("species") or "human").strip() or "human",
                 "distribution_category_col": str(data.get("distribution_category_col") or "").strip(),
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
             }
         return _build_script_cache_context(
             project_id=project_id,
@@ -1059,9 +1256,15 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
 
     if module_name == "ml-analysis":
         profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path") or ""
-        mode = str(data.get("mode") or "profile").strip().lower()
+        mode = str(data.get("mode") or "profile").strip().lower().replace("-", "_").replace("+", "_")
+        if mode in {"vj", "vj_usage", "usage"}:
+            mode = "vj"
+        elif mode in {"profile_vj", "profile_usage", "profile_vj_usage"}:
+            mode = "profile_vj"
+        else:
+            mode = "profile"
         usage_path = str(data.get("usage_path") or "").strip()
-        if mode == "vj-usage":
+        if mode in {"vj", "profile_vj"}:
             usage_path = usage_path or _resolve_project_cached_usage_path(data, preferred="umapin")
         return _build_script_cache_context(
             project_id=project_id,
@@ -1078,7 +1281,10 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
                 "param_over": str(data.get("param_over") or "").strip(),
                 "filter_col": str(data.get("filter_col") or "").strip(),
                 "filter_value": str(data.get("filter_value") or "").strip(),
-                "feature_cols": _list_payload(data.get("feature_cols")) if mode != "profile" else [],
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
+                "feature_cols": _list_payload(data.get("feature_cols")) if mode != "vj" else [],
                 "usage_feature_cols": _list_payload(data.get("usage_feature_cols")),
                 "custom_threshold": float(data.get("custom_threshold") or 0.003),
                 "cv_splits": int(data.get("cv_splits") or 3),
@@ -1109,6 +1315,9 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
             config_json={
                 "group_field": str(data.get("group_field") or "").strip(),
                 "group_order": str(data.get("group_order") or "").strip() or None,
+                "selected_group_values": _selected_group_values_from_request(data),
+                "selected_samples": _selected_samples_from_request(data),
+                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
                 "tra_source": tra_source,
             },
         )
@@ -1392,10 +1601,19 @@ def _complete_script_task(
 
 def _build_and_save_viewer(output_base, result, metadata, *, title, subtitle, dl_extras=None):
     import json as _json
+    result_items = metadata.get("result_items") if isinstance(metadata.get("result_items"), list) else []
+    data_mode_by_name = {}
+    for item in result_items:
+        if not isinstance(item, dict):
+            continue
+        name = Path(str(item.get("path") or item.get("title") or "")).name
+        data_mode = str(item.get("data_mode") or "").strip()
+        if name and data_mode:
+            data_mode_by_name[name] = data_mode
     img_items = []
     for u in result.get("png_urls", []):
         fname = u.rsplit("/", 1)[-1] if "/" in u else u
-        cat = fname.rsplit(".", 1)[0].rsplit("_", 1)[0] if "_" in fname else "plot"
+        cat = data_mode_by_name.get(fname) or (fname.rsplit(".", 1)[0].rsplit("_", 1)[0] if "_" in fname else "plot")
         img_items.append({"src": u, "title": fname, "category": cat, "sig": False})
     dl_sections = []
     if dl_extras:
@@ -1782,9 +2000,41 @@ def _pep_chain_from_result_rel(rel: str) -> str:
     return "ALL" if stem.upper().startswith("ALL") else "Other"
 
 
-def _pep_viewer_items(urls: List[str], section: str, job_id: str) -> List[Dict[str, str]]:
+def _pep_usage_type_from_result_rel(rel: str) -> str:
+    usage_types = {"0Vusage", "1Vusage", "0Jusage", "1Jusage", "0VJusage", "1VJusage"}
+    for part in str(rel or "").split("/"):
+        if part in usage_types:
+            return part
+    return "All"
+
+
+def _pep_plot_type_from_result_rel(rel: str, section: str) -> str:
+    rel_text = str(rel or "")
+    filename = rel_text.rsplit("/", 1)[-1]
+    if section == "Differential heatmaps":
+        return "heatmap"
+    if section == "CDR3 classification proportions":
+        return "proportion"
+    if section == "CDR3 arrangement heatmaps":
+        return "arrange_heatmap"
+    if section == "Unique CDR3 heatmaps":
+        return "summary" if filename.upper().startswith("ALL_") else "unique_cdr3"
+    return "plot"
+
+
+def _pep_section_step(section: str) -> int:
+    return {
+        "Differential heatmaps": 5,
+        "CDR3 classification proportions": 6,
+        "CDR3 arrangement heatmaps": 7,
+        "Unique CDR3 heatmaps": 8,
+    }.get(section, 0)
+
+
+def _pep_viewer_items(urls: List[str], section: str, job_id: str, created_at: str = "") -> List[Dict[str, str]]:
     items: List[Dict[str, str]] = []
     marker = f"/api/script-hub/results/{job_id}/"
+    step = _pep_section_step(section)
     for url in urls:
         if not str(url).lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".svg")):
             continue
@@ -1792,15 +2042,82 @@ def _pep_viewer_items(urls: List[str], section: str, job_id: str) -> List[Dict[s
         parts = rel.split("/")
         group_field = parts[0] if len(parts) > 2 else "Summary"
         chain = _pep_chain_from_result_rel(rel)
+        usage_type = _pep_usage_type_from_result_rel(rel)
+        plot_type = _pep_plot_type_from_result_rel(rel, section)
+        filter_dimensions = ["group_field", "chain", "usage_type", "plot_type"]
         title = parts[-1]
         if section == "Differential heatmaps" and len(parts) >= 4:
             title = f"{parts[-3]} / {parts[-2]} / {parts[-1]}"
+        elif section == "CDR3 arrangement heatmaps":
+            group_field = ""
+            usage_type = ""
+            plot_type = ""
+            filter_dimensions = ["chain"]
+            title = f"{chain} / {parts[-1]}"
+        elif section == "Unique CDR3 heatmaps":
+            title = f"{chain} / {plot_type} / {parts[-1]}"
+        image_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"pep_step{step}_{rel}").strip("_")
+        data_category = section
         items.append({
+            "image_id": image_id,
+            "image_path": rel,
+            "image_name": parts[-1],
+            "analysis_type": "PEP",
             "url": url,
+            "kind": "image",
             "section": section,
+            "category": section,
+            "data_category": data_category,
+            "step": str(step),
+            "script": PEP_STEP_SCRIPT_LABELS.get(step, ""),
             "chain": chain,
             "group": group_field,
+            "group_field": group_field,
+            "comparison": "",
+            "usage_type": usage_type,
+            "plot_type": plot_type,
+            "image_type": plot_type,
+            "filter_dimensions": filter_dimensions,
             "title": title,
+            "label": title,
+            "rel": rel,
+            "created_at": created_at,
+        })
+    return items
+
+
+PEP_STEP_SCRIPT_LABELS = {
+    5: "5.Heat_map_Thread.py",
+    6: "6.Pep_statistication.py",
+    7: "7.CDR3_arrage_heatmap_ver1.0.py",
+    8: "8.plot_heatmap.py",
+}
+
+
+def _pep_download_items(urls: List[str], section: str, step: int, job_id: str, kind: str = "csv") -> List[Dict[str, str]]:
+    items: List[Dict[str, str]] = []
+    marker = f"/api/script-hub/results/{job_id}/"
+    for url in urls or []:
+        if not isinstance(url, str) or not url.strip():
+            continue
+        rel = url.split(marker, 1)[1] if marker in url else url.rsplit("/", 1)[-1]
+        parts = rel.split("/")
+        group_field = parts[0] if len(parts) > 2 else "Summary"
+        title = parts[-1] if parts else rel
+        items.append({
+            "url": url,
+            "kind": kind,
+            "section": section,
+            "category": section,
+            "step": str(step),
+            "script": PEP_STEP_SCRIPT_LABELS.get(step, "2.Pep_shared.py" if step == 2 else ""),
+            "chain": _pep_chain_from_result_rel(rel),
+            "group": group_field,
+            "group_field": group_field,
+            "usage_type": _pep_usage_type_from_result_rel(rel),
+            "plot_type": "table" if kind == "csv" else kind,
+            "title": title,
+            "label": title,
             "rel": rel,
         })
     return items
@@ -1871,20 +2188,72 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     import html as _html
 
     job_id = str(result.get("job_id") or output_base.name)
+    created_at = str(metadata.get("generated_at") or metadata.get("created_at") or "")
     image_sections = [
-        ("Differential heatmaps", _pep_viewer_items(result.get("heatmap_image_urls") or [], "Differential heatmaps", job_id)),
-        ("CDR3 classification proportions", _pep_viewer_items(result.get("proportion_plot_urls") or [], "CDR3 classification proportions", job_id)),
-        ("CDR3 arrangement heatmaps", _pep_viewer_items(result.get("arrange_heatmap_urls") or [], "CDR3 arrangement heatmaps", job_id)),
-        ("Unique CDR3 heatmaps", _pep_viewer_items(result.get("plot_heatmap_urls") or [], "Unique CDR3 heatmaps", job_id)),
+        ("Differential heatmaps", _pep_viewer_items(result.get("heatmap_image_urls") or [], "Differential heatmaps", job_id, created_at)),
+        ("CDR3 classification proportions", _pep_viewer_items(result.get("proportion_plot_urls") or [], "CDR3 classification proportions", job_id, created_at)),
+        ("CDR3 arrangement heatmaps", _pep_viewer_items(result.get("arrange_heatmap_urls") or [], "CDR3 arrangement heatmaps", job_id, created_at)),
+        ("Unique CDR3 heatmaps", _pep_viewer_items(result.get("plot_heatmap_urls") or [], "Unique CDR3 heatmaps", job_id, created_at)),
     ]
     all_images = [item for _, items in image_sections for item in items]
+    result["viewer_items"] = all_images
+    download_items = (
+        _pep_download_items(result.get("shared_matrix_urls") or [], "Shared matrices", 2, job_id)
+        + _pep_download_items(result.get("usage_urls") or [], "Usage matrices", 2, job_id)
+        + _pep_download_items(result.get("heatmap_csv_urls") or [], "Differential heatmap CSV", 5, job_id)
+        + _pep_download_items(result.get("classification_urls") or [], "CDR3 classification CSV", 6, job_id)
+        + _pep_download_items(result.get("proportion_urls") or [], "CDR3 proportion CSV", 6, job_id)
+        + _pep_download_items([result.get("metadata_url")] if result.get("metadata_url") else [], "Metadata", 0, job_id, "json")
+        + _pep_download_items([result.get("zip_url")] if result.get("zip_url") else [], "Archive", 0, job_id, "zip")
+    )
+    result["download_items"] = download_items
+    metadata["viewer_items"] = all_images
+    metadata["image_files"] = all_images
+    metadata["viewer_filter_schema"] = [
+        {"key": "section", "label": "PEP step/category"},
+        {"key": "group_field", "label": "Group field"},
+        {"key": "chain", "label": "Chain"},
+        {"key": "usage_type", "label": "Usage type"},
+        {"key": "plot_type", "label": "Image type"},
+    ]
+    metadata["viewer_filter_modes"] = {
+        "CDR3 arrangement heatmaps": ["chain"],
+    }
     visible_sections = [(name, items) for name, items in image_sections if items]
     default_section = visible_sections[0][0] if visible_sections else ""
-    section_options_html = "".join(
-        '<option value="' + _html.escape(section_name) + '"' + (" selected" if section_name == default_section else "") + ">"
-        + _html.escape(section_name) + " (" + str(len(items)) + ")</option>"
-        for section_name, items in visible_sections
-    )
+
+    def _unique_option_values(key: str, section: Optional[str] = None) -> List[str]:
+        values = []
+        for item in all_images:
+            if section and item.get("section") != section:
+                continue
+            value = str(item.get(key) or "").strip()
+            if value and value not in values:
+                values.append(value)
+        return values
+
+    def _options_html(values: List[str], default: str = "", include_all: bool = True) -> str:
+        html = ""
+        if include_all:
+            html += '<option value="__all__"' + (" selected" if default == "__all__" else "") + ">All</option>"
+        for value in values:
+            html += (
+                '<option value="' + _html.escape(value) + '"'
+                + (" selected" if value == default else "")
+                + ">" + _html.escape(value) + "</option>"
+            )
+        return html
+
+    section_values = [name for name, _ in visible_sections]
+    default_group = (_unique_option_values("group_field", default_section) or ["__all__"])[0]
+    default_chain = (_unique_option_values("chain", default_section) or ["__all__"])[0]
+    default_usage = (_unique_option_values("usage_type", default_section) or ["__all__"])[0]
+    default_plot = (_unique_option_values("plot_type", default_section) or ["__all__"])[0]
+    section_options_html = _options_html(section_values, default_section, include_all=False)
+    group_options_html = _options_html(_unique_option_values("group_field"), default_group)
+    chain_options_html = _options_html(_unique_option_values("chain"), default_chain)
+    usage_options_html = _options_html(_unique_option_values("usage_type"), default_usage)
+    plot_options_html = _options_html(_unique_option_values("plot_type"), default_plot)
 
     def _download_links(key: str) -> str:
         links = result.get(key) or []
@@ -1905,22 +2274,37 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
             for url in links
         )
 
-    sections_html = []
-    for section_name, items in image_sections:
-        if not items:
-            continue
-        cards = "".join(
-            '<article class="plot-card" data-section="' + _html.escape(section_name) + '">'
+    cards_html = "".join(
+            '<article class="plot-card"'
+            ' data-section="' + _html.escape(str(item.get("section") or "")) + '"'
+            ' data-group-field="' + _html.escape(str(item.get("group_field") or "")) + '"'
+            ' data-chain="' + _html.escape(str(item.get("chain") or "")) + '"'
+            ' data-usage-type="' + _html.escape(str(item.get("usage_type") or "")) + '"'
+            ' data-plot-type="' + _html.escape(str(item.get("plot_type") or "")) + '"'
+            ' data-filter-dimensions="' + _html.escape(",".join(item.get("filter_dimensions") or [])) + '">'
             '<a href="' + _html.escape(item["url"]) + '" target="_blank" rel="noopener">'
             '<img src="' + _html.escape(item["url"]) + '" alt="' + _html.escape(item["title"]) + '" loading="lazy"></a>'
             '<div class="plot-meta"><strong>' + _html.escape(item["title"]) + '</strong>'
-            '<span>' + _html.escape(item["chain"]) + ' / ' + _html.escape(item["group"]) + '</span></div>'
+            '<span>' + _html.escape(
+                " / ".join([
+                    str(item.get("section") or ""),
+                    str(item.get("chain") or ""),
+                    *([
+                        str(item.get("group_field") or ""),
+                        str(item.get("usage_type") or ""),
+                    ] if "chain" not in (item.get("filter_dimensions") or []) or len(item.get("filter_dimensions") or []) > 1 else []),
+                ]).strip(" / ")
+            ) + '</span></div>'
             '</article>'
-            for item in items
-        )
+            for item in all_images
+    )
+
+    sections_html = []
+    if cards_html:
         sections_html.append(
-            '<section class="viewer-section' + (" is-hidden" if section_name != default_section else "") + '" data-section="' + _html.escape(section_name) + '"><div class="section-head"><h2>' + _html.escape(section_name) + '</h2>'
-            '<span>' + str(len(items)) + ' images</span></div><div class="plot-grid">' + cards + '</div></section>'
+            '<section class="viewer-section" data-section="pep-images"><div class="section-head"><h2>Filtered images</h2>'
+            '<span id="pepVisibleCount">' + str(len(all_images)) + ' images</span></div><div class="plot-grid" id="pepPlotGrid">' + cards_html + '</div>'
+            '<div class="empty-note is-hidden" id="pepNoMatches">No images match the selected filters.</div></section>'
         )
 
     if not sections_html:
@@ -1982,7 +2366,8 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     .stat span { display: block; color: #68788d; font-size: 12px; margin-bottom: 4px; }
     .stat strong { font-size: 20px; }
     .viewer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
-    .viewer-toolbar label { color: #53677f; font-size: 13px; font-weight: 650; }
+    .viewer-toolbar label.is-hidden { display: none; }
+    .viewer-toolbar label { display: grid; gap: 5px; color: #53677f; font-size: 13px; font-weight: 650; }
     .viewer-toolbar select { min-width: min(100%, 320px); border: 1px solid #cbd7e3; border-radius: 6px; padding: 8px 10px; background: #fff; color: #26364a; font-weight: 650; }
     .viewer-section { background: #ffffff; border: 1px solid #dde5ee; border-radius: 8px; padding: 18px; margin-bottom: 16px; }
     .viewer-section.is-hidden, .plot-card.is-hidden { display: none; }
@@ -2005,7 +2390,9 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
     .download-grid a:hover { background: #eef7fb; }
     .warning { margin: 0 0 16px; border: 1px solid #f1c36d; background: #fff8e6; border-radius: 8px; padding: 12px 14px; color: #6b4d07; }
     .warning ul { margin: 8px 0 0 18px; padding: 0; }
-    .empty p { color: #68788d; }
+    .empty p, .empty-note { color: #68788d; }
+    .empty-note { padding: 20px; text-align: center; border: 1px dashed #cbd7e3; border-radius: 6px; background: #f9fbfd; }
+    .empty-note.is-hidden { display: none; }
     @media (max-width: 720px) { .plot-grid { grid-template-columns: 1fr; } .page { padding: 14px 10px 32px; } }
   </style>
 </head>
@@ -2016,7 +2403,15 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
       <p>Chains: """ + _html.escape(", ".join(metadata.get("selected_chains") or [])) + """ | Group fields: """ + _html.escape(", ".join(metadata.get("group_fields") or [])) + """</p>
       <div class="stats">""" + stats_html + """</div>
     </section>
-    """ + ('<div class="viewer-toolbar"><label for="pepImageCategorySelect">Image category</label><select id="pepImageCategorySelect">' + section_options_html + '</select></div>' if section_options_html else "") + """
+    """ + ("""
+    <div class="viewer-toolbar">
+      <label for="pepImageCategorySelect">Image category<select id="pepImageCategorySelect">""" + section_options_html + """</select></label>
+      <label for="pepGroupFieldSelect">Group field<select id="pepGroupFieldSelect">""" + group_options_html + """</select></label>
+      <label for="pepChainSelect">Chain<select id="pepChainSelect">""" + chain_options_html + """</select></label>
+      <label for="pepUsageSelect">Usage type<select id="pepUsageSelect">""" + usage_options_html + """</select></label>
+      <label for="pepPlotTypeSelect">Plot type<select id="pepPlotTypeSelect">""" + plot_options_html + """</select></label>
+    </div>
+    """ if section_options_html else "") + """
     """ + warning_html + """
     """ + "".join(sections_html) + """
     <section class="downloads">
@@ -2026,22 +2421,66 @@ def _write_pep_analysis_viewer(output_base: Path, result: Dict[str, Any], metada
   </main>
   <script>
   (function() {
-    var select = document.getElementById('pepImageCategorySelect');
-    var sections = Array.prototype.slice.call(document.querySelectorAll('.viewer-section[data-section]'));
-    function applyCategory(category) {
-      sections.forEach(function(section) {
-        section.classList.toggle('is-hidden', section.dataset.section !== category);
+    var categorySelect = document.getElementById('pepImageCategorySelect');
+    var groupSelect = document.getElementById('pepGroupFieldSelect');
+    var chainSelect = document.getElementById('pepChainSelect');
+    var usageSelect = document.getElementById('pepUsageSelect');
+    var plotSelect = document.getElementById('pepPlotTypeSelect');
+    var countEl = document.getElementById('pepVisibleCount');
+    var emptyEl = document.getElementById('pepNoMatches');
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.plot-card'));
+
+    function matches(select, value) {
+      return !select || select.value === '__all__' || select.value === value;
+    }
+    function selectedSection() {
+      return categorySelect ? categorySelect.value : '';
+    }
+    function isChainOnlySection() {
+      return selectedSection() === 'CDR3 arrangement heatmaps';
+    }
+    function setFilterVisibility() {
+      var chainOnly = isChainOnlySection();
+      [
+        { select: groupSelect, hidden: chainOnly },
+        { select: usageSelect, hidden: chainOnly },
+        { select: plotSelect, hidden: chainOnly }
+      ].forEach(function(item) {
+        if (!item.select) return;
+        var label = item.select.closest ? item.select.closest('label') : null;
+        if (label) label.classList.toggle('is-hidden', item.hidden);
+        if (item.hidden) item.select.value = '__all__';
       });
     }
-    if (select) {
-      select.addEventListener('change', function() { applyCategory(select.value); });
-      applyCategory(select.value);
+
+    function applyFilters() {
+      setFilterVisibility();
+      var chainOnly = isChainOnlySection();
+      var visible = 0;
+      cards.forEach(function(card) {
+        var keep = matches(categorySelect, card.dataset.section)
+          && (chainOnly || matches(groupSelect, card.dataset.groupField))
+          && matches(chainSelect, card.dataset.chain)
+          && (chainOnly || matches(usageSelect, card.dataset.usageType))
+          && (chainOnly || matches(plotSelect, card.dataset.plotType));
+        card.classList.toggle('is-hidden', !keep);
+        if (keep) visible += 1;
+      });
+      if (countEl) countEl.textContent = visible + ' images';
+      if (emptyEl) emptyEl.classList.toggle('is-hidden', visible !== 0);
     }
+    [categorySelect, groupSelect, chainSelect, usageSelect, plotSelect].forEach(function(select) {
+      if (select) select.addEventListener('change', applyFilters);
+    });
+    applyFilters();
   })();
   </script>
 </body>
 </html>""", encoding="utf-8")
     result["viewer_url"] = f"/api/script-hub/results/{job_id}/viewer.html"
+    metadata_path = output_base / "pep_analysis_metadata.json"
+    if metadata_path.exists():
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 

@@ -1584,6 +1584,61 @@ def test_script_hub_jobs_cancel_updates_task_state(api_module):
     assert task["status"] == "cancelled"
 
 
+def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monkeypatch):
+    tasks_results = import_module("flask_app.routes.api_script_hub.tasks_results")
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    app.register_blueprint(api_module.script_hub_bp)
+
+    dispatch_names = {
+        "db-alignment": "run_db_alignment",
+        "boxplot": "run_boxplot",
+        "profile": "run_profile",
+        "topclone": "run_topclone",
+        "pep-analysis": "run_pep_analysis",
+        "pgen-analysis": "run_pgen_analysis",
+        "umap": "run_umap",
+        "volcano": "run_volcano",
+        "go-kegg-enrichment": "run_go_kegg_enrichment",
+        "umapin": "run_umapin",
+        "ml-analysis": "run_ml_analysis",
+        "mait-nkt": "run_mait_nkt",
+    }
+
+    called = []
+
+    def make_runner(module_name):
+        def runner():
+            called.append(module_name)
+            return {"success": True, "task_id": f"task_{module_name}", "module": module_name}
+        return runner
+
+    for module_name, function_name in dispatch_names.items():
+        monkeypatch.setattr(tasks_results, function_name, make_runner(module_name))
+
+    client = app.test_client()
+    minimal_payloads = {
+        "db-alignment": {"categories": ["group"]},
+        "boxplot": {"classification_begin": "group"},
+        "profile": {"grouptype_fields": ["group"]},
+        "topclone": {"group_field": "group"},
+        "pep-analysis": {"group_fields": ["group"]},
+        "pgen-analysis": {"distribution_category_col": "group"},
+        "umap": {"group_field": "group"},
+        "umapin": {"category_col": "group"},
+        "ml-analysis": {"label_col": "group"},
+        "mait-nkt": {"group_field": "group"},
+    }
+    for module_name in dispatch_names:
+        response = client.post("/api/script-hub/jobs", json={"module": module_name, **minimal_payloads.get(module_name, {})})
+        payload = response.get_json()
+        assert response.status_code == 200, module_name
+        assert payload["success"] is True, module_name
+        assert payload["module"] == module_name
+
+    assert called == list(dispatch_names.keys())
+
+
 def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
     api_jobs = import_module("flask_app.routes.api_jobs")
 

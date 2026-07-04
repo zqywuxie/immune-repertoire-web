@@ -1,4 +1,11 @@
-"""PPT processing worker tasks."""
+"""PPT processing worker tasks.
+
+.. attention:: **LEGACY BRIDGE**
+
+   These workers still call Flask endpoints via ``call_json_endpoint``
+   and require a Flask app context.  See ``analysis_workers/results.py``
+   for the standalone replacement pattern.
+"""
 
 from __future__ import annotations
 

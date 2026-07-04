@@ -48,6 +48,7 @@ class ProjectSummary(BaseModel):
     description: Optional[str] = None
     status: str
     asset_counts: dict[str, int] = Field(default_factory=dict)
+    asset_status: dict = Field(default_factory=dict)
     sample_count: int = 0
     result_count: int = 0
     group_spec_count: int = 0
@@ -79,6 +80,8 @@ class Asset(BaseModel):
     mime_type: Optional[str] = None
     size: int = 0
     metadata: dict = Field(default_factory=dict)
+    preview_url: Optional[str] = None
+    download_url: Optional[str] = None
     uploaded_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -106,9 +109,14 @@ class JobSummary(BaseModel):
     detail: Optional[str] = None
     payload: dict = Field(default_factory=dict)
     result: dict = Field(default_factory=dict)
+    history: list[dict] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
     error: Optional[str] = None
     project_id: Optional[str] = None
     user_id: Optional[int] = None
+    parent_job_id: Optional[str] = None
+    child_label: Optional[str] = None
+    hidden_from_default_list: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -136,6 +144,10 @@ class JobOutput(BaseModel):
     label: str
     url: str
     kind: str
+    module: Optional[str] = None
+    category: Optional[str] = None
+    download_url: Optional[str] = None
+    asset_id: Optional[str] = None
 
 
 class SubmitJobRequest(BaseModel):

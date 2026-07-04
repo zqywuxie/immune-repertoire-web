@@ -87,6 +87,7 @@ class ProjectAssetService:
         file_storages: List,
         relative_paths: Optional[List[str]] = None,
         replace_existing: Optional[bool] = None,
+        metadata: Optional[Dict] = None,
     ) -> List[ProjectAsset]:
         if asset_type not in self.ASSET_TYPES:
             raise ValidationError(message="Unsupported asset type", details={'asset_type': asset_type})
@@ -129,12 +130,13 @@ class ProjectAssetService:
                     guessed_mime, _ = mimetypes.guess_type(target_path.name)
                     mime_type = guessed_mime or mime_type
 
-                metadata = {
+                asset_metadata = {
+                    **dict(metadata or {}),
                     'relative_path': target_path.relative_to(asset_dir).as_posix(),
                     'storage_uri': self._storage_uri_for_path(target_path),
                 }
                 if asset_type == 'processed_result':
-                    metadata['kind'] = 'analysis_result'
+                    asset_metadata['kind'] = 'analysis_result'
 
                 asset = ProjectAsset(
                     project_id=project.id,
@@ -143,7 +145,7 @@ class ProjectAssetService:
                     storage_path=str(target_path),
                     mime_type=mime_type,
                     size=len(raw_bytes),
-                    metadata_json=metadata,
+                    metadata_json=asset_metadata,
                 )
                 db.session.add(asset)
                 created_assets.append(asset)

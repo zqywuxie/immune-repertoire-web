@@ -3,6 +3,13 @@
 All modules except "charts.combined" use this runner.  It reads the job
 payload from the database, calls the corresponding Flask endpoint via
 ``api_job_runner.call_json_endpoint``, and writes the result back.
+
+.. attention:: **LEGACY BRIDGE**
+
+   This worker requires a Flask app context and delegates to Flask
+   endpoints via ``call_json_endpoint``.  Migration path: each module's
+   analysis logic should be extracted into this worker directly, using
+   ``analysis_workers.results.WorkerResults`` for lifecycle.
 """
 
 from __future__ import annotations

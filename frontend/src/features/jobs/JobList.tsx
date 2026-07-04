@@ -7,13 +7,20 @@ type Props = {
   loading: boolean;
   emptyLabel?: string;
   onSelectResult?: (jobId: string) => void;
+  onOpenDetails?: (job: JobSummary) => void;
+  selectedJobIds?: Set<string>;
+  onToggleSelected?: (job: JobSummary) => void;
+  onDelete?: (job: JobSummary) => void;
 };
 
 export function JobList({
   jobs,
   loading,
   emptyLabel = "No jobs found.",
-  onSelectResult,
+  onOpenDetails,
+  selectedJobIds,
+  onToggleSelected,
+  onDelete,
 }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
@@ -34,7 +41,10 @@ export function JobList({
         <JobRow
           key={job.job_id || job.id}
           job={job}
-          onSelect={onSelectResult}
+          onOpenDetails={onOpenDetails}
+          selected={selectedJobIds?.has(job.job_id || job.id)}
+          onToggleSelected={onToggleSelected}
+          onDelete={onDelete}
         />
       ))}
     </div>

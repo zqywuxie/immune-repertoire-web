@@ -1,14 +1,12 @@
-"""Project CRUD API — Phase 5 implementation with raw SQL.
-
-Uses raw SQL via SQLAlchemy text() to avoid ORM model import complexity
-during the Flask → FastAPI transition. Each handler maps DB rows to the
-Pydantic schemas defined in app/schemas/domain.py.
-"""
+"""Project CRUD API — Phase 5 implementation with repository layer."""
 
 from datetime import datetime
+from pathlib import Path as FsPath
 from typing import Optional
 
+from fastapi import BackgroundTasks
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -21,47 +19,11 @@ from ..schemas.domain import (
     ProjectSummary,
     ProjectUpdate,
 )
+from ..services.project_service import ProjectService
+from ..services.asset_service import AssetService
+from ..services.project_export_service import ProjectExportService
 
 router = APIRouter(tags=["Projects"], dependencies=[Depends(require_current_user)])
-
-# DB column indices for SELECT * FROM projects
-# Adjust these if your schema differs — check flask_app/models/database.py
-_COL = {
-    "id": 0,
-    "name": 1,
-    "user_id": 2,
-    "institution": 3,
-    "cooperation_level": 4,
-    "description": 5,
-    "status": 6,
-    "created_at": 7,
-    "updated_at": 8,
-}
-
-
-def _to_summary(row) -> dict:
-    """Map a raw DB row to ProjectSummary fields."""
-    def col(key, default=None):
-        try:
-            return row[_COL[key]]
-        except (IndexError, KeyError):
-            return default
-
-    return {
-        "id": col("id", ""),
-        "name": col("name", ""),
-        "user_id": col("user_id"),
-        "institution": col("institution"),
-        "cooperation_level": col("cooperation_level"),
-        "description": col("description"),
-        "status": col("status", "active"),
-        "asset_counts": {},
-        "sample_count": 0,
-        "result_count": 0,
-        "group_spec_count": 0,
-        "created_at": col("created_at"),
-        "updated_at": col("updated_at"),
-    }
 
 
 @router.get("/projects", response_model=ProjectListResponse)
@@ -71,21 +33,9 @@ async def list_projects(
     db: Session = Depends(get_db),
 ):
     """List projects with optional name / institution filters."""
-    conditions = ["1=1"]
-    params: dict = {}
-
-    if name:
-        conditions.append("name LIKE :name")
-        params["name"] = f"%{name}%"
-    if institution:
-        conditions.append("institution LIKE :inst")
-        params["inst"] = f"%{institution}%"
-
-    sql = f"SELECT * FROM projects WHERE {' AND '.join(conditions)} ORDER BY created_at DESC LIMIT 200"
-    result = db.execute(text(sql), params)
-    rows = result.fetchall()
-
-    return {"projects": [_to_summary(r) for r in rows]}
+    svc = ProjectService(db)
+    rows = svc.list_projects(name=name, institution=institution)
+    return {"projects": rows}
 
 
 @router.post("/projects", response_model=ProjectSummary, status_code=201)
@@ -93,53 +43,27 @@ async def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
     """Create a new project."""
     import uuid
 
-    project_id = str(uuid.uuid4())
+    svc = ProjectService(db)
     now = datetime.utcnow().isoformat()
 
-    sql = text(
-        """INSERT INTO projects (id, name, institution, cooperation_level, description, status, created_at, updated_at)
-           VALUES (:id, :name, :institution, :cooperation_level, :description, :status, :created_at, :updated_at)"""
-    )
-    db.execute(
-        sql,
-        {
-            "id": project_id,
-            "name": body.name,
-            "institution": body.institution,
-            "cooperation_level": body.cooperation_level,
-            "description": body.description,
-            "status": body.status or "active",
-            "created_at": now,
-            "updated_at": now,
-        },
-    )
-    db.commit()
-
-    return {
-        "id": project_id,
+    return svc.create_project({
+        "id": str(uuid.uuid4()),
         "name": body.name,
         "user_id": None,
         "institution": body.institution,
         "cooperation_level": body.cooperation_level,
         "description": body.description,
         "status": body.status or "active",
-        "asset_counts": {},
-        "sample_count": 0,
-        "result_count": 0,
-        "group_spec_count": 0,
         "created_at": now,
         "updated_at": now,
-    }
+    })
 
 
 @router.get("/projects/{project_id}", response_model=ProjectSummary)
 async def get_project(project_id: str = Path(...), db: Session = Depends(get_db)):
     """Get a single project by ID."""
-    result = db.execute(text("SELECT * FROM projects WHERE id = :id"), {"id": project_id})
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return _to_summary(row)
+    svc = ProjectService(db)
+    return svc.get_project_or_404(project_id)
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectSummary)
@@ -152,26 +76,14 @@ async def update_project(
     if body is None:
         raise HTTPException(status_code=400, detail="Request body is required")
 
-    # Verify the project exists
-    result = db.execute(text("SELECT * FROM projects WHERE id = :id"), {"id": project_id})
-    row = result.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+    svc = ProjectService(db)
+    svc.get_project_or_404(project_id)  # validate existence
 
-    # Build SET clause from non-None fields
     updates = body.model_dump(exclude_none=True)
     if not updates:
-        return _to_summary(row)
+        return svc.get_project(project_id)
 
-    updates["updated_at"] = datetime.utcnow().isoformat()
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-    sql = text(f"UPDATE projects SET {set_clause} WHERE id = :project_id")
-    db.execute(sql, {**updates, "project_id": project_id})
-    db.commit()
-
-    # Return the updated row
-    result = db.execute(text("SELECT * FROM projects WHERE id = :id"), {"id": project_id})
-    return _to_summary(result.fetchone())
+    return svc.update_project(project_id, updates)
 
 
 @router.get("/projects/{project_id}/results")
@@ -181,23 +93,75 @@ async def list_project_results(
     db: Session = Depends(get_db),
 ):
     """List reusable project analysis results."""
-    conditions = ["project_id = :project_id", "asset_type = 'processed_result'"]
-    params: dict = {"project_id": project_id}
+    svc = AssetService(db)
+    assets = svc.find_project_results(project_id, analysis_type=analysis_type)
+    for a in assets:
+        metadata = a.get("metadata") if isinstance(a.get("metadata"), dict) else {}
+        viewer_url = str(metadata.get("viewer_url") or metadata.get("report_url") or "").strip()
+        zip_url = str(metadata.get("zip_url") or "").strip()
+        a["preview_url"] = viewer_url or f"/api/assets/{a['id']}/preview"
+        a["download_url"] = zip_url or f"/api/assets/{a['id']}/download"
+    return {"success": True, "results": assets}
 
-    if analysis_type:
-        conditions.append("JSON_EXTRACT(metadata_json, '$.analysis_type') = :analysis_type")
-        params["analysis_type"] = analysis_type
 
-    sql = f"SELECT * FROM project_assets WHERE {' AND '.join(conditions)} ORDER BY uploaded_at DESC LIMIT 100"
-    rows = db.execute(text(sql), params).fetchall()
+@router.get("/projects/{project_id}/export")
+async def export_project(
+    background_tasks: BackgroundTasks,
+    project_id: str = Path(...),
+    include_assets: bool = Query(True),
+    include_results: bool = Query(True),
+    include_group_specs: bool = Query(True),
+    include_manifest: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    """Export project assets/results/group specs as a ZIP bundle."""
+    project = ProjectService(db).get_project_or_404(project_id)
+    export_path = ProjectExportService(db).build_export_zip(
+        project,
+        include_assets=include_assets,
+        include_results=include_results,
+        include_group_specs=include_group_specs,
+        include_manifest=include_manifest,
+    )
+    background_tasks.add_task(_remove_file, export_path)
+    safe_name = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in project["name"]) or project_id
+    return FileResponse(
+        export_path,
+        media_type="application/zip",
+        filename=f"{safe_name}_export.zip",
+        background=background_tasks,
+    )
 
-    from .assets import _to_asset
 
-    results = []
-    for row in rows:
-        asset = _to_asset(row, project_id=project_id)
-        asset["preview_url"] = f"/api/assets/{row[0]}/preview"
-        asset["download_url"] = f"/api/assets/{row[0]}/download"
-        results.append(asset)
+@router.get("/projects/{project_id}/group-specs")
+async def list_project_group_specs(
+    project_id: str = Path(...),
+    db: Session = Depends(get_db),
+):
+    """List group specs for a project (ScriptHub module form support)."""
+    rows = db.execute(
+        text(
+            "SELECT * FROM project_assets WHERE project_id = :pid "
+            "AND asset_type = 'group_spec' ORDER BY uploaded_at DESC"
+        ),
+        {"pid": project_id},
+    ).mappings().all()
 
-    return {"success": True, "results": results}
+    return {
+        "group_specs": [
+            {
+                "id": str(r["id"]),
+                "name": str(r.get("original_name", "")),
+                "project_id": str(r.get("project_id", "")),
+                "spec_json": r.get("metadata_json") if isinstance(r.get("metadata_json"), dict) else {},
+            }
+            for r in rows
+        ]
+    }
+
+
+def _remove_file(path: FsPath) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass

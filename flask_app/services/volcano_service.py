@@ -261,41 +261,66 @@ class VolcanoService:
         if data_path.is_file():
             return [data_path]
 
-        resolved_dir = self._resolve_usage_dir(data_path)
-        df_files = sorted(resolved_dir.glob("df*.csv"))
-        if df_files:
-            return df_files
+        for resolved_dir in self._candidate_usage_dirs(data_path):
+            df_files = sorted(resolved_dir.glob("df*.csv"))
+            if df_files:
+                return df_files
 
-        chain_files = [
-            path for path in sorted(resolved_dir.glob("*.csv"))
-            if path.is_file() and not path.name.lower().startswith("df")
-        ]
-        usable = []
-        for path in chain_files:
-            cols = _try_read_csv(path, nrows=0).columns.tolist()
-            if "Category" in cols and len(cols) > cols.index("Category") + 1:
-                usable.append(path)
+            chain_files = [
+                path for path in sorted(resolved_dir.glob("*.csv"))
+                if path.is_file() and not path.name.lower().startswith("df")
+            ]
+            usable = []
+            for path in chain_files:
+                cols = _try_read_csv(path, nrows=0).columns.tolist()
+                if "Category" in cols and len(cols) > cols.index("Category") + 1:
+                    usable.append(path)
 
-        if not usable:
-            return []
-
-        merged = self._concat_usage_files(usable)
-        output_name = f"df_{self._safe_title(resolved_dir.name)}_all.csv"
-        output_path = output_base / output_name
-        merged.to_csv(output_path, index=False, encoding="utf-8-sig")
-        return [output_path]
+            if usable:
+                merged = self._concat_usage_files(usable)
+                output_name = f"df_{self._safe_title(resolved_dir.name)}_all.csv"
+                output_path = output_base / output_name
+                merged.to_csv(output_path, index=False, encoding="utf-8-sig")
+                return [output_path]
+        return []
 
     @staticmethod
     def _resolve_usage_dir(data_path: Path) -> Path:
-        for candidate in (
+        for candidate in VolcanoService._candidate_usage_dirs(data_path):
+            return candidate
+        return data_path
+
+    @staticmethod
+    def _candidate_usage_dirs(data_path: Path) -> List[Path]:
+        candidates = [
+            data_path,
             data_path / "1VJusage",
             data_path / "usage" / "1VJusage",
             data_path / "0VJusage",
             data_path / "usage" / "0VJusage",
-        ):
+        ]
+        if data_path.name in {"1VJusage", "0VJusage"}:
+            candidates.extend([
+                data_path.parent / "0VJusage",
+                data_path.parent / "1VJusage",
+                data_path.parent,
+            ])
+        if data_path.parent.name == "usage":
+            candidates.extend([
+                data_path.parent / "0VJusage",
+                data_path.parent / "1VJusage",
+                data_path.parent,
+            ])
+        seen: set[str] = set()
+        valid: List[Path] = []
+        for candidate in candidates:
+            key = str(candidate.resolve()) if candidate.exists() else str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
             if candidate.exists() and candidate.is_dir():
-                return candidate
-        return data_path
+                valid.append(candidate)
+        return valid
 
     @staticmethod
     def _concat_usage_files(files: List[Path]) -> pd.DataFrame:

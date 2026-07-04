@@ -52,14 +52,19 @@ class StorageResolver:
 
     @staticmethod
     def resolve_asset_path(asset: dict) -> Path | None:
-        """Try storage_uri first, fall back to storage_path."""
+        """Try storage_uri first, fall back to storage_path.
+
+        Project result assets may point at an output directory rather than a
+        single file. Return any existing filesystem path and let the API layer
+        choose the preview/download target.
+        """
         candidates = [
             asset.get("storage_uri"),
             asset.get("storage_path"),
         ]
         for candidate in candidates:
             path = StorageResolver.resolve(candidate)
-            if path and path.is_file():
+            if path and path.exists():
                 return path
         return None
 

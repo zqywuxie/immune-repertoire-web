@@ -1,57 +1,38 @@
-export type ProjectStatus = "active" | "archived" | "paused" | string;
+/**
+ * Domain types — re-exported from auto-generated OpenAPI schema.
+ *
+ * When the OpenAPI spec is updated, run ``npm run generate-types`` and
+ * these re-exports pick up the changes automatically.  Any types not yet
+ * in the OpenAPI spec are defined inline below.
+ *
+ * Migration note (2026-06-30):
+ *   These were previously hand-written and have been replaced by
+ *   generated aliases from ``../api/generated/helpers``.
+ */
 
-export interface ProjectSummary {
-  id: string;
-  name: string;
-  institution?: string | null;
-  cooperation_level?: string | null;
-  description?: string | null;
-  status: ProjectStatus;
-  created_at?: string | null;
-  updated_at?: string | null;
-  asset_counts?: Record<string, number>;
-  result_count?: number;
-  sample_count?: number;
-  group_spec_count?: number;
-}
+export type {
+  Project as ProjectSummary,
+  ProjectDetail,
+  ProjectCreate,
+  ProjectUpdate,
+  ProjectStatus,
+  Asset as ProjectAsset,
+  Job as JobSummary,
+  JobStatus,
+  JobOutput,
+  Pagination,
+} from "../api/generated/helpers";
 
-export interface ProjectAsset {
-  id: string;
-  project_id: string;
-  asset_type: string;
-  original_name: string;
-  storage_path: string;
-  storage_uri?: string | null;
-  mime_type?: string | null;
-  size: number;
-  metadata?: Record<string, unknown>;
-  uploaded_at?: string | null;
-}
+// ── Types not yet in OpenAPI spec ────────────────────────────────────
 
-export interface JobSummary {
-  id: string;
-  job_id?: string;
-  job_type: string;
-  module: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled" | string;
-  progress: number;
-  stage?: string | null;
-  detail?: string | null;
-  project_id?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  error?: string | null;
-}
-
+/** Module catalog entry (will move to generated types when spec updated). */
 export interface JobModule {
   key: string;
   label: string;
-}
-
-export interface JobOutput {
-  label: string;
-  url: string;
-  kind: string;
+  category?: string;
+  description?: string;
+  output_kinds?: string[];
+  ui_entry?: string;
+  execution_mode?: "job" | "script-hub-legacy";
+  status?: string;
 }

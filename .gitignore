@@ -12,6 +12,7 @@ ENV/
 # Data files
 flask_app/data/uploads/
 flask_app/data/results/
+flask_app/data/projects/
 flask_app/data/*.db
 
 # IDE
@@ -38,6 +39,7 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+.dev-runtime/
 .hypothesis/
 .tmp_pytest/
 flask_app/tests/_tmp_runtime/

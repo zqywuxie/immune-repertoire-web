@@ -1,4 +1,12 @@
-"""Treemap analysis worker task."""
+"""Treemap analysis worker task.
+
+.. attention:: **LEGACY BRIDGE**
+
+   This worker still calls Flask endpoints via ``call_json_endpoint`` and
+   requires a Flask app context.  Migration path: replace the
+   ``call_json_endpoint`` call with inline analysis logic and use
+   ``analysis_workers.results.WorkerResults`` for job lifecycle.
+"""
 
 from __future__ import annotations
 

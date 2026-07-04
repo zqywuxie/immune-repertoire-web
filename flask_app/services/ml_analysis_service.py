@@ -108,9 +108,9 @@ class MLAnalysisService:
         profile_file = Path(profile_path)
         if not profile_file.exists():
             raise FileNotFoundError(f"Profile file not found: {profile_path}")
-        mode = str(mode or "profile").strip().lower()
-        if mode not in {"profile", "vj-usage"}:
-            raise ValueError("mode must be profile or vj-usage")
+        mode = self._normalize_mode(mode)
+        if mode not in {"profile", "vj", "profile_vj"}:
+            raise ValueError("mode must be profile, vj, or profile_vj")
 
         profile_df = _try_read_csv(profile_file, low_memory=False)
         sample_col = self._resolve_column(profile_df, sample_col, ["Sample", "sample", "SAMPLE"])
@@ -133,14 +133,18 @@ class MLAnalysisService:
         if progress_callback:
             progress_callback(10, "ML analysis", "Preparing feature matrix")
 
-        if mode == "profile":
-            X_df, y, le = self._prepare_profile_xy(
+        if mode in {"profile", "profile_vj"}:
+            profile_X_df, profile_y, profile_le = self._prepare_profile_xy(
                 work_df, sample_col, label_col, param_begin, param_over, feature_cols
             )
-            merged_path = output_base / "profile_feature_matrix.csv"
-            pd.concat([work_df[[sample_col, label_col]].reset_index(drop=True), X_df.reset_index(drop=True)], axis=1).to_csv(
-                merged_path, index=False, encoding="utf-8-sig"
+            profile_matrix = pd.concat(
+                [work_df[[sample_col, label_col]].reset_index(drop=True), profile_X_df.reset_index(drop=True)],
+                axis=1,
             )
+        if mode == "profile":
+            X_df, y, le = profile_X_df, profile_y, profile_le
+            merged_path = output_base / "profile_feature_matrix.csv"
+            profile_matrix.to_csv(merged_path, index=False, encoding="utf-8-sig")
         else:
             usage_root = Path(usage_path)
             if not usage_root.exists():
@@ -153,10 +157,18 @@ class MLAnalysisService:
             )
             if feature_df.empty:
                 raise ValueError("No matched usage features found")
-            merged = work_df[[sample_col, label_col]].merge(feature_df, on=sample_col, how="inner")
+            base_df = profile_matrix if mode == "profile_vj" else work_df[[sample_col, label_col]]
+            if mode == "profile_vj":
+                rename_map = {
+                    col: f"profile__{col}"
+                    for col in base_df.columns
+                    if col not in {sample_col, label_col}
+                }
+                base_df = base_df.rename(columns=rename_map)
+            merged = base_df.merge(feature_df, on=sample_col, how="inner")
             if merged.empty:
                 raise ValueError("No samples matched between Profile and usage data")
-            merged_path = output_base / "merged_feature_matrix.csv"
+            merged_path = output_base / ("profile_vj_feature_matrix.csv" if mode == "profile_vj" else "merged_feature_matrix.csv")
             merged.to_csv(merged_path, index=False, encoding="utf-8-sig")
             X_df, y, le = self._prepare_usage_xy(merged, sample_col, label_col)
 
@@ -186,6 +198,7 @@ class MLAnalysisService:
             "job_id": job_id,
             "generated_at": datetime.now().isoformat(),
             "mode": mode,
+            "data_mode": mode,
             "profile_path": str(profile_file.resolve()),
             "usage_path": str(Path(usage_path).resolve()) if usage_path else "",
             "sample_col": sample_col,
@@ -196,6 +209,15 @@ class MLAnalysisService:
             "param_over": param_over,
             "feature_cols": feature_cols or [],
             "usage_feature_cols": usage_feature_cols or [],
+            "result_items": [
+                {
+                    "path": str(path),
+                    "kind": "image" if str(path).lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".svg")) else "file",
+                    "data_mode": mode,
+                    "title": Path(path).name,
+                }
+                for path in report_paths["png_paths"] + report_paths["csv_paths"] + report_paths["text_paths"]
+            ],
             "samples": int(X_df.shape[0]),
             "raw_feature_number": int(X_df.shape[1]),
             "custom_threshold": custom_threshold,
@@ -229,6 +251,15 @@ class MLAnalysisService:
             zip_path=str(zip_path),
             metadata=metadata,
         )
+
+    @staticmethod
+    def _normalize_mode(mode: str) -> str:
+        value = str(mode or "profile").strip().lower().replace("-", "_").replace("+", "_")
+        if value in {"vj", "vj_usage", "usage"}:
+            return "vj"
+        if value in {"profile_vj", "profile_usage", "profile_vj_usage"}:
+            return "profile_vj"
+        return "profile"
 
     @staticmethod
     def _resolve_column(df: pd.DataFrame, preferred: str, candidates: List[str]) -> str:

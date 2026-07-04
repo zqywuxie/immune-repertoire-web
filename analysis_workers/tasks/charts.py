@@ -1,6 +1,12 @@
 """Charts combined analysis job runner.
 
 Handles ``charts.combined`` module jobs with MongoDB result caching.
+
+.. attention:: **LEGACY BRIDGE**
+
+   This worker still calls Flask endpoints via ``run_combined_charts_job``
+   and requires a Flask app context.  Migration path: inline the analysis
+   logic and use ``analysis_workers.results.WorkerResults`` for lifecycle.
 """
 
 from __future__ import annotations

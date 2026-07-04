@@ -23,6 +23,8 @@ from ._common import (
     _resolve_results_root,
     _robust_read_csv,
     _sanitize_nan,
+    _selected_samples_by_group_from_request,
+    _selected_samples_from_request,
     _script_executor,
     _set_task_state,
     _try_reuse_script_result,
@@ -108,6 +110,8 @@ def _run_boxplot_task(
     group_order: Optional[str] = None,
     pvalue_threshold: float = 0.05,
     output_name: Optional[str] = None,
+    selected_samples: Optional[List[str]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
     module_name: str = "boxplot",
     app_context_app: Optional[Any] = None,
 ) -> None:
@@ -146,6 +150,8 @@ def _run_boxplot_task(
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
             output_name=output_name,
+            selected_samples=selected_samples,
+            selected_samples_by_group=selected_samples_by_group,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id,
                 float(progress or 0.0),
@@ -298,13 +304,17 @@ def get_boxplot_group_values():
         if column not in df.columns:
             raise ValidationError(message=f"Column not found: {column}", details={"available_columns": df.columns.tolist()})
 
+        sample_col = _detect_sample_column(df.columns.tolist())
         raw_values = df[column].dropna().unique().tolist()
         values = sorted(str(v) for v in raw_values)
+        samples_by_value = _samples_by_group_value(df, sample_col, column) if sample_col else {}
         return jsonify({
             "success": True,
             "file_path": file_path,
             "column": column,
             "values": values,
+            "sample_column": sample_col,
+            "samples_by_value": samples_by_value,
             "count": len(values),
         })
     except ValidationError as exc:
@@ -332,13 +342,15 @@ def get_boxplot_group_values_bulk():
         df = _robust_read_csv(dp)
 
         result: Dict[str, Any] = {}
+        sample_col = _detect_sample_column(df.columns.tolist())
         for column in columns:
             if column not in df.columns:
                 result[column] = {"error": f"Column not found: {column}"}
                 continue
             raw_values = df[column].dropna().unique().tolist()
             values = sorted(str(v) for v in raw_values)
-            result[column] = {"values": values, "count": len(values)}
+            samples_by_value = _samples_by_group_value(df, sample_col, column) if sample_col else {}
+            result[column] = {"values": values, "count": len(values), "sample_column": sample_col, "samples_by_value": samples_by_value}
 
         return jsonify({
             "success": True,
@@ -351,6 +363,28 @@ def get_boxplot_group_values_bulk():
     except Exception as exc:
         logger.error("Error reading BoxPlot group values bulk: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_GROUP_VALUES_BULK_ERROR", "message": str(exc)}), 500
+
+
+def _detect_sample_column(columns: List[str]) -> str:
+    lower_map = {str(col).strip().lower(): str(col) for col in columns}
+    for preferred in ("sample", "sample_id", "sample_name", "id"):
+        if preferred in lower_map:
+            return lower_map[preferred]
+    return ""
+
+
+def _samples_by_group_value(df, sample_col: str, group_col: str) -> Dict[str, List[str]]:
+    if not sample_col or sample_col not in df.columns or group_col not in df.columns:
+        return {}
+    work_df = df[[sample_col, group_col]].dropna(subset=[sample_col, group_col]).copy()
+    work_df[sample_col] = work_df[sample_col].astype(str).str.strip()
+    work_df[group_col] = work_df[group_col].astype(str).str.strip()
+    result: Dict[str, List[str]] = {}
+    for group_value, group_df in work_df.groupby(group_col):
+        result[str(group_value)] = sorted({
+            str(item).strip() for item in group_df[sample_col].tolist() if str(item).strip()
+        })
+    return result
 
 
 @bp.route("/boxplot/run", methods=["POST"])
@@ -378,6 +412,8 @@ def run_boxplot():
 
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         output_name = str(data.get("output_name") or "").strip() or None
+        selected_samples = _selected_samples_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
             project_id=project_id,
@@ -391,6 +427,8 @@ def run_boxplot():
                 "param_over": param_over,
                 "group_order": group_order,
                 "pvalue_threshold": pvalue_threshold,
+                "selected_samples": selected_samples,
+                "selected_samples_by_group": selected_samples_by_group,
             },
         )
         if not _force_rerun_requested(data):
@@ -424,6 +462,8 @@ def run_boxplot():
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
             output_name=output_name,
+            selected_samples=selected_samples,
+            selected_samples_by_group=selected_samples_by_group,
             module_name="boxplot",
             app_context_app=current_app._get_current_object() if project_id else None,
         )

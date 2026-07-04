@@ -31,12 +31,15 @@ export function Skeleton({
   return <div className={className} style={baseStyle} aria-hidden="true" />;
 }
 
+/** Deterministic width pattern — avoids layout thrash from Math.random(). */
+const ROW_WIDTHS = [85, 65, 75, 55, 90, 70, 80, 60, 95, 50];
+
 export function SkeletonRow({ columns }: { columns: number }) {
   return (
     <tr>
       {Array.from({ length: columns }).map((_, i) => (
         <td key={i} style={{ padding: "12px 10px" }}>
-          <Skeleton variant="text" width={`${60 + Math.random() * 30}%`} />
+          <Skeleton variant="text" width={`${ROW_WIDTHS[i % ROW_WIDTHS.length]}%`} />
         </td>
       ))}
     </tr>

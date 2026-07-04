@@ -1,12 +1,16 @@
-import { useApi } from "../../shared/hooks/useApi";
-import { listProjects } from "../../shared/api/projects";
+import type { ProjectSummary } from "../../shared/types/domain";
 import { Skeleton } from "../../shared/components/Skeleton";
+import { EmptyState } from "../../shared/components/EmptyState";
+import { FolderOpen } from "lucide-react";
 import { ProjectCard } from "./ProjectCard";
 
-export function ProjectList() {
-  const state = useApi(() => listProjects(), []);
+type Props = {
+  projects: ProjectSummary[];
+  loading: boolean;
+};
 
-  if (state.status === "loading") {
+export function ProjectList({ projects, loading }: Props) {
+  if (loading) {
     return (
       <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
         {[1, 2, 3].map((i) => (
@@ -16,17 +20,13 @@ export function ProjectList() {
     );
   }
 
-  if (state.status === "error") {
-    return <p style={{ color: "var(--danger)" }}>{state.error}</p>;
-  }
-
-  const projects = state.status === "ready" ? state.data.projects : [];
-
   if (projects.length === 0) {
     return (
-      <p style={{ color: "var(--text-tertiary)", textAlign: "center", padding: "var(--spacing-3xl)" }}>
-        No projects found.
-      </p>
+      <EmptyState
+        icon={FolderOpen}
+        title="No projects yet"
+        description="Create your first project to get started with immune repertoire analysis."
+      />
     );
   }
 

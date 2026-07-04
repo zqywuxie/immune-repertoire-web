@@ -60,6 +60,46 @@ def test_job_results_include_outputs_and_registered_assets():
     assert payload["assets"][0]["download_url"] == "/api/assets/asset-job-result/download"
 
 
+def test_job_results_unwrap_worker_data_envelope():
+    app = create_app("testing")
+
+    with app.app_context():
+        db.session.add(AnalysisJob(
+            id="job_wrapped_result",
+            job_type="api_request",
+            module="charts.combined",
+            status="completed",
+            progress=100,
+            result={
+                "success": True,
+                "job_id": "job_wrapped_result",
+                "data": {
+                    "module": "charts.combined",
+                    "viewer_url": "/reports/wrapped/heatmap.html",
+                    "zip_url": "/reports/wrapped/heatmap.zip",
+                    "chart_results": [
+                        {"label": "Treemap", "viewer_url": "/reports/wrapped/treemap.html"},
+                        {"label": "Chord", "viewer_url": "/reports/wrapped/chord.html"},
+                    ],
+                },
+            },
+        ))
+        db.session.commit()
+
+        response = app.test_client().get("/api/jobs/job_wrapped_result/results")
+        payload = response.get_json()
+        db.session.remove()
+
+    assert response.status_code == 200
+    assert payload["result"]["viewer_url"] == "/reports/wrapped/heatmap.html"
+    assert [output["url"] for output in payload["outputs"]] == [
+        "/reports/wrapped/heatmap.html",
+        "/reports/wrapped/heatmap.zip",
+        "/reports/wrapped/treemap.html",
+        "/reports/wrapped/chord.html",
+    ]
+
+
 def test_job_results_missing_job_returns_404():
     app = create_app("testing")
 

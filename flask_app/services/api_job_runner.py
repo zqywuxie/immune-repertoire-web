@@ -90,10 +90,14 @@ def run_api_job(context) -> Dict[str, Any]:
     module = str(job.get("module") or "").strip()
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
     user_id = job.get("user_id")
-    context.update(5, "Preparing", f"Preparing {module}")
+    context.update(5, "Preparing", f"Loading job context for {module}")
     context.raise_if_cancelled()
-    context.update(15, "Running", f"Executing {module}")
+    context.update(12, "Validating input", "Checking payload and worker availability")
+    context.raise_if_cancelled()
+    context.update(25, "Running", f"Executing legacy module {module}")
     data = call_json_endpoint(module, payload, user_id)
+    context.raise_if_cancelled()
+    context.update(90, "Collecting output", "Normalizing result envelope and output URLs")
     context.update(95, "Finalizing", f"{module} completed")
     return {
         "module": module,
@@ -120,6 +124,31 @@ def wait_child_job(context, child_id: str, label: str, start: float, span: float
     raise RuntimeError(f"{label} did not complete before timeout")
 
 
+def _combined_cdr3_export_request(
+    payload: Dict[str, Any],
+    samples: list,
+    chains: list,
+    field_mapping: Dict[str, Any],
+) -> Dict[str, Any] | None:
+    cdr3_column = field_mapping.get("cdr3_column")
+    copy_column = field_mapping.get("copy_column")
+    if not samples or not cdr3_column or not copy_column:
+        return None
+    file_pattern = payload.get("file_pattern")
+    if not chains and not file_pattern:
+        return None
+    return {
+        "samples": samples,
+        "file_pattern": file_pattern,
+        "selected_chains": chains,
+        "field_mapping": {
+            "cdr3_column": cdr3_column,
+            "copy_column": copy_column,
+        },
+        "top_n": int(payload.get("cdr3_top_n") or payload.get("top_n") or 100),
+    }
+
+
 def run_combined_charts_job(context) -> Dict[str, Any]:
     job = load_job_context(context.job_id)
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
@@ -134,14 +163,21 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
         raise RuntimeError("No chart module selected")
     results = []
     step_span = 90.0 / max(1, len(selected))
+    context.update(
+        2,
+        "Preparing combined charts",
+        f"Selected {len(samples)} samples, {len(chains)} chains, modules: {', '.join(selected)}",
+    )
+    context.raise_if_cancelled()
 
     for index, key in enumerate(selected):
         start = 5.0 + index * step_span
         label = {"heatmap": "相似性热图", "treemap": "Treemap", "chord": "Chord"}.get(key, key)
-        context.update(start, label, f"Starting {label}")
+        context.update(start, label, f"Starting {label} ({index + 1}/{len(selected)})")
         context.raise_if_cancelled()
 
         if key == "heatmap":
+            context.update(start + step_span * 0.10, label, "Preparing heatmap input files and field mapping")
             heatmap_payload = {
                 "samples": samples,
                 "file_pattern": None,
@@ -158,8 +194,17 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                     "annotation": True,
                 },
             }
+            context.raise_if_cancelled()
+            context.update(start + step_span * 0.25, label, "Generating similarity matrices")
             heatmap_data = call_json_endpoint("auto-heatmap.generate-heatmap", heatmap_payload, user_id)
-            report_data = call_json_endpoint("auto-heatmap.generate-heatmap-report", {
+            context.raise_if_cancelled()
+            cdr3_export_request = _combined_cdr3_export_request(payload, samples, chains, field_mapping)
+            context.update(
+                start + step_span * 0.58,
+                label,
+                "Building CDR3 Shared tables" if cdr3_export_request else "Preparing interactive heatmap report",
+            )
+            report_payload = {
                 "heatmap_result": heatmap_data,
                 "output_name": output_name,
                 "create_archive": True,
@@ -168,7 +213,13 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                     "selected_chains": chains,
                     "sample_count": len(samples),
                 },
-            }, user_id)
+            }
+            if cdr3_export_request:
+                report_payload["cdr3_export_request"] = cdr3_export_request
+            context.raise_if_cancelled()
+            context.update(start + step_span * 0.62, label, "Building interactive heatmap report")
+            report_data = call_json_endpoint("auto-heatmap.generate-heatmap-report", report_payload, user_id)
+            context.update(start + step_span * 0.90, label, "Heatmap report and ZIP archive generated")
             results.append({
                 "key": key,
                 "label": label,
@@ -178,9 +229,26 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                 "zip_url": report_data.get("archive_url"),
                 "metadata_url": report_data.get("metadata_url"),
             })
+            metadata = report_data.get("metadata") if isinstance(report_data.get("metadata"), dict) else {}
+            if metadata.get("cdr3_shared_path"):
+                results.append({
+                    "key": "cdr3_shared",
+                    "label": "CDR3 Shared",
+                    "status": "completed",
+                    "job_id": report_data.get("job_id"),
+                    "viewer_url": report_data.get("report_url"),
+                    "zip_url": report_data.get("archive_url"),
+                    "metadata_url": report_data.get("metadata_url"),
+                    "metadata": {
+                        "path": metadata.get("cdr3_shared_path"),
+                        "file_count": metadata.get("cdr3_shared_file_count"),
+                        "table_count": metadata.get("cdr3_shared_table_count"),
+                    },
+                })
             continue
 
         module_name = "treemap" if key == "treemap" else "chord"
+        context.update(start + step_span * 0.08, label, f"Submitting {label} child task")
         child = call_json_endpoint(f"{module_name}.generate", {
             "samples": samples,
             "selected_chains": chains,
@@ -196,7 +264,9 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
         child_id = child.get("task_id") or child.get("job_id")
         if not child_id:
             raise RuntimeError(f"{label} did not return a task id")
-        child_result = wait_child_job(context, child_id, label, start, step_span)
+        context.update(start + step_span * 0.12, label, f"Waiting for {label} child task {child_id}")
+        child_result = wait_child_job(context, child_id, label, start + step_span * 0.12, step_span * 0.83)
+        context.update(start + step_span * 0.95, label, f"{label} result collected")
         results.append({
             "key": key,
             "label": label,
@@ -206,6 +276,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
 
     first_viewer = next((item.get("viewer_url") for item in results if item.get("viewer_url")), "")
     first_zip = next((item.get("zip_url") for item in results if item.get("zip_url")), "")
+    context.update(96, "Collecting results", f"Collected {len(results)} module results")
     result = {
         "module": "charts.combined",
         "job_id": context.job_id,
@@ -225,6 +296,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
     project_id = str(payload.get("project_id") or payload.get("_project_id") or "").strip()
     if project_id and signature:
         try:
+            context.update(98, "Persisting results", "Saving combined chart result metadata")
             from flask_app.services.mongo_service import save_result
             save_result(
                 project_id=project_id,
@@ -249,6 +321,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
             )
         except Exception:
             current_app.logger.warning("Failed to persist combined charts result", exc_info=True)
+    context.update(99, "Finalizing", "Combined chart analysis completed")
     return result
 
 
