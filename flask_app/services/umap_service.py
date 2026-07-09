@@ -5,26 +5,51 @@ UMAP analysis service — significance-driven UMAP projections.
 from __future__ import annotations
 
 import json
+import os
 import zipfile
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
-from scipy.stats import mannwhitneyu
-from sklearn.preprocessing import StandardScaler
-import umap
-
-from flask_app.services.figure_style import category_palette, apply_publication_style, soften_axes
 
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+_REMOVE_CLASS_VALUES = {0, "0"}
 
-apply_publication_style(font_size=10, axes_linewidth=0.9)
+_STYLE_APPLIED = False
+
+
+def _load_umap_dependencies():
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+    try:
+        from sklearn.preprocessing import StandardScaler
+        import umap
+    except ImportError as exc:  # pragma: no cover - depends on deployment environment
+        raise RuntimeError(
+            "UMAP dependencies are missing. Please install scikit-learn and umap-learn from flask_app/requirements.txt."
+        ) from exc
+    return StandardScaler, umap
+
+
+def _load_plot_dependencies():
+    global _STYLE_APPLIED
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from flask_app.services.figure_style import (
+        apply_publication_style,
+        category_palette,
+        save_publication_png,
+        soften_axes,
+    )
+    if not _STYLE_APPLIED:
+        apply_publication_style(font_size=10, axes_linewidth=0.9)
+        _STYLE_APPLIED = True
+    return plt, category_palette, save_publication_png, soften_axes
 
 
 def _try_read_csv(filepath, **kwargs):
@@ -84,17 +109,30 @@ class UmapService:
         param_begin_idx = columns.index(param_begin)
         param_over_idx = columns.index(param_over) + 1
         param_columns = columns[param_begin_idx:param_over_idx]
+        valid_param_columns = []
+        for column in param_columns:
+            numeric = pd.to_numeric(df[column], errors="coerce")
+            if numeric.notna().any():
+                df[column] = numeric.fillna(0)
+                valid_param_columns.append(column)
+        if not valid_param_columns:
+            raise ValueError("No numeric parameter columns were found in the selected UMAP parameter range.")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
         job_id = self._allocate_job_id(output_name or "umap")
         output_base = self.output_parent / job_id
         output_base.mkdir(parents=True, exist_ok=True)
 
-        png_paths, pdf_paths, csv_paths = self._generate(
-            df, class_columns, param_columns,
-            pvalue_threshold, n_neighbors, min_dist,
-            output_base, progress_callback,
-        )
+        viable_class_columns, warnings = self._preflight_class_columns(df, class_columns)
+        if viable_class_columns:
+            png_paths, pdf_paths, csv_paths, generate_warnings = self._generate(
+                df, viable_class_columns, valid_param_columns,
+                pvalue_threshold, n_neighbors, min_dist,
+                output_base, progress_callback,
+            )
+            warnings.extend(generate_warnings)
+        else:
+            png_paths, pdf_paths, csv_paths = [], [], []
 
         # ZIP bundle
         zip_path = output_base / "umap_results.zip"
@@ -115,8 +153,16 @@ class UmapService:
                     parts = cp.relative_to(output_base).parts
                     zf.write(cp, "data/" + "/".join(parts))
 
+        no_result_message = ""
+        if not png_paths:
+            details = "; ".join(warnings[:3])
+            no_result_message = details or (
+                "No UMAP plots were generated. Check that the selected classification field has at least two groups "
+                "and at least one parameter passes the Mann-Whitney U p-value threshold."
+            )
+
         if progress_callback:
-            progress_callback(100, "UMAP completed", f"{len(png_paths)} UMAP plot(s)")
+            progress_callback(100, "UMAP completed", no_result_message or f"{len(png_paths)} UMAP plot(s)")
 
         metadata = {
             "job_id": job_id,
@@ -126,12 +172,16 @@ class UmapService:
             "classification_over": classification_over,
             "param_begin": param_begin,
             "param_over": param_over,
+            "numeric_param_count": len(valid_param_columns),
             "pvalue_threshold": pvalue_threshold,
             "n_neighbors": n_neighbors,
             "min_dist": min_dist,
+            "projection_backend": "umap-learn",
             "png_paths": png_paths,
             "pdf_paths": pdf_paths,
             "csv_paths": csv_paths,
+            "message": no_result_message,
+            "warnings": warnings,
         }
         (output_base / "umap_metadata.json").write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -160,13 +210,16 @@ class UmapService:
         png_paths: List[str] = []
         pdf_paths: List[str] = []
         csv_paths: List[str] = []
+        warnings: List[str] = []
+        plot_deps = None
+        reducer_deps = None
 
         total = len(class_columns)
         for ci, class_col in enumerate(class_columns):
-            class_types = sorted(df[class_col].dropna().unique().tolist())
+            class_types = self._class_types_for_column(df, class_col)
             if len(class_types) < 2:
+                warnings.append(f"Skipped {class_col}: fewer than two groups.")
                 continue
-
             if progress_callback:
                 progress_callback(
                     5 + int(ci / max(total, 1) * 80),
@@ -175,22 +228,26 @@ class UmapService:
                     {"class_col": class_col},
                 )
 
-            # Compute significant params for this class
             category_dir = output_base / class_col
             category_dir.mkdir(parents=True, exist_ok=True)
             csv_dir = output_base / "csv_file" / class_col
             csv_dir.mkdir(parents=True, exist_ok=True)
 
-            # Build param significance map
-            all_dict = self._find_significant_params(
+            p_value_all = self._pvalue_list_for_category(
                 df, class_col, class_types, param_columns, pvalue_threshold
             )
+            _, all_dict, all_dict_pvalue = self._find_cate_to_param_reference(
+                class_col, class_types, p_value_all, pvalue_threshold
+            )
+            if not all_dict:
+                warnings.append(f"Skipped {class_col}: no parameter combinations matched the reference p-value rule.")
+                continue
 
-            # Determine min category size for n_neighbors
             min_cat = min(
                 df[df[class_col] == t].shape[0] for t in class_types
             )
-            local_nn = min(n_neighbors, max(2, min_cat))
+            local_nn = min(n_neighbors, min_cat) if min_cat < n_neighbors else n_neighbors
+            local_nn = max(2, local_nn)
 
             for type_tuple, params in all_dict.items():
                 type_list = list(type_tuple)
@@ -202,18 +259,27 @@ class UmapService:
                     df[df[class_col] == t] for t in type_list
                 ])
                 if use_df.shape[0] < 3:
+                    warnings.append(f"Skipped {class_col} / {', '.join(map(str, type_list))}: fewer than three samples.")
                     continue
 
                 bio_data = use_df[params].values
+                if reducer_deps is None:
+                    if progress_callback:
+                        progress_callback(30, "UMAP projection", "Loading UMAP runtime", {"phase": "load_umap"})
+                    reducer_deps = _load_umap_dependencies()
+                StandardScaler, umap_module = reducer_deps
                 scaled = StandardScaler().fit_transform(bio_data)
                 local_subset_nn = min(local_nn, max(2, use_df.shape[0] - 1))
-                reducer = umap.UMAP(
+                reducer = umap_module.UMAP(
                     n_neighbors=local_subset_nn,
                     min_dist=min_dist,
                     n_epochs=50,
                     random_state=42,
                 )
                 embedding = reducer.fit_transform(scaled)
+                if plot_deps is None:
+                    plot_deps = _load_plot_dependencies()
+                plt, category_palette, save_publication_png, soften_axes = plot_deps
 
                 # Plot with restrained categorical colors.
                 map_dic = {t: i for i, t in enumerate(type_list)}
@@ -235,17 +301,17 @@ class UmapService:
                     )
                 ax.legend(title=class_col, loc="best", markerscale=1.1)
                 ax.set_aspect("equal", "datalim")
-                name = str(type_tuple).replace("(", "").replace(")", "").replace(", ", "_").replace("'", "")
+                name = self._safe_plot_name(type_tuple)
                 ax.set_xlabel("UMAP1")
                 ax.set_ylabel("UMAP2")
                 ax.set_title("UMAP of " + name + " in " + class_col, fontsize=11, fontweight="bold")
                 soften_axes(ax, grid_axis="both")
 
                 pdf_path = category_dir / f"{name}.pdf"
-                fig.savefig(pdf_path, bbox_inches="tight", dpi=300, facecolor="white")
+                fig.savefig(pdf_path, bbox_inches="tight", dpi=300)
                 pdf_paths.append(str(pdf_path))
                 fig_path = category_dir / f"{name}.png"
-                fig.savefig(fig_path, bbox_inches="tight", dpi=300, facecolor="white")
+                save_publication_png(fig, fig_path)
                 plt.close("all")
                 png_paths.append(str(fig_path))
 
@@ -260,62 +326,133 @@ class UmapService:
                 umap_points["umap_params"] = "|".join(list(params))
                 umap_points["umap_category"] = class_col
                 umap_points["umap_group"] = name
+                umap_points["umap_n_neighbors"] = local_subset_nn
+                umap_points["umap_min_dist"] = min_dist
+                umap_points["umap_random_state"] = 42
+                umap_points["umap_n_epochs"] = 50
                 csv_path = csv_dir / f"{name}_umap_points.csv"
                 umap_points.to_csv(csv_path, index=False)
                 csv_paths.append(str(csv_path))
+                meta_path = csv_dir / f"{name}_umap_meta.txt"
+                with meta_path.open("w", encoding="utf-8") as handle:
+                    handle.write(f"category={class_col}\n")
+                    handle.write(f"group={name}\n")
+                    handle.write(f"types={type_list}\n")
+                    handle.write(f"params={list(params)}\n")
+                    handle.write(f"pvalue_records={all_dict_pvalue.get(type_tuple, [])}\n")
+                    handle.write(f"n_neighbors={local_subset_nn}\n")
+                    handle.write(f"min_dist={min_dist}\n")
+                    handle.write("random_state=42\n")
+                    handle.write("n_epochs=50\n")
 
-        return png_paths, pdf_paths, csv_paths
+        return png_paths, pdf_paths, csv_paths, warnings
 
-    def _find_significant_params(
-        self,
+    @staticmethod
+    def _safe_plot_name(type_tuple: tuple) -> str:
+        raw = "_".join(str(item) for item in type_tuple)
+        safe = "".join(ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in raw).strip("_")
+        if len(safe) > 120:
+            safe = safe[:100].rstrip("_") + f"_and_{len(type_tuple)}groups"
+        return safe or "groups"
+
+    @staticmethod
+    def _preflight_class_columns(df: pd.DataFrame, class_columns: List[str]) -> Tuple[List[str], List[str]]:
+        viable: List[str] = []
+        warnings: List[str] = []
+        for class_col in class_columns:
+            if class_col not in df.columns:
+                warnings.append(f"Skipped {class_col}: column not found.")
+                continue
+            values = UmapService._class_types_for_column(df, class_col)
+            if len(values) < 2:
+                warnings.append(f"Skipped {class_col}: fewer than two groups.")
+                continue
+            viable.append(class_col)
+        return viable, warnings
+
+    @staticmethod
+    def _class_types_for_column(df: pd.DataFrame, class_col: str) -> List[Any]:
+        values: List[Any] = []
+        for value in df[class_col].tolist():
+            if pd.isna(value):
+                continue
+            if value in _REMOVE_CLASS_VALUES or str(value) in _REMOVE_CLASS_VALUES:
+                continue
+            if value not in values:
+                values.append(value)
+        return values
+
+    @staticmethod
+    def _pvalue_list_for_category(
         df: pd.DataFrame,
         class_col: str,
         class_types: List[str],
         param_columns: List[str],
         pvalue_threshold: float,
-    ) -> Dict[tuple, List[str]]:
-        """Find params significant across ALL pairs of a type combination."""
-        all_dict: Dict[tuple, List[str]] = {}
+    ) -> List[Tuple[Any, Any, str, float]]:
+        from scipy.stats import mannwhitneyu
+        pvalue_tuples: List[Tuple[Any, Any, str, float]] = []
+        for cb in combinations(class_types, 2):
+            for param in param_columns:
+                try:
+                    pvalue = mannwhitneyu(
+                        df[df[class_col] == cb[0]][param],
+                        df[df[class_col] == cb[1]][param],
+                        alternative="two-sided",
+                    ).pvalue
+                    pvalue_tuples.append((cb[0], cb[1], param, float(pvalue)))
+                except Exception:
+                    continue
+        return pvalue_tuples
 
-        # Multi-type combinations
+    @staticmethod
+    def _find_cate_to_param_reference(
+        category: str,
+        class_types: List[Any],
+        pvalue_tuples_list: List[Tuple[Any, Any, str, float]],
+        pvalue_threshold: float,
+    ) -> Tuple[Dict[tuple, Dict[str, float]], Dict[tuple, List[str]], Dict[tuple, List[Tuple[Any, Any, str, float]]]]:
+        pair_dict: Dict[tuple, Dict[str, float]] = {}
+        all_dict: Dict[tuple, List[str]] = {}
+        all_dict_pvalue: Dict[tuple, List[Tuple[Any, Any, str, float]]] = {}
+
+        cb_list: List[tuple] = []
         if len(class_types) > 3:
-            cb_list = []
             for i in range(3, len(class_types) + 1):
                 cb_list.extend(list(combinations(class_types, i)))
         else:
             cb_list = list(combinations(class_types, 2))
 
-        for cb in cb_list:
-            all_params: Dict[str, list] = {}
-            for param in param_columns:
-                # Check all pairwise p-values within cb
-                pairwise_ok = True
-                for (a, b) in combinations(list(cb), 2):
-                    try:
-                        group_a = df[df[class_col] == a][param].dropna()
-                        group_b = df[df[class_col] == b][param].dropna()
-                        if len(group_a) < 2 or len(group_b) < 2:
-                            pairwise_ok = False
-                            break
-                        pv = mannwhitneyu(group_a, group_b, alternative="two-sided").pvalue
-                        if pv > pvalue_threshold:
-                            pairwise_ok = False
-                            break
-                    except Exception:
-                        pairwise_ok = False
-                        break
-                if pairwise_ok:
-                    all_params.setdefault(param, [])
-                    for t in cb:
-                        if t not in all_params[param]:
-                            all_params[param].append(t)
+        for pvalue_tuple in pvalue_tuples_list:
+            pair_tuple = (pvalue_tuple[0], pvalue_tuple[1])
+            if pvalue_tuple[3] <= pvalue_threshold:
+                if pair_tuple not in pair_dict:
+                    pair_dict[pair_tuple] = {pvalue_tuple[2]: pvalue_tuple[3]}
+                else:
+                    pair_dict[pair_tuple][pvalue_tuple[2]] = pvalue_tuple[3]
 
-            # Keep only params where ALL types in cb contributed
-            params_ok = [p for p, types in all_params.items() if set(types) == set(cb)]
-            if params_ok:
-                all_dict[cb] = params_ok
+                for cb in cb_list:
+                    if pvalue_tuple[0] in cb and pvalue_tuple[1] in cb:
+                        if cb not in all_dict:
+                            all_dict[cb] = [pvalue_tuple[2]]
+                            all_dict_pvalue[cb] = [pvalue_tuple]
+                            continue
+                        if pvalue_tuple[2] not in all_dict[cb]:
+                            all_dict[cb].append(pvalue_tuple[2])
+                        all_dict_pvalue[cb].append(pvalue_tuple)
 
-        return all_dict
+        temporary_dict = deepcopy(all_dict_pvalue)
+        for cb, tuple_params_list in temporary_dict.items():
+            params = []
+            for pvalue_tuple in tuple_params_list:
+                if pvalue_tuple[0] not in params:
+                    params.append(pvalue_tuple[0])
+                if pvalue_tuple[1] not in params:
+                    params.append(pvalue_tuple[1])
+            if len(params) != len(cb):
+                del all_dict_pvalue[cb]
+                del all_dict[cb]
+        return pair_dict, all_dict, all_dict_pvalue
 
     @staticmethod
     def _allocate_job_id(name: str) -> str:

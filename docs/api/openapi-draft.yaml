@@ -1,0 +1,746 @@
+openapi: 3.1.0
+info:
+  title: Immune Repertoire Platform API
+  version: 0.2.0
+  description: >
+    Stable API contract for the frontend/backend separation migration. The current
+    implementation is served by Flask (bridge phase), while this document defines
+    the stable project, asset, job, and result surface that the standalone frontend
+    should consume.
+
+    **Implementation status (2026-06-29):**
+    - ✅ Implemented in Flask → see `flask_app/routes/api_projects.py`, `api_jobs.py`
+    - 🔄 Bridge implementation (Flask forwarding to module routes)
+    - ⬜ Planned, not yet implemented
+
+    See `docs/migration-progress.md` for detailed phase tracking.
+servers:
+  - url: http://127.0.0.1:5000
+    description: Local Flask API
+  - url: http://127.0.0.1:5173
+    description: Vite dev server proxy
+tags:
+  - name: System
+  - name: Projects
+  - name: Assets
+  - name: Jobs
+  - name: Results
+paths:
+  /api/info:
+    get:
+      tags: [System]
+      summary: Get application metadata
+      x-status: ✅
+      responses:
+        "200":
+          description: Application information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  version:
+                    type: string
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List projects for the current user
+      x-status: ✅
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: institution
+          in: query
+          schema:
+            type: string
+        - name: cooperation_level
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Project"
+    post:
+      tags: [Projects]
+      summary: Create a project
+      x-status: ✅
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreate"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /api/projects/{project_id}:
+    get:
+      tags: [Projects]
+      summary: Get project detail with preview assets and samples
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+    patch:
+      tags: [Projects]
+      summary: Update a project
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /api/projects/{project_id}/assets:
+    get:
+      tags: [Assets]
+      summary: List project assets
+      x-status: ✅
+      description: >
+        Migration rule: this endpoint must become paginated before it is treated
+        as the long-term stable asset list endpoint.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: asset_type
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Project assets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Asset"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+    post:
+      tags: [Assets]
+      summary: Upload project assets
+      x-status: ✅
+      description: >
+        Implemented in both Flask (multipart/form-data with storage_uri bridge)
+        and FastAPI (multipart + storage URI write). Accepts asset_type, files[],
+        optional relative_paths and replace_existing flag.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [asset_type, files]
+              properties:
+                asset_type:
+                  type: string
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                relative_paths:
+                  type: string
+                replace_existing:
+                  type: boolean
+      responses:
+        "201":
+          description: Uploaded assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Asset"
+  /api/projects/{project_id}/results:
+    get:
+      tags: [Results]
+      summary: List reusable project analysis results
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: analysis_type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, results]
+                properties:
+                  success:
+                    type: boolean
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Asset"
+  /api/projects/{project_id}/assets/{asset_id}/preview:
+    get:
+      tags: [Assets]
+      summary: Preview a project asset inline (legacy project-scoped route)
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/projects/{project_id}/assets/{asset_id}/download:
+    get:
+      tags: [Assets]
+      summary: Download a project asset (legacy project-scoped route)
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/assets/{asset_id}/preview:
+    get:
+      tags: [Assets]
+      summary: Preview an asset inline
+      x-status: ✅
+      description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
+      parameters:
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/assets/{asset_id}/download:
+    get:
+      tags: [Assets]
+      summary: Download an asset
+      x-status: ✅
+      description: Stable asset route for the standalone frontend; replaces project-scoped file URLs.
+      parameters:
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/jobs:
+    get:
+      tags: [Jobs]
+      summary: List background jobs
+      x-status: ✅
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: module
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, jobs]
+                properties:
+                  success:
+                    type: boolean
+                  jobs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Job"
+    post:
+      tags: [Jobs]
+      summary: Submit a unified background job
+      x-status: ✅
+      description: >
+        Implemented in both Flask (bridge endpoint) and FastAPI (DB insert +
+        21-module validation). Long-term workers should accept only job_id and
+        read payload from storage/database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [module, payload]
+              properties:
+                module:
+                  type: string
+                  examples: ["charts.combined"]
+                payload:
+                  type: object
+                  additionalProperties: true
+                project_id:
+                  type: string
+                force_rerun:
+                  type: boolean
+      responses:
+        "200":
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, job_id]
+                properties:
+                  success:
+                    type: boolean
+                  job_id:
+                    type: string
+                  task_id:
+                    type: string
+                  status_url:
+                    type: string
+                  status:
+                    type: string
+                  reused_result:
+                    type: boolean
+                  result_id:
+                    type: string
+                  result:
+                    type: object
+                    additionalProperties: true
+        "400":
+          description: Unsupported job module
+  /api/jobs/modules:
+    get:
+      tags: [Jobs]
+      summary: List frontend-visible background job modules
+      x-status: ✅
+      responses:
+        "200":
+          description: Job modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, modules]
+                properties:
+                  success:
+                    type: boolean
+                  modules:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, label]
+                      properties:
+                        key:
+                          type: string
+                        label:
+                          type: string
+  /api/jobs/{job_id}:
+    get:
+      tags: [Jobs]
+      summary: Get a background job
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: "#/components/schemas/Job"
+  /api/jobs/{job_id}/events:
+    get:
+      tags: [Jobs]
+      summary: Stream job lifecycle events via SSE
+      description: >
+        Server-Sent Events stream delivering job status updates in real-time.
+        Emits "update" events on each poll cycle and a terminal "completed"
+        event when the job reaches a final status.  Clients reconnect on
+        connection loss.
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - name: interval
+          in: query
+          schema:
+            type: number
+            minimum: 0.2
+            maximum: 30.0
+            default: 1.0
+        - name: max_events
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 300
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/jobs/{job_id}/results:
+    get:
+      tags: [Jobs]
+      summary: Get normalized job result outputs
+      x-status: ✅
+      description: >
+        Returns the persistent job record, raw result payload, normalized output
+        links, and project result assets registered for the job.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job result bundle
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, job, status, result, outputs, assets]
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: "#/components/schemas/Job"
+                  status:
+                    type: string
+                  result:
+                    type: object
+                    additionalProperties: true
+                  outputs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobOutput"
+                  assets:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/Asset"
+                        - type: object
+                          properties:
+                            preview_url:
+                              type: string
+                            download_url:
+                              type: string
+        "404":
+          description: Job not found
+  /api/jobs/{job_id}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Request job cancellation
+      x-status: ✅
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Cancellation state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: "#/components/schemas/Job"
+components:
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+    AssetId:
+      name: asset_id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    Project:
+      type: object
+      required: [id, name, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        user_id:
+          type: integer
+          nullable: true
+        institution:
+          type: string
+          nullable: true
+        cooperation_level:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+        asset_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        sample_count:
+          type: integer
+        result_count:
+          type: integer
+        group_spec_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    ProjectDetail:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          properties:
+            assets:
+              type: array
+              items:
+                $ref: "#/components/schemas/Asset"
+            group_specs:
+              type: array
+              items:
+                type: object
+            samples_preview:
+              type: array
+              items:
+                type: object
+    ProjectCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        institution:
+          type: string
+        cooperation_level:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          default: active
+    ProjectUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        institution:
+          type: string
+        cooperation_level:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+    Asset:
+      type: object
+      required: [id, project_id, asset_type, original_name, storage_path, size]
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        asset_type:
+          type: string
+        original_name:
+          type: string
+        storage_path:
+          type: string
+          description: Legacy local path. Replace with storage_uri during Phase 4.
+        storage_uri:
+          type: string
+          nullable: true
+          description: Stable storage URI. During the Flask transition this is surfaced from metadata.storage_uri.
+        mime_type:
+          type: string
+          nullable: true
+        size:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties: true
+        uploaded_at:
+          type: string
+          format: date-time
+          nullable: true
+    Job:
+      type: object
+      required: [id, job_type, module, status, progress]
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        job_type:
+          type: string
+        module:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        progress:
+          type: number
+        stage:
+          type: string
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+        project_id:
+          type: string
+          nullable: true
+        user_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    JobOutput:
+      type: object
+      required: [label, url, kind]
+      properties:
+        label:
+          type: string
+        url:
+          type: string
+        kind:
+          type: string
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer

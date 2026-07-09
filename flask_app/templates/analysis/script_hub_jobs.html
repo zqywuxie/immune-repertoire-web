@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}后台任务{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/script_hub_jobs.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 script-jobs-page">
+    <div class="sj-header">
+        <div>
+            <div class="sj-kicker">Analysis Jobs</div>
+            <h1 class="sj-title">后台任务</h1>
+            <p class="sj-subtitle">查看所有分析模块的排队、运行、完成和失败状态；选中任务后可查看进度历史和结果文件。</p>
+        </div>
+        <div class="sj-header-actions">
+            <a class="btn btn-outline-secondary" href="{{ url_for('pages.analysis_page') }}">
+                <i class="bi bi-activity me-1"></i>返回数据分析
+            </a>
+            <button class="btn btn-primary" type="button" id="scriptJobRefreshBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i>刷新
+            </button>
+        </div>
+    </div>
+
+    <div class="sj-toolbar">
+        <div class="sj-filter">
+            <label class="form-label" for="scriptJobStatusFilter">状态</label>
+            <select class="form-select" id="scriptJobStatusFilter">
+                <option value="">全部</option>
+                <option value="queued">Queued</option>
+                <option value="running">Running</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+        </div>
+        <div class="sj-filter">
+            <label class="form-label" for="scriptJobModuleFilter">模块</label>
+            <select class="form-select" id="scriptJobModuleFilter">
+                <option value="">全部模块</option>
+            </select>
+        </div>
+        <div class="sj-filter sj-filter-wide">
+            <label class="form-label" for="scriptJobSearchInput">搜索</label>
+            <input class="form-control" id="scriptJobSearchInput" type="search" placeholder="Job ID、模块、详情">
+        </div>
+        <div class="sj-autorefresh">
+            <label class="form-check">
+                <input class="form-check-input" type="checkbox" id="scriptJobAutoRefresh" checked>
+                <span class="form-check-label">自动刷新</span>
+            </label>
+        </div>
+        <div class="sj-autorefresh">
+            <label class="form-check">
+                <input class="form-check-input" type="checkbox" id="scriptJobIncludeChildren">
+                <span class="form-check-label">显示子任务</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="sj-stats" id="scriptJobStats">
+        <div class="sj-stat"><span>运行中</span><strong id="scriptJobStatRunning">0</strong></div>
+        <div class="sj-stat"><span>已完成</span><strong id="scriptJobStatCompleted">0</strong></div>
+        <div class="sj-stat"><span>失败</span><strong id="scriptJobStatFailed">0</strong></div>
+        <div class="sj-stat"><span>已取消</span><strong id="scriptJobStatCancelled">0</strong></div>
+    </div>
+
+    <div class="sj-layout">
+        <section class="sj-panel sj-list-panel">
+            <div class="sj-panel-head">
+                <div>
+                    <h2>任务列表</h2>
+                    <span id="scriptJobListMeta">等待加载。</span>
+                </div>
+            </div>
+            <div class="sj-job-list" id="scriptJobList">
+                <div class="sj-empty">暂无任务。</div>
+            </div>
+        </section>
+
+        <section class="sj-panel sj-detail-panel">
+            <div class="sj-panel-head">
+                <div>
+                    <h2 id="scriptJobDetailTitle">任务详情</h2>
+                    <span id="scriptJobDetailMeta">选择左侧任务查看详情。</span>
+                </div>
+                <button class="btn btn-sm btn-outline-danger" type="button" id="scriptJobCancelBtn" disabled>
+                    <i class="bi bi-x-circle me-1"></i>取消任务
+                </button>
+                <button class="btn btn-sm btn-outline-danger" type="button" id="scriptJobDeleteBtn" disabled>
+                    <i class="bi bi-trash3 me-1"></i>删除记录
+                </button>
+            </div>
+
+            <div class="sj-detail-empty" id="scriptJobDetailEmpty">请选择一个任务。</div>
+            <div class="sj-detail-body d-none" id="scriptJobDetailBody">
+                <div class="sj-progress-row">
+                    <div class="sj-progress-copy">
+                        <div class="sj-progress-stage" id="scriptJobStage">-</div>
+                        <div class="sj-progress-detail" id="scriptJobDetail">-</div>
+                    </div>
+                    <div class="sj-progress-value" id="scriptJobProgressValue">0%</div>
+                </div>
+                <div class="progress sj-progress">
+                    <div class="progress-bar" id="scriptJobProgressBar" role="progressbar" style="width:0%"></div>
+                </div>
+
+                <div class="sj-result-actions" id="scriptJobResultActions"></div>
+                <div class="sj-child-results" id="scriptJobChildResults"></div>
+
+                <div class="sj-section-title">执行历史</div>
+                <div class="sj-history" id="scriptJobHistory"></div>
+
+                <div class="sj-section-title">任务 JSON</div>
+                <pre class="sj-json" id="scriptJobJson">{}</pre>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/script_hub_jobs.js') }}?v=20260620-1"></script>
+{% endblock %}

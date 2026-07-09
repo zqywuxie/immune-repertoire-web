@@ -35,6 +35,29 @@
 </head>
 
 <body data-workspace="{{ current_workspace }}" data-embedded="{{ 'true' if is_embedded else 'false' }}">
+    <!-- FLASK RETIREMENT NOTICE — 2026-06-30 -->
+    <div id="deprecation-banner" style="
+        display: none;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        text-align: center;
+        padding: 8px 16px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        position: sticky;
+        top: 0;
+        z-index: 9999;
+    ">
+        本页面即将退役 — 请使用新的
+        <a href="http://127.0.0.1:5173" style="color: #ffd700; font-weight: 700; text-decoration: underline;">
+            分析平台 (React SPA)
+        </a>
+    </div>
+    <script>
+        if (window.top === window.self) {
+            document.getElementById('deprecation-banner').style.display = 'block';
+        }
+    </script>
     {% if not is_embedded %}
     <!-- Navigation Bar -->
     {% include 'components/navbar.html' %}

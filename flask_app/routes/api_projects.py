@@ -1,5 +1,12 @@
 """
 Project, sample, and project-analysis integration APIs.
+
+.. attention:: **DEPRECATED — superseded by FastAPI** ``backend-api/app/api/projects.py`` + ``assets.py``.
+
+   New code should use ``/api/projects``, ``/api/projects/{id}/assets``,
+   ``/api/assets/{id}/preview|download`` via the FastAPI router.  This
+   blueprint is retained for legacy worker asset registration during
+   migration.
 """
 
 from __future__ import annotations
@@ -9,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, redirect, request, send_file
 
 from flask_app.exceptions import StorageError, ValidationError
 from flask_app.models.database import ProjectAsset
@@ -20,6 +27,7 @@ from flask_app.services.project_analysis_bridge import get_project_analysis_brid
 from flask_app.services.project_asset_service import get_project_asset_service
 from flask_app.services.project_service import get_project_service
 from flask_app.services.sample_registry_service import get_sample_registry_service
+from flask_app.services.storage_adapter import get_storage_adapter
 
 
 project_api_bp = Blueprint('project_api', __name__, url_prefix='/api')
@@ -39,6 +47,149 @@ def _asset_service():
 
 def _parse_csv_values(raw_value: str | None) -> List[str]:
     return [item.strip() for item in str(raw_value or '').split(',') if item.strip()]
+
+
+def _pagination_args(default_page_size: int = 50, max_page_size: int = 200) -> tuple[int, int]:
+    try:
+        page = int(request.args.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', default_page_size))
+    except (TypeError, ValueError):
+        page_size = default_page_size
+    page = max(1, page)
+    page_size = min(max(1, page_size), max_page_size)
+    return page, page_size
+
+
+def _paginate_items(items: List[Dict[str, Any]], *, page: int, page_size: int) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
+    total = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return items[start:end], {
+        'page': page,
+        'page_size': page_size,
+        'total': total,
+        'total_pages': (total + page_size - 1) // page_size if total else 0,
+    }
+
+
+def _resolve_asset_path(asset: ProjectAsset) -> Path:
+    metadata = asset.metadata_json or {}
+    fallback_candidates = [
+        metadata.get('storage_uri'),
+        asset.storage_path,
+        metadata.get('output_base'),
+        metadata.get('report_path'),
+        metadata.get('viewer_path'),
+        metadata.get('file_path'),
+    ]
+    storage = get_storage_adapter()
+    for candidate in fallback_candidates:
+        fallback_path = storage.resolve(candidate)
+        if fallback_path and fallback_path.exists():
+            return fallback_path
+
+    raise StorageError(message="Asset file is not available", details={'asset_id': asset.id})
+
+
+def _preview_target(path: Path) -> Path:
+    if path.is_file():
+        return path
+    for name in ('viewer.html', 'index.html', 'report.html', 'metadata.html'):
+        candidate = path / name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    for pattern in ('*.html', '*.htm', '*.png', '*.jpg', '*.jpeg', '*.pdf', '*.csv', '*.json'):
+        candidate = next(path.glob(pattern), None)
+        if candidate and candidate.exists() and candidate.is_file():
+            return candidate
+    raise StorageError(message="No previewable result file found", details={'storage_path': str(path)})
+
+
+def _download_target(path: Path) -> Path:
+    if path.is_file():
+        return path
+    for name in (
+        'results.zip',
+        'script_hub_results.zip',
+        'pep_analysis_results.zip',
+        'boxplot_results.zip',
+        'topclone_results.zip',
+        'ml_analysis_results.zip',
+        'mait_nkt_results.zip',
+    ):
+        candidate = path / name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    candidate = next(path.glob('*.zip'), None)
+    if candidate and candidate.exists() and candidate.is_file():
+        return candidate
+    raise StorageError(message="No downloadable result archive found", details={'storage_path': str(path)})
+
+
+def _result_redirect_url(asset: ProjectAsset, *, as_attachment: bool) -> str:
+    if asset.asset_type != 'processed_result':
+        return ''
+    metadata = asset.metadata_json or {}
+    keys = ('zip_url',) if as_attachment else ('viewer_url', 'report_url')
+    for key in keys:
+        url = str(metadata.get(key) or '').strip()
+        if url:
+            return url
+    return ''
+
+
+def _mimetype_for_path(path: Path, fallback: str | None) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix in {'.html', '.htm'}:
+        return 'text/html; charset=utf-8'
+    if suffix == '.json':
+        return 'application/json'
+    if suffix == '.csv':
+        return 'text/csv; charset=utf-8'
+    if suffix == '.png':
+        return 'image/png'
+    if suffix in {'.jpg', '.jpeg'}:
+        return 'image/jpeg'
+    if suffix == '.pdf':
+        return 'application/pdf'
+    if suffix == '.zip':
+        return 'application/zip'
+    return fallback
+
+
+def _get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
+    asset = ProjectAsset.query.filter(
+        ProjectAsset.id == asset_id,
+        ProjectAsset.project_id == project_id,
+    ).first()
+    if asset is None:
+        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    return asset
+
+
+def _get_asset(asset_id: str) -> ProjectAsset:
+    asset = ProjectAsset.query.filter(ProjectAsset.id == asset_id).first()
+    if asset is None:
+        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    return asset
+
+
+def _send_asset_file(asset: ProjectAsset, *, as_attachment: bool):
+    redirect_url = _result_redirect_url(asset, as_attachment=as_attachment)
+    if redirect_url:
+        return redirect(redirect_url)
+
+    resolved_path = _resolve_asset_path(asset)
+    target_path = _download_target(resolved_path) if as_attachment else _preview_target(resolved_path)
+    return send_file(
+        target_path,
+        as_attachment=as_attachment,
+        download_name=asset.original_name or target_path.name,
+        mimetype=_mimetype_for_path(target_path, None if as_attachment else asset.mime_type),
+    )
 
 
 def _mongo_cached_usage_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -102,6 +253,8 @@ def _mongo_result_to_asset(doc: Dict[str, Any]) -> Dict[str, Any]:
         'size': 0,
         'metadata': merged_metadata,
         'metadata_json': merged_metadata,
+        'preview_url': merged_metadata.get('viewer_url') or merged_metadata.get('report_url') or '',
+        'download_url': merged_metadata.get('zip_url') or '',
         'uploaded_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else None,
     }
 
@@ -202,21 +355,25 @@ def delete_project(project_id: str):
 def list_project_assets(project_id: str):
     project = _project_service().get_project(project_id)
     asset_type = request.args.get('asset_type', '').strip()
+    page, page_size = _pagination_args()
     assets = _asset_service().list_assets(project.id, asset_type=asset_type)
     payload_assets = [asset.to_dict() for asset in assets]
     if not asset_type or asset_type == 'processed_result':
         payload_assets = _merge_mongo_results(project.id, payload_assets)
         if asset_type == 'processed_result':
             payload_assets = [asset for asset in payload_assets if asset.get('asset_type') == 'processed_result']
-    return jsonify({'assets': payload_assets})
+    paged_assets, pagination = _paginate_items(payload_assets, page=page, page_size=page_size)
+    return jsonify({'assets': paged_assets, 'pagination': pagination})
 
 
 @project_api_bp.route('/projects/<project_id>/results', methods=['GET'])
 def list_project_results(project_id: str):
     project = _project_service().get_project(project_id)
     analysis_type = request.args.get('analysis_type', '').strip()
+    page, page_size = _pagination_args()
     assets = _merge_mongo_results(project.id, [], analysis_type=analysis_type)
-    return jsonify({'success': True, 'results': assets})
+    paged_assets, pagination = _paginate_items(assets, page=page, page_size=page_size)
+    return jsonify({'success': True, 'results': paged_assets, 'pagination': pagination})
 
 
 @project_api_bp.route('/projects/<project_id>/assets', methods=['POST'])
@@ -229,6 +386,8 @@ def upload_project_assets(project_id: str):
     files = request.files.getlist('files')
     relative_paths_raw = request.form.get('relative_paths', '[]')
     replace_existing = str(request.form.get('replace_existing') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    asset_set = str(request.form.get('asset_set') or '').strip()
+    asset_metadata = {'asset_set': asset_set, 'group_label': asset_set} if asset_set else None
 
     try:
         relative_paths = json.loads(relative_paths_raw)
@@ -244,6 +403,7 @@ def upload_project_assets(project_id: str):
         file_storages=files,
         relative_paths=[str(item or '') for item in relative_paths],
         replace_existing=replace_existing,
+        metadata=asset_metadata,
     )
     return jsonify({'assets': [asset.to_dict() for asset in assets]}), 201
 
@@ -297,38 +457,34 @@ def register_project_asset_path(project_id: str):
 @project_api_bp.route('/projects/<project_id>/assets/<asset_id>/download', methods=['GET'])
 def download_project_asset(project_id: str, asset_id: str):
     _project_service().get_project(project_id)
-    asset = ProjectAsset.query.filter(
-        ProjectAsset.id == asset_id,
-        ProjectAsset.project_id == project_id,
-    ).first()
-    if asset is None:
-        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    asset = _get_project_asset(project_id, asset_id)
+    return _send_asset_file(asset, as_attachment=True)
 
-    target_path = Path(asset.storage_path)
-    if not target_path.exists() or not target_path.is_file():
-        metadata = asset.metadata_json or {}
-        fallback_path = Path(str(metadata.get('report_path') or ''))
-        if fallback_path.exists() and fallback_path.is_file():
-            target_path = fallback_path
-        else:
-            raise StorageError(message="Asset file is not available for direct download", details={'asset_id': asset.id})
 
-    return send_file(
-        target_path,
-        as_attachment=True,
-        download_name=asset.original_name or target_path.name,
-    )
+@project_api_bp.route('/projects/<project_id>/assets/<asset_id>/preview', methods=['GET'])
+def preview_project_asset(project_id: str, asset_id: str):
+    _project_service().get_project(project_id)
+    asset = _get_project_asset(project_id, asset_id)
+    return _send_asset_file(asset, as_attachment=False)
+
+@project_api_bp.route('/assets/<asset_id>/download', methods=['GET'])
+def download_asset(asset_id: str):
+    asset = _get_asset(asset_id)
+    _project_service().get_project(asset.project_id)
+    return _send_asset_file(asset, as_attachment=True)
+
+
+@project_api_bp.route('/assets/<asset_id>/preview', methods=['GET'])
+def preview_asset(asset_id: str):
+    asset = _get_asset(asset_id)
+    _project_service().get_project(asset.project_id)
+    return _send_asset_file(asset, as_attachment=False)
 
 
 @project_api_bp.route('/projects/<project_id>/assets/<asset_id>', methods=['DELETE'])
 def delete_project_asset(project_id: str, asset_id: str):
     _project_service().get_project(project_id)
-    asset = ProjectAsset.query.filter(
-        ProjectAsset.id == asset_id,
-        ProjectAsset.project_id == project_id,
-    ).first()
-    if asset is None:
-        raise ValidationError(message="Project asset not found", details={'asset_id': asset_id})
+    asset = _get_project_asset(project_id, asset_id)
     _asset_service().delete_asset(asset)
     return jsonify({'success': True})
 

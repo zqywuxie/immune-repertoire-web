@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import html
 import json
-import os
 import re
 import zipfile
 from dataclasses import dataclass
@@ -21,7 +20,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import mannwhitneyu
 
-from flask_app.services.figure_style import MUTED_CATEGORY_COLORS, PALETTE, apply_publication_style
+from flask_app.services.figure_style import PALETTE, apply_publication_style, save_publication_png
 
 
 @dataclass
@@ -39,9 +38,25 @@ class BoxPlotReport:
 
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
 
-_NATURE_COLORS = MUTED_CATEGORY_COLORS
-_POINT_COLOR = PALETTE["neutral_dark"]
-_AXIS_COLOR = PALETTE["neutral_dark"]
+_NATURE_COLORS = [
+    "#4F78B8",
+    "#D98C56",
+    "#62A86F",
+    "#8E79B8",
+    "#5BA6A6",
+    "#C8A44D",
+    "#B76E79",
+    "#7A7A7A",
+    "#A9B9D8",
+    "#D7B49E",
+]
+_SUMMARY_CHAIN_ORDER = ["TRA", "TRB", "TRD", "TRG", "IGH", "IGK", "IGL"]
+_UCDR3_CHAINS = ["IGH", "IGK", "IGL", "TRA", "TRB", "TRD", "TRG"]
+_UCDR3_COUNT_SUFFIX = "_uCDR3"
+_UCDR3_RATIO_SUFFIX = "_uCDR3_ratio"
+_POINT_COLOR = "#4D4D4D"
+_AXIS_COLOR = "#2B2B2B"
+_GRID_COLOR = "#E6E6E6"
 
 
 def _apply_publication_style() -> None:
@@ -87,6 +102,8 @@ class BoxPlotService:
         group_order: Optional[str] = None,
         pvalue_threshold: float = 0.05,
         output_name: Optional[str] = None,
+        selected_samples: Optional[List[str]] = None,
+        selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
         progress_callback=None,
     ) -> BoxPlotReport:
         datapoint = Path(datapoint_path)
@@ -95,12 +112,19 @@ class BoxPlotService:
 
         df = _try_read_csv(datapoint, low_memory=False)
         df.fillna(0, inplace=True)
+        original_row_count = len(df)
+        df, sample_filter_info = self._filter_selected_samples(
+            df,
+            selected_samples=selected_samples,
+            selected_samples_by_group=selected_samples_by_group,
+        )
 
         columns = df.columns.tolist()
 
         param_begin_idx = columns.index(param_begin)
         param_over_idx = columns.index(param_over) + 1
         param_columns = columns[param_begin_idx:param_over_idx]
+        df, derived_columns, param_columns = self._apply_ucdr3_ratio_columns(df, param_columns)
 
         if grouptype_fields:
             class_columns = [c for c in grouptype_fields if c in columns]
@@ -132,13 +156,34 @@ class BoxPlotService:
         pvalue_paths: List[str] = []
         csv_paths: List[str] = []
         significant_paths: List[str] = []
+        summary_plot_paths: List[str] = []
+        summary_csv_paths: List[str] = []
+        summary_plot_infos: List[Dict[str, Any]] = []
         skipped_insufficient = 0
 
         if class_columns:
-            png_paths, pvalue_paths, csv_paths, significant_paths, plot_infos, skipped_insufficient = self._generate_grouped(
+            (
+                png_paths,
+                pvalue_paths,
+                csv_paths,
+                significant_paths,
+                plot_infos,
+                skipped_insufficient,
+                pvalue_lookup,
+                class_type_order,
+            ) = self._generate_grouped(
                 df, class_columns, param_columns,
                 pvalue_threshold, output_base, progress_callback,
                 parsed_order,
+            )
+            summary_plot_paths, summary_csv_paths, summary_plot_infos = self._generate_summary_plots(
+                df=df,
+                class_columns=class_columns,
+                param_columns=param_columns,
+                output_base=output_base,
+                pvalue_lookup=pvalue_lookup,
+                class_type_order=class_type_order,
+                progress_callback=progress_callback,
             )
         else:
             png_paths, csv_paths = self._generate_ungrouped(
@@ -160,17 +205,25 @@ class BoxPlotService:
             "grouptype_fields": grouptype_fields,
             "param_begin": param_begin,
             "param_over": param_over,
+            "derived_columns": derived_columns,
+            "sample_filter": sample_filter_info,
+            "original_row_count": original_row_count,
+            "filtered_row_count": len(df),
             "group_order": group_order,
             "pvalue_threshold": pvalue_threshold,
             "class_columns": class_columns,
             "param_columns": param_columns,
             "png_paths": png_paths,
+            "summary_plot_paths": summary_plot_paths,
             "pvalue_paths": pvalue_paths,
             "csv_paths": csv_paths,
+            "summary_csv_paths": summary_csv_paths,
             "significant_paths": significant_paths,
             "class_type_counts": {class_col: len(df[class_col].dropna().unique()) for class_col in class_columns} if class_columns else {},
             "skipped_insufficient_data": skipped_insufficient,
             "plot_count": len(png_paths),
+            "summary_plot_count": len(summary_plot_paths),
+            "summary_metrics": summary_plot_infos,
             "significant_plot_count": len(sig_plots),
             "non_significant_plot_count": len(ns_plots),
         }
@@ -211,6 +264,16 @@ class BoxPlotService:
                     parts = p.relative_to(output_base).parts
                     arcname = "data/" + "/".join(parts)
                     zf.write(p, arcname)
+            for summary_png in summary_plot_paths:
+                p = Path(summary_png)
+                if p.exists():
+                    parts = p.relative_to(output_base).parts
+                    zf.write(p, "summary_plots/" + "/".join(parts))
+            for summary_csv in summary_csv_paths:
+                p = Path(summary_csv)
+                if p.exists():
+                    parts = p.relative_to(output_base).parts
+                    zf.write(p, "summary_data/" + "/".join(parts))
             for sig_path in significant_paths:
                 p = Path(sig_path)
                 if p.exists():
@@ -234,6 +297,350 @@ class BoxPlotService:
             zip_path=str(zip_path),
             metadata=metadata,
         )
+
+    @staticmethod
+    def _detect_sample_column(columns: List[str]) -> str:
+        lower_map = {str(col).strip().lower(): str(col) for col in columns}
+        for preferred in ("sample", "sample_id", "sample_name", "display_name", "id"):
+            if preferred in lower_map:
+                return lower_map[preferred]
+        return ""
+
+    @classmethod
+    def _filter_selected_samples(
+        cls,
+        df: pd.DataFrame,
+        *,
+        selected_samples: Optional[List[str]] = None,
+        selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    ) -> tuple[pd.DataFrame, Dict[str, Any]]:
+        selected = {
+            str(item).strip()
+            for item in (selected_samples or [])
+            if str(item or "").strip()
+        }
+        grouped: Dict[str, Dict[str, List[str]]] = {}
+        for field, group_map in (selected_samples_by_group or {}).items():
+            if not isinstance(group_map, dict):
+                continue
+            normalized_group_map: Dict[str, List[str]] = {}
+            for group_value, samples in group_map.items():
+                if not isinstance(samples, list):
+                    continue
+                clean_samples = [str(item).strip() for item in samples if str(item or "").strip()]
+                if clean_samples:
+                    normalized_group_map[str(group_value)] = clean_samples
+                    selected.update(clean_samples)
+            if normalized_group_map:
+                grouped[str(field)] = normalized_group_map
+
+        info = {
+            "enabled": bool(selected),
+            "sample_column": "",
+            "selected_count": len(selected),
+            "matched_count": 0,
+            "unmatched_samples": [],
+            "selected_samples_by_group": grouped,
+        }
+        if not selected:
+            return df, info
+
+        sample_col = cls._detect_sample_column(df.columns.tolist())
+        info["sample_column"] = sample_col
+        if not sample_col:
+            raise ValueError("Selected samples were provided, but no sample/sample_id/sample_name column was found in the Profile file.")
+
+        work = df.copy()
+        work[sample_col] = work[sample_col].astype(str).str.strip()
+        selected_norm = {str(item).strip() for item in selected}
+        filtered = work[work[sample_col].isin(selected_norm)].copy()
+        matched = set(filtered[sample_col].astype(str).tolist())
+        unmatched = sorted(selected_norm - matched)
+        info["matched_count"] = len(matched)
+        info["unmatched_samples"] = unmatched[:30]
+        if filtered.empty:
+            raise ValueError(
+                "Selected samples did not match any rows in the Profile file. "
+                f"Examples: {', '.join(sorted(selected_norm)[:10])}"
+            )
+        return filtered, info
+
+    @staticmethod
+    def _apply_ucdr3_ratio_columns(df: pd.DataFrame, param_columns: List[str]) -> tuple[pd.DataFrame, Dict[str, List[str]], List[str]]:
+        ucdr3_cols = [
+            f"{chain}{_UCDR3_COUNT_SUFFIX}"
+            for chain in _UCDR3_CHAINS
+            if f"{chain}{_UCDR3_COUNT_SUFFIX}" in df.columns
+        ]
+        if not ucdr3_cols:
+            return df, {"ucdr3_ratio": []}, param_columns
+
+        numeric = df[ucdr3_cols].apply(pd.to_numeric, errors="coerce")
+        total = numeric.sum(axis=1, min_count=1)
+        total = total.where(total > 0)
+
+        next_params = list(param_columns)
+        derived: List[str] = []
+        selected_source_cols = [col for col in param_columns if col in ucdr3_cols]
+        for col in selected_source_cols:
+            ratio_col = f"{col[: -len(_UCDR3_COUNT_SUFFIX)]}{_UCDR3_RATIO_SUFFIX}"
+            df[ratio_col] = numeric[col] / total
+            derived.append(ratio_col)
+            if ratio_col not in next_params:
+                insert_at = next_params.index(col) + 1 if col in next_params else len(next_params)
+                next_params.insert(insert_at, ratio_col)
+
+        return df, {"ucdr3_ratio": derived}, next_params
+
+    @staticmethod
+    def _split_chain_metric(param: str) -> tuple[Optional[str], Optional[str]]:
+        parts = str(param or "").split("_")
+        if len(parts) < 2:
+            return None, None
+        if parts[0] in _SUMMARY_CHAIN_ORDER:
+            return parts[0], "_".join(parts[1:])
+        if parts[-1] in _SUMMARY_CHAIN_ORDER:
+            return parts[-1], "_".join(parts[:-1])
+        return None, None
+
+    @classmethod
+    def _metric_param_groups(cls, param_columns: List[str]) -> Dict[str, List[tuple[str, str]]]:
+        grouped: Dict[str, List[tuple[str, str, int]]] = {}
+        first_seen: Dict[str, int] = {}
+        chain_rank = {chain: index for index, chain in enumerate(_SUMMARY_CHAIN_ORDER)}
+        for index, param in enumerate(param_columns):
+            chain, metric = cls._split_chain_metric(param)
+            if not chain or not metric:
+                continue
+            grouped.setdefault(metric, [])
+            first_seen.setdefault(metric, index)
+            grouped[metric].append((chain, param, index))
+
+        result: Dict[str, List[tuple[str, str]]] = {}
+        for metric, items in sorted(grouped.items(), key=lambda item: first_seen[item[0]]):
+            ordered = sorted(items, key=lambda item: (chain_rank.get(item[0], len(chain_rank)), item[2]))
+            if len(ordered) >= 2:
+                result[metric] = [(chain, param) for chain, param, _ in ordered]
+        return result
+
+    @staticmethod
+    def _p_to_label(pvalue: Optional[float]) -> str:
+        if pvalue is None or pd.isna(pvalue):
+            return ""
+        if pvalue <= 0.001:
+            return "***"
+        if pvalue <= 0.01:
+            return "**"
+        if pvalue <= 0.05:
+            return "*"
+        return ""
+
+    def _generate_summary_plots(
+        self,
+        *,
+        df: pd.DataFrame,
+        class_columns: List[str],
+        param_columns: List[str],
+        output_base: Path,
+        pvalue_lookup: Dict[str, Dict[tuple, float]],
+        class_type_order: Dict[str, List[str]],
+        progress_callback=None,
+    ) -> tuple[List[str], List[str], List[Dict[str, Any]]]:
+        metric_groups = self._metric_param_groups(param_columns)
+        if not metric_groups or not class_columns:
+            return [], [], []
+
+        png_paths: List[str] = []
+        csv_paths: List[str] = []
+        infos: List[Dict[str, Any]] = []
+        total = len(class_columns) * len(metric_groups)
+        index = 0
+
+        for class_col in class_columns:
+            groups = [
+                str(group)
+                for group in class_type_order.get(class_col, [])
+                if str(group) in set(df[class_col].astype(str).tolist())
+            ]
+            if len(groups) < 2:
+                continue
+            summary_dir = output_base / self._sanitize_name(class_col) / "summary"
+            csv_dir = summary_dir / "csvfiles"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            csv_dir.mkdir(parents=True, exist_ok=True)
+
+            for metric, chain_params in metric_groups.items():
+                index += 1
+                if progress_callback:
+                    progress_callback(
+                        92 + int(index / max(total, 1) * 6),
+                        "BoxPlot summary",
+                        f"Rendering summary {class_col} / {metric}",
+                        {"class_col": class_col, "metric": metric},
+                    )
+
+                safe_metric = self._sanitize_name(metric)
+                png_path = summary_dir / f"{safe_metric}_summary.png"
+                csv_path = csv_dir / f"{safe_metric}_summary.csv"
+                summary_df = self._save_summary_plot(
+                    df=df,
+                    class_col=class_col,
+                    groups=groups,
+                    metric=metric,
+                    chain_params=chain_params,
+                    pvalue_lookup=pvalue_lookup.get(class_col, {}),
+                    output_path=png_path,
+                )
+                if summary_df.empty or not png_path.exists():
+                    continue
+                summary_df.to_csv(csv_path, index=False)
+                png_paths.append(str(png_path))
+                csv_paths.append(str(csv_path))
+                infos.append({
+                    "class_col": class_col,
+                    "metric": metric,
+                    "chains": [chain for chain, _ in chain_params],
+                    "png": png_path.relative_to(output_base).as_posix(),
+                    "csv": csv_path.relative_to(output_base).as_posix(),
+                    "png_path": str(png_path),
+                    "csv_path": str(csv_path),
+                })
+
+        return png_paths, csv_paths, infos
+
+    @staticmethod
+    def _save_summary_plot(
+        *,
+        df: pd.DataFrame,
+        class_col: str,
+        groups: List[str],
+        metric: str,
+        chain_params: List[tuple[str, str]],
+        pvalue_lookup: Dict[tuple, float],
+        output_path: Path,
+    ) -> pd.DataFrame:
+        _apply_publication_style()
+        rows: List[Dict[str, Any]] = []
+        drawable_chain_params: List[tuple[str, str]] = []
+        for chain, param in chain_params:
+            chain_has_values = False
+            for group in groups:
+                values = pd.to_numeric(
+                    df[df[class_col].astype(str) == str(group)][param],
+                    errors="coerce",
+                ).dropna()
+                if not values.empty:
+                    chain_has_values = True
+                rows.extend({"chain": chain, "group": str(group), "value": float(value), "param": param} for value in values)
+            if chain_has_values:
+                drawable_chain_params.append((chain, param))
+
+        if not rows or len(drawable_chain_params) < 2:
+            return pd.DataFrame()
+
+        summary_df = pd.DataFrame(rows)
+        chains = [chain for chain, _ in drawable_chain_params]
+        n_groups = len(groups)
+        fig_width = max(4.2, 0.58 * len(chains) + 1.75)
+        fig, ax = plt.subplots(figsize=(fig_width, 2.75))
+        fig.subplots_adjust(left=0.16, right=0.80, top=0.88, bottom=0.25)
+
+        bar_span = 0.72
+        bar_step = bar_span / max(n_groups, 1)
+        bar_width = bar_step * 0.84
+        offsets = [(i - (n_groups - 1) / 2) * bar_step for i in range(n_groups)]
+        bar_centers: Dict[tuple[int, str], float] = {}
+        bar_tops: Dict[tuple[int, str], float] = {}
+
+        legend_handles = []
+        for group_index, group in enumerate(groups):
+            color = _NATURE_COLORS[group_index % len(_NATURE_COLORS)]
+            legend_handles.append(
+                plt.Rectangle((0, 0), 1, 1, facecolor=color, edgecolor=_AXIS_COLOR, linewidth=0.6)
+            )
+            for chain_index, chain in enumerate(chains):
+                values = pd.to_numeric(
+                    summary_df[(summary_df["chain"] == chain) & (summary_df["group"] == group)]["value"],
+                    errors="coerce",
+                ).dropna()
+                if values.empty:
+                    continue
+                center = chain_index + offsets[group_index]
+                mean_value = float(values.mean())
+                sem_value = float(values.sem()) if len(values) > 1 else 0.0
+                if pd.isna(sem_value):
+                    sem_value = 0.0
+                bar_centers[(chain_index, group)] = center
+                bar_tops[(chain_index, group)] = mean_value + sem_value
+                ax.bar(
+                    center,
+                    mean_value,
+                    width=bar_width,
+                    color=color,
+                    edgecolor=_AXIS_COLOR,
+                    linewidth=0.6,
+                    yerr=sem_value,
+                    capsize=3,
+                    error_kw={"ecolor": _AXIS_COLOR, "elinewidth": 0.8, "capthick": 0.8},
+                    zorder=2,
+                )
+
+        ax.legend(
+            legend_handles,
+            groups,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            borderaxespad=0,
+            fontsize=8,
+            handlelength=1.2,
+            frameon=False,
+        )
+        ax.set_xticks(range(len(chains)))
+        ax.set_xticklabels(chains, fontsize=9, fontweight="semibold")
+        ax.set_xlim(-0.58, len(chains) - 1 + 0.58)
+        ax.set_ylabel(metric, fontsize=9.5, fontweight="semibold")
+        ax.tick_params(axis="y", labelsize=8, length=3, width=0.8, color=_AXIS_COLOR)
+        ax.tick_params(axis="x", length=0)
+        ax.grid(axis="y", color=_GRID_COLOR, linewidth=0.35, alpha=0.75, zorder=0)
+        ax.set_axisbelow(True)
+
+        values_all = pd.to_numeric(summary_df["value"], errors="coerce").dropna()
+        if values_all.empty:
+            plt.close(fig)
+            return pd.DataFrame()
+        y_min = float(values_all.min())
+        y_max = float(values_all.max())
+        if y_max <= y_min:
+            y_max = y_min + 1.0
+        y_span = y_max - y_min
+        bracket_tops = []
+        for chain_index, (_chain, param) in enumerate(drawable_chain_params):
+            pair_level = 0
+            for group_a, group_b in combinations(groups, 2):
+                pvalue = pvalue_lookup.get((str(group_a), str(group_b), param))
+                label = BoxPlotService._p_to_label(pvalue)
+                if not label:
+                    continue
+                x1 = bar_centers.get((chain_index, str(group_a)))
+                x2 = bar_centers.get((chain_index, str(group_b)))
+                if x1 is None or x2 is None:
+                    continue
+                y1 = bar_tops.get((chain_index, str(group_a)), y_max)
+                y2 = bar_tops.get((chain_index, str(group_b)), y_max)
+                y = max(y1, y2) + y_span * (0.035 + pair_level * 0.075)
+                ax.plot([x1, x1, x2, x2], [y1, y, y, y2], color=_AXIS_COLOR, lw=0.75, clip_on=False)
+                ax.text((x1 + x2) / 2, y, label, ha="center", va="bottom", fontsize=8, fontweight="bold", color=_AXIS_COLOR)
+                bracket_tops.append(y)
+                pair_level += 1
+
+        lower_pad = y_span * 0.08
+        upper_target = max([y_max] + bracket_tops)
+        ax.set_ylim(y_min - lower_pad, upper_target + y_span * 0.12)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        save_publication_png(fig, output_path, dpi=300, pad_inches=0.06)
+        plt.close(fig)
+        return summary_df
 
     @staticmethod
     def _relative_urls(paths: List[str], output_base: Path) -> List[str]:
@@ -262,10 +669,13 @@ class BoxPlotService:
         skipped = metadata.get("skipped_insufficient_data", 0)
         grouptype_fields = metadata.get("grouptype_fields", [])
         datapoint_path = metadata.get("datapoint_path", "")
+        summary_infos = metadata.get("summary_metrics", []) if isinstance(metadata.get("summary_metrics"), list) else []
 
         # Build unique param / class lists for dropdowns
         all_params: List[str] = list(dict.fromkeys(p.get("param", "") for p in plot_infos))
         all_classes: List[str] = list(dict.fromkeys(p.get("class_col", "") for p in plot_infos))
+        all_summary_metrics: List[str] = list(dict.fromkeys(str(p.get("metric", "")) for p in summary_infos if p.get("metric")))
+        all_summary_classes: List[str] = list(dict.fromkeys(str(p.get("class_col", "")) for p in summary_infos if p.get("class_col")))
 
         # Build plot card HTML — each card indexed by param+class
         cards_by_key: Dict[str, str] = {}
@@ -305,7 +715,31 @@ class BoxPlotService:
         all_params_json = json.dumps(all_params, ensure_ascii=False)
         all_classes_json = json.dumps(all_classes, ensure_ascii=False)
 
+        summary_cards_by_key: Dict[str, str] = {}
+        for p in summary_infos:
+            class_col = str(p.get("class_col", ""))
+            metric = str(p.get("metric", ""))
+            png = str(p.get("png", ""))
+            chains = ", ".join(str(chain) for chain in (p.get("chains") or []))
+            key = f"{metric}||{class_col}"
+            summary_cards_by_key[key] = f"""<article class="plot-card" data-metric="{html.escape(metric)}" data-class="{html.escape(class_col)}">
+              <div class="plot-head">
+                <div>
+                  <strong>{html.escape(metric)}</strong>
+                  <span>{html.escape(class_col)} | {html.escape(chains)}</span>
+                </div>
+                <em class="is-sig">Summary</em>
+              </div>
+              <a href="{html.escape(png)}" target="_blank" rel="noopener">
+                <img src="{html.escape(png)}" alt="{html.escape(metric)} summary" loading="lazy">
+              </a>
+            </article>"""
+        summary_cards_json = json.dumps(summary_cards_by_key, ensure_ascii=False).replace("</", "<\\/")
+        all_summary_metrics_json = json.dumps(all_summary_metrics, ensure_ascii=False)
+        all_summary_classes_json = json.dumps(all_summary_classes, ensure_ascii=False)
+
         empty_html = '<div class="empty-txt">所选条件下没有生成箱线图。</div>'
+        empty_summary_html = '<div class="empty-txt">No chain summary plots were generated for the selected profile features.</div>'
 
         # Dropdown options
         param_options = "\n".join(
@@ -316,12 +750,21 @@ class BoxPlotService:
             f'<option value="{html.escape(v)}"{(" selected" if i == 0 else "")}>{html.escape(v)}</option>'
             for i, v in enumerate(all_classes)
         )
+        summary_metric_options = "\n".join(
+            f'<option value="{html.escape(v)}"{(" selected" if i == 0 else "")}>{html.escape(v)}</option>'
+            for i, v in enumerate(all_summary_metrics)
+        )
+        summary_class_options = "\n".join(
+            f'<option value="{html.escape(v)}"{(" selected" if i == 0 else "")}>{html.escape(v)}</option>'
+            for i, v in enumerate(all_summary_classes)
+        )
 
         summary_cards = [
             ("分类字段", ", ".join(grouptype_fields) if grouptype_fields else "未分组"),
             ("参数列数", str(len(param_columns))),
             ("P-value 阈值", str(pvalue_threshold)),
             ("显著箱线图", f"{sig_count} / {total_count}" if total_count else "-"),
+            ("Summary 图", str(metadata.get("summary_plot_count", 0))),
             ("跳过比较", str(skipped)),
         ]
         summary_html = "".join(
@@ -383,12 +826,27 @@ class BoxPlotService:
   </div>
   <div class="controls">
     <div class="control-group">
+      <label for="modeSelect">View</label>
+      <select id="modeSelect">
+        <option value="boxplot" selected>Boxplots</option>
+        <option value="summary">Summary</option>
+      </select>
+    </div>
+    <div class="control-group">
       <label for="paramSelect">📊 指标字段</label>
       <select id="paramSelect">{param_options}</select>
     </div>
     <div class="control-group">
       <label for="classSelect">📂 分类字段</label>
       <select id="classSelect">{class_options}</select>
+    </div>
+    <div class="control-group">
+      <label for="summaryMetricSelect">Summary Metric</label>
+      <select id="summaryMetricSelect">{summary_metric_options}</select>
+    </div>
+    <div class="control-group">
+      <label for="summaryClassSelect">Summary Class</label>
+      <select id="summaryClassSelect">{summary_class_options}</select>
     </div>
     <button class="sig-toggle" id="sigToggle">🔍 仅显示显著</button>
     <span class="nav-hint" id="counter"></span>
@@ -400,14 +858,63 @@ class BoxPlotService:
   const cards = {cards_json};
   const allParams = {all_params_json};
   const allClasses = {all_classes_json};
+  const summaryCards = {summary_cards_json};
+  const allSummaryMetrics = {all_summary_metrics_json};
+  const allSummaryClasses = {all_summary_classes_json};
+  const modeSelect = document.getElementById('modeSelect');
   const paramSelect = document.getElementById('paramSelect');
   const classSelect = document.getElementById('classSelect');
+  const summaryMetricSelect = document.getElementById('summaryMetricSelect');
+  const summaryClassSelect = document.getElementById('summaryClassSelect');
   const sigToggle = document.getElementById('sigToggle');
   const plotPanel = document.getElementById('plotPanel');
   const counter = document.getElementById('counter');
   let sigOnly = false;
 
+  function syncModeControls() {{
+    const summaryMode = modeSelect.value === 'summary';
+    paramSelect.closest('.control-group').style.display = summaryMode ? 'none' : '';
+    classSelect.closest('.control-group').style.display = summaryMode ? 'none' : '';
+    sigToggle.style.display = summaryMode ? 'none' : '';
+    summaryMetricSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
+    summaryClassSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
+  }}
+
+  function showSummarySelected() {{
+    const metric = summaryMetricSelect.value;
+    const cls = summaryClassSelect.value;
+    const key = metric + '||' + cls;
+    plotPanel.innerHTML = summaryCards[key] || '{empty_summary_html}';
+    const total = Object.keys(summaryCards).filter(k => k.startsWith(metric + '||')).length;
+    counter.textContent = total ? total + ' summary class(es)' : '';
+  }}
+
+  function repopulateSummaryClassDropdown() {{
+    const metric = summaryMetricSelect.value;
+    const current = summaryClassSelect.value;
+    summaryClassSelect.innerHTML = '';
+    allSummaryClasses.forEach(cls => {{
+      const key = metric + '||' + cls;
+      if (summaryCards[key]) {{
+        const opt = document.createElement('option');
+        opt.value = cls;
+        opt.textContent = cls;
+        if (cls === current) opt.selected = true;
+        summaryClassSelect.appendChild(opt);
+      }}
+    }});
+    if (!summaryClassSelect.querySelector('option[selected]')) {{
+      const first = summaryClassSelect.querySelector('option');
+      if (first) first.selected = true;
+    }}
+    showSummarySelected();
+  }}
+
   function showSelected() {{
+    if (modeSelect.value === 'summary') {{
+      showSummarySelected();
+      return;
+    }}
     const param = paramSelect.value;
     const cls = classSelect.value;
     const key = param + '||' + cls;
@@ -447,6 +954,18 @@ class BoxPlotService:
     showSelected();
   }}
 
+  modeSelect.addEventListener('change', () => {{
+    syncModeControls();
+    if (modeSelect.value === 'summary') {{
+      repopulateSummaryClassDropdown();
+    }} else {{
+      showSelected();
+    }}
+  }});
+
+  summaryMetricSelect.addEventListener('change', repopulateSummaryClassDropdown);
+  summaryClassSelect.addEventListener('change', showSummarySelected);
+
   paramSelect.addEventListener('change', repopulateClassDropdown);
 
   classSelect.addEventListener('change', showSelected);
@@ -480,6 +999,7 @@ class BoxPlotService:
   }});
 
   // Init
+  syncModeControls();
   showSelected();
 }})();
 </script>
@@ -815,30 +1335,30 @@ class BoxPlotService:
         if not data:
             return
 
-        fig_width = min(max(0.48 * len(labels) + 1.4, 2.6), 6.2)
+        fig_width = min(max(0.46 * len(labels) + 1.35, 2.45), 5.8)
         fig, ax = plt.subplots(figsize=(fig_width, 3.15))
         box = ax.boxplot(
             data,
             labels=labels,
             patch_artist=True,
-            widths=0.52,
+            widths=0.50,
             showfliers=False,
-            medianprops={"color": "#272727", "linewidth": 1.05},
-            whiskerprops={"color": _AXIS_COLOR, "linewidth": 0.7},
-            capprops={"color": _AXIS_COLOR, "linewidth": 0.7},
-            boxprops={"edgecolor": _AXIS_COLOR, "linewidth": 0.75},
+            medianprops={"color": "#272727", "linewidth": 1.0},
+            whiskerprops={"color": _AXIS_COLOR, "linewidth": 0.65},
+            capprops={"color": _AXIS_COLOR, "linewidth": 0.65},
+            boxprops={"edgecolor": _AXIS_COLOR, "linewidth": 0.7},
         )
         for index, patch in enumerate(box["boxes"]):
             patch.set_facecolor(_NATURE_COLORS[index % len(_NATURE_COLORS)])
-            patch.set_alpha(0.72)
+            patch.set_alpha(0.68)
 
         for index, values in enumerate(data, start=1):
             ax.scatter(
                 BoxPlotService._jitter_positions(index, len(values)),
                 values,
-                s=10,
+                s=8,
                 color=_POINT_COLOR,
-                alpha=0.55,
+                alpha=0.42,
                 linewidths=0,
                 zorder=3,
             )
@@ -892,7 +1412,7 @@ class BoxPlotService:
                             [x1, x1, x2, x2],
                             [y_line - tier_spacing * 0.28, y_line, y_line, y_line - tier_spacing * 0.28],
                             color=_AXIS_COLOR,
-                            linewidth=0.6,
+                            linewidth=0.58,
                             clip_on=False,
                         )
                         # p-value label
@@ -932,13 +1452,13 @@ class BoxPlotService:
                 )
 
         ax.set_xlabel("")
-        ax.set_ylabel(param, fontsize=9, fontweight="bold")
+        ax.set_ylabel(param, fontsize=9, fontweight="semibold")
         ax.tick_params(axis="x", labelrotation=45, labelsize=8.5, length=2.2, width=0.55, color=_AXIS_COLOR)
         ax.tick_params(axis="y", labelsize=8.5, length=2.2, width=0.55, color=_AXIS_COLOR)
-        ax.grid(axis="y", color="#E5E7EB", linewidth=0.4, alpha=0.85)
+        ax.grid(axis="y", color=_GRID_COLOR, linewidth=0.35, alpha=0.75)
         ax.set_axisbelow(True)
         fig.tight_layout(pad=0.45)
-        fig.savefig(output_path, dpi=600, bbox_inches="tight", facecolor="white")
+        save_publication_png(fig, output_path, dpi=300)
         plt.close(fig)
 
     @staticmethod
@@ -960,19 +1480,19 @@ class BoxPlotService:
             patch_artist=True,
             widths=0.42,
             showfliers=False,
-            medianprops={"color": "#272727", "linewidth": 1.05},
-            whiskerprops={"color": _AXIS_COLOR, "linewidth": 0.7},
-            capprops={"color": _AXIS_COLOR, "linewidth": 0.7},
-            boxprops={"edgecolor": _AXIS_COLOR, "linewidth": 0.75},
+            medianprops={"color": "#272727", "linewidth": 1.0},
+            whiskerprops={"color": _AXIS_COLOR, "linewidth": 0.65},
+            capprops={"color": _AXIS_COLOR, "linewidth": 0.65},
+            boxprops={"edgecolor": _AXIS_COLOR, "linewidth": 0.7},
         )
         box["boxes"][0].set_facecolor(_NATURE_COLORS[1])
-        box["boxes"][0].set_alpha(0.72)
+        box["boxes"][0].set_alpha(0.68)
         ax.scatter(
             BoxPlotService._jitter_positions(1, len(values)),
             values,
-            s=10,
+            s=8,
             color=_POINT_COLOR,
-            alpha=0.55,
+            alpha=0.42,
             linewidths=0,
             zorder=3,
         )
@@ -987,13 +1507,13 @@ class BoxPlotService:
             fontstyle="italic",
             color="#5F7D94",
         )
-        ax.set_ylabel(param, fontsize=9, fontweight="bold")
+        ax.set_ylabel(param, fontsize=9, fontweight="semibold")
         ax.tick_params(axis="x", labelsize=8.5, length=2.2, width=0.55, color=_AXIS_COLOR)
         ax.tick_params(axis="y", labelsize=8.5, length=2.2, width=0.55, color=_AXIS_COLOR)
-        ax.grid(axis="y", color="#E5E7EB", linewidth=0.4, alpha=0.85)
+        ax.grid(axis="y", color=_GRID_COLOR, linewidth=0.35, alpha=0.75)
         ax.set_axisbelow(True)
         fig.tight_layout(pad=0.45)
-        fig.savefig(output_path, dpi=600, bbox_inches="tight", facecolor="white")
+        save_publication_png(fig, output_path, dpi=300)
         plt.close(fig)
 
     def _generate_grouped(
@@ -1014,6 +1534,8 @@ class BoxPlotService:
         total_steps = len(class_columns) * len(param_columns)
         step = 0
         skipped_insufficient = 0
+        pvalue_lookup: Dict[str, Dict[tuple, float]] = {}
+        class_type_order: Dict[str, List[str]] = {}
 
         for class_col in class_columns:
             safe_class = self._sanitize_name(class_col)
@@ -1027,7 +1549,10 @@ class BoxPlotService:
                 if isinstance(group_order, dict):
                     field_order = group_order.get(class_col, "")
                     if field_order:
-                        ordered = [x.strip() for x in field_order.split(",") if x.strip()]
+                        if isinstance(field_order, list):
+                            ordered = [str(x).strip() for x in field_order if str(x).strip()]
+                        else:
+                            ordered = [x.strip() for x in str(field_order).split(",") if x.strip()]
                         class_types = [t for t in ordered if t in raw_types] + [t for t in raw_types if t not in ordered]
                     else:
                         class_types = raw_types
@@ -1035,7 +1560,10 @@ class BoxPlotService:
                     class_types = [t for t in group_order if t in raw_types] + [t for t in raw_types if t not in group_order]
             else:
                 class_types = raw_types
+            class_types = [str(item) for item in class_types if str(item).strip()]
+            class_type_order[class_col] = class_types
             pvalue_records: List[Dict[str, Any]] = []
+            pvalue_lookup[class_col] = {}
 
             for param in param_columns:
                 safe_param = self._sanitize_name(param)
@@ -1052,16 +1580,18 @@ class BoxPlotService:
                 significant_pairs: List[tuple] = []
                 for combo in combo_list:
                     try:
-                        group_a = df[df[class_col] == combo[0]][param].dropna()
-                        group_b = df[df[class_col] == combo[1]][param].dropna()
+                        group_a = pd.to_numeric(df[df[class_col].astype(str) == str(combo[0])][param], errors="coerce").dropna()
+                        group_b = pd.to_numeric(df[df[class_col].astype(str) == str(combo[1])][param], errors="coerce").dropna()
                         if len(group_a) < 2 or len(group_b) < 2:
                             skipped_insufficient += 1
                             continue
-                        pvalue = mannwhitneyu(group_a, group_b, alternative="two-sided").pvalue
+                        pvalue = float(mannwhitneyu(group_a, group_b, alternative="two-sided").pvalue)
+                        pvalue_lookup[class_col][(str(combo[0]), str(combo[1]), param)] = pvalue
+                        pvalue_lookup[class_col][(str(combo[1]), str(combo[0]), param)] = pvalue
                         pvalue_records.append({
                             "class": class_col,
-                            "group_a": combo[0],
-                            "group_b": combo[1],
+                            "group_a": str(combo[0]),
+                            "group_b": str(combo[1]),
                             "param": param,
                             "pvalue": pvalue,
                         })
@@ -1090,7 +1620,7 @@ class BoxPlotService:
 
                 plot_df = df[(["sample"] if "sample" in df.columns else []) + [class_col, param]]
                 concat_df = pd.concat([
-                    plot_df[plot_df[class_col] == t] for t in class_types
+                    plot_df[plot_df[class_col].astype(str) == str(t)] for t in class_types
                 ])
                 csv_path = csv_dir / f"{safe_param}.csv"
                 concat_df.to_csv(csv_path, index=False)
@@ -1120,7 +1650,7 @@ class BoxPlotService:
                 pd.concat(all_significant_parts, ignore_index=True).to_csv(all_sig_csv, index=False)
                 significant_paths.append(str(all_sig_csv))
 
-        return png_paths, pvalue_paths, csv_paths, significant_paths, plot_infos, skipped_insufficient
+        return png_paths, pvalue_paths, csv_paths, significant_paths, plot_infos, skipped_insufficient, pvalue_lookup, class_type_order
 
     def _generate_ungrouped(
         self,

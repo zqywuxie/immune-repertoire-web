@@ -23,6 +23,8 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from flask_app.services.path_config import RESULTS_DIR
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import matplotlib
@@ -34,6 +36,7 @@ from matplotlib.path import Path as MplPath
 from matplotlib.patches import PathPatch, Wedge
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.result_path_resolver import candidate_job_roots
 from flask_app.services.auto_heatmap_service import get_auto_heatmap_service
 from flask_app.services.treemap_renderer import detect_dialect, open_text_file
 
@@ -1245,13 +1248,20 @@ class ChordReportService:
         )
 
     def read_metadata(self, job_id: str) -> Dict[str, Any]:
-        metadata_path = self.results_root / self._RESULT_DIR / job_id / self._METADATA_FILE_NAME
+        metadata_path = self._resolve_job_root(job_id) / self._METADATA_FILE_NAME
         if not metadata_path.exists():
             raise FileNotFoundError(f"Chord metadata not found: {job_id}")
         return json.loads(metadata_path.read_text(encoding="utf-8"))
 
+    def _resolve_job_root(self, job_id: str) -> Path:
+        safe_job_id = self._sanitize_job_id(job_id)
+        for job_root in candidate_job_roots(self.results_root, self._RESULT_DIR, safe_job_id):
+            if job_root.exists() and job_root.is_dir():
+                return job_root
+        raise FileNotFoundError(f"Chord result directory not found: {job_id}")
+
     def resolve_result_path(self, job_id: str, relative_path: str) -> Path:
-        base_dir = (self.results_root / self._RESULT_DIR / job_id).resolve()
+        base_dir = self._resolve_job_root(job_id)
         target_path = (base_dir / relative_path).resolve()
         if not str(target_path).startswith(str(base_dir)):
             raise ValidationError(message="非法结果文件路径。")
@@ -1260,9 +1270,7 @@ class ChordReportService:
         return target_path
 
     def build_zip_archive(self, job_id: str) -> Tuple[io.BytesIO, str]:
-        base_dir = (self.results_root / self._RESULT_DIR / job_id).resolve()
-        if not base_dir.exists():
-            raise FileNotFoundError(f"Chord result directory not found: {job_id}")
+        base_dir = self._resolve_job_root(job_id)
         artifact_root = (base_dir / "chord_diagram").resolve()
         if not artifact_root.exists():
             raise FileNotFoundError(f"Chord artifact directory not found: {job_id}")
@@ -1282,7 +1290,7 @@ _chord_report_service: Optional[ChordReportService] = None
 
 def get_chord_report_service(results_root: Optional[Path] = None) -> ChordReportService:
     global _chord_report_service
-    resolved_root = Path(results_root or Path.cwd() / "data" / "results").resolve()
+    resolved_root = Path(results_root or RESULTS_DIR).resolve()
     if _chord_report_service is None or _chord_report_service.results_root != resolved_root:
         _chord_report_service = ChordReportService(results_root=resolved_root)
     return _chord_report_service

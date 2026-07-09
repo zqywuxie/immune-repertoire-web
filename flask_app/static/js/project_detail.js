@@ -180,6 +180,8 @@ const ProjectDetailPage = {
         document.getElementById('overviewResultCount').textContent = String(project.result_count || 0);
         document.getElementById('overviewPepCount').textContent = String(counts.pep || 0);
         document.getElementById('overviewDatapointCount').textContent = String(counts.profile || 0);
+        const transcriptomeCountEl = document.getElementById('overviewTranscriptomeCount');
+        if (transcriptomeCountEl) transcriptomeCountEl.textContent = String(counts.transcriptome || 0);
         
         // Update asset statistics
         this.renderAssetStatistics(counts);
@@ -326,6 +328,7 @@ const ProjectDetailPage = {
     getAssetTypeConfig(type) {
         const configs = {
             profile: { label: 'Profile Data', icon: 'bi-table', tone: 'blue' },
+            transcriptome: { label: 'Transcriptome Matrix', icon: 'bi-diagram-2', tone: 'amber' },
             pep: { label: 'Pep Files', icon: 'bi-filetype-csv', tone: 'green' },
             sample_summary: { label: 'Sample Summary', icon: 'bi-clipboard-data', tone: 'amber' },
             group_spec: { label: 'Group Spec', icon: 'bi-diagram-2', tone: 'gray' },
@@ -762,6 +765,9 @@ const ProjectDetailPage = {
                 break;
             case 'script-hub':
                 url = `/analysis/script-hub?project_id=${encodeURIComponent(this.projectId)}&auto_scan=1&analysis_type=pep-analysis`;
+                break;
+            case 'go-kegg-enrichment':
+                url = `/analysis/script-hub?project_id=${encodeURIComponent(this.projectId)}&auto_scan=1&analysis_type=go-kegg-enrichment`;
                 break;
             default:
                 return;

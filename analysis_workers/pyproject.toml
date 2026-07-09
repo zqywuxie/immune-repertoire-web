@@ -1,0 +1,13 @@
+[project]
+name = "immune-repertoire-analysis-workers"
+version = "0.1.0"
+description = "Standalone analysis workers for the Immune Repertoire Platform"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "SQLAlchemy>=2.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=5.0", "rq>=2.0"]

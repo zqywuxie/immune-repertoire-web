@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
+from sqlalchemy.exc import OperationalError
 from werkzeug.utils import secure_filename
 
 from flask_app.exceptions import StorageError, ValidationError
@@ -18,6 +19,7 @@ from flask_app.models.database import Project, ProjectAsset, db
 from flask_app.services.file_parser import FileParserService
 from flask_app.services.group_spec_service import get_group_spec_service
 from flask_app.services.sample_registry_service import get_sample_registry_service
+from flask_app.services.storage_adapter import get_storage_adapter
 
 
 class ProjectAssetService:
@@ -26,6 +28,7 @@ class ProjectAssetService:
     ASSET_TYPES = {
         'datapoint',
         'profile',
+        'transcriptome',
         'pep',
         'sample_summary',
         'group_spec',
@@ -50,11 +53,31 @@ class ProjectAssetService:
     def get_asset_dir(self, project: Project, asset_type: str) -> Path:
         return self.get_project_dir(project) / 'assets' / asset_type
 
+    def _storage_uri_for_path(self, path: Path) -> str:
+        return get_storage_adapter().uri_for_path(path)
+
+    def _metadata_with_storage_uri(self, metadata: Optional[Dict], path: Path | str) -> Dict:
+        next_metadata = dict(metadata or {})
+        next_metadata.setdefault('storage_uri', self._storage_uri_for_path(Path(path)))
+        return next_metadata
+
     def list_assets(self, project_id: str, asset_type: str = "") -> List[ProjectAsset]:
-        query = ProjectAsset.query.filter(ProjectAsset.project_id == project_id).order_by(ProjectAsset.uploaded_at.desc())
+        query = ProjectAsset.query.filter(ProjectAsset.project_id == project_id)
         if asset_type:
             query = query.filter(ProjectAsset.asset_type == asset_type)
-        return query.all()
+        ordered_query = query.order_by(ProjectAsset.uploaded_at.desc(), ProjectAsset.id.desc())
+        try:
+            return ordered_query.all()
+        except OperationalError as exc:
+            if not _is_mysql_sort_memory_error(exc):
+                raise
+            db.session.rollback()
+            assets = query.all()
+            return sorted(
+                assets,
+                key=lambda asset: (asset.uploaded_at or datetime.min, asset.id or ""),
+                reverse=True,
+            )
 
     def upload_assets(
         self,
@@ -64,6 +87,7 @@ class ProjectAssetService:
         file_storages: List,
         relative_paths: Optional[List[str]] = None,
         replace_existing: Optional[bool] = None,
+        metadata: Optional[Dict] = None,
     ) -> List[ProjectAsset]:
         if asset_type not in self.ASSET_TYPES:
             raise ValidationError(message="Unsupported asset type", details={'asset_type': asset_type})
@@ -106,11 +130,13 @@ class ProjectAssetService:
                     guessed_mime, _ = mimetypes.guess_type(target_path.name)
                     mime_type = guessed_mime or mime_type
 
-                metadata = {
+                asset_metadata = {
+                    **dict(metadata or {}),
                     'relative_path': target_path.relative_to(asset_dir).as_posix(),
+                    'storage_uri': self._storage_uri_for_path(target_path),
                 }
                 if asset_type == 'processed_result':
-                    metadata['kind'] = 'analysis_result'
+                    asset_metadata['kind'] = 'analysis_result'
 
                 asset = ProjectAsset(
                     project_id=project.id,
@@ -119,7 +145,7 @@ class ProjectAssetService:
                     storage_path=str(target_path),
                     mime_type=mime_type,
                     size=len(raw_bytes),
-                    metadata_json=metadata,
+                    metadata_json=asset_metadata,
                 )
                 db.session.add(asset)
                 created_assets.append(asset)
@@ -201,6 +227,7 @@ class ProjectAssetService:
         metadata_json = {
             'analysis_type': analysis_type,
             'job_id': job_id,
+            'storage_uri': self._storage_uri_for_path(Path(chosen_storage)),
             'output_base': output_base,
             'report_path': report_path,
             'report_url': report_url,
@@ -270,6 +297,7 @@ class ProjectAssetService:
             raise ValidationError(message="storage_path is required")
 
         normalized_path = str(storage_path)
+        metadata_json = self._metadata_with_storage_uri(metadata, normalized_path)
         query = ProjectAsset.query.filter(
             ProjectAsset.project_id == project.id,
             ProjectAsset.storage_path == normalized_path,
@@ -278,8 +306,7 @@ class ProjectAssetService:
         existing = query.first()
 
         if existing:
-            if metadata:
-                existing.metadata_json = {**(existing.metadata_json or {}), **metadata}
+            existing.metadata_json = {**(existing.metadata_json or {}), **metadata_json}
             if original_name:
                 existing.original_name = original_name
             existing.uploaded_at = datetime.utcnow()
@@ -292,7 +319,7 @@ class ProjectAssetService:
             original_name=original_name or f"{asset_type}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
             storage_path=normalized_path,
             size=0,
-            metadata_json=metadata or {},
+            metadata_json=metadata_json,
         )
         db.session.add(asset)
         db.session.commit()
@@ -319,13 +346,21 @@ class ProjectAssetService:
                 storage_path=str(target_path),
                 mime_type='application/json',
                 size=target_path.stat().st_size,
-                metadata_json={'spec_id': spec.id, 'relative_path': target_path.name},
+                metadata_json={
+                    'spec_id': spec.id,
+                    'relative_path': target_path.name,
+                    'storage_uri': self._storage_uri_for_path(target_path),
+                },
             )
             db.session.add(asset)
         else:
             existing.storage_path = str(target_path)
             existing.size = target_path.stat().st_size
-            existing.metadata_json = {'spec_id': spec.id, 'relative_path': target_path.name}
+            existing.metadata_json = {
+                'spec_id': spec.id,
+                'relative_path': target_path.name,
+                'storage_uri': self._storage_uri_for_path(target_path),
+            }
         db.session.commit()
         return ProjectAsset.query.filter(
             ProjectAsset.project_id == project.id,
@@ -400,3 +435,13 @@ def get_project_asset_service(projects_root: Path) -> ProjectAssetService:
     if _project_asset_service is None or _project_asset_service.projects_root != resolved:
         _project_asset_service = ProjectAssetService(resolved)
     return _project_asset_service
+
+
+def _is_mysql_sort_memory_error(exc: OperationalError) -> bool:
+    """Detect MySQL 1038 sort-buffer errors and allow a narrower fallback."""
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", ())
+    if args and str(args[0]) == "1038":
+        return True
+    message = str(orig or exc).lower()
+    return "out of sort memory" in message or "sort buffer size" in message

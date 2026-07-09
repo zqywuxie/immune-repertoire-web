@@ -25,6 +25,7 @@ from flask_app.services.auto_heatmap_service import (
     DataFileInfo
 )
 from flask_app.services.heatmap_generator import HeatmapGenerator, HeatmapConfig
+from flask_app.services.path_config import RESULTS_DIR
 from flask_app.services.pipeline_comparison_integration_service import get_pipeline_comparison_service
 from flask_app.services.similarity_heatmap_report_service import get_similarity_heatmap_report_service
 from flask_app.exceptions import ValidationError
@@ -305,7 +306,7 @@ def scan_pipeline_root():
             )
 
         base_path = str(PathAccessService.validate_read_path(base_path))
-        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_pipeline_comparison_service(results_root=results_root)
         scan_result = service.scan_pipeline_root(base_path=base_path)
 
@@ -957,7 +958,7 @@ def generate_pipeline_report():
         if selected_chains is None:
             selected_chains = data.get('chains')
 
-        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_pipeline_comparison_service(results_root=results_root)
 
         run_result = service.generate_pipeline_comparison(
@@ -1047,27 +1048,35 @@ def generate_heatmap_report():
         cdr3_export_request = data.get('cdr3_export_request')
         create_archive = _as_bool(data.get('create_archive'), False)
 
-        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_similarity_heatmap_report_service(results_root=results_root)
+
+        extra_assets_writer = None
+        if isinstance(cdr3_export_request, dict):
+            def _write_cdr3_shared_assets(output_base: Path) -> Dict[str, Any]:
+                export_service = get_cdr3_export_service()
+                sample_data, top_n = _load_cdr3_export_sample_data(cdr3_export_request)
+                cdr3_output_dir = output_base / 'CDR3_Shared'
+                written_files = export_service.write_complete_export_directory(
+                    output_dir=cdr3_output_dir,
+                    sample_data=sample_data,
+                    include_summary=True,
+                    top_n=top_n,
+                )
+                return {
+                    'cdr3_shared_path': str(cdr3_output_dir.relative_to(output_base)),
+                    'cdr3_shared_file_count': len(written_files),
+                }
+
+            extra_assets_writer = _write_cdr3_shared_assets
 
         run_result = service.generate_report(
             heatmap_result=heatmap_result,
             output_name=data.get('output_name'),
             embed_images=_as_bool(data.get('embed_images'), False),
             context=report_context,
+            extra_assets_writer=extra_assets_writer,
         )
-
-        if isinstance(cdr3_export_request, dict):
-            export_service = get_cdr3_export_service()
-            sample_data, top_n = _load_cdr3_export_sample_data(cdr3_export_request)
-            cdr3_output_dir = run_result.output_base / 'CDR3_Shared_List'
-            export_service.write_complete_export_directory(
-                output_dir=cdr3_output_dir,
-                sample_data=sample_data,
-                include_summary=True,
-                top_n=top_n,
-            )
-            run_result.metadata['cdr3_shared_list_path'] = str(cdr3_output_dir.relative_to(run_result.output_base))
 
         archive_url = None
         archive_path = None
@@ -1133,7 +1142,7 @@ def get_pipeline_comparison_result_file(job_id: str, relative_path: str):
     GET /api/auto-heatmap/pipeline-comparison/results/<job_id>/<path:relative_path>
     """
     try:
-        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_pipeline_comparison_service(results_root=results_root)
         target_file = service.resolve_result_file(job_id, relative_path)
         return send_file(target_file)
@@ -1170,7 +1179,7 @@ def get_similarity_heatmap_report_result_file(job_id: str, relative_path: str):
     GET /api/auto-heatmap/similarity-report/results/<job_id>/<path:relative_path>
     """
     try:
-        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', Path.cwd() / 'data' / 'results'))
+        results_root = PathAccessService.results_root_for_user(current_app.config.get('RESULTS_FOLDER', str(RESULTS_DIR)))
         service = get_similarity_heatmap_report_service(results_root=results_root)
         target_file = service.resolve_result_file(job_id, relative_path)
         return send_file(target_file)

@@ -118,7 +118,7 @@ class MappingTemplate(db.Model):
     analysis_type = db.Column(db.String(50), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -419,18 +419,25 @@ class ProjectAsset(db.Model):
     metadata_json = db.Column(db.JSON, nullable=True)
     uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index('ix_project_assets_project_uploaded', 'project_id', 'uploaded_at'),
+        db.Index('ix_project_assets_project_type_uploaded', 'project_id', 'asset_type', 'uploaded_at'),
+    )
+
     project = db.relationship("Project", back_populates="assets")
 
     def to_dict(self) -> Dict[str, Any]:
+        metadata = self.metadata_json or {}
         return {
             'id': self.id,
             'project_id': self.project_id,
             'asset_type': self.asset_type,
             'original_name': self.original_name,
             'storage_path': self.storage_path,
+            'storage_uri': metadata.get('storage_uri'),
             'mime_type': self.mime_type,
             'size': self.size,
-            'metadata': self.metadata_json or {},
+            'metadata': metadata,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
         }
 

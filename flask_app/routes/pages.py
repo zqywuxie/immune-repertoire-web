@@ -1,6 +1,13 @@
 """
 Page routes for rendering HTML templates.
 Requirements: 9.1
+
+.. attention:: **RETIRING — replaced by React SPA** (``frontend/``).
+
+   All Jinja-rendered pages in this blueprint are being replaced by the
+   standalone React SPA.  Users should access the new platform at
+   ``http://127.0.0.1:5173``.  These routes will be converted to 301
+   redirects once the SPA is the primary frontend.
 """
 from urllib.parse import urlencode
 from flask import Blueprint, render_template, redirect, url_for, flash, request

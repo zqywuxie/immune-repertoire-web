@@ -1,0 +1,155 @@
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 4px var(--spacing-md) 8px 4px;
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1 0 112px;
+  min-width: 112px;
+}
+
+.step:last-child {
+  flex: 0 0 auto;
+  min-width: max-content;
+  padding-right: var(--spacing-sm);
+}
+
+.stepNode {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.stepCircle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
+}
+
+.stepComplete {
+  background: var(--success);
+  border: 2px solid var(--success);
+  color: #ffffff;
+}
+
+.stepCurrent {
+  background: var(--accent);
+  border: 2px solid var(--accent);
+  color: #ffffff;
+}
+
+.stepPending {
+  background: transparent;
+  border: 2px solid var(--separator);
+  color: var(--text-tertiary);
+}
+
+.stepLabel {
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 116px;
+  transition: color var(--duration-fast);
+}
+
+.stepLabelComplete {
+  color: var(--text-secondary);
+}
+
+.stepLabelCurrent {
+  color: var(--text-primary);
+}
+
+.stepLabelPending {
+  color: var(--text-tertiary);
+}
+
+.stepConnector {
+  flex: 1;
+  height: 2px;
+  min-width: 16px;
+  margin: 0 var(--spacing-sm);
+  border-radius: 1px;
+  transition: background var(--duration-fast);
+}
+
+.connectorComplete {
+  background: var(--success);
+}
+
+.connectorIncomplete {
+  background: var(--separator);
+}
+
+/* ── Vertical variant ── */
+
+.vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.verticalStep {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  width: 100%;
+  position: relative;
+}
+
+.verticalStep:not(:last-child) {
+  padding-bottom: var(--spacing-lg);
+}
+
+.verticalNode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.verticalConnector {
+  width: 2px;
+  flex: 1;
+  min-height: 20px;
+  margin-top: 4px;
+  border-radius: 1px;
+}
+
+.verticalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.verticalLabel {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.verticalDescription {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}

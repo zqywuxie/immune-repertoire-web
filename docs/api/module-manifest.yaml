@@ -1,0 +1,359 @@
+# Module Manifest — canonical registry of all analysis modules.
+#
+# This file is the single source of truth for what modules exist, what
+# parameters they accept, and how the frontend should render their forms.
+# The /api/jobs/modules endpoint loads from here at runtime.
+#
+# Schema version: 1.0
+# See docs/architecture/full-stack-refactor-execution-plan.md §Phase C
+
+manifest_version: "1.0"
+
+# Each module entry:
+#   key          — unique identifier used in POST /api/jobs {module: "..."}
+#   label        — human-readable display name (Chinese + English)
+#   category     — grouping for frontend UI tabs
+#   description  — one-line description of what it does
+#   input_schema — JSON Schema for the payload parameter
+#   output_kinds — expected output file types (html, png, csv, zip, ppt, pdf)
+#   worker       — function name in analysis_workers.main.MODULE_WORKERS
+#   ui_entry     — frontend component that renders the parameter form
+#   enabled      — whether this module is available for job submission
+
+modules:
+  # ── Charts ──────────────────────────────────────────────────────────
+  - key: charts.combined
+    label: 综合图表 (Combined Charts)
+    category: charts
+    description: 生成免疫组库综合可视化图表集合
+    input_schema:
+      type: object
+      properties:
+        selected_modules:
+          type: array
+          items:
+            type: string
+            enum: [heatmap, treemap, chord, diversity, clonality, v_usage, j_usage]
+          description: 要生成的分析图表类型
+      required: [selected_modules]
+    output_kinds: [html, png]
+    worker: run_charts_job
+    ui_entry: ChartsCombinedForm
+    enabled: true
+
+  # ── Treemap ─────────────────────────────────────────────────────────
+  - key: treemap.generate
+    label: Treemap 树图
+    category: charts
+    description: 生成免疫组库克隆分布树状图
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+          description: 分组方案 ID
+    output_kinds: [html]
+    worker: run_treemap_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  # ── Chord ───────────────────────────────────────────────────────────
+  - key: chord.generate
+    label: Chord 弦图
+    category: charts
+    description: 生成 V-J 基因配对弦图
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+          description: 分组方案 ID
+    output_kinds: [html]
+    worker: run_chord_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  # ── Statistical ─────────────────────────────────────────────────────
+  - key: statistical.analyze
+    label: 统计分析 (Statistical Analysis)
+    category: statistical
+    description: CDR3 长度分布、氨基酸频率等基础统计
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+          description: 分组方案 ID
+    output_kinds: [html, csv]
+    worker: run_statistical_analyze_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: statistical.boxplot
+    label: 箱线图 (Box Plot)
+    category: statistical
+    description: 免疫组库指标分组箱线图
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+          description: 分组方案 ID
+        metric:
+          type: string
+          enum: [diversity, clonality, richness, evenness]
+          description: 统计指标
+    output_kinds: [png]
+    worker: run_statistical_boxplot_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: statistical.analyze-multiple
+    label: 多重统计分析
+    category: statistical
+    description: 多指标批量统计分析
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+        metrics:
+          type: array
+          items:
+            type: string
+          description: 统计指标列表
+    output_kinds: [html, csv]
+    worker: run_statistical_analyze_multiple_job
+    ui_entry: MultiSelectForm
+    enabled: true
+
+  - key: statistical.summary-boxplot
+    label: 汇总箱线图
+    category: statistical
+    description: 汇总统计结果的箱线图报告
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+    output_kinds: [png, html]
+    worker: run_statistical_summary_boxplot_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: statistical.analyze-batch
+    label: 批量统计分析
+    category: statistical
+    description: 多分组批量统计
+    input_schema:
+      type: object
+      properties:
+        group_spec_ids:
+          type: array
+          items:
+            type: string
+          description: 分组方案 ID 列表
+    output_kinds: [html, csv]
+    worker: run_statistical_analyze_batch_job
+    ui_entry: MultiSelectForm
+    enabled: true
+
+  - key: statistical.analyze-direct
+    label: 直接统计分析
+    category: statistical
+    description: 指定原始数据直接分析
+    input_schema:
+      type: object
+      properties:
+        sample_ids:
+          type: array
+          items:
+            type: string
+          description: 样本 ID 列表
+    output_kinds: [html, csv]
+    worker: run_statistical_analyze_direct_job
+    ui_entry: MultiSelectForm
+    enabled: true
+
+  # ── Auto-Heatmap ────────────────────────────────────────────────────
+  - key: auto-heatmap.generate-heatmap
+    label: 热力图 (Heatmap)
+    category: heatmap
+    description: 生成表达热力图
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+    output_kinds: [png, html]
+    worker: run_heatmap_generate_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: auto-heatmap.generate-pipeline-report
+    label: Pipeline 报告
+    category: heatmap
+    description: 热力图分析管道报告
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+    output_kinds: [html, zip]
+    worker: run_heatmap_pipeline_report_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: auto-heatmap.generate-heatmap-report
+    label: 热力图综合报告
+    category: heatmap
+    description: 热力图分析综合报告
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+    output_kinds: [html, zip]
+    worker: run_heatmap_report_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: auto-heatmap.export-shared-cdr3
+    label: 共享 CDR3 导出
+    category: heatmap
+    description: 导出共享 CDR3 序列数据
+    input_schema:
+      type: object
+      properties:
+        group_spec_id:
+          type: string
+    output_kinds: [csv]
+    worker: run_heatmap_export_cdr3_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  # ── PPT Generation ──────────────────────────────────────────────────
+  - key: ppt.scan-images
+    label: PPT 图片扫描
+    category: ppt
+    description: 扫描项目中可用图片
+    input_schema:
+      type: object
+      properties:
+        project_id:
+          type: string
+    output_kinds: [json]
+    worker: run_ppt_scan_images_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: ppt.load-image
+    label: PPT 图片加载
+    category: ppt
+    description: 加载指定图片到 PPT 模板
+    input_schema:
+      type: object
+      properties:
+        image_selections:
+          type: array
+          items:
+            type: object
+          description: 图片选择列表
+    output_kinds: [pptx]
+    worker: run_ppt_load_image_job
+    ui_entry: ImageSelectionForm
+    enabled: true
+
+  - key: ppt.render-slides
+    label: PPT 渲染生成
+    category: ppt
+    description: 渲染最终 PPT 幻灯片
+    input_schema:
+      type: object
+      properties:
+        template_id:
+          type: string
+          description: PPT 模板 ID
+    output_kinds: [pptx]
+    worker: run_ppt_render_slides_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  # ── PPT Comparison ──────────────────────────────────────────────────
+  - key: ppt-comparison.scan-heatmaps
+    label: PPT 对比热力图扫描
+    category: ppt
+    description: 扫描项目中的对比热力图
+    input_schema:
+      type: object
+      properties:
+        project_id:
+          type: string
+    output_kinds: [json]
+    worker: run_ppt_comparison_scan_job
+    ui_entry: SimpleForm
+    enabled: true
+
+  - key: ppt-comparison.generate
+    label: PPT 对比报告生成
+    category: ppt
+    description: 生成横向对比 PPT 报告
+    input_schema:
+      type: object
+      properties:
+        comparison_config:
+          type: object
+          description: 对比配置
+    output_kinds: [pptx]
+    worker: run_ppt_comparison_generate_job
+    ui_entry: ComparisonConfigForm
+    enabled: true
+
+  # ── Integrated Analysis ─────────────────────────────────────────────
+  - key: analysis.execute
+    label: 综合分析执行
+    category: analysis
+    description: 执行综合分析管道
+    input_schema:
+      type: object
+      properties:
+        pipeline_config:
+          type: object
+          description: 管道配置
+    output_kinds: [html, csv, zip]
+    worker: run_analysis_execute_job
+    ui_entry: PipelineConfigForm
+    enabled: true
+
+  - key: analysis.batch
+    label: 批量分析
+    category: analysis
+    description: 多项目批量分析
+    input_schema:
+      type: object
+      properties:
+        project_ids:
+          type: array
+          items:
+            type: string
+          description: 项目 ID 列表
+    output_kinds: [html, csv, zip]
+    worker: run_analysis_batch_job
+    ui_entry: MultiSelectForm
+    enabled: true
+
+  - key: analysis.execute-unified
+    label: 统一分析执行
+    category: analysis
+    description: 统一分析入口
+    input_schema:
+      type: object
+      properties:
+        analysis_type:
+          type: string
+          enum: [full, quick, custom]
+          description: 分析类型
+    output_kinds: [html, csv, zip]
+    worker: run_analysis_execute_unified_job
+    ui_entry: SimpleForm
+    enabled: true

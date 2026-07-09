@@ -1,0 +1,181 @@
+.browser {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--separator);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xs) 0;
+}
+
+/* ── Tree Node ── */
+
+.node {
+  user-select: none;
+}
+
+.nodeRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px var(--spacing-md);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  transition: background var(--duration-fast);
+  border-radius: 0;
+  line-height: 1.4;
+}
+
+.nodeRow:hover {
+  background: var(--bg-inset);
+}
+
+.nodeRowActive {
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--accent);
+}
+
+.nodeRowActive:hover {
+  background: rgba(0, 113, 227, 0.12);
+}
+
+/* Indent levels */
+.indent0 { padding-left: var(--spacing-md); }
+.indent1 { padding-left: calc(var(--spacing-md) + 18px); }
+.indent2 { padding-left: calc(var(--spacing-md) + 36px); }
+.indent3 { padding-left: calc(var(--spacing-md) + 54px); }
+.indent4 { padding-left: calc(var(--spacing-md) + 72px); }
+.indent5 { padding-left: calc(var(--spacing-md) + 90px); }
+
+.chevron {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  transition: transform var(--duration-fast);
+}
+
+.chevronOpen {
+  transform: rotate(0deg);
+}
+
+.chevronClosed {
+  transform: rotate(-90deg);
+}
+
+.chevronHidden {
+  visibility: hidden;
+}
+
+.icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+}
+
+.iconFolder {
+  color: var(--warning);
+}
+
+.iconFile {
+  color: var(--text-tertiary);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.meta {
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ── Children container ── */
+
+.children {
+  overflow: hidden;
+  transition: max-height var(--duration-normal) ease, opacity var(--duration-normal) ease;
+}
+
+.childrenOpen {
+  max-height: 4000px;
+  opacity: 1;
+}
+
+.childrenClosed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* ── Empty state ── */
+
+.empty {
+  padding: var(--spacing-xl) var(--spacing-lg);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+/* ── Search bar within browser ── */
+
+.searchWrap {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--separator);
+}
+
+.searchInput {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-root);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--duration-fast);
+}
+
+.searchInput:focus {
+  border-color: var(--accent);
+}
+
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}

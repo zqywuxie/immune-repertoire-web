@@ -5,6 +5,7 @@ import sys
 
 from flask import Flask
 import pytest
+from werkzeug.datastructures import FileStorage
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -119,3 +120,40 @@ def test_register_profile_does_not_reuse_datapoint_path(app_context):
     assert [asset.asset_type for asset in assets] == ["datapoint", "profile"]
     assert assets[0].metadata_json["source"] == "legacy"
     assert assets[1].metadata_json["source"] == "script-hub"
+
+
+def test_upload_asset_records_storage_uri(app_context):
+    project = _create_project("Storage URI Upload")
+    service = ProjectAssetService(app_context / "projects")
+    source = app_context / "upload.csv"
+    source.write_text("sample,value\nS1,1\n", encoding="utf-8")
+
+    with source.open("rb") as stream:
+        assets = service.upload_assets(
+            project,
+            asset_type="profile",
+            file_storages=[FileStorage(stream=stream, filename="upload.csv")],
+            relative_paths=["upload.csv"],
+        )
+
+    storage_uri = assets[0].metadata_json.get("storage_uri")
+    assert storage_uri.startswith("local:///")
+    assert "upload.csv" in storage_uri
+
+
+def test_register_cached_asset_records_storage_uri(app_context):
+    project = _create_project("Storage URI Register")
+    service = ProjectAssetService(app_context / "projects")
+    profile_path = app_context / "Profile_All.csv"
+    profile_path.write_text("sample,disease\nS1,A\n", encoding="utf-8")
+
+    asset = service.register_cached_asset(
+        project,
+        asset_type="profile",
+        storage_path=str(profile_path),
+        original_name="Profile_All.csv",
+        metadata={"source": "script-hub"},
+    )
+
+    assert asset.metadata_json["source"] == "script-hub"
+    assert asset.metadata_json["storage_uri"].startswith("local:///")

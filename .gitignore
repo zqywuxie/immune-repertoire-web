@@ -12,6 +12,7 @@ ENV/
 # Data files
 flask_app/data/uploads/
 flask_app/data/results/
+flask_app/data/projects/
 flask_app/data/*.db
 
 # IDE
@@ -19,6 +20,14 @@ flask_app/data/*.db
 .vscode/
 *.swp
 *.swo
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # OS
 .DS_Store
@@ -30,6 +39,7 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+.dev-runtime/
 .hypothesis/
 .tmp_pytest/
 flask_app/tests/_tmp_runtime/
@@ -46,8 +56,10 @@ flask_app/.tmp_pytest_auto/
 
 # Sensitive config
 .env
+.env.*
 .mcp.json
 .claude/
+.codex/
 .playwright-mcp/
 
 # Temp pytest dirs (root)

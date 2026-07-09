@@ -19,11 +19,17 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from flask_app.exceptions import ValidationError
+from flask_app.services.result_path_resolver import candidate_job_roots
 
 logger = logging.getLogger(__name__)
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - table previews degrade gracefully
+    pd = None
 
 
 METRIC_LABELS: Dict[str, str] = {
@@ -248,6 +254,159 @@ class SimilarityHeatmapReportService:
             "</table></div>"
         )
 
+    @staticmethod
+    def _humanize_token(text: Any) -> str:
+        cleaned = re.sub(r"[_\-]+", " ", str(text or "")).strip()
+        return cleaned.title() if cleaned else ""
+
+    def _read_csv_preview(self, file_path: Path, max_rows: int, max_cols: int) -> Tuple[List[str], List[List[str]]]:
+        delimiter = "\t" if file_path.suffix.lower() in {".tsv", ".txt"} else ","
+        encodings = ("utf-8-sig", "gbk")
+        for encoding in encodings:
+            try:
+                with file_path.open("r", encoding=encoding, errors="replace", newline="") as file_obj:
+                    reader = csv.reader(file_obj, delimiter=delimiter)
+                    columns: List[str] = []
+                    rows: List[List[str]] = []
+                    for idx, row in enumerate(reader):
+                        sliced = [str(cell) for cell in (row[:max_cols] if max_cols > 0 else row)]
+                        if idx == 0:
+                            columns = sliced
+                            continue
+                        if max_rows > 0 and len(rows) >= max_rows:
+                            break
+                        rows.append(sliced)
+                    return columns, rows
+            except UnicodeDecodeError:
+                continue
+            except Exception:
+                return [], []
+        return [], []
+
+    def _read_xlsx_previews(self, file_path: Path, max_rows: int, max_cols: int) -> List[Dict[str, Any]]:
+        if pd is None:
+            return []
+        try:
+            workbook = pd.ExcelFile(file_path)
+        except Exception:
+            return []
+
+        previews: List[Dict[str, Any]] = []
+        for sheet_name in workbook.sheet_names:
+            try:
+                frame = pd.read_excel(workbook, sheet_name=sheet_name, nrows=max_rows if max_rows > 0 else None)
+                if max_cols > 0:
+                    frame = frame.iloc[:, :max_cols]
+                columns = [str(col) for col in frame.columns.tolist()]
+                rows = [
+                    ["" if value is None else str(value) for value in row]
+                    for row in frame.fillna("").values.tolist()
+                ]
+            except Exception:
+                columns, rows = [], []
+            previews.append({"name": str(sheet_name), "columns": columns, "rows": rows})
+        return previews
+
+    def _read_cdr3_table_previews(self, file_path: Path, max_rows: int, max_cols: int) -> List[Dict[str, Any]]:
+        suffix = file_path.suffix.lower()
+        if suffix == ".xlsx":
+            return self._read_xlsx_previews(file_path, max_rows=max_rows, max_cols=max_cols)
+        if suffix in {".csv", ".tsv", ".txt"}:
+            columns, rows = self._read_csv_preview(file_path, max_rows=max_rows, max_cols=max_cols)
+            return [{"name": file_path.stem, "columns": columns, "rows": rows}]
+        return []
+
+    def _build_cdr3_table_entries(
+        self,
+        output_base: Path,
+        max_rows: int = 20,
+        max_cols: int = 12,
+    ) -> List[Dict[str, Any]]:
+        cdr3_root = output_base / "CDR3_Shared"
+        if not cdr3_root.exists():
+            return []
+
+        entries: List[Dict[str, Any]] = []
+        for file_path in sorted(cdr3_root.rglob("*")):
+            if not file_path.is_file() or file_path.suffix.lower() not in {".xlsx", ".csv", ".tsv", ".txt"}:
+                continue
+            sheets = self._read_cdr3_table_previews(file_path, max_rows=max_rows, max_cols=max_cols)
+            if not sheets:
+                sheets = [{"name": "Preview", "columns": [], "rows": []}]
+
+            rel = file_path.relative_to(cdr3_root).as_posix()
+            rel_parts = Path(rel).parts
+            chain = rel_parts[0] if len(rel_parts) > 1 else "All"
+            file_type = file_path.stem
+            file_type_label = self._humanize_token(file_type) or file_type
+            href = file_path.relative_to(output_base).as_posix()
+            for sheet in sheets:
+                sheet_name = str(sheet.get("name") or "Sheet")
+                entries.append({
+                    "id": f"cdr3_{len(entries) + 1}",
+                    "name": file_path.name,
+                    "href": href,
+                    "rel": rel,
+                    "chain": chain,
+                    "file_type": file_type,
+                    "file_type_label": file_type_label,
+                    "sheet": sheet_name,
+                    "columns": sheet.get("columns", []),
+                    "rows": sheet.get("rows", []),
+                })
+        return entries
+
+    def _render_cdr3_section_html(self, entries: List[Dict[str, Any]]) -> str:
+        if not entries:
+            return ""
+
+        panels: List[str] = []
+        for idx, entry in enumerate(entries):
+            active = " active" if idx == 0 else ""
+            table_html = self._render_table_html(entry.get("columns", []), entry.get("rows", []))
+            meta = (
+                f"Chain: {entry.get('chain', 'All')} | "
+                f"File: {entry.get('file_type_label', entry.get('file_type', ''))} | "
+                f"Sheet: {entry.get('sheet', '')}"
+            )
+            panels.append(
+                "<div id=\"{id}\" class=\"cdr3-panel{active}\" "
+                "data-chain=\"{chain}\" data-file-type=\"{file_type}\" "
+                "data-file-type-label=\"{file_type_label}\" data-sheet=\"{sheet}\" "
+                "data-meta=\"{meta}\">"
+                "<div class=\"metric-meta\">"
+                "<span class=\"cdr3-source\">{rel}</span>"
+                "<a class=\"download-link\" href=\"{href}\" target=\"_blank\" rel=\"noopener\">Open Table</a>"
+                "</div>"
+                "{table_html}"
+                "</div>".format(
+                    id=self._safe_text(entry.get("id")),
+                    active=active,
+                    chain=self._safe_text(entry.get("chain", "All")),
+                    file_type=self._safe_text(entry.get("file_type", "")),
+                    file_type_label=self._safe_text(entry.get("file_type_label", "")),
+                    sheet=self._safe_text(entry.get("sheet", "")),
+                    meta=self._safe_text(meta),
+                    rel=self._safe_text(entry.get("rel", "")),
+                    href=self._safe_text(entry.get("href", "")),
+                    table_html=table_html,
+                )
+            )
+
+        return (
+            "<section class=\"report-section cdr3-section\">"
+            "<h2>CDR3 Shared Analysis</h2>"
+            "<div class=\"cdr3-controls\">"
+            "<label>Chain <select class=\"cdr3-filter\" data-filter=\"chain\"></select></label>"
+            "<label>File <select class=\"cdr3-filter\" data-filter=\"fileType\"></select></label>"
+            "<label>Sheet <select class=\"cdr3-filter\" data-filter=\"sheet\"></select></label>"
+            "</div>"
+            "<div class=\"cdr3-meta\"></div>"
+            f"{''.join(panels)}"
+            "<p class=\"empty-note cdr3-empty\" style=\"display:none;\">No table under current filters.</p>"
+            "</section>"
+        )
+
     def _render_section_html(self, section_id: str, section_title: str, entries: List[Dict[str, Any]]) -> str:
         if not entries:
             return ""
@@ -316,6 +475,7 @@ class SimilarityHeatmapReportService:
         job_id: str,
         sections: List[Dict[str, Any]],
         metadata: Dict[str, Any],
+        cdr3_table_entries: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         generated_at = metadata.get("generated_at", "")
         mode = metadata.get("mode", "")
@@ -390,6 +550,7 @@ class SimilarityHeatmapReportService:
             )
         else:
             section_html = "".join(section["html"] for section in rendered_sections)
+        section_html += self._render_cdr3_section_html(cdr3_table_entries or [])
 
         return """<!DOCTYPE html>
 <html lang="en">
@@ -524,6 +685,50 @@ class SimilarityHeatmapReportService:
     .metric-meta {{
       display: flex;
       justify-content: flex-end;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }}
+    .cdr3-controls {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }}
+    .cdr3-controls label {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 180px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }}
+    .cdr3-controls select {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      padding: 7px 9px;
+      font: inherit;
+      font-size: 13px;
+    }}
+    .cdr3-panel {{
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fcfdff;
+    }}
+    .cdr3-panel.active {{
+      display: block;
+    }}
+    .cdr3-meta,
+    .cdr3-source {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .cdr3-meta {{
       margin-bottom: 8px;
     }}
     .download-link {{
@@ -625,6 +830,60 @@ class SimilarityHeatmapReportService:
           }});
         }});
       }});
+      document.querySelectorAll('.cdr3-section').forEach((section) => {{
+        const panels = Array.from(section.querySelectorAll('.cdr3-panel'));
+        const filters = Array.from(section.querySelectorAll('.cdr3-filter'));
+        const meta = section.querySelector('.cdr3-meta');
+        const empty = section.querySelector('.cdr3-empty');
+        const fields = {{
+          chain: 'chain',
+          fileType: 'fileType',
+          sheet: 'sheet'
+        }};
+        function labelFor(panel, filterName) {{
+          if (filterName === 'fileType') {{
+            return panel.dataset.fileTypeLabel || panel.dataset.fileType || '';
+          }}
+          return panel.dataset[fields[filterName]] || '';
+        }}
+        function valueFor(panel, filterName) {{
+          return panel.dataset[fields[filterName]] || '';
+        }}
+        filters.forEach((select) => {{
+          const filterName = select.dataset.filter;
+          const seen = new Map();
+          panels.forEach((panel) => {{
+            const value = valueFor(panel, filterName);
+            if (value && !seen.has(value)) seen.set(value, labelFor(panel, filterName));
+          }});
+          select.innerHTML = '';
+          select.append(new Option('All', ''));
+          Array.from(seen.entries())
+            .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+            .forEach(([value, label]) => select.append(new Option(label, value)));
+        }});
+        function applyFilters() {{
+          const selected = Object.fromEntries(filters.map((select) => [select.dataset.filter, select.value]));
+          let firstVisible = null;
+          panels.forEach((panel) => {{
+            const visible = (!selected.chain || panel.dataset.chain === selected.chain)
+              && (!selected.fileType || panel.dataset.fileType === selected.fileType)
+              && (!selected.sheet || panel.dataset.sheet === selected.sheet);
+            panel.classList.toggle('active', false);
+            panel.style.display = visible ? '' : 'none';
+            if (visible && !firstVisible) firstVisible = panel;
+          }});
+          if (firstVisible) {{
+            firstVisible.classList.add('active');
+            if (meta) meta.textContent = firstVisible.dataset.meta || '';
+          }} else if (meta) {{
+            meta.textContent = '';
+          }}
+          if (empty) empty.style.display = firstVisible ? 'none' : '';
+        }}
+        filters.forEach((select) => select.addEventListener('change', applyFilters));
+        applyFilters();
+      }});
     }})();
   </script>
 </body>
@@ -639,6 +898,7 @@ class SimilarityHeatmapReportService:
         output_name: Optional[str] = None,
         embed_images: bool = False,
         context: Optional[Dict[str, Any]] = None,
+        extra_assets_writer: Optional[Callable[[Path], Dict[str, Any]]] = None,
     ) -> SimilarityHeatmapReportResult:
         """
         Generate a report from existing heatmap response data.
@@ -764,6 +1024,13 @@ class SimilarityHeatmapReportService:
         if not sections:
             raise ValidationError(message="No heatmap/table data was found for report generation.")
 
+        extra_metadata: Dict[str, Any] = {}
+        if extra_assets_writer is not None:
+            returned = extra_assets_writer(output_base)
+            if isinstance(returned, dict):
+                extra_metadata.update(returned)
+        cdr3_table_entries = self._build_cdr3_table_entries(output_base)
+
         metadata: Dict[str, Any] = {
             "generated_at": datetime.now().isoformat(),
             "job_id": job_id,
@@ -773,7 +1040,9 @@ class SimilarityHeatmapReportService:
             "images_count": image_count,
             "embed_images": embed_images,
             "context": context,
+            "cdr3_shared_table_count": len(cdr3_table_entries),
         }
+        metadata.update(extra_metadata)
 
         metadata_path = output_base / "metadata.json"
         with open(metadata_path, "w", encoding="utf-8") as file_obj:
@@ -783,6 +1052,7 @@ class SimilarityHeatmapReportService:
             job_id=job_id,
             sections=sections,
             metadata=metadata,
+            cdr3_table_entries=cdr3_table_entries,
         )
         report_path = output_base / self._REPORT_FILE_NAME
         report_path.write_text(report_html, encoding="utf-8")
@@ -802,8 +1072,12 @@ class SimilarityHeatmapReportService:
         if not relative_path:
             raise ValidationError(message="relative_path is required.")
 
-        base_dir = (self.results_root / self._RESULT_DIR / job_id / "shared_analysis").resolve()
-        if not base_dir.exists() or not base_dir.is_dir():
+        base_dir = None
+        for candidate in candidate_job_roots(self.results_root, self._RESULT_DIR, job_id, nested_dir="shared_analysis"):
+            if candidate.exists() and candidate.is_dir():
+                base_dir = candidate.resolve()
+                break
+        if base_dir is None:
             raise FileNotFoundError(f"Report job not found: {job_id}")
 
         target_path = (base_dir / relative_path).resolve()
@@ -821,8 +1095,12 @@ class SimilarityHeatmapReportService:
 
     def create_archive(self, job_id: str, archive_name: str = "shared_analysis.zip") -> Path:
         """Create a ZIP archive from the shared_analysis directory contents."""
-        output_base = (self.results_root / self._RESULT_DIR / job_id / "shared_analysis").resolve()
-        if not output_base.exists() or not output_base.is_dir():
+        output_base = None
+        for candidate in candidate_job_roots(self.results_root, self._RESULT_DIR, job_id, nested_dir="shared_analysis"):
+            if candidate.exists() and candidate.is_dir():
+                output_base = candidate.resolve()
+                break
+        if output_base is None:
             raise FileNotFoundError(f"Report job not found: {job_id}")
 
         archive_path = output_base / archive_name

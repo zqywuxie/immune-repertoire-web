@@ -1,0 +1,198 @@
+"""Tests for the background job queue boundary."""
+
+import os
+
+os.environ.setdefault("FLASK_CONFIG", "testing")
+
+from flask_app.app import create_app
+from flask_app.models.database import db
+from flask_app.routes import api_jobs
+from flask_app.services import api_job_runner
+from flask_app.services.background_job_service import JobContext, get_background_job_service
+from flask_app.services.job_queue import ThreadPoolJobQueue, get_job_queue
+
+
+class FakeBackgroundJobService:
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, job_id, runner, **kwargs):
+        self.calls.append((job_id, runner, kwargs))
+
+
+def test_thread_pool_job_queue_delegates_to_background_service():
+    service = FakeBackgroundJobService()
+    queue = ThreadPoolJobQueue(service)
+
+    def runner():
+        return {"ok": True}
+
+    # Known module with a specific worker → dispatches via module worker
+    queue.submit("job-1", runner, module="charts.combined", payload={"a": 1})
+
+    assert len(service.calls) == 1
+    call_job_id, call_func, call_kwargs = service.calls[0]
+    assert call_job_id == "job-1"
+    # Should be the module-specific worker lambda, not the original runner
+    assert call_func is not runner
+    assert call_kwargs == {}
+
+
+def test_create_job_uses_queue_adapter(monkeypatch):
+    app = create_app("testing")
+    captured = []
+
+    class FakeQueue:
+        def submit(self, job_id, runner, **kwargs):
+            captured.append((job_id, runner.__name__, kwargs))
+
+    monkeypatch.setattr(api_jobs, "get_job_queue", lambda: FakeQueue())
+
+    with app.app_context():
+        response = app.test_client().post("/api/jobs", json={
+            "module": "analysis.execute",
+            "payload": {"file_id": "file-1"},
+        })
+        payload = response.get_json()
+        db.session.remove()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert captured == [
+        (payload["job_id"], "run_api_job", {"module": "analysis.execute"})
+    ]
+
+
+def test_api_job_runner_loads_context_from_persisted_job(monkeypatch):
+    app = create_app("testing")
+    calls = []
+
+    def fake_call_json_endpoint(module, payload, user_id):
+        calls.append((module, payload, user_id))
+        return {"success": True}
+
+    monkeypatch.setattr(api_job_runner, "call_json_endpoint", fake_call_json_endpoint)
+
+    with app.app_context():
+        service = get_background_job_service()
+        job = service.create_job(
+            job_type="api_request",
+            module="analysis.execute",
+            payload={"file_id": "file-1"},
+            user_id=42,
+        )
+        context = JobContext(service, job["job_id"])
+
+        result = api_job_runner.run_api_job(context)
+        db.session.remove()
+
+    assert result == {
+        "module": "analysis.execute",
+        "payload_module": "analysis.execute",
+        "data": {"success": True},
+    }
+    assert calls == [("analysis.execute", {"file_id": "file-1"}, 42)]
+
+
+def test_get_job_queue_defaults_to_threadpool(monkeypatch):
+    monkeypatch.delenv("JOB_QUEUE", raising=False)
+    queue = get_job_queue()
+    assert isinstance(queue, ThreadPoolJobQueue)
+
+
+def test_redis_job_queue_integration():
+    """Integration test: RedisJobQueue initializes with real Redis connection."""
+    try:
+        from redis import Redis
+        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r.ping()
+    except Exception:
+        import pytest
+        pytest.skip("Redis not available — skipping integration test")
+
+    from flask_app.services.job_queue import RedisJobQueue
+    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
+    assert q.redis_url == "redis://127.0.0.1:6379/0"
+    assert q._queue is not None  # RQ Queue initialized
+
+
+def test_redis_job_queue_enqueue():
+    """Integration test: enqueue a real worker task via RedisJobQueue."""
+    try:
+        from redis import Redis
+        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r.ping()
+    except Exception:
+        import pytest
+        pytest.skip("Redis not available — skipping integration test")
+
+    from flask_app.services.job_queue import RedisJobQueue
+    from analysis_workers.tasks.generic import run_generic_job
+    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
+    q.submit("test-integration-job-id", run_generic_job)
+    # Job was enqueued without error
+    assert True
+
+
+def test_redis_job_queue_enqueues_worker_dispatcher_for_known_module():
+    from analysis_workers.main import execute
+    from flask_app.services.job_queue import RedisJobQueue
+
+    class FakeRqQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    queue = object.__new__(RedisJobQueue)
+    queue.redis_url = "redis://example.invalid/0"
+    queue._queue = FakeRqQueue()
+
+    def runner(context):
+        return {"ok": True}
+
+    queue.submit("job-redis-1", runner, module="analysis.execute")
+
+    assert queue._queue.calls == [
+        (execute, ("analysis.execute", "job-redis-1"), {})
+    ]
+
+
+def test_redis_job_queue_falls_back_to_job_id_runner_without_module():
+    from analysis_workers.tasks.generic import run_generic_job
+    from flask_app.services.job_queue import RedisJobQueue
+
+    class FakeRqQueue:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, func, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+
+    queue = object.__new__(RedisJobQueue)
+    queue.redis_url = "redis://example.invalid/0"
+    queue._queue = FakeRqQueue()
+
+    queue.submit("job-redis-2", run_generic_job)
+
+    assert queue._queue.calls == [
+        (run_generic_job, ("job-redis-2",), {})
+    ]
+
+
+def test_get_job_queue_redis_backend_requires_redis_package(monkeypatch):
+    monkeypatch.setenv("JOB_QUEUE", "redis")
+    import sys
+    monkeypatch.setitem(sys.modules, "redis", None)
+    monkeypatch.setitem(sys.modules, "rq", None)
+    try:
+        get_job_queue()
+    except ImportError as exc:
+        assert "redis" in str(exc).lower()
+
+
+def test_get_job_queue_unknown_backend_falls_back_to_threadpool(monkeypatch):
+    monkeypatch.setenv("JOB_QUEUE", "kafka")
+    queue = get_job_queue()
+    assert isinstance(queue, ThreadPoolJobQueue)
