@@ -2,7 +2,7 @@ import os, pathlib, subprocess, tempfile
 script=pathlib.Path(__file__).resolve().parents[2]/'deploy.sh'
 source=script.read_bytes()
 subprocess.run(['bash','-n',str(script)],check=True)
-for case in ['success','missing','legacy','dirty','build_failed','health_failed']:
+for case in ['success','missing','legacy','dirty','build_failed','permissions_failed','health_failed']:
  with tempfile.TemporaryDirectory() as directory:
   root=pathlib.Path(directory); (root/'deploy.sh').write_bytes(source)
   if case!='missing': (root/('.env.docker' if case=='legacy' else '.env')).write_text('HTTP_PORT=18080\nSECRET_KEY=preserved-test-only\n')
@@ -18,6 +18,7 @@ if [[ $(basename "$0") == git ]]; then
  esac
 else
  if [[ " $* " == *" build "* && $CHECK_CASE == build_failed ]]; then exit 1; fi
+ if [[ " $* " == *" volume-init "* && $CHECK_CASE == permissions_failed ]]; then exit 1; fi
  if [[ " $* " == *" up "* && $CHECK_CASE == health_failed ]]; then exit 1; fi
 fi
 exit 0
@@ -34,14 +35,15 @@ exit 0
   assert not pull, lines
   if case=='success':
    assert result.returncode==0,result.stderr
-   assert not pull and build[0]<up[0],lines
+   permissions=next(i for i,line in enumerate(lines) if line.endswith("volume-init"))
+   assert not pull and build[0]<permissions<up[0],lines
    assert (root/'.env').read_text()=='HTTP_PORT=18080\nSECRET_KEY=preserved-test-only\n'
    assert all('--env-file .env -f' in line for line in lines if line.startswith('docker compose ') and ' version' not in line)
   else:
    assert result.returncode!=0,case
    assert '部署完成，' not in result.stdout
    if case in ['dirty','pull_failed','legacy','missing']:assert not build and not up
-   if case=='build_failed':assert not up
+   if case in ['build_failed','permissions_failed']:assert not up
   if case in ['legacy','missing']:
    assert not (root/'.env').exists()
    assert 'bash init-env.sh' in result.stderr

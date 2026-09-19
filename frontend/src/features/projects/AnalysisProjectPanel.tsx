@@ -1,3 +1,6 @@
+import { FolderOpen, Plus, Upload, ChevronUp, CheckCircle2 } from "lucide-react";
+import { Select } from "../../shared/components/Select";
+import "./AnalysisProjectPanel.css";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useApi } from "../../shared/hooks/useApi";
@@ -28,19 +31,21 @@ export function AnalysisProjectPanel() {
     select(result.id);
     setEditingData(true);
   }
-  return <section className="card" aria-label="项目与数据" style={{ padding: "var(--spacing-lg)" }}>
-    <h2>项目与数据</h2>
-    <p>先选择项目，再上传数据。四类输入按分析需要提供，可在同一项目中复用。</p>
+  return <section className="project-intake" aria-label="项目与数据">
+    <div className="project-intake-heading"><span className="project-intake-icon"><FolderOpen size={23}/></span><div><h2>项目与数据</h2>
+    <p>为本次分析选择项目，输入数据可在项目内重复使用。</p></div><span className="project-intake-step">分析准备</span></div>
     {projects.status === "error" ? <p role="alert">项目读取失败。<button className="btn btn-secondary" onClick={projects.refetch}>重新读取</button></p> :
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <label className="field-label">当前项目<select className="select" value={projectId} disabled={projects.status !== "ready"} onChange={event => select(event.target.value)}>
-          <option value="">{projects.status === "loading" ? "正在读取项目…" : "请选择项目"}</option>
-          {items.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </select></label>
-        <button className="btn btn-secondary" onClick={() => setCreating(true)}>新建项目</button>
-        <button className="btn btn-secondary" disabled={!selected} aria-expanded={editingData} onClick={() => setEditingData(!editingData)}>{editingData ? "收起数据管理" : "上传与管理数据集"}</button>
+      <div className="project-intake-controls">
+        <div className="project-intake-picker"><span id="current-project-label">当前项目</span>
+          <Select ariaLabel="当前项目" value={projectId} disabled={projects.status !== "ready"}
+            placeholder={projects.status === "loading" ? "正在读取项目…" : "选择一个项目开始分析"}
+            options={items.map(project => ({value: project.id, label: project.name}))} onChange={select}/>
+        </div>
+        <button className="project-intake-button project-intake-secondary" onClick={() => setCreating(true)}><Plus size={17}/>新建项目</button>
+        <button className="project-intake-button project-intake-primary" disabled={!selected} aria-expanded={editingData} onClick={() => setEditingData(!editingData)}>{editingData ? <ChevronUp size={17}/> : <Upload size={17}/>} {editingData ? "收起数据管理" : "上传与管理数据集"}</button>
       </div>}
-    {message && <p role="status">{message}</p>}
+    <div className="project-intake-summary">{selected ? <><CheckCircle2 size={15}/><span>当前分析将关联至 <strong>{selected.name}</strong></span></> : <><FolderOpen size={15}/><span>还没有项目？新建项目后即可上传数据并开始分析。</span></>}</div>
+    {message && <p className="project-intake-success" role="status">{message}</p>}
     {selected && <InputValidationStatus key={selected.id} projectId={selected.id} revision={revision}/>}
     {editingData && selected && <AssetUpload key={selected.id} projectId={selected.id} onSuccess={() => { apiClient.invalidatePath("/api/projects"); projects.refetch(); setMessage("数据已保存，可以选择下方分析。"); setRevision(value => value + 1); }}/>} 
     <ProjectForm open={creating} onClose={() => setCreating(false)} onSubmit={create}/>

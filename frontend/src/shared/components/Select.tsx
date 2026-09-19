@@ -11,6 +11,7 @@ type Props<T = string> = {
   options: SelectOption<T>[];
   onChange: (value: T) => void;
   placeholder?: string;
+  ariaLabel?: string;
   disabled?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -20,7 +21,8 @@ export function Select<T extends string = string>({
   value,
   options,
   onChange,
-  placeholder = "Select…",
+  placeholder = "请选择…",
+  ariaLabel,
   disabled,
   className,
   style,
@@ -41,6 +43,10 @@ export function Select<T extends string = string>({
     <div ref={ref} className={className} style={{ position: "relative", ...style }}>
       <button
         type="button"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-haspopup="true"
+        onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}
         disabled={disabled}
         onClick={() => !disabled && setOpen(!open)}
         style={{

@@ -105,9 +105,8 @@ class PathAccessService:
         segment = "shared"
         if getattr(user, "is_authenticated", False):
             segment = str(user.get_id())
-        root = Path(base_results_root) / segment
-        root.mkdir(parents=True, exist_ok=True)
-        return root
+        # Resolving a path for reads must not create legacy shared directories.
+        return Path(base_results_root) / segment
 
     @classmethod
     def filter_visible_children(
