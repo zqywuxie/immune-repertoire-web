@@ -4,7 +4,7 @@ set -Eeuo pipefail
 trap 'printf "部署失败（第 %s 行）。请检查错误；数据卷及现有配置未删除。\n" "$LINENO" >&2' ERR
 
 usage() {
-  printf '用法：bash deploy.sh [分支]\n默认更新当前分支；远端固定为 origin。需安装 Git、Docker 和 Docker Compose 插件。\n'
+  printf '用法：bash deploy.sh [分支]\n只构建和部署当前代码，不拉取 Git。请先运行 bash init-env.sh 并编辑 .env；可选分支参数只校验当前分支。\n'
 }
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit 0; fi
 if (( $# > 1 )); then usage >&2; exit 2; fi
@@ -25,16 +25,6 @@ if [[ -n $(git status --porcelain --untracked-files=normal) ]]; then
 fi
 docker info >/dev/null
 docker compose version >/dev/null
-
-# 拉取后重新执行新版本脚本，避免使用更新前的部署逻辑。
-revision="$(git rev-parse HEAD)"
-if [[ ${IMMUNE_DEPLOY_PULLED_REVISION:-} != "$revision" ]]; then
-  printf '正在拉取 origin/%s…\n' "$branch"
-  git pull --ff-only origin "$branch"
-  export IMMUNE_DEPLOY_PULLED_REVISION="$(git rev-parse HEAD)"
-  exec bash "$script_dir/deploy.sh" "$branch"
-fi
-unset IMMUNE_DEPLOY_PULLED_REVISION
 
 if [[ ! -f .env ]]; then
   printf '缺少 .env。请先执行 bash init-env.sh，编辑数据路径、端口及用户编号后，再运行 bash deploy.sh。\n' >&2

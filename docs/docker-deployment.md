@@ -5,7 +5,7 @@
 
 ## 分析基础镜像：构建一次，日常复用
 
-完整环境改为两层：`Dockerfile.runtime` 只安装 Python/R/系统依赖；`Dockerfile.analysis` 只复制业务代码并验证环境。日常 `bash deploy.sh` 仍先拉取代码，再构建应用和前端，不重新安装 R/Python 依赖。首次部署前必须准备下面的基础镜像；仅导入 Bioconductor 原始镜像不够。
+完整环境改为两层：`Dockerfile.runtime` 只安装 Python/R/系统依赖；`Dockerfile.analysis` 只复制业务代码并验证环境。日常先执行 `bash init-env.sh` 拉取代码并准备配置，编辑 `.env` 后再运行 `bash deploy.sh` 构建应用和前端，不重新安装 R/Python 依赖。首次部署前必须准备下面的基础镜像；仅导入 Bioconductor 原始镜像不够。
 
 ### 1. 本地构建与导出（项目根目录）
 
@@ -25,7 +25,6 @@ scp immune-analysis-runtime-3.20-v1.tar zhengqinyun@服务器IP:/colddata/SCigbl
 ```bash
 docker load -i /colddata/SCigblast/platform/immune-analysis-runtime-3.20-v1.tar
 cd /colddata/SCigblast/platform/immune-repertoire-web
-git pull --ff-only origin main
 bash init-env.sh
 nano .env
 ```
@@ -42,7 +41,7 @@ ANALYSIS_FLAVOR=full
 
 ### 3. 后续更新
 
-普通业务代码或分析脚本变化：服务器执行 `bash deploy.sh` 即可。Python 依赖清单、R 安装脚本或 `Dockerfile.runtime` 变化：先重新构建基础镜像，使用新标签（例如 `3.20-v2`）导出上传，服务器导入并修改 `ANALYSIS_RUNTIME_IMAGE`，再部署。应用构建会比对环境快照，依赖不一致时停止并提示，不能跳过检查。旧基础镜像保留供回退。
+普通业务代码或分析脚本变化：服务器依次执行 `bash init-env.sh`、编辑 `.env`、`bash deploy.sh`。Python 依赖清单、R 安装脚本或 `Dockerfile.runtime` 变化：先重新构建基础镜像，使用新标签（例如 `3.20-v2`）导出上传，服务器导入并修改 `ANALYSIS_RUNTIME_IMAGE`，再部署。应用构建会比对环境快照，依赖不一致时停止并提示，不能跳过检查。旧基础镜像保留供回退。
 
 构建基础镜像时可通过 `--build-arg BIOCONDUCTOR_IMAGE=可信地址` 改变原始 Bioconductor 来源；日常应用构建只使用 `ANALYSIS_RUNTIME_IMAGE`。
 
@@ -308,7 +307,7 @@ nano .env
 bash deploy.sh
 ```
 
-`deploy.sh` 先检查工作区及 Docker，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的脚本。配置由独立的 `init-env.sh` 生成，编辑并确认后才运行部署。`deploy.sh` 只读取 `.env`，缺失时退出；随后校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
+`init-env.sh` 先检查工作区，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的初始化脚本。即使 `.env` 已存在也会先更新代码，然后完整保留配置和密钥。编辑并确认参数后才运行 `deploy.sh`，部署阶段不再拉取代码。`deploy.sh` 只读取 `.env`，缺失时退出；随后校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
 
 默认入口为服务器本机 `127.0.0.1:8080`。内部免登录模式请通过受控内网、隧道或代理访问；绑定地址和端口在 `.env` 中配置。服务器需要 Git、Docker Engine 和支持 `up --wait` 的 Compose 插件，以及仓库读取权限。首次构建需访问 Python/R 软件仓库；主机不安装应用依赖。更新会重建容器，请避开分析任务执行时段；已有 root 数据卷恢复后，按本文权限迁移步骤处理。业务数据需单独恢复，Git 不包含数据库、上传、结果和参考库。
 
@@ -352,7 +351,8 @@ docker compose --env-file .env -f compose.docker.yml up -d --wait
 分析基础镜像 Dockerfile.runtime 默认使用 `ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20`。已验证该标签的 amd64/arm64 清单可访问，保持原来的 Bioconductor 版本。无需更改全局 Docker 配置或重启其他项目。
 
 ```bash
-git pull --ff-only origin main
+bash init-env.sh
+nano .env
 bash deploy.sh
 ```
 
@@ -431,3 +431,14 @@ docker compose --env-file .env -f compose.docker.yml logs --tail=100 worker
 ```
 
 已取消的任务不会自动重新执行，需要在任务页面重试。普通账号注册与部署管理员密码统一至少 6 位；已有密码不受影响。
+
+
+首次从旧脚本切换：旧版 init-env.sh 尚不包含拉取逻辑，需要先执行一次 `git pull --ff-only origin main` 获取新版。此后固定使用：
+
+```bash
+bash init-env.sh
+nano .env
+bash deploy.sh
+```
+
+已有 `.env` 不会自动追加新变量；请对照更新后的 `.env.example` 补充所需参数。`deploy.sh [分支]` 保留兼容，分支参数只作校验，不触发拉取。
