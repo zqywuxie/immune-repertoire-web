@@ -11,7 +11,7 @@ services:
       context: .
       dockerfile: ${APP_DOCKERFILE:-docker/app/Dockerfile.analysis}
       args:
-        BIOCONDUCTOR_IMAGE: ${BIOCONDUCTOR_IMAGE:-ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20}
+        ANALYSIS_RUNTIME_IMAGE: ${ANALYSIS_RUNTIME_IMAGE:-immune-analysis-runtime:3.20-v1}
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
     restart: unless-stopped

@@ -42,7 +42,7 @@ if [[ ! -f .env ]]; then
 fi
 compose=(docker compose --env-file .env -f compose.docker.yml)
 "${compose[@]}" config --quiet
-printf '正在构建前端和完整分析环境；首次构建可能需要较长时间。\n'
+printf '正在复用分析基础镜像构建业务代码和前端；依赖变化时请先更新基础镜像。\n'
 "${compose[@]}" build api web
 printf '正在启动服务并等待健康检查…\n'
 "${compose[@]}" up -d --wait --wait-timeout 300

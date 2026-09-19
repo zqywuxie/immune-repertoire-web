@@ -2,6 +2,50 @@
 
 在项目根目录操作。依赖安装、测试、构建和分析均在 Linux 容器内执行。
 
+
+## 分析基础镜像：构建一次，日常复用
+
+完整环境改为两层：`Dockerfile.runtime` 只安装 Python/R/系统依赖；`Dockerfile.analysis` 只复制业务代码并验证环境。日常 `bash deploy.sh` 仍先拉取代码，再构建应用和前端，不重新安装 R/Python 依赖。首次部署前必须准备下面的基础镜像；仅导入 Bioconductor 原始镜像不够。
+
+### 1. 本地构建与导出（项目根目录）
+
+服务器 `uname -m` 为 `x86_64` 时使用 `linux/amd64`；为 `aarch64` 时改为 `linux/arm64`，并在该架构完成依赖验证。
+
+```bash
+git pull --ff-only origin main
+docker build --platform linux/amd64 --progress plain -f docker/app/Dockerfile.runtime -t immune-analysis-runtime:3.20-v1 .
+docker save -o immune-analysis-runtime-3.20-v1.tar immune-analysis-runtime:3.20-v1
+scp immune-analysis-runtime-3.20-v1.tar zhengqinyun@服务器IP:/colddata/SCigblast/platform/
+```
+
+归档放在仓库外或上传后移走，避免部署的未跟踪文件检查阻止拉取。在 Windows PowerShell 可将导出路径直接设为 `E:\Desktop\immune-analysis-runtime-3.20-v1.tar`。首次构建仍需要下载并安装依赖，成功后才执行导出；已完成的旧构建层可复用。
+
+### 2. 服务器导入并配置
+
+```bash
+docker load -i /colddata/SCigblast/platform/immune-analysis-runtime-3.20-v1.tar
+cd /colddata/SCigblast/platform/immune-repertoire-web
+git pull --ff-only origin main
+bash init-env.sh
+nano .env
+```
+
+确认 `.env` 使用：
+
+```dotenv
+ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-v1
+APP_DOCKERFILE=docker/app/Dockerfile.analysis
+ANALYSIS_FLAVOR=full
+```
+
+保留已设置的数据路径、UID/GID、端口和密钥，然后执行 `bash deploy.sh`。应用镜像从本机导入的基础镜像构建；不要启用 `--pull` 强制向远端查找这个本地标签。前端 npm 构建、数据库等其他镜像仍可能需要网络，并非完全离线部署。
+
+### 3. 后续更新
+
+普通业务代码或分析脚本变化：服务器执行 `bash deploy.sh` 即可。Python 依赖清单、R 安装脚本或 `Dockerfile.runtime` 变化：先重新构建基础镜像，使用新标签（例如 `3.20-v2`）导出上传，服务器导入并修改 `ANALYSIS_RUNTIME_IMAGE`，再部署。应用构建会比对环境快照，依赖不一致时停止并提示，不能跳过检查。旧基础镜像保留供回退。
+
+构建基础镜像时可通过 `--build-arg BIOCONDUCTOR_IMAGE=可信地址` 改变原始 Bioconductor 来源；日常应用构建只使用 `ANALYSIS_RUNTIME_IMAGE`。
+
 ## 启动
 
 Linux 服务器在项目根目录执行以下命令，配置生成所需 Python 仅在容器内运行。使用当前用户写入文件，避免生成宿主机 root 所有的配置：
@@ -305,11 +349,11 @@ docker compose --env-file .env -f compose.docker.yml up -d --wait
 
 当报错地址为 `docker.m.daocloud.io/.../manifests/...` 时，失败来自服务器配置的 Docker Hub 镜像代理。`web build CANCELED` 是并行构建随 API 构建失败而取消，不代表前端编译错误。
 
-完整分析 Dockerfile 默认改用 `ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20`。已验证该标签的 amd64/arm64 清单可访问，保持原来的 Bioconductor 版本。无需更改全局 Docker 配置或重启其他项目。
+分析基础镜像 Dockerfile.runtime 默认使用 `ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20`。已验证该标签的 amd64/arm64 清单可访问，保持原来的 Bioconductor 版本。无需更改全局 Docker 配置或重启其他项目。
 
 ```bash
 git pull --ff-only origin main
 bash deploy.sh
 ```
 
-已有 `.env` 不需要新增配置即可采用新默认值；如果已有 `BIOCONDUCTOR_IMAGE` 设置，它会覆盖默认值。需要自行指定可信仓库时设置该变量，镜像须保持兼容的 Bioconductor 3.20 / R 4.4 环境。此修改仅绕过该 Bioconductor 镜像的 Docker Hub 代理，其他镜像及软件仓库的网络访问仍以服务器实际连通性为准。
+现在请按本文“分析基础镜像”步骤准备已安装依赖的环境；旧 `.env` 的 `BIOCONDUCTOR_IMAGE` 不再控制应用构建。需要指定原始基础来源时，通过构建 Dockerfile.runtime 的同名 build-arg 设置，镜像须保持兼容的 Bioconductor 3.20 / R 4.4 环境。此修改仅绕过该 Bioconductor 镜像的 Docker Hub 代理，其他镜像及软件仓库的网络访问仍以服务器实际连通性为准。

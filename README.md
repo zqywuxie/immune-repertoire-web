@@ -1,5 +1,7 @@
 > 后续环境统一使用 Docker。应用部署请使用 [Docker 部署说明](docs/docker-deployment.md) 与 `compose.docker.yml`；原 `docker-compose.yml` 保留为历史基础服务配置。
 
+首次部署前先在本地构建并上传完整分析基础镜像，见 [基础镜像构建与服务器导入](docs/docker-deployment.md#分析基础镜像构建一次日常复用)。普通更新继续运行 `bash deploy.sh`，无需重复安装 R/Python 依赖。
+
 ## 配置与部署分开执行
 
 ```bash
