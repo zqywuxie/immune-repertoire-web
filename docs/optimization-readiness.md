@@ -48,13 +48,13 @@
 在项目根目录运行，只查看清单：
 
 ```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python -B scripts/storage_maintenance.py --root /app
+rtk docker compose --env-file .env -f compose.docker.yml exec api python -B scripts/storage_maintenance.py --root /app
 ```
 
 清理超过 7 天的已识别缓存：
 
 ```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python -B scripts/storage_maintenance.py --root /app --clean-caches --older-than-days 7
+rtk docker compose --env-file .env -f compose.docker.yml exec api python -B scripts/storage_maintenance.py --root /app --clean-caches --older-than-days 7
 ```
 
 本轮执行结果：可扫描的普通文件约 8.76 MiB，已识别缓存约 1.93 MiB，没有符合 7 天条件的缓存被删除。跳过 9 个受保护入口，11 个入口因访问限制等原因未完整扫描。这不是整个项目及外部数据目录总大小；大型原始数据、结果、参考库、依赖目录和目录联接均未据此删除。早前的临时缓存清理与历史文档归档已完成。
@@ -64,7 +64,7 @@ rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python 
 实际使用 SQLite 时，将以下路径替换成当前数据库位置和一个尚不存在的备份文件：
 
 ```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python -B scripts/backup_sqlite.py --database <当前数据库绝对路径> --output <新备份文件绝对路径>
+rtk docker compose --env-file .env -f compose.docker.yml exec api python -B scripts/backup_sqlite.py --database <当前数据库绝对路径> --output <新备份文件绝对路径>
 ```
 
 脚本通过 SQLite 在线备份接口生成副本，并执行完整性检查；拒绝覆盖已存在的目标。恢复时停服，将经检查的备份放入新的数据库位置，设置 `DATABASE_URL` 指向该位置后启动并检查项目、任务记录。测试已验证合成数据库的备份可重新打开并保留记录；没有操作或声称恢复了真实生产数据库。

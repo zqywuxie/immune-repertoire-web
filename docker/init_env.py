@@ -37,5 +37,5 @@ def initialize(target: Path) -> bool:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("/workspace/.env.docker"))
+    parser.add_argument("--output", type=Path, default=Path("/workspace/.env"))
     initialize(parser.parse_args().output)

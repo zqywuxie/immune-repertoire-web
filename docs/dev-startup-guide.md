@@ -6,20 +6,13 @@
 
 ## 首次启动
 
-在项目根目录初始化独立配置，已有 `.env.docker` 会保持原样。
-
-Windows PowerShell：
-
-```powershell
-rtk proxy powershell -NoProfile -File docker/init-env.ps1
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
-```
+在项目根目录初始化独立配置，已有 `.env` 会保持原样。
 
 Linux：
 
 ```bash
 rtk docker run --rm --user "$(rtk proxy id -u):$(rtk proxy id -g)" --mount "type=bind,source=$PWD,target=/workspace" python:3.11-slim-bookworm python /workspace/docker/init_env.py
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
+rtk docker compose --env-file .env -f compose.docker.yml up -d --build --wait
 ```
 
 默认访问 `http://127.0.0.1:8080`。内部共享模式使用 `FLASK_CONFIG=internal`，无需登录和注册。
@@ -33,8 +26,8 @@ rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --
 工作进程入口为 `analysis_workers.worker_main`。
 
 ```bash
-rtk docker compose --env-file .env.docker -f compose.docker.yml build web
-rtk docker compose --env-file .env.docker -f compose.docker.yml build api
+rtk docker compose --env-file .env -f compose.docker.yml build web
+rtk docker compose --env-file .env -f compose.docker.yml build api
 ```
 
 依赖变更写入依赖清单或 Dockerfile，然后重建镜像。不要在宿主机安装项目 Python、R 或 Node 依赖。
@@ -46,8 +39,8 @@ rtk docker compose --env-file .env.docker -f compose.docker.yml build api
 前端测试容器包含独立依赖，先构建后运行：
 
 ```bash
-rtk docker compose --env-file .env.docker -f compose.docker.yml --profile test build frontend-test
-rtk docker compose --env-file .env.docker -f compose.docker.yml --profile test run --rm frontend-test
+rtk docker compose --env-file .env -f compose.docker.yml --profile test build frontend-test
+rtk docker compose --env-file .env -f compose.docker.yml --profile test run --rm frontend-test
 ```
 
 后端示例使用临时文件系统，不挂载业务数据卷；普通应用用户需要可写目录：
@@ -62,9 +55,9 @@ rtk docker run --rm --tmpfs /app/flask_app/data:uid=10001,gid=10001 --tmpfs /app
 ## 查看状态与日志
 
 ```bash
-rtk docker compose --env-file .env.docker -f compose.docker.yml ps
-rtk docker compose --env-file .env.docker -f compose.docker.yml logs --tail 100 api worker
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec worker python -m analysis_workers.healthcheck
+rtk docker compose --env-file .env -f compose.docker.yml ps
+rtk docker compose --env-file .env -f compose.docker.yml logs --tail 100 api worker
+rtk docker compose --env-file .env -f compose.docker.yml exec worker python -m analysis_workers.healthcheck
 ```
 
 常驻容器日志已配置轮转。应用数据、上传、分析产物和参考资源属于持久数据，不是可随意删除的缓存。

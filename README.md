@@ -6,7 +6,7 @@
 
 ## 启动与分析
 
-在项目根目录执行 `rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait`，访问 `http://127.0.0.1:8080`。首次部署的环境文件生成、完整分析镜像、数据迁移与测试见[Docker 部署说明](docs/docker-deployment.md)。
+在项目根目录执行 `rtk docker compose --env-file .env -f compose.docker.yml up -d --build --wait`，访问 `http://127.0.0.1:8080`。首次部署的环境文件生成、完整分析镜像、数据迁移与测试见[Docker 部署说明](docs/docker-deployment.md)。
 
 Profile 箱线图流程：
 
@@ -36,7 +36,7 @@ PEP、Transcriptome 可根据其他分析的需要补充。真实文件在服务
 ## 验证
 
 ```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml run --rm frontend-test
+rtk docker compose --env-file .env -f compose.docker.yml run --rm frontend-test
 rtk docker run --rm --network immune-platform_default --tmpfs /app/flask_app/data --tmpfs /app/tmp -e FLASK_CONFIG=testing -e JOB_QUEUE=threadpool -e REDIS_URL=redis://redis:6379/15 immune-platform-api:full python -B -m pytest flask_app/tests/ analysis_workers/tests/ -q
 ```
 

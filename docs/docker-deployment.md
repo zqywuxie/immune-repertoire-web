@@ -1,30 +1,25 @@
 # Docker 运行与部署
 
-项目：`E:\Desktop\project\immune-repertoire-web`。依赖安装、测试、构建和分析均在 Linux 容器内执行。
+在项目根目录操作。依赖安装、测试、构建和分析均在 Linux 容器内执行。
 
 ## 启动
-
-```powershell
-rtk proxy powershell -NoProfile -File docker/init-env.ps1
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
-```
 
 Linux 服务器在项目根目录执行以下命令，配置生成所需 Python 仅在容器内运行。使用当前用户写入文件，避免生成宿主机 root 所有的配置：
 
 ```bash
 rtk docker run --rm --user "$(id -u):$(id -g)" --mount "type=bind,source=$PWD,target=/workspace" python:3.11-slim-bookworm python /workspace/docker/init_env.py
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
+rtk docker compose --env-file .env -f compose.docker.yml up -d --build --wait
 ```
 
-初始化以独占创建方式写入 `.env.docker`，Linux 文件权限为 `600`；重复执行保留已有配置和密钥，不自动迁移旧配置。新配置与 Compose 默认均选择完整分析镜像。现有精简环境可显式设置 `ANALYSIS_FLAVOR=core` 和 `APP_DOCKERFILE=docker/app/Dockerfile`。以上命令需要 Docker 和本项目约定的 `rtk` 命令，不需要宿主机 Python、R 或 Node。
+初始化以独占创建方式写入 `.env`，Linux 文件权限为 `600`；重复执行保留已有配置和密钥，不自动迁移旧配置。新配置与 Compose 默认均选择完整分析镜像。现有精简环境可显式设置 `ANALYSIS_FLAVOR=core` 和 `APP_DOCKERFILE=docker/app/Dockerfile`。以上命令需要 Docker 和本项目约定的 `rtk` 命令，不需要宿主机 Python、R 或 Node。
 
-访问 http://127.0.0.1:8080 。当前 `FLASK_CONFIG=internal` 为内部共享工作台，直接进入，无需登录或注册；既有账号及项目归属保留。需认证的部署使用 `container` 或 `production` 模式。`.env.docker` 不纳入 Git。
+访问 http://127.0.0.1:8080 。当前 `FLASK_CONFIG=internal` 为内部共享工作台，直接进入，无需登录或注册；既有账号及项目归属保留。需认证的部署使用 `container` 或 `production` 模式。`.env` 不纳入 Git。
 
 `compose.docker.yml` 使用独立项目名 `immune-platform`，包含 web、api、worker、MySQL、MongoDB、Redis 六个服务。仅网页端口绑定本机，数据库和任务队列在容器网络内访问。`docker-compose.yml` 是旧环境配置。
 
 ## 分析镜像
 
-当前 `.env.docker` 选择完整分析镜像：
+当前 `.env` 选择完整分析镜像：
 
 ```dotenv
 ANALYSIS_FLAVOR=full
@@ -33,8 +28,8 @@ APP_DOCKERFILE=docker/app/Dockerfile.analysis
 
 完整镜像含 Python 3.12、R 4.4 / Bioconductor 3.20、SoNNia 0.3.1、TensorFlow 2.16.2、clusterProfiler、org.Hs.eg.db、enrichplot、DOSE，以及 UMAP、PDF/PPT、中文字体、Java 和 LibreOffice。基础镜像省去 SoNNia 与 R 分析依赖。
 
-```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python docker/app/check_runtime.py --full
+```bash
+rtk docker compose --env-file .env -f compose.docker.yml exec api python docker/app/check_runtime.py --full
 ```
 
 本次完整镜像约 8.88 GB，科学计算与文档处理依赖占主要部分；源码构建上下文约 5.84 MB。真实数据、宿主机依赖和凭据均被 `.dockerignore` 排除。镜像大小与数据卷用量分别计算，不应通过删除参考数据库来缩减镜像。
@@ -51,8 +46,8 @@ Docker 默认 `JOB_QUEUE=redis`，由独立 RQ worker 执行统一分析、Scrip
 
 后端测试使用独立临时文件系统，避免写入已迁移的数据卷：
 
-```powershell
-rtk docker compose --env-file .env.docker -f compose.docker.yml run --rm frontend-test
+```bash
+rtk docker compose --env-file .env -f compose.docker.yml run --rm frontend-test
 rtk docker run --rm --network immune-platform_default --tmpfs /app/flask_app/data:uid=10001,gid=10001 --tmpfs /app/tmp:uid=10001,gid=10001 -e FLASK_CONFIG=testing -e JOB_QUEUE=threadpool -e REDIS_URL=redis://redis:6379/15 immune-platform-api:full python -B -m pytest flask_app/tests/ analysis_workers/tests/ -q --disable-warnings
 ```
 
@@ -132,10 +127,10 @@ rtk docker run --rm --network immune-platform_default --tmpfs /app/flask_app/dat
 从旧 root 镜像升级时，先完成数据库和文件备份、等待分析任务结束，再执行：
 
 ```bash
-rtk docker compose --env-file .env.docker -f compose.docker.yml build api
-rtk docker compose --env-file .env.docker -f compose.docker.yml stop api worker
-rtk docker compose --env-file .env.docker -f compose.docker.yml --profile operations run --rm --no-deps volume-init
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --no-build --wait api worker web
+rtk docker compose --env-file .env -f compose.docker.yml build api
+rtk docker compose --env-file .env -f compose.docker.yml stop api worker
+rtk docker compose --env-file .env -f compose.docker.yml --profile operations run --rm --no-deps volume-init
+rtk docker compose --env-file .env -f compose.docker.yml up -d --no-build --wait api worker web
 ```
 
 `volume-init` 只处理 `/app/flask_app/data` 与 `/app/tmp` 两个应用卷，调整文件所有权并补齐
@@ -146,8 +141,8 @@ rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --no-build
 运行验证：
 
 ```bash
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec api python -c "import os; assert os.geteuid() == 10001; print('应用用户验证通过')"
-rtk docker compose --env-file .env.docker -f compose.docker.yml exec worker python -m analysis_workers.healthcheck
+rtk docker compose --env-file .env -f compose.docker.yml exec api python -c "import os; assert os.geteuid() == 10001; print('应用用户验证通过')"
+rtk docker compose --env-file .env -f compose.docker.yml exec worker python -m analysis_workers.healthcheck
 ```
 
 本节为新版本部署流程；不能仅凭修改 Dockerfile 或已有镜像的用户覆盖测试宣称新镜像已经构建发布。
@@ -186,7 +181,7 @@ Compose 对应用和工作进程设置资源上限，均可在 `.env.docker` 调
 ```bash
 rtk docker volume inspect immune-platform_app_data immune-platform_app_tmp immune-platform_mysql_data immune-platform_mongo_data immune-platform_redis_data
 rtk proxy mkdir -p -m 700 backups
-rtk docker compose --env-file .env.docker -f compose.docker.yml stop
+rtk docker compose --env-file .env -f compose.docker.yml stop
 rtk docker run --rm --network none --user 0:0 \
   --mount type=bind,src="$PWD/docker/operations",dst=/operations,readonly \
   --mount type=bind,src="$PWD/.env.docker",dst=/config/.env.docker,readonly \
@@ -197,7 +192,7 @@ rtk docker run --rm --network none --user 0:0 \
   --mount type=volume,src=immune-platform_mongo_data,dst=/volumes/mongo_data,readonly \
   --mount type=volume,src=immune-platform_redis_data,dst=/volumes/redis_data,readonly \
   immune-platform-api:full python /operations/cold_backup.py backup --archive /backups/platform.tar.gz
-rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --no-build --wait
+rtk docker compose --env-file .env -f compose.docker.yml up -d --no-build --wait
 ```
 
 每次使用新的备份文件名；工具拒绝覆盖既有归档。执行备份失败也应检查原因后恢复原服务。
@@ -267,6 +262,23 @@ cd immune-repertoire-web
 bash deploy.sh
 ```
 
-`deploy.sh` 先检查工作区及 Docker，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的脚本。首次通过容器生成 `.env.docker`，已有配置和密钥原样保留；校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
+`deploy.sh` 先检查工作区及 Docker，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的脚本。首次通过容器生成 `.env`，已有配置和密钥原样保留；校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
 
-默认入口为服务器本机 `127.0.0.1:8080`。内部免登录模式请通过受控内网、隧道或代理访问；绑定地址和端口在 `.env.docker` 中配置。服务器需要 Git、Docker Engine 和支持 `up --wait` 的 Compose 插件，以及仓库读取权限。首次构建需访问 Python/R 软件仓库；主机不安装应用依赖。更新会重建容器，请避开分析任务执行时段；已有 root 数据卷恢复后，按本文权限迁移步骤处理。业务数据需单独恢复，Git 不包含数据库、上传、结果和参考库。
+默认入口为服务器本机 `127.0.0.1:8080`。内部免登录模式请通过受控内网、隧道或代理访问；绑定地址和端口在 `.env` 中配置。服务器需要 Git、Docker Engine 和支持 `up --wait` 的 Compose 插件，以及仓库读取权限。首次构建需访问 Python/R 软件仓库；主机不安装应用依赖。更新会重建容器，请避开分析任务执行时段；已有 root 数据卷恢复后，按本文权限迁移步骤处理。业务数据需单独恢复，Git 不包含数据库、上传、结果和参考库。
+
+
+## 端口与配置（Linux）
+
+部署配置统一使用 `.env`，可提交的无密钥参考为 `.env.example`。已有 `.env` 不被脚本覆盖；没有 `.env` 但存在 `.env.docker` 时，部署脚本会复制旧配置并保留原件。此前使用宿主机配置的用户应先备份原 `.env`，再从 `.env.docker` 迁移，避免混用旧数据库端口。
+
+首次运行前可先生成配置并检查准备使用的端口：
+
+```bash
+sudo ss -lntp 'sport = :18080'
+docker run --rm --user "$(id -u):$(id -g)" --mount "type=bind,source=$PWD,target=/workspace" python:3.11-slim-bookworm python /workspace/docker/init_env.py
+nano .env
+```
+
+将 `HTTP_PORT` 改为确认空闲的端口，例如 `18080`，再执行 `bash deploy.sh`。默认 `HTTP_BIND=127.0.0.1` 供本机代理访问；可信内网直连才改为 `0.0.0.0` 并配置防火墙。该检查是当时的监听快照，实际占用由 Docker 启动时报错确认。
+
+冷备份工具内部保留 `config/.env.docker` 归档名称以兼容旧备份。备份时把当前 `.env` 挂载到容器 `/config/.env.docker`；恢复出的 `.env.docker` 核对后作为部署 `.env` 使用。

@@ -73,3 +73,6 @@ pytest-cache-files-*/
 # Runtime reference datasets are provisioned separately
 flask_app/data/reference/
 flask_app/data/reference_db/
+
+# Public deployment template contains no credentials
+!.env.example

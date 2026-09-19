@@ -18,7 +18,7 @@ services:
     pids_limit: 512
     environment: &app_environment
       FLASK_CONFIG: ${FLASK_CONFIG:-internal}
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env.docker}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       REQUIRE_LOGIN: "true"
       AUTH_REGISTER_ENABLED: ${AUTH_REGISTER_ENABLED:-false}
       AUTH_FIRST_USER_ADMIN: "true"

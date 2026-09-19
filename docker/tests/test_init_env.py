@@ -13,7 +13,7 @@ spec.loader.exec_module(module)
 class InitializationTest(unittest.TestCase):
     def test_new_install_and_rerun_preserve_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / ".env.docker"
+            target = Path(directory) / ".env"
             self.assertTrue(module.initialize(target))
             original = target.read_bytes()
             values = dict(line.split("=", 1) for line in original.decode().splitlines())
@@ -30,7 +30,7 @@ class InitializationTest(unittest.TestCase):
 
     def test_existing_configuration_is_not_rewritten(self):
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / ".env.docker"
+            target = Path(directory) / ".env"
             original = b"ANALYSIS_FLAVOR=core\nSECRET_KEY=existing-private-value\n"
             target.write_bytes(original)
             self.assertFalse(module.initialize(target))

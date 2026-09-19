@@ -36,17 +36,21 @@ if [[ ${IMMUNE_DEPLOY_PULLED_REVISION:-} != "$revision" ]]; then
 fi
 unset IMMUNE_DEPLOY_PULLED_REVISION
 
-if [[ ! -f .env.docker ]]; then
+if [[ ! -f .env && -f .env.docker ]]; then
+  printf '迁移已有 Docker 配置到 .env，保留密钥和端口。\n'
+  (umask 077; cp -- .env.docker .env)
+fi
+if [[ ! -f .env ]]; then
   printf '首次部署：在容器内生成配置和随机密钥。\n'
   docker run --rm --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$script_dir,target=/workspace" \
     python:3.11-slim-bookworm python /workspace/docker/init_env.py
 fi
-compose=(docker compose --env-file .env.docker -f compose.docker.yml)
+compose=(docker compose --env-file .env -f compose.docker.yml)
 "${compose[@]}" config --quiet
 printf '正在构建前端和完整分析环境；首次构建可能需要较长时间。\n'
 "${compose[@]}" build api web
 printf '正在启动服务并等待健康检查…\n'
 "${compose[@]}" up -d --wait --wait-timeout 300
 "${compose[@]}" ps
-printf '部署完成，提交：%s\n默认入口：http://127.0.0.1:8080；实际地址以 .env.docker 为准。\n' "$(git rev-parse --short HEAD)"
+printf '部署完成，提交：%s\n默认入口：http://127.0.0.1:8080；实际地址以 .env 为准。\n' "$(git rev-parse --short HEAD)"

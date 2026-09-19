@@ -21,7 +21,6 @@ flask_app/         # Flask 单体后端 (当前主力)
   services/        # 业务逻辑 + 分析服务
   models/          # SQLAlchemy ORM 模型
   templates/       # Jinja2 旧页面 (绞杀者模式保留)
-igblast_pipeline/  # IG Blast 分析管道
 docs/              # 架构文档 + API 规范 + 迁移追踪
 _reference/        # 参考实现和对照脚本
 ```
