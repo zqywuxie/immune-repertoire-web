@@ -36,15 +36,9 @@ if [[ ${IMMUNE_DEPLOY_PULLED_REVISION:-} != "$revision" ]]; then
 fi
 unset IMMUNE_DEPLOY_PULLED_REVISION
 
-if [[ ! -f .env && -f .env.docker ]]; then
-  printf '迁移已有 Docker 配置到 .env，保留密钥和端口。\n'
-  (umask 077; cp -- .env.docker .env)
-fi
 if [[ ! -f .env ]]; then
-  printf '首次部署：在容器内生成配置和随机密钥。\n'
-  docker run --rm --user "$(id -u):$(id -g)" \
-    --mount "type=bind,source=$script_dir,target=/workspace" \
-    python:3.11-slim-bookworm python /workspace/docker/init_env.py
+  printf '缺少 .env。请先执行 bash init-env.sh，编辑数据路径、端口及用户编号后，再运行 bash deploy.sh。\n' >&2
+  exit 1
 fi
 compose=(docker compose --env-file .env -f compose.docker.yml)
 "${compose[@]}" config --quiet

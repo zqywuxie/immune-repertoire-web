@@ -1,5 +1,17 @@
 # Docker 开发与启动指南
 
+## 配置与部署分开执行
+
+```bash
+bash init-env.sh  # 只生成 .env，已有配置不覆盖
+nano .env         # 修改 APP_DATA_DIR、HTTP_PORT、APP_UID、APP_GID
+bash deploy.sh    # 拉取代码，再读取配置构建部署
+```
+
+`deploy.sh` 不生成、迁移或修改 `.env`。没有配置时会退出并提示初始化。
+`APP_DATA_DIR` 取消注释后填写服务器数据目录的绝对路径；已有业务数据应先恢复到该位置。UID/GID 填写 `id -u zhengqinyun` 和 `id -g zhengqinyun` 的实际值。
+
+
 应用、分析、测试和前端构建均在 Linux 容器内执行。宿主机负责编辑源码和管理 Docker。
 当前部署入口为 `compose.docker.yml`；旧 `docker-compose.yml` 仅保留历史基础设施配置。
 项目路径可自行选择，无需保留 Windows 绝对路径。

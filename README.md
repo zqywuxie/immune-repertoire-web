@@ -1,5 +1,17 @@
 > 后续环境统一使用 Docker。应用部署请使用 [Docker 部署说明](docs/docker-deployment.md) 与 `compose.docker.yml`；原 `docker-compose.yml` 保留为历史基础服务配置。
 
+## 配置与部署分开执行
+
+```bash
+bash init-env.sh  # 只生成 .env，已有配置不覆盖
+nano .env         # 修改 APP_DATA_DIR、HTTP_PORT、APP_UID、APP_GID
+bash deploy.sh    # 拉取代码，再读取配置构建部署
+```
+
+`deploy.sh` 不生成、迁移或修改 `.env`。没有配置时会退出并提示初始化。
+`APP_DATA_DIR` 取消注释后填写服务器数据目录的绝对路径；已有业务数据应先恢复到该位置。UID/GID 填写 `id -u zhengqinyun` 和 `id -g zhengqinyun` 的实际值。
+
+
 # 免疫组库分析平台
 
 面向科研用户的免疫组库分析应用。React 前端提供项目、数据集、分析向导和结果浏览；Flask 提供当前本地运行的 API 与分析服务。仓库同时保留 FastAPI 后端和分析 worker，具体边界见[当前架构](docs/architecture/current-system.md)。

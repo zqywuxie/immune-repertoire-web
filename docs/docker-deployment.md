@@ -259,23 +259,25 @@ Redis 暂时断连或队列记录缺失不直接判定任务失败。此机制�
 ```bash
 git clone git@github.com:zqywuxie/immune-repertoire-web.git
 cd immune-repertoire-web
+bash init-env.sh
+nano .env
 bash deploy.sh
 ```
 
-`deploy.sh` 先检查工作区及 Docker，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的脚本。首次通过容器生成 `.env`，已有配置和密钥原样保留；校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
+`deploy.sh` 先检查工作区及 Docker，再执行 `git pull --ff-only origin 当前分支`，随后重新执行更新后的脚本。配置由独立的 `init-env.sh` 生成，编辑并确认后才运行部署。`deploy.sh` 只读取 `.env`，缺失时退出；随后校验 Compose、构建 api/web，最后启动服务并等待健康检查。任何一步失败即停止，不执行清库、删除数据卷或强制覆盖 Git 修改。
 
 默认入口为服务器本机 `127.0.0.1:8080`。内部免登录模式请通过受控内网、隧道或代理访问；绑定地址和端口在 `.env` 中配置。服务器需要 Git、Docker Engine 和支持 `up --wait` 的 Compose 插件，以及仓库读取权限。首次构建需访问 Python/R 软件仓库；主机不安装应用依赖。更新会重建容器，请避开分析任务执行时段；已有 root 数据卷恢复后，按本文权限迁移步骤处理。业务数据需单独恢复，Git 不包含数据库、上传、结果和参考库。
 
 
 ## 端口与配置（Linux）
 
-部署配置统一使用 `.env`，可提交的无密钥参考为 `.env.example`。已有 `.env` 不被脚本覆盖；没有 `.env` 但存在 `.env.docker` 时，部署脚本会复制旧配置并保留原件。此前使用宿主机配置的用户应先备份原 `.env`，再从 `.env.docker` 迁移，避免混用旧数据库端口。
+部署配置统一使用 `.env`，可提交的无密钥参考为 `.env.example`。已有 `.env` 不被脚本覆盖；没有 `.env` 但存在 `.env.docker` 时，显式运行 `init-env.sh` 才会复制旧配置并保留原件；部署脚本不执行迁移。此前使用宿主机配置的用户应先备份原 `.env`，再从 `.env.docker` 迁移，避免混用旧数据库端口。
 
 首次运行前可先生成配置并检查准备使用的端口：
 
 ```bash
 sudo ss -lntp 'sport = :18080'
-docker run --rm --user "$(id -u):$(id -g)" --mount "type=bind,source=$PWD,target=/workspace" python:3.11-slim-bookworm python /workspace/docker/init_env.py
+bash init-env.sh
 nano .env
 ```
 
