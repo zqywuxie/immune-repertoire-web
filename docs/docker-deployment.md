@@ -282,3 +282,32 @@ nano .env
 将 `HTTP_PORT` 改为确认空闲的端口，例如 `18080`，再执行 `bash deploy.sh`。默认 `HTTP_BIND=127.0.0.1` 供本机代理访问；可信内网直连才改为 `0.0.0.0` 并配置防火墙。该检查是当时的监听快照，实际占用由 Docker 启动时报错确认。
 
 冷备份工具内部保留 `config/.env.docker` 归档名称以兼容旧备份。备份时把当前 `.env` 挂载到容器 `/config/.env.docker`；恢复出的 `.env.docker` 核对后作为部署 `.env` 使用。
+
+
+## 应用文件所有者与数据根目录
+
+`APP_UID` / `APP_GID` 必须填写服务器 `id -u zhengqinyun` / `id -g zhengqinyun` 的实际结果；Linux 文件所有权由数字编号决定。初始化器在使用 `--user` 的容器中记录对应编号；已有配置不会重写。`APP_STORAGE_USER` 为目录布局所用用户名，不能替代 UID/GID。
+
+`APP_DATA_DIR` 可设为宿主机绝对目录，省略时保留原有 app_data 卷。更改该变量不会自动搬迁旧卷，请先完成数据备份和恢复。已有文件权限迁移前停止 API 和工作进程，再运行权限初始化并启动：
+
+```bash
+docker compose --env-file .env -f compose.docker.yml stop api worker
+docker compose --env-file .env -f compose.docker.yml --profile operations run --rm --no-deps volume-init
+docker compose --env-file .env -f compose.docker.yml up -d --wait
+```
+
+权限初始化只对应用数据和临时目录设置指定用户所有权，跳过符号链接，不修改数据库自身的数据卷用户。必须先构建包含最新权限初始化代码的应用镜像。独立上传/结果根目录与 user/time/analysis_type 规则仍在实施中。
+
+
+## Bioconductor 镜像代理返回 403
+
+当报错地址为 `docker.m.daocloud.io/.../manifests/...` 时，失败来自服务器配置的 Docker Hub 镜像代理。`web build CANCELED` 是并行构建随 API 构建失败而取消，不代表前端编译错误。
+
+完整分析 Dockerfile 默认改用 `ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20`。已验证该标签的 amd64/arm64 清单可访问，保持原来的 Bioconductor 版本。无需更改全局 Docker 配置或重启其他项目。
+
+```bash
+git pull --ff-only origin main
+bash deploy.sh
+```
+
+已有 `.env` 不需要新增配置即可采用新默认值；如果已有 `BIOCONDUCTOR_IMAGE` 设置，它会覆盖默认值。需要自行指定可信仓库时设置该变量，镜像须保持兼容的 Bioconductor 3.20 / R 4.4 环境。此修改仅绕过该 Bioconductor 镜像的 Docker Hub 代理，其他镜像及软件仓库的网络访问仍以服务器实际连通性为准。

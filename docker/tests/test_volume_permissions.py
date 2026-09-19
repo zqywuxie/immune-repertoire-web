@@ -12,7 +12,10 @@ permissions = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(permissions)
 
 
-def test_existing_data_becomes_writable_without_touching_link_targets(tmp_path, monkeypatch):
+@pytest.mark.parametrize("uid,gid", [(10001,10001),(12345,23456)])
+def test_existing_data_becomes_writable_without_touching_link_targets(tmp_path, monkeypatch, uid, gid):
+    monkeypatch.setattr(permissions,'APP_UID',uid)
+    monkeypatch.setattr(permissions,'APP_GID',gid)
     # A separate process uses the same UID as the production application image.
     tmp_path.chmod(0o755)
     for parent in tmp_path.parents:
@@ -26,19 +29,20 @@ def test_existing_data_becomes_writable_without_touching_link_targets(tmp_path, 
     monkeypatch.setattr(permissions,'ROOTS',(root,))
     assert permissions.initialize_volumes()==2
     assert file.read_text()=='sample,value\n001,2\n'
-    assert file.stat().st_uid==10001
+    assert file.stat().st_uid==uid
     assert (outside/'preserved').stat().st_uid==original.st_uid
     assert outside.stat().st_uid==os.getuid()
     code="""
 import os,sys
 from pathlib import Path
-os.setgid(10001);os.setuid(10001)
+os.setgid(int(sys.argv[3]));os.setuid(int(sys.argv[2]))
 root=Path(sys.argv[1]);assert os.geteuid()!=0
 with (root/'existing.csv').open('a') as file:file.write('002,3\\n')
 (root/'new-result.csv').write_text('result')
 """
-    subprocess.run([sys.executable,'-c',code,str(root)],check=True)
-    assert (root/'new-result.csv').stat().st_uid==10001
+    subprocess.run([sys.executable,'-c',code,str(root),str(uid),str(gid)],check=True)
+    assert (root/'new-result.csv').stat().st_uid==uid
+    assert (root/'new-result.csv').stat().st_gid==gid
 
 
 def test_linked_volume_root_is_rejected(tmp_path,monkeypatch):

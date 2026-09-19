@@ -16,8 +16,11 @@ class InitializationTest(unittest.TestCase):
             target = Path(directory) / ".env"
             self.assertTrue(module.initialize(target))
             original = target.read_bytes()
-            values = dict(line.split("=", 1) for line in original.decode().splitlines())
+            values = dict(line.split("=", 1) for line in original.decode().splitlines() if not line.startswith("#"))
             self.assertEqual(values["ANALYSIS_FLAVOR"], "full")
+            self.assertEqual(values["APP_UID"], str(os.getuid() or 10001))
+            self.assertEqual(values["APP_GID"], str(os.getgid() or 10001))
+            self.assertEqual(values["APP_STORAGE_USER"], "zhengqinyun")
             self.assertEqual(values["APP_DOCKERFILE"], "docker/app/Dockerfile.analysis")
             self.assertEqual(values["HTTP_BIND"], "127.0.0.1")
             credentials = [values[key] for key in ("SECRET_KEY", "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "MONGO_PASSWORD")]

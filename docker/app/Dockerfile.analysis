@@ -1,4 +1,5 @@
-FROM bioconductor/bioconductor_docker:RELEASE_3_20
+ARG BIOCONDUCTOR_IMAGE=ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20
+FROM ${BIOCONDUCTOR_IMAGE}
 USER root
 ENTRYPOINT []
 ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib PATH=/opt/venv/bin:$PATH

@@ -10,6 +10,9 @@ services:
     build:
       context: .
       dockerfile: ${APP_DOCKERFILE:-docker/app/Dockerfile.analysis}
+      args:
+        BIOCONDUCTOR_IMAGE: ${BIOCONDUCTOR_IMAGE:-ghcr.io/bioconductor/bioconductor_docker:RELEASE_3_20}
+    user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
     restart: unless-stopped
     logging: *app_logging
@@ -40,10 +43,11 @@ services:
       OPENBLAS_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
       MKL_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
       NUMEXPR_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
+      APP_STORAGE_USER: "${APP_STORAGE_USER:-zhengqinyun}"
       USER_DATA_ROOT: /app/flask_app/data/users
       UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
     volumes:
-      - app_data:/app/flask_app/data
+      - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
       - app_tmp:/app/tmp
     depends_on:
       mysql: {condition: service_healthy}
@@ -57,6 +61,7 @@ services:
       retries: 5
   worker:
     image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
+    user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
     restart: unless-stopped
     logging: *app_logging
@@ -67,7 +72,7 @@ services:
     command: [python, -m, analysis_workers.worker_main]
     environment: *app_environment
     volumes:
-      - app_data:/app/flask_app/data
+      - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
       - app_tmp:/app/tmp
     depends_on:
       api: {condition: service_healthy}
@@ -137,9 +142,12 @@ services:
     profiles: [operations]
     image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
     user: "0:0"
+    environment:
+      APP_UID: "${APP_UID:-10001}"
+      APP_GID: "${APP_GID:-10001}"
     command: [python, docker/app/init_volume_permissions.py]
     volumes:
-      - app_data:/app/flask_app/data
+      - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
       - app_tmp:/app/tmp
   frontend-test:
     profiles: [test]

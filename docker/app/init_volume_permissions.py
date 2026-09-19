@@ -4,7 +4,10 @@ import stat
 from pathlib import Path
 
 ROOTS = (Path("/app/flask_app/data"), Path("/app/tmp"))
-APP_UID = APP_GID = 10001
+APP_UID = int(os.environ.get("APP_UID", "10001"))
+APP_GID = int(os.environ.get("APP_GID", "10001"))
+if APP_UID <= 0 or APP_GID <= 0:
+    raise ValueError("应用文件必须归属非 root 用户，请设置正确的 APP_UID 和 APP_GID")
 
 
 def initialize_volumes():
