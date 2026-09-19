@@ -1,3 +1,4 @@
+export const statusLabels: Record<string,string> = {"queued": "等待中", "running": "运行中", "completed": "已完成", "failed": "失败", "cancelled": "已取消", "interrupted": "已中断", "active": "进行中", "paused": "已暂停", "archived": "已归档"};
 const STATUS_COLORS: Record<string, string> = {
   queued: "#0071e3",
   running: "#ff9500",
@@ -34,7 +35,7 @@ export function StatusBadge({ status }: { status: string }) {
           flexShrink: 0,
         }}
       />
-      {status}
+      {statusLabels[status] || status}
     </span>
   );
 }

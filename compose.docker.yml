@@ -1,0 +1,155 @@
+name: immune-platform
+x-app-logging: &app_logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+services:
+  api:
+    image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
+    build:
+      context: .
+      dockerfile: ${APP_DOCKERFILE:-docker/app/Dockerfile.analysis}
+    init: true
+    restart: unless-stopped
+    logging: *app_logging
+    cpus: "${API_CPUS:-2}"
+    mem_limit: "${API_MEMORY_LIMIT:-2g}"
+    pids_limit: 512
+    environment: &app_environment
+      FLASK_CONFIG: ${FLASK_CONFIG:-internal}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env.docker}
+      REQUIRE_LOGIN: "true"
+      AUTH_REGISTER_ENABLED: ${AUTH_REGISTER_ENABLED:-false}
+      AUTH_FIRST_USER_ADMIN: "true"
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: immune_repertoire
+      MYSQL_USER: immune
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_USERNAME: immune
+      MONGO_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD}
+      MONGO_DB_NAME: immune_repertoire
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE: redis
+      ANALYSIS_QUEUE_MAINTENANCE_SECONDS: "${ANALYSIS_QUEUE_MAINTENANCE_SECONDS:-60}"
+      ANALYSIS_TIMEOUT_SECONDS: "${ANALYSIS_TIMEOUT_SECONDS:-7200}"
+      OMP_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
+      OPENBLAS_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
+      MKL_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
+      NUMEXPR_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
+      USER_DATA_ROOT: /app/flask_app/data/users
+      UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
+    volumes:
+      - app_data:/app/flask_app/data
+      - app_tmp:/app/tmp
+    depends_on:
+      mysql: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=5)"]
+      interval: 20s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+  worker:
+    image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
+    init: true
+    restart: unless-stopped
+    logging: *app_logging
+    cpus: "${WORKER_CPUS:-4}"
+    mem_limit: "${WORKER_MEMORY_LIMIT:-8g}"
+    pids_limit: 512
+    stop_grace_period: "${WORKER_STOP_GRACE_PERIOD:-2m}"
+    command: [python, -m, analysis_workers.worker_main]
+    environment: *app_environment
+    volumes:
+      - app_data:/app/flask_app/data
+      - app_tmp:/app/tmp
+    depends_on:
+      api: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -m, analysis_workers.healthcheck]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+  web:
+    image: immune-platform-web:${WEB_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    restart: unless-stopped
+    logging: *app_logging
+    environment:
+      UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
+    ports: ["${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/healthz]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    logging: *app_logging
+    environment:
+      MYSQL_DATABASE: immune_repertoire
+      MYSQL_USER: immune
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    volumes: [mysql_data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u immune immune_repertoire -e "SELECT 1" >/dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    logging: *app_logging
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: immune
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD}
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *app_logging
+    command: [redis-server, --appendonly, 'yes', --maxmemory-policy, noeviction]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  volume-init:
+    profiles: [operations]
+    image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
+    user: "0:0"
+    command: [python, docker/app/init_volume_permissions.py]
+    volumes:
+      - app_data:/app/flask_app/data
+      - app_tmp:/app/tmp
+  frontend-test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: test
+volumes:
+  app_data:
+  app_tmp:
+  mysql_data:
+  mongo_data:
+  redis_data:

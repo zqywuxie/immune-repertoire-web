@@ -57,10 +57,10 @@ export function UmapConfig({ sourceContext, value, onChange }: ModuleFormProps) 
         if (Object.keys(next).length && !value.param_begin && !value.param_over) {
           onChange({ ...current, ...next });
         }
-        setInspectNote("UMAP inspect loaded suggested classification and parameter ranges.");
+        setInspectNote("已读取建议的分类与指标范围。");
       })
       .catch((error) => {
-        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "UMAP inspect failed");
+        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "样本降维输入检查失败");
       });
     return () => {
       cancelled = true;
@@ -69,12 +69,12 @@ export function UmapConfig({ sourceContext, value, onChange }: ModuleFormProps) 
 
   return (
     <ModuleShell
-      title="UMAP"
-      detail="Profile 参数列从检测列选择，分组统一使用 Group Field 下拉选择。"
+      title="统一流形降维"
+      detail="从已识别的数据列中选择分析指标和分组，再配置降维参数。"
       sourceContext={sourceContext}
     >
       {inspectNote && <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{inspectNote}</div>}
-      <Section title="UMAP Parameters">
+      <Section title="降维参数">
         <div style={gridStyle}>
           <GroupFieldSelect
             value={stringValue(current.group_field || current.classification_begin)}
@@ -85,10 +85,10 @@ export function UmapConfig({ sourceContext, value, onChange }: ModuleFormProps) 
           />
           <GroupValueSamplePicker value={current} setField={setField} sourceContext={sourceContext} fields={[stringValue(current.group_field || current.classification_begin)].filter(Boolean)} />
           <RangeFields value={current} setField={setField} sourceContext={sourceContext} parameterLabels />
-          <Field label="n_neighbors">
+          <Field label="邻居数量">
             <input type="number" min="2" value={String(current.n_neighbors ?? 6)} onChange={(event) => setField("n_neighbors", Number(event.target.value || 6))} style={inputStyle} />
           </Field>
-          <Field label="min_dist">
+          <Field label="最小距离">
             <input type="number" min="0" max="1" step="0.01" value={String(current.min_dist ?? 0.01)} onChange={(event) => setField("min_dist", Number(event.target.value || 0.01))} style={inputStyle} />
           </Field>
         </div>

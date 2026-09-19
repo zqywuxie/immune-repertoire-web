@@ -54,6 +54,7 @@ import { MlAnalysisConfig as ScriptHubMlAnalysisConfig } from "../../scripthub/m
 import { MaitNktConfig as ScriptHubMaitNktConfig } from "../../scripthub/modules/MaitNktConfig";
 
 export type ModuleFormProps = {
+  fixedParameters?: Record<string,unknown>;
   projectId: string;
   module: string;
   sourceContext?: ScriptHubSourceContext;
@@ -69,6 +70,7 @@ export type ScriptHubSourceContext = {
   profilePath?: string;
   pepPaths?: string[];
   transcriptomePath?: string;
+  deconvolutionPath?: string;
   sampleNames: string[];
   chains: string[];
   profileFields: string[];

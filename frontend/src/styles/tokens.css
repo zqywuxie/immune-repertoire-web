@@ -1,21 +1,21 @@
 :root {
   /* ── Backgrounds ── */
-  --bg-root: #f5f5f7;
+  --bg-root: #f7f8fa;
   --bg-elevated: #ffffff;
-  --bg-inset: #e8e8ed;
+  --bg-inset: #eef1f5;
 
   /* ── Text ── */
-  --text-primary: #1d1d1f;
-  --text-secondary: #6e6e73;
-  --text-tertiary: #aeaeb2;
+  --text-primary: #242933;
+  --text-secondary: #626c7b;
+  --text-tertiary: #737e8e;
 
   /* ── Accent colors ── */
-  --accent: #0071e3;
-  --accent-hover: #0077ed;
-  --success: #34c759;
-  --warning: #ff9500;
-  --danger: #ff3b30;
-  --info: #5ac8fa;
+  --accent: #2859c5;
+  --accent-hover: #204baa;
+  --success: #23834b;
+  --warning: #ae6808;
+  --danger: #cf3838;
+  --info: #3975b8;
 
   /* ── Separators & shadows ── */
   --separator: rgba(60, 60, 67, 0.12);
@@ -24,9 +24,9 @@
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
 
   /* ── Radius ── */
-  --radius-card: 20px;
-  --radius-panel: 16px;
-  --radius-control: 12px;
+  --radius-card: 10px;
+  --radius-panel: 8px;
+  --radius-control: 6px;
   --radius-pill: 20px;
 
   /* ── Layout ── */

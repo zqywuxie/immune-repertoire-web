@@ -315,7 +315,7 @@ def _find_reusable_charts_result(cache_context: Dict[str, Any]) -> Optional[Dict
 
 
 def _can_access_job(job: Dict[str, Any]) -> bool:
-    return is_admin() or job.get("user_id") in {None, current_user_id()}
+    return is_admin() or (not current_app.config.get("REQUIRE_LOGIN", True) and current_user_id() is None) or (current_user_id() is not None and job.get("user_id") == current_user_id())
 
 
 def _append_output(
@@ -432,6 +432,16 @@ def _collect_result_outputs(result: Dict[str, Any]) -> List[Dict[str, Any]]:
             download_url=item.get("download_url", ""),
             asset_id=str(item.get("asset_id") or ""),
         )
+    _append_url_list(outputs, seen, result, key="csv_urls", module=module_label, category="数据表", kind="csv")
+    _append_url_list(outputs, seen, result, key="pvalue_urls", module=module_label, category="统计表", kind="csv")
+    for table_key, table_label in (
+        ("shared_matrix_urls", "克隆共享矩阵"),
+        ("usage_urls", "基因使用频率表"),
+        ("heatmap_csv_urls", "热图数据表"),
+        ("classification_urls", "分类数据表"),
+        ("proportion_urls", "比例数据表"),
+    ):
+        _append_url_list(outputs, seen, result, key=table_key, module=module_label, category=table_label, kind="csv")
     _append_url_list(outputs, seen, result, key="png_urls", module=module_label, category="Plots", kind="image")
     _append_url_list(outputs, seen, result, key="plot_urls", module=module_label, category="Plots", kind="image")
     _append_url_list(outputs, seen, result, key="plot_heatmap_urls", module=module_label, category="Heatmaps", kind="image")
@@ -795,8 +805,12 @@ def create_job():
         user_id=user_id,
         project_id=project_id,
     )
-    queue = get_job_queue()
-    queue.submit(job["job_id"], get_job_runner(module), module=module)
+    try:
+        queue = get_job_queue()
+        queue.submit(job["job_id"], get_job_runner(module), module=module)
+    except Exception as exc:
+        service.fail_job(job["job_id"], "任务入队失败：" + str(exc))
+        return jsonify(success=False, job_id=job["job_id"], message="分析队列暂不可用，请稍后重试。"), 503
     return jsonify({
         "success": True,
         "job_id": job["job_id"],
@@ -964,6 +978,47 @@ def get_job_results(job_id: str):
         return _json_error("JOB_RESULTS_ERROR", "Failed to load background job results.", detail=str(exc))
 
 
+@jobs_bp.route("/<job_id>/retry", methods=["POST"])
+def retry_job(job_id):
+    service = get_background_job_service()
+    original = service.get_job(job_id)
+    if not original or not _can_access_job(original):
+        return _json_error("JOB_NOT_FOUND", "任务不存在", 404)
+    if original.get("status") not in {"failed", "cancelled", "interrupted"}:
+        return _json_error("JOB_NOT_RETRYABLE", "只有失败、取消或中断的任务可以重试", 409)
+    module = original.get("module")
+    payload = dict(original.get("payload") or {})
+    script = original.get("job_type") in {"script_hub", "chord", "treemap"} and payload.get("script_call")
+    is_batch = module == "analysis-batch"
+    if is_batch:
+        from flask_app.services.analysis_batch_service import validate_batch
+        from flask_app.exceptions import ValidationError
+        try:
+            payload = {"items": validate_batch(payload), "asset_set": payload.get("asset_set", ""), "task_name": payload.get("task_name", "批次分析")}
+        except ValidationError as error:
+            return _json_error("MISSING_RETRY_PARAMETERS", error.message, 409)
+    if not script and not is_batch and module not in ALLOWED_API_JOBS:
+        return _json_error("MISSING_RETRY_PARAMETERS", "历史任务未保存完整参数，请从分析向导重新提交", 409)
+    for key in ["rq_job_id", "queue_backend", "retry_of", "runtime"]:
+        payload.pop(key, None)
+    fresh = service.create_job(job_type=original.get("job_type") or "api_request", module=module,
+        payload=payload,user_id=original.get("user_id"),project_id=original.get("project_id"),extra={"retry_of":job_id})
+    try:
+        if is_batch:
+            from flask_app.services.analysis_batch_service import execute_batch
+            from flask_app.services.persistent_queue import enqueue
+            enqueue(execute_batch, fresh["job_id"], fresh["job_id"])
+        elif script:
+            from flask_app.services.persistent_queue import enqueue, execute_script
+            enqueue(execute_script,fresh["job_id"],fresh["job_id"])
+        else:
+            get_job_queue().submit(fresh["job_id"],get_job_runner(module),module=module)
+    except Exception as error:
+        service.fail_job(fresh["job_id"],str(error))
+        return _json_error("QUEUE_UNAVAILABLE", "任务入队失败，请稍后重试", 503, job_id=fresh["job_id"])
+    return jsonify(success=True,job_id=fresh["job_id"],retry_of=job_id)
+
+
 @jobs_bp.route("/<job_id>/cancel", methods=["POST"])
 def cancel_job(job_id: str):
     try:
@@ -998,3 +1053,34 @@ def delete_job(job_id: str):
     except Exception as exc:
         current_app.logger.error("Failed to delete background job %s: %s", job_id, exc, exc_info=True)
         return _json_error("JOB_DELETE_ERROR", "Failed to delete background job.", detail=str(exc))
+
+
+@jobs_bp.route("/results/archive", methods=["POST"])
+def download_result_archive():
+    from flask_app.services.result_archive import ArchiveError, build_archive
+    try:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise ArchiveError("请选择需要下载的结果文件。")
+        archive = build_archive(payload.get("items"))
+    except ArchiveError as error:
+        return _json_error("RESULT_ARCHIVE_ERROR", str(error), error.status)
+    def stream():
+        try:
+            while chunk := archive.read(1024 * 1024):
+                yield chunk
+        finally:
+            archive.close()
+    response = Response(stream(), mimetype="application/zip", headers={"Content-Disposition": "attachment; filename=analysis-results.zip", "Cache-Control": "no-store"})
+    response.call_on_close(archive.close)
+    return response
+
+
+@jobs_bp.route("/<job_id>/table-preview", methods=["POST"])
+def get_result_table_page(job_id):
+    from flask_app.services.result_table import preview_result_table
+    from flask_app.services.result_archive import ArchiveError
+    try:
+        return jsonify(preview_result_table(job_id, request.get_json(silent=True)))
+    except ArchiveError as error:
+        return _json_error("RESULT_TABLE_ERROR", str(error), error.status)

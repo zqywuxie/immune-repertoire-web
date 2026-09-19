@@ -43,17 +43,17 @@ import type { ProjectAsset, ProjectCreate } from "../../shared/types/domain";
 import type { AssetListResponse } from "../../shared/api/projects";
 
 const TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "assets", label: "Assets" },
-  { key: "results", label: "Results" },
-  { key: "samples", label: "Samples" },
-  { key: "group-specs", label: "Group Specs" },
-  { key: "settings", label: "Settings" },
+  { key: "overview", label: "概览" },
+  { key: "assets", label: "文件" },
+  { key: "results", label: "结果" },
+  { key: "samples", label: "样本" },
+  { key: "group-specs", label: "分组方案" },
+  { key: "settings", label: "设置" },
 ];
 
 const RESULT_PAGE_SIZE = 10;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-const ANALYSIS_ASSET_TYPES = ["pep", "profile", "datapoint", "transcriptome", "expression"];
+const ANALYSIS_ASSET_TYPES = ["pep", "profile", "datapoint", "transcriptome", "expression", "deconvolution", "cibersort"];
 
 export function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -123,7 +123,7 @@ export function ProjectDetail() {
       throw new Error(
         (e as { detail?: string }).detail ||
           (e as { message?: string }).message ||
-          "Failed to update project"
+          "更新项目失败"
       );
     }
     project.refetch();
@@ -149,7 +149,7 @@ export function ProjectDetail() {
           }}
         >
           <ArrowLeft size={16} />
-          Back to Project Library
+          返回项目列表
         </button>
       </>
     );
@@ -184,16 +184,16 @@ export function ProjectDetail() {
             }}
           >
             <ArrowLeft size={14} />
-            Project Library
+            项目管理
           </button>
           {loadingProject ? (
             <Skeleton width="300px" height="36px" variant="text" />
           ) : (
             <PageHeader
-              title={projectData?.name || "Project"}
+              title={projectData?.name || "项目"}
               subtitle={
                 projectData
-                  ? `${projectData.institution || "No institution"} · ${projectData.sample_count || 0} samples · ${projectData.result_count || 0} results`
+                  ? `${projectData.institution || "未填写机构"} · ${projectData.sample_count || 0} 个样本 · ${projectData.result_count || 0} 项结果`
                   : undefined
               }
             />
@@ -202,7 +202,7 @@ export function ProjectDetail() {
         {projectData && (
           <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
             <button
-              onClick={() => navigate(`/analysis/script-hub?project=${projectId}`)}
+              onClick={() => navigate(`/analysis/center?project=${encodeURIComponent(projectId || "")}`)}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -218,7 +218,7 @@ export function ProjectDetail() {
               }}
             >
               <Zap size={16} />
-              Analyze
+              分析
             </button>
             <button
               onClick={() => setShowEditSheet(true)}
@@ -237,7 +237,7 @@ export function ProjectDetail() {
               }}
             >
               <Pencil size={16} />
-              Edit
+              编辑
             </button>
           </div>
         )}
@@ -260,9 +260,9 @@ export function ProjectDetail() {
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-lg)" }}>
           <section style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
             <div>
-              <h4 style={{ margin: 0, fontSize: "0.95rem" }}>Analysis Data Sets</h4>
+              <h4 style={{ margin: 0, fontSize: "0.95rem" }}>分析数据集</h4>
               <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                Required analysis inputs are PEP paths and Profile. Transcriptome data is optional.
+                请根据所选分析准备克隆序列表和样本指标表；按需添加转录组数据。
               </p>
             </div>
             {projectId && (
@@ -274,7 +274,7 @@ export function ProjectDetail() {
             <AssetTable
               assets={assetList}
               loading={loadingAssets}
-              emptyLabel="No analysis data sets registered yet."
+              emptyLabel="尚未登记分析数据集。"
               projectId={projectId}
               onAssetDeleted={handleRefresh}
               showGroup
@@ -290,7 +290,7 @@ export function ProjectDetail() {
             <AssetTable
               assets={projectFileList}
               loading={loadingProjectFiles}
-              emptyLabel="No project files uploaded yet."
+              emptyLabel="尚未上传项目文件。"
               projectId={projectId}
               onAssetDeleted={handleRefresh}
               showGroup={false}
@@ -303,12 +303,12 @@ export function ProjectDetail() {
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-lg)" }}>
           <div>
             <h4 style={{ margin: "0 0 var(--spacing-sm)", fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-              Analysis Results ({analysisResults.length})
+              分析结果（{analysisResults.length})
             </h4>
             <AssetTable
               assets={analysisResults}
               loading={loadingAssets || loadingResults}
-              emptyLabel="No analysis results generated yet."
+              emptyLabel="尚未生成分析结果。"
               projectId={projectId}
               onAssetDeleted={handleRefresh}
               showSelect={false}
@@ -360,7 +360,7 @@ export function ProjectDetail() {
             description: projectData.description ?? undefined,
             status: projectData.status ?? "active",
           }}
-          title="Edit Project"
+          title="编辑项目"
         />
       )}
     </>
@@ -422,8 +422,8 @@ function OverviewTab({
     return (
       <EmptyState
         icon={Database}
-        title="Project not found"
-        description="This project may have been deleted or you may not have access."
+        title="项目不存在"
+        description="项目可能已删除，或当前账户没有访问权限。"
       />
     );
   }
@@ -440,15 +440,15 @@ function OverviewTab({
           gap: "var(--spacing-md)",
         }}
       >
-        <MetricCard icon={FileText} label="Total Assets" value={totalAssets} color="var(--accent)" />
-        <MetricCard icon={Boxes} label="Samples" value={project.sample_count || 0} color="var(--success)" />
-        <MetricCard icon={FlaskConical} label="Results" value={project.result_count || 0} color="var(--warning)" />
-        <MetricCard icon={Layers} label="Group Specs" value={project.group_spec_count || 0} color="var(--info)" />
+        <MetricCard icon={FileText} label="文件总数" value={totalAssets} color="var(--accent)" />
+        <MetricCard icon={Boxes} label="样本" value={project.sample_count || 0} color="var(--success)" />
+        <MetricCard icon={FlaskConical} label="结果" value={project.result_count || 0} color="var(--warning)" />
+        <MetricCard icon={Layers} label="分组方案" value={project.group_spec_count || 0} color="var(--info)" />
       </div>
 
       {/* Quick actions */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--spacing-md)" }}>
-        <Card onClick={() => onNavigate(`/analysis/script-hub?project=${projectId}`)}>
+        <Card onClick={() => onNavigate(`/analysis/center?project=${encodeURIComponent(projectId || "")}`)}>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)" }}>
             <div style={{
               width: "44px", height: "44px", borderRadius: "var(--radius-control)",
@@ -458,14 +458,14 @@ function OverviewTab({
               <FlaskConical size={22} />
             </div>
             <div>
-              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Run Analysis</div>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>开始分析</div>
               <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                Open ScriptHub to configure and execute analysis pipelines
+                进入分析中心，选择工具并使用当前项目的数据
               </div>
             </div>
           </div>
         </Card>
-        <Card onClick={() => onNavigate(`/management/projects/${projectId}`)} ariaLabel="Upload assets">
+        <Card onClick={() => onNavigate(`/management/projects/${projectId}`)} ariaLabel="上传数据">
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)" }}>
             <div style={{
               width: "44px", height: "44px", borderRadius: "var(--radius-control)",
@@ -475,9 +475,9 @@ function OverviewTab({
               <Upload size={22} />
             </div>
             <div>
-              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Upload Assets</div>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>上传数据</div>
               <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                Add PEP files, profiles, and transcriptome data
+                添加克隆序列表、样本指标表及转录组数据
               </div>
             </div>
           </div>
@@ -495,19 +495,19 @@ function OverviewTab({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", marginBottom: "var(--spacing-md)" }}>
-          <h3 style={{ margin: 0 }}>Project Details</h3>
+          <h3 style={{ margin: 0 }}>项目详情</h3>
           <StatusBadge status={project.status || "active"} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-md)", fontSize: "0.85rem" }}>
-          <DetailField label="Name" value={project.name} />
-          <DetailField label="Institution" value={project.institution || "—"} />
-          <DetailField label="Cooperation Level" value={project.cooperation_level || "—"} />
-          <DetailField label="Status" value={project.status || "active"} />
-          <DetailField label="Created" value={project.created_at ? new Date(project.created_at).toLocaleDateString() : "—"} />
-          <DetailField label="Updated" value={project.updated_at ? new Date(project.updated_at).toLocaleDateString() : "—"} />
+          <DetailField label="名称" value={project.name} />
+          <DetailField label="所属机构" value={project.institution || "—"} />
+          <DetailField label="合作类型" value={project.cooperation_level || "—"} />
+          <DetailField label="状态" value={project.status || "active"} />
+          <DetailField label="创建时间" value={project.created_at ? new Date(project.created_at).toLocaleDateString() : "—"} />
+          <DetailField label="更新时间" value={project.updated_at ? new Date(project.updated_at).toLocaleDateString() : "—"} />
           {project.description && (
             <div style={{ gridColumn: "1 / -1" }}>
-              <DetailField label="Description" value={project.description} />
+              <DetailField label="说明" value={project.description} />
             </div>
           )}
         </div>
@@ -524,7 +524,7 @@ function OverviewTab({
             border: "1px solid var(--separator)",
           }}
         >
-          <h3 style={{ margin: "0 0 var(--spacing-md)" }}>Asset Breakdown</h3>
+          <h3 style={{ margin: "0 0 var(--spacing-md)" }}>数据文件概览</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "var(--spacing-md)" }}>
             {Object.entries(project.asset_counts).map(([type, count]) => (
               <div key={type} style={{ textAlign: "center" }}>
@@ -567,18 +567,18 @@ function SamplesTab({
       <div style={{ marginTop: "var(--spacing-lg)" }}>
         <EmptyState
           icon={Users}
-          title="No samples registered"
-          description="No samples have been registered for this project yet. Samples can be added via the Sample Registry."
+          title="暂无样本"
+          description="当前项目尚未登记样本，可在样本管理中添加。"
         />
       </div>
     );
   }
 
   const columns = [
-    "Sample ID",
-    "Sample Name",
-    "Chain",
-    "Species",
+    "样本编号",
+    "样本名称",
+    "链类型",
+    "物种",
     "Healthy",
     "Disease",
     "Tissue",
@@ -587,7 +587,7 @@ function SamplesTab({
   return (
     <div style={{ marginTop: "var(--spacing-lg)" }}>
       <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "var(--spacing-md)" }}>
-        {samples.length} sample{samples.length !== 1 ? "s" : ""}
+        {samples.length} 样本
       </div>
       <Card>
         <div style={{ overflow: "auto" }}>
@@ -692,13 +692,13 @@ function GroupSpecsTab({
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "Failed to create group spec");
+        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "创建分组方案失败");
       }
       setNewSpecName("");
       setNewSpecGroups("");
       setRefreshKey((k) => k + 1);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Create failed");
+      setSaveError(err instanceof Error ? err.message : "创建失败");
     } finally {
       setSaving(false);
     }
@@ -714,7 +714,7 @@ function GroupSpecsTab({
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "Failed to delete group spec");
+        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "删除分组方案失败");
       }
       setRefreshKey((k) => k + 1);
     } catch (err) {
@@ -738,27 +738,27 @@ function GroupSpecsTab({
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-lg)", marginTop: "var(--spacing-lg)" }}>
       {/* Create form */}
       <Card>
-        <h4 style={{ margin: "0 0 var(--spacing-md)", fontSize: "0.9rem", fontWeight: 600 }}>Create Group Spec</h4>
+        <h4 style={{ margin: "0 0 var(--spacing-md)", fontSize: "0.9rem", fontWeight: 600 }}>创建分组方案</h4>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-md)" }}>
             <label className="field-label">
-              Name *
+              名称 *
               <input
                 type="text"
                 value={newSpecName}
                 onChange={(e) => setNewSpecName(e.target.value)}
-                placeholder="e.g. Treatment vs Control"
+                placeholder="例如：处理组与对照组"
                 className="input"
                 disabled={saving}
               />
             </label>
             <label className="field-label">
-              Groups (comma-separated) *
+              分组（必填，多个值用逗号分隔）
               <input
                 type="text"
                 value={newSpecGroups}
                 onChange={(e) => setNewSpecGroups(e.target.value)}
-                placeholder="e.g. Healthy, Disease"
+                placeholder="例如：健康组、疾病组"
                 className="input"
                 disabled={saving}
               />
@@ -774,7 +774,7 @@ function GroupSpecsTab({
               className="btn btn-primary"
             >
               <Plus size={16} />
-              {saving ? "Saving…" : "Save"}
+              {saving ? "正在保存…" : "保存"}
             </button>
           </div>
         </div>
@@ -784,14 +784,14 @@ function GroupSpecsTab({
       {!hasSpecs ? (
         <EmptyState
           icon={Layers}
-          title="No group specs defined"
-          description="Group specifications define how samples are organized for comparative analysis. Create group specs to enable grouped statistical analysis and visualization."
+          title="暂无分组方案"
+          description="分组方案定义样本的比较方式，创建后可用于分组统计与可视化。"
         />
       ) : (
         <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-              {groupSpecs!.length} group spec{groupSpecs!.length !== 1 ? "s" : ""} defined
+              {groupSpecs!.length} 分组方案 已定义
             </span>
           </div>
           {groupSpecs!.map((spec: any, idx: number) => {
@@ -803,7 +803,7 @@ function GroupSpecsTab({
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
-                        {specData.name || spec.name || `Group Spec ${idx + 1}`}
+                        {specData.name || spec.name || `分组方案 ${idx + 1}`}
                       </div>
                       {specData.description && (
                         <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "2px" }}>
@@ -820,7 +820,7 @@ function GroupSpecsTab({
                       <button
                         onClick={() => handleDelete(idx)}
                         disabled={deletingIdx === idx}
-                        title="Delete group spec"
+                        title="删除分组方案"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -856,13 +856,13 @@ function GroupSpecsTab({
                             border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
                           }}
                         >
-                          {typeof g === "string" ? g : g.name || g.label || `Group ${gi + 1}`}
+                          {typeof g === "string" ? g : g.name || g.label || `分组 ${gi + 1}`}
                         </span>
                       ))}
                     </div>
                   )}
                   <details style={{ fontSize: "0.8rem" }}>
-                    <summary style={{ color: "var(--text-tertiary)", cursor: "pointer" }}>Raw JSON</summary>
+                    <summary style={{ color: "var(--text-tertiary)", cursor: "pointer" }}>原始结构化数据</summary>
                     <pre
                       style={{
                         margin: "var(--spacing-sm) 0 0",
@@ -933,8 +933,8 @@ function SettingsTab({
     return (
       <EmptyState
         icon={Settings2}
-        title="Project not loaded"
-        description="Cannot display settings while the project is unavailable."
+        title="项目尚未加载"
+        description="项目不可用时无法显示设置。"
       />
     );
   }
@@ -958,13 +958,13 @@ function SettingsTab({
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        throw new Error(e.detail || e.message || "Failed to save");
+        throw new Error(e.detail || e.message || "保存失败");
       }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
       onSaved();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      setSaveError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -982,38 +982,38 @@ function SettingsTab({
           border: "1px solid var(--separator)",
         }}
       >
-        <h3 style={{ margin: "0 0 var(--spacing-lg)" }}>Edit Project</h3>
+        <h3 style={{ margin: "0 0 var(--spacing-lg)" }}>编辑项目</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-md)" }}>
           <label className="field-label">
-            Project Name *
+            项目名称（必填）
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input" />
           </label>
           <label className="field-label">
-            Status
+            状态
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="select">
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-              <option value="archived">Archived</option>
+              <option value="active">进行中</option>
+              <option value="paused">已暂停</option>
+              <option value="archived">已归档</option>
             </select>
           </label>
           <label className="field-label">
-            Institution
-            <input type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} className="input" placeholder="e.g. Tsinghua University" />
+            所属机构
+            <input type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} className="input" placeholder="例如：南华大学" />
           </label>
           <label className="field-label">
-            Cooperation Level
+            合作类型
             <select value={cooperationLevel} onChange={(e) => setCooperationLevel(e.target.value)} className="select">
-              <option value="">— None —</option>
-              <option value="internal">Internal</option>
-              <option value="public">Public</option>
-              <option value="collaboration">Collaboration</option>
-              <option value="restricted">Restricted</option>
+              <option value="">未设置</option>
+              <option value="internal">内部</option>
+              <option value="public">公开</option>
+              <option value="collaboration">合作</option>
+              <option value="restricted">受限</option>
             </select>
           </label>
           <div style={{ gridColumn: "1 / -1" }}>
             <label className="field-label">
-              Description
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="textarea" rows={3} placeholder="Project description…" />
+              说明
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="textarea" rows={3} placeholder="填写项目说明…" />
             </label>
           </div>
         </div>
@@ -1023,7 +1023,7 @@ function SettingsTab({
         <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end", marginTop: "var(--spacing-lg)" }}>
           <button onClick={handleSave} disabled={saving || !name.trim()} className="btn btn-primary">
             <Save size={16} />
-            {saving ? "Saving…" : saveSuccess ? "Saved!" : "Save Changes"}
+            {saving ? "正在保存…" : saveSuccess ? "Saved!" : "保存修改"}
           </button>
         </div>
       </div>
@@ -1038,12 +1038,12 @@ function SettingsTab({
           border: "1px solid var(--separator)",
         }}
       >
-        <h3 style={{ margin: "0 0 var(--spacing-md)", fontSize: "0.9rem", color: "var(--text-secondary)" }}>Project Metadata</h3>
+        <h3 style={{ margin: "0 0 var(--spacing-md)", fontSize: "0.9rem", color: "var(--text-secondary)" }}>项目信息</h3>
         <div style={{ fontSize: "0.85rem", color: "var(--text-tertiary)", lineHeight: 1.8 }}>
-          <div>Project ID: <code style={{ color: "var(--text-primary)" }}>{project.id || projectId}</code></div>
-          <div>Created: {project.created_at ? new Date(project.created_at).toLocaleString() : "—"}</div>
-          <div>Updated: {project.updated_at ? new Date(project.updated_at).toLocaleString() : "—"}</div>
-          <div>User ID: {project.user_id ?? "—"}</div>
+          <div>项目编号： <code style={{ color: "var(--text-primary)" }}>{project.id || projectId}</code></div>
+          <div>创建时间： {project.created_at ? new Date(project.created_at).toLocaleString() : "—"}</div>
+          <div>更新时间： {project.updated_at ? new Date(project.updated_at).toLocaleString() : "—"}</div>
+          <div>用户编号： {project.user_id ?? "—"}</div>
         </div>
       </div>
     </div>

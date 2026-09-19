@@ -8,7 +8,8 @@ import logging
 import re
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from flask_app.services.persistent_queue import ScriptExecutor
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -24,7 +25,7 @@ from flask_app.services.treemap_report_service import get_treemap_report_service
 logger = logging.getLogger(__name__)
 
 treemap_bp = Blueprint("treemap", __name__, url_prefix="/api/treemap")
-_treemap_executor = ThreadPoolExecutor(max_workers=2)
+_treemap_executor = ScriptExecutor()
 _treemap_task_lock = threading.Lock()
 _treemap_tasks: Dict[str, Dict[str, Any]] = {}
 
@@ -71,12 +72,16 @@ def _set_task_state(task_id: str, **updates: Any) -> None:
 
 
 def _sync_task_state(task_id: str) -> None:
-    task = _get_task_state(task_id)
+    with _treemap_task_lock:
+        task = dict(_treemap_tasks.get(task_id) or {})
     if task:
+        task.pop("task_id", None)
         _set_task_state(task_id, **task)
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
+    if os.environ.get('JOB_QUEUE', '').lower() == 'redis':
+        return get_background_job_service().get_job(task_id)
     with _treemap_task_lock:
         task = _treemap_tasks.get(task_id)
         return dict(task) if task else None

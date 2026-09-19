@@ -38,8 +38,16 @@ class ScriptHubJobService:
         clean_updates.setdefault("module", clean_updates.get("module") or (clean_updates.get("meta") or {}).get("module") or "script-hub")
 
         try:
-            return get_background_job_service().upsert_job(job_id, clean_updates)
+            stored = get_background_job_service().upsert_job(job_id, clean_updates)
+            with self._lock:
+                self._jobs.pop(job_id, None)
+            return stored
         except Exception:
+            import os
+            if os.environ.get("JOB_QUEUE", "").lower() == "redis":
+                from flask_app.models.database import db
+                db.session.rollback()
+                raise
             timestamp = _now_iso()
             job = self._jobs.setdefault(job_id, {
                 "job_id": job_id,
@@ -65,7 +73,9 @@ class ScriptHubJobService:
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return get_background_job_service().get_job(job_id)
+            stored = get_background_job_service().get_job(job_id)
+            if stored is not None:
+                return stored
         except Exception:
             pass
         with self._lock:
@@ -81,16 +91,17 @@ class ScriptHubJobService:
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         try:
-            return get_background_job_service().list_jobs(
+            stored_jobs = get_background_job_service().list_jobs(
                 module=module,
                 project_id=project_id,
                 status=status,
                 limit=limit,
             )
         except Exception:
-            pass
+            stored_jobs = []
         with self._lock:
-            jobs = [deepcopy(job) for job in self._jobs.values()]
+            stored_ids = {job.get("job_id") or job.get("id") for job in stored_jobs}
+            jobs = stored_jobs + [deepcopy(job) for key, job in self._jobs.items() if key not in stored_ids]
 
         if module:
             jobs = [job for job in jobs if job.get("module") == module or (job.get("meta") or {}).get("module") == module]
@@ -104,7 +115,9 @@ class ScriptHubJobService:
 
     def cancel_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return get_background_job_service().request_cancel(job_id)
+            stored = get_background_job_service().request_cancel(job_id)
+            if stored is not None:
+                return stored
         except Exception:
             pass
         job = self.get_job(job_id)
@@ -123,7 +136,6 @@ class ScriptHubJobService:
     def clear(self) -> None:
         try:
             get_background_job_service().clear()
-            return
         except Exception:
             pass
         with self._lock:

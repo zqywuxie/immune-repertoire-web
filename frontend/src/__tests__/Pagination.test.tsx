@@ -13,8 +13,8 @@ const pg = (overrides: Partial<PaginationInfo> = {}): PaginationInfo => ({
 describe("Pagination", () => {
   it("renders item count and page info", () => {
     render(<Pagination pagination={pg()} onPageChange={() => {}} />);
-    expect(screen.getByText(/42 items/)).toBeInTheDocument();
-    expect(screen.getByText(/page 1 of 5/)).toBeInTheDocument();
+    expect(screen.getByText(/42 项/)).toBeInTheDocument();
+    expect(screen.getByText(/第 1 \/ 5 页/)).toBeInTheDocument();
   });
 
   it("disables previous on first page", () => {
@@ -43,7 +43,7 @@ describe("Pagination", () => {
 
   it("shows placeholder when undefined", () => {
     render(<Pagination pagination={undefined} onPageChange={() => {}} />);
-    expect(screen.getByText("No pagination data")).toBeInTheDocument();
+    expect(screen.getByText("暂无分页数据")).toBeInTheDocument();
   });
 
   it("renders active page button highlighted", () => {

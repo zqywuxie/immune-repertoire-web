@@ -192,7 +192,7 @@ class AnalysisPipeline:
             处理后的DataFrame
         """
         # 如果字段映射为空或只有少量映射，或者跳过重命名，保留所有列
-        if not field_mapping or len(field_mapping) < 2 or skip_rename:
+        if not field_mapping or skip_rename:
             processed_data = data.copy()
         else:
             # 创建反向映射用于重命名

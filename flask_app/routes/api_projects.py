@@ -659,3 +659,32 @@ def django_compatible_download_samples():
 @project_api_bp.route('/integration/catalog', methods=['GET'])
 def integration_catalog():
     return jsonify({'success': True, 'catalog': get_integration_catalog()})
+
+
+@project_api_bp.route('/projects/<project_id>/assets/<asset_id>/prepare-input', methods=['POST'])
+def prepare_project_input(project_id: str, asset_id: str):
+    _project_service().get_project(project_id)
+    asset = _get_project_asset(project_id, asset_id)
+    from flask_app.services.input_preparation import prepare_table
+    mapping = prepare_table(asset, request.get_json() or {}, Path(current_app.root_path) / 'data' / 'projects')
+    return jsonify({'success': True, 'asset_id': asset.id, 'input_preparation': mapping})
+
+
+@project_api_bp.route('/projects/<project_id>/assets/<asset_id>/input-schema', methods=['POST'])
+def inspect_original_input_schema(project_id: str, asset_id: str):
+    _project_service().get_project(project_id)
+    asset = _get_project_asset(project_id, asset_id)
+    if asset.asset_type not in {'profile','datapoint','transcriptome','expression','deconvolution','cibersort'}:
+        raise ValidationError(message='请选择原始样本表、转录组或浸润表。')
+    from flask_app.services.input_table_schema import inspect_table_schema
+    schema = inspect_table_schema(asset.storage_path, (request.get_json() or {}).get('sheet_name'))
+    return jsonify({'success': True, 'asset_id':asset.id, 'input_preparation':(asset.metadata_json or {}).get('input_preparation'), **schema})
+
+
+@project_api_bp.route('/projects/<project_id>/assets/<asset_id>/prepare-input', methods=['DELETE'])
+def reset_project_input(project_id: str, asset_id: str):
+    _project_service().get_project(project_id)
+    asset = _get_project_asset(project_id, asset_id)
+    from flask_app.services.input_preparation import reset_input_preparation
+    changed = reset_input_preparation(asset)
+    return jsonify({'success': True, 'changed': changed, 'asset_id':asset.id})

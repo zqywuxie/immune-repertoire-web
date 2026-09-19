@@ -1,3 +1,0 @@
-Label mapping:
-  0: control
-  1: experiment

@@ -33,22 +33,22 @@ export function ManagementDashboard() {
   const quickActions = [
     {
       icon: Database,
-      label: "Project Library",
-      description: "Browse and manage analysis projects",
+      label: "项目管理",
+      description: "整理项目数据与分析结果",
       to: "/management/projects",
       color: "var(--accent)",
     },
     {
       icon: Users,
-      label: "Sample Registry",
-      description: "View and edit sample metadata",
+      label: "样本管理",
+      description: "查看与编辑样本信息",
       to: "/management/samples",
       color: "var(--success)",
     },
     {
       icon: Settings2,
-      label: "Settings",
-      description: "Configure workspace preferences",
+      label: "设置",
+      description: "设置工作台与显示偏好",
       to: "/management/settings",
       color: "var(--warning)",
     },
@@ -60,8 +60,8 @@ export function ManagementDashboard() {
   return (
     <>
       <PageHeader
-        title="Data Management"
-        subtitle="Oversee projects, samples, and analysis workflows"
+        title="项目概览"
+        subtitle="从项目数据出发，管理样本并跟进分析进度"
       />
 
       {/* Error banners */}
@@ -84,9 +84,9 @@ export function ManagementDashboard() {
           </>
         ) : (
           <>
-            <MetricCard icon={Boxes} label="Projects" value={stats.projects} color="var(--accent)" />
-            <MetricCard icon={FlaskConical} label="Results" value={stats.results} color="var(--success)" />
-            <MetricCard icon={Activity} label="Active Jobs" value={stats.activeJobs} color="var(--warning)" />
+            <MetricCard icon={Boxes} label="项目数" value={stats.projects} color="var(--accent)" />
+            <MetricCard icon={FlaskConical} label="结果数" value={stats.results} color="var(--success)" />
+            <MetricCard icon={Activity} label="进行中的任务" value={stats.activeJobs} color="var(--warning)" />
           </>
         )}
       </div>
@@ -117,7 +117,7 @@ export function ManagementDashboard() {
                   width: "44px",
                   height: "44px",
                   borderRadius: "var(--radius-control)",
-                  background: `${action.color}12`,
+                  background: `color-mix(in srgb, ${action.color} 8%, transparent)`,
                   color: action.color,
                   display: "grid",
                   placeItems: "center",
@@ -157,13 +157,13 @@ export function ManagementDashboard() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 2fr) minmax(300px, 1fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
           gap: "var(--spacing-lg)",
         }}
       >
         {/* Recent projects */}
         <div>
-          <h3 style={{ margin: "0 0 var(--spacing-md)" }}>Recent Projects</h3>
+          <h3 style={{ margin: "0 0 var(--spacing-md)" }}>最近项目</h3>
           {loadingProjects ? (
             <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
               {[1, 2].map((i) => (
@@ -173,9 +173,9 @@ export function ManagementDashboard() {
           ) : recentProjects.length === 0 ? (
             <EmptyState
               icon={Database}
-              title="No projects yet"
-              description="Create your first project to get started."
-              action={{ label: "Go to Project Library", to: "/management/projects" }}
+              title="还没有项目"
+              description="创建第一个项目，上传数据后开始分析。"
+              action={{ label: "前往项目管理", to: "/management/projects" }}
             />
           ) : (
             <ProjectList projects={recentProjects} loading={false} />
@@ -192,7 +192,7 @@ export function ManagementDashboard() {
               marginBottom: "var(--spacing-md)",
             }}
           >
-            <h3 style={{ margin: 0 }}>Latest Activity</h3>
+            <h3 style={{ margin: 0 }}>最近任务</h3>
           </div>
           <Card>
             <div
@@ -215,7 +215,7 @@ export function ManagementDashboard() {
                     padding: "var(--spacing-lg) 0",
                   }}
                 >
-                  No recent activity. Submit your first job from ScriptHub.
+                  暂无任务。可前往分析向导提交第一次分析。
                 </p>
               ) : (
                 latestActivity.map((job) => (
@@ -272,7 +272,7 @@ export function ManagementDashboard() {
                     cursor: "pointer",
                   }}
                 >
-                  View all jobs →
+                  查看全部任务 →
                 </button>
               )}
             </div>

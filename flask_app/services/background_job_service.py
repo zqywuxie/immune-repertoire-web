@@ -44,8 +44,7 @@ class JobContext:
         self.service.update_progress(self.job_id, progress, stage, detail, meta=meta)
 
     def is_cancel_requested(self) -> bool:
-        job = self.service.get_job(self.job_id)
-        return bool(job and job.get("cancel_requested"))
+        return self.service.is_cancel_requested(self.job_id)
 
     def raise_if_cancelled(self) -> None:
         if self.is_cancel_requested():
@@ -101,7 +100,7 @@ class BackgroundJobService:
                 history=history or [_history_entry(0, stage, detail, {"module": module})],
                 payload=payload or {},
                 user_id=user_id,
-                project_id=project_id,
+                project_id=str(project_id).strip() or None if project_id is not None else None,
             )
             if extra:
                 payload_data = dict(job.payload or {})
@@ -116,6 +115,8 @@ class BackgroundJobService:
             raise ValueError("job_id is required")
         clean = dict(updates or {})
         clean.pop("success", None)
+        if "project_id" in clean:
+            clean["project_id"] = str(clean["project_id"]).strip() or None if clean["project_id"] is not None else None
         with self._ctx():
             job = db.session.get(AnalysisJob, job_id)
             if job is None:
@@ -248,6 +249,20 @@ class BackgroundJobService:
             db.session.commit()
             return job.to_dict()
 
+    def is_cancel_requested(self, job_id: str) -> bool:
+        """Read cancellation for a task and its active batch ancestry."""
+        with self._ctx():
+            seen = set()
+            while job_id and job_id not in seen:
+                seen.add(job_id)
+                job = db.session.get(AnalysisJob, job_id, populate_existing=True)
+                if job is None:
+                    return False
+                if job.cancel_requested or job.status == "cancelled":
+                    return True
+                job_id = str((job.payload or {}).get("parent_job_id") or "")
+            return False
+
     def request_cancel(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
             job = db.session.get(AnalysisJob, job_id)
@@ -256,10 +271,18 @@ class BackgroundJobService:
             job.cancel_requested = True
             if job.status not in TERMINAL_STATUSES:
                 was_queued = job.status == "queued"
-                job.status = "cancelled"
-                job.stage = "Cancelled"
-                job.detail = "Job cancelled before start." if was_queued else "Job cancellation requested."
-                job.completed_at = _now()
+                if job.module == "analysis-batch" and not was_queued:
+                    job.stage = "正在取消"
+                    job.detail = "等待当前子任务在计算检查点停止。"
+                else:
+                    job.status = "cancelled"
+                    job.stage = "Cancelled"
+                    job.detail = "Job cancelled before start." if was_queued else "Job cancellation requested."
+                    job.completed_at = _now()
+                    if job.module == "analysis-batch":
+                        payload = dict(job.payload or {})
+                        payload["items"] = [{**item, "status": "cancelled", "error": "批次在开始前已取消。"} for item in payload.get("items", [])]
+                        job.payload = payload
             job.updated_at = _now()
             db.session.commit()
             return job.to_dict()
@@ -269,6 +292,8 @@ class BackgroundJobService:
             job = db.session.get(AnalysisJob, job_id)
             if not job:
                 return None
+            from flask_app.services.persistent_queue import reconcile_terminal_queue_job
+            reconcile_terminal_queue_job(job)
             data = job.to_dict()
             if not include_payload:
                 data.pop("payload", None)
@@ -294,7 +319,7 @@ class BackgroundJobService:
             if status:
                 query = query.filter(AnalysisJob.status == status)
             if user_id is not None and not include_admin_scope:
-                query = query.filter(or_(AnalysisJob.user_id == user_id, AnalysisJob.user_id.is_(None)))
+                query = query.filter(AnalysisJob.user_id == user_id)
             requested_limit = max(1, min(int(limit or 100), 500))
             fetch_limit = 500 if not include_children else requested_limit
             id_rows = query.with_entities(AnalysisJob.id).order_by(

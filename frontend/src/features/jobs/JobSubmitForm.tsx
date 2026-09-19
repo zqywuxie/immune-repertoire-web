@@ -75,7 +75,7 @@ export function JobSubmitForm({
     try {
       const parsed = JSON.parse(payloadText || "{}");
       if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-        throw new Error("Payload must be a JSON object.");
+        throw new Error("任务参数必须是合法的结构化对象。");
       }
       const result = await submitJob({
         module,
@@ -86,8 +86,8 @@ export function JobSubmitForm({
       setState("idle");
       setMessage(
         result.reused_result
-          ? `Reused cached result ${result.result_id || result.job_id}.`
-          : `Submitted job ${result.job_id}.`
+          ? `已复用缓存结果 ${result.result_id || result.job_id}.`
+          : `已提交任务 ${result.job_id}.`
       );
       if (result.job_id) {
         onJobSubmitted?.(result.job_id);
@@ -100,7 +100,7 @@ export function JobSubmitForm({
       }
     } catch (err) {
       setState("error");
-      setMessage(err instanceof Error ? err.message : "Submission failed");
+      setMessage(err instanceof Error ? err.message : "提交失败");
     }
   };
 
@@ -126,9 +126,9 @@ export function JobSubmitForm({
         }}
       >
         <div>
-          <h4 style={{ margin: 0 }}>Submit Job</h4>
+          <h4 style={{ margin: 0 }}>提交任务</h4>
           <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-            {uiEntry || "JSON"} mode
+            {uiEntry || "JSON"} 模式
           </p>
         </div>
         <button
@@ -161,7 +161,7 @@ export function JobSubmitForm({
         }}
       >
         <label style={labelStyle}>
-          Module
+          分析模块
           <select
             value={module}
             onChange={(e) => setModule(e.target.value)}
@@ -197,7 +197,7 @@ export function JobSubmitForm({
             checked={forceRerun}
             onChange={(e) => setForceRerun(e.target.checked)}
           />
-          Force rerun
+          重新运行
         </label>
       </div>
 
@@ -218,7 +218,7 @@ export function JobSubmitForm({
           {selectedModule.description && <span>{selectedModule.description}</span>}
           {selectedModule.output_kinds?.length && (
             <span style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-              Outputs:{" "}
+              输出：{" "}
               {selectedModule.output_kinds!.map((k: string) => (
                 <span
                   key={k}
@@ -280,7 +280,7 @@ export function JobSubmitForm({
           }}
         >
           <Code size={14} />
-          Raw JSON
+          原始结构化数据
         </button>
       </div>
 
@@ -306,7 +306,7 @@ export function JobSubmitForm({
             color: "var(--text-secondary)",
           }}
         >
-          Payload JSON
+          任务参数
           <textarea
             value={payloadText}
             onChange={(e) => setPayloadText(e.target.value)}

@@ -20,7 +20,7 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
 
   return (
     <nav
-      aria-label="Breadcrumb"
+      aria-label="当前位置"
       style={{
         display: "flex",
         alignItems: "center",
@@ -87,13 +87,13 @@ function Crumb({
   if (isHome) {
     if (isLast && !item.to) {
       return (
-        <span style={{ ...style, color: "var(--text-tertiary)" }} title="Home">
+        <span style={{ ...style, color: "var(--text-tertiary)" }} title="工作台">
           <Home size={13} />
         </span>
       );
     }
     return (
-      <Link to={item.to ?? "/"} style={style} title="Home">
+      <Link to={item.to ?? "/"} style={style} title="工作台">
         <Home size={13} />
       </Link>
     );

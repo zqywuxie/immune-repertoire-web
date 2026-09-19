@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -20,8 +20,10 @@ import {
   LogOut,
   type LucideIcon,
 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import styles from "./Sidebar.module.css";
+import { analysisCategories, analysisTools, toolPath } from "../../features/analysis/tools";
 
 /* ── Types ── */
 
@@ -45,12 +47,12 @@ export interface SidebarSection {
 const MANAGEMENT_SECTIONS: SidebarSection[] = [
   {
     key: "management-nav",
-    label: "Data Management",
+    label: "数据管理",
     items: [
-      { key: "workbench", label: "Data Workbench", to: "/management", icon: LayoutDashboard },
-      { key: "projects", label: "Project Library", to: "/management/projects", icon: FolderTree },
-      { key: "samples", label: "Sample Library", to: "/management/samples", icon: Database },
-      { key: "mgmt-settings", label: "Management Settings", to: "/management/settings", icon: Settings },
+      { key: "workbench", label: "项目概览", to: "/management", icon: LayoutDashboard },
+      { key: "projects", label: "项目管理", to: "/management/projects", icon: FolderTree },
+      { key: "samples", label: "样本管理", to: "/management/samples", icon: Database },
+      { key: "mgmt-settings", label: "工作台设置", to: "/management/settings", icon: Settings },
     ],
   },
 ];
@@ -58,21 +60,23 @@ const MANAGEMENT_SECTIONS: SidebarSection[] = [
 const ANALYSIS_SECTIONS: SidebarSection[] = [
   {
     key: "analysis-nav",
-    label: "Analysis Tools",
+    label: "分析工具",
     items: [
-      { key: "data-analysis", label: "Data Analysis", to: "/analysis", icon: BarChart3 },
-      { key: "script-hub", label: "ScriptHub", to: "/analysis/script-hub", icon: ScrollText },
-      { key: "background-tasks", label: "Background Tasks", to: "/analysis/script-hub/jobs", icon: Clock },
-      { key: "statistical", label: "Statistical Tests", to: "/analysis/statistical", icon: Calculator },
-      { key: "pdf-extractor", label: "PDF Extraction", to: "/analysis/pdf-extractor", icon: FileText },
-      { key: "ppt-tools", label: "PPT Tools", to: "/analysis/ppt-tools", icon: Presentation },
+      { key: "data-analysis", label: "分析中心", to: "/analysis/center", icon: BarChart3 },
+      { key: "script-hub", label: "组合分析", to: "/analysis/script-hub", icon: ScrollText },
+      { key: "background-tasks", label: "任务与结果", to: "/analysis/script-hub/jobs", icon: Clock },
+      { key: "custom-analysis", label: "自定义指标与方案", to: "/analysis", icon: Beaker },
+      { key: "statistical", label: "统计比较", to: "/analysis/statistical", icon: Calculator },
+      { key: "pdf-extractor", label: "PDF 提取", to: "/analysis/pdf-extractor", icon: FileText },
+      { key: "ppt-tools", label: "PPT 工具", to: "/analysis/ppt-tools", icon: Presentation },
     ],
   },
+  ...analysisCategories.map(category => ({key:category.id,label:category.title,items:analysisTools.filter(tool=>tool.category===category.id).map(tool=>({key:tool.id,label:tool.title,to:toolPath(tool),icon:FlaskConical}))})),
   {
     key: "analysis-experimental",
-    label: "Experimental",
+    label: "偏好设置",
     items: [
-      { key: "analysis-settings", label: "Analysis Settings", to: "/analysis/settings", icon: Settings },
+      { key: "analysis-settings", label: "分析设置", to: "/analysis/settings", icon: Settings },
     ],
   },
 ];
@@ -80,17 +84,27 @@ const ANALYSIS_SECTIONS: SidebarSection[] = [
 /* ── Component ── */
 
 export function Sidebar() {
-  const { workspace, setWorkspace, sidebarCollapsed, toggleSidebar, isManagement } =
+  const {user}=useAuth();
+  const { setWorkspace, sidebarCollapsed, toggleSidebar } =
     useWorkspace();
 
+  const { pathname, search } = useLocation();
+  const projectQuery = new URLSearchParams(search).get("project");
+  const navigate = useNavigate();
+  const isManagement = !pathname.startsWith("/analysis");
+  function switchWorkspace(ws: "analysis" | "management") {
+    setWorkspace(ws);
+    navigate(ws === "analysis" ? `/analysis/center${projectQuery ? `?project=${encodeURIComponent(projectQuery)}` : ""}` : "/management");
+  }
   const sections = isManagement ? MANAGEMENT_SECTIONS : ANALYSIS_SECTIONS;
 
   return (
     <aside
       className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : styles.sidebarExpanded}`}
-      aria-label="Navigation sidebar"
-      style={{ background: "#1d1d1f", borderRight: "1px solid rgba(255,255,255,0.08)" }}
+      aria-label="工作台导航"
+      style={{ background: "var(--bg-elevated)", borderRight: "1px solid var(--separator)" }}
     >
+      <Link to="/" className={styles.homeLink} title="返回内部工作台">{sidebarCollapsed ? "免" : "免疫组库 · 分析平台"}</Link>
       {/* Workspace switch tabs */}
       {!sidebarCollapsed && (
         <div
@@ -98,19 +112,19 @@ export function Sidebar() {
             display: "flex",
             padding: "var(--spacing-sm) var(--spacing-md)",
             gap: "4px",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            borderBottom: "1px solid var(--separator)",
             flexShrink: 0,
           }}
         >
           <WorkspaceTab
             active={isManagement}
-            label="Management"
-            onClick={() => setWorkspace("management")}
+            label="数据管理"
+            onClick={() => switchWorkspace("management")}
           />
           <WorkspaceTab
             active={!isManagement}
-            label="Analysis"
-            onClick={() => setWorkspace("analysis")}
+            label="分析工作台"
+            onClick={() => switchWorkspace("analysis")}
           />
         </div>
       )}
@@ -122,19 +136,19 @@ export function Sidebar() {
             display: "flex",
             justifyContent: "center",
             padding: "var(--spacing-sm) 0",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            borderBottom: "1px solid var(--separator)",
             flexShrink: 0,
           }}
         >
           <WorkspaceDot
             active={isManagement}
-            label="Management"
-            onClick={() => setWorkspace("management")}
+            label="数据管理"
+            onClick={() => switchWorkspace("management")}
           />
           <WorkspaceDot
             active={!isManagement}
-            label="Analysis"
-            onClick={() => setWorkspace("analysis")}
+            label="分析工作台"
+            onClick={() => switchWorkspace("analysis")}
           />
         </div>
       )}
@@ -143,29 +157,29 @@ export function Sidebar() {
       <div
         className={`${styles.header} ${sidebarCollapsed ? styles.headerCollapsed : ""}`}
         style={{
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          color: "rgba(255,255,255,0.7)",
+          borderBottom: "1px solid var(--separator)",
+          color: "var(--text-secondary)",
         }}
       >
         {!sidebarCollapsed && (
           <span
             className={styles.projectTitle}
-            style={{ color: "rgba(255,255,255,0.9)" }}
+            style={{ color: "var(--text-primary)" }}
           >
-            {isManagement ? "Data Management" : "Analysis Platform"}
+            {isManagement ? "数据管理" : "分析工作台"}
           </span>
         )}
         {sidebarCollapsed && (
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontWeight: 600 }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: "0.65rem", fontWeight: 600 }}>
             {isManagement ? "MG" : "AN"}
           </span>
         )}
         <button
           className={styles.toggleBtn}
           onClick={toggleSidebar}
-          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          style={{ color: "rgba(255,255,255,0.5)" }}
+          aria-label={sidebarCollapsed ? "展开导航" : "收起导航"}
+          title={sidebarCollapsed ? "展开导航" : "收起导航"}
+          style={{ color: "var(--text-secondary)" }}
         >
           {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
@@ -183,15 +197,15 @@ export function Sidebar() {
       </nav>
 
       {/* User / auth footer */}
-      <div
+      {user?.auth_mode !== "internal" && <div
         className={`${styles.footer} ${sidebarCollapsed ? styles.footerCollapsed : ""}`}
         style={{
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          borderTop: "1px solid var(--separator)",
           padding: sidebarCollapsed ? "var(--spacing-sm)" : "var(--spacing-md)",
         }}
       >
         {sidebarCollapsed ? (
-          <User size={18} style={{ color: "rgba(255,255,255,0.5)" }} />
+          <User size={18} style={{ color: "var(--text-secondary)" }} />
         ) : (
           <div
             style={{
@@ -202,17 +216,17 @@ export function Sidebar() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)" }}>
-              <User size={16} style={{ color: "rgba(255,255,255,0.6)" }} />
-              <span style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
-                Guest
+              <User size={16} style={{ color: "var(--text-secondary)" }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                {user?.username || "当前用户"}
               </span>
             </div>
             <button
-              title="Sign out"
+              title="退出登录"
               style={{
                 background: "none",
                 border: "none",
-                color: "rgba(255,255,255,0.4)",
+                color: "var(--text-secondary)",
                 cursor: "pointer",
                 padding: "2px",
                 borderRadius: "4px",
@@ -229,7 +243,7 @@ export function Sidebar() {
             </button>
           </div>
         )}
-      </div>
+      </div>}
     </aside>
   );
 }
@@ -253,8 +267,8 @@ function WorkspaceTab({
         padding: "6px 10px",
         borderRadius: "var(--radius-control)",
         border: "none",
-        background: active ? "rgba(255,255,255,0.12)" : "transparent",
-        color: active ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.45)",
+        background: active ? "var(--bg-inset)" : "transparent",
+        color: active ? "var(--accent)" : "var(--text-secondary)",
         fontSize: "0.75rem",
         fontWeight: active ? 600 : 400,
         cursor: "pointer",
@@ -285,7 +299,7 @@ function WorkspaceDot({
         height: "10px",
         borderRadius: "50%",
         border: "none",
-        background: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.25)",
+        background: active ? "var(--text-primary)" : "var(--separator)",
         cursor: "pointer",
         margin: "0 4px",
         transition: "background var(--duration-fast)",
@@ -304,7 +318,8 @@ function SidebarSectionView({
   collapsed: boolean;
 }) {
   const [open, setOpen] = useState(true);
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const projectQuery = new URLSearchParams(search).get("project");
   const Icon = section.icon;
 
   function handleHeaderClick() {
@@ -320,7 +335,7 @@ function SidebarSectionView({
         onClick={handleHeaderClick}
         aria-expanded={isOpen}
         title={collapsed ? section.label : undefined}
-        style={{ color: "rgba(255,255,255,0.5)" }}
+        style={{ color: "var(--text-secondary)" }}
       >
         {Icon && <Icon size={collapsed ? 18 : 14} />}
         {!collapsed && (
@@ -333,7 +348,7 @@ function SidebarSectionView({
                 transform: open ? "rotate(0deg)" : "rotate(-90deg)",
                 transition: "transform var(--duration-fast)",
                 flexShrink: 0,
-                color: "rgba(255,255,255,0.3)",
+                color: "var(--text-tertiary)",
               }}
             />
           </>
@@ -350,15 +365,16 @@ function SidebarSectionView({
           return (
             <Link
               key={item.key}
-              to={item.to}
+              to={item.to.startsWith("/analysis") && projectQuery ? `${item.to}?project=${encodeURIComponent(projectQuery)}` : item.to}
+              aria-current={isActive ? "page" : undefined}
               className={`${styles.navItem} ${collapsed ? styles.navItemCollapsed : ""} ${isActive ? styles.navItemActive : ""}`}
               title={collapsed ? item.label : undefined}
               style={{
                 color: isActive
                   ? "var(--accent)"
                   : collapsed
-                    ? "rgba(255,255,255,0.45)"
-                    : "rgba(255,255,255,0.65)",
+                    ? "var(--text-secondary)"
+                    : "var(--text-secondary)",
               }}
             >
               <item.icon size={collapsed ? 18 : 14} className={styles.navItemIcon} />

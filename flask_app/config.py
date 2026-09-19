@@ -43,7 +43,10 @@ class Config:
     UPLOAD_FOLDER = BASE_DIR / 'data' / 'uploads'
     RESULTS_FOLDER = BASE_DIR / 'data' / 'results'
     PDF_EXTRACTION_FOLDER = BASE_DIR / 'data' / 'pdf_extractions'
-    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max upload size
+    UPLOAD_MAX_MB = int(os.environ.get('UPLOAD_MAX_MB', '100'))
+    if UPLOAD_MAX_MB <= 0:
+        raise ValueError('UPLOAD_MAX_MB 必须为正整数')
+    MAX_CONTENT_LENGTH = UPLOAD_MAX_MB * 1024 * 1024
     
     # Allowed file extensions
     ALLOWED_EXTENSIONS = {'.csv', '.xlsx', '.csv.gz', '.pdf'}
@@ -105,7 +108,37 @@ class ProductionConfig(Config):
     @classmethod
     def init_app(cls, app):
         super().init_app(app)
-        # Additional production setup can go here
+        secret = os.environ.get('SECRET_KEY', '')
+        if len(secret) < 32:
+            raise RuntimeError('Production requires SECRET_KEY with at least 32 characters')
+        if not app.config.get('REQUIRE_LOGIN'):
+            raise RuntimeError('Production requires REQUIRE_LOGIN=true')
+        app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+
+
+class ContainerConfig(ProductionConfig):
+    """Local Docker HTTP preview; public HTTPS deployment uses production."""
+    @classmethod
+    def init_app(cls, app):
+        super().init_app(app)
+        app.config['SESSION_COOKIE_SECURE'] = False
+
+
+class InternalConfig(Config):
+    """Shared workspace for a controlled internal Docker deployment."""
+    INTERNAL_MODE = True
+    REQUIRE_LOGIN = False
+    LOGIN_DISABLED = True
+    AUTH_REGISTER_ENABLED = False
+
+    @classmethod
+    def init_app(cls, app):
+        super().init_app(app)
+        if len(os.environ.get('SECRET_KEY', '')) < 32:
+            raise RuntimeError('Internal deployment requires SECRET_KEY with at least 32 characters')
+        if not app.config.get('ALLOWED_BASE_PATHS'):
+            app.config['ALLOWED_BASE_PATHS'] = [str(cls.BASE_DIR / 'data'), str(cls.BASE_DIR.parent / 'tmp')]
+        app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
 
 
 class TestingConfig(Config):
@@ -121,6 +154,8 @@ class TestingConfig(Config):
 config = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
+    'container': ContainerConfig,
+    'internal': InternalConfig,
     'testing': TestingConfig,
     'default': DevelopmentConfig
 }

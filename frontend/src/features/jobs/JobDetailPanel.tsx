@@ -1,3 +1,5 @@
+import { statusLabels } from "../../shared/components/StatusBadge";
+import { analysisLabel } from "../../shared/utils/analysisLabels";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Activity, FileJson2, X, Package, Download, ExternalLink } from "lucide-react";
 import { getJobResults, type JobResultsResponse } from "../../shared/api/jobs";
@@ -28,7 +30,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
     setResultsState({ result: null, loading: true, error: "" });
     getJobResults(jobId)
       .then((r) => setResultsState({ result: r, loading: false, error: "" }))
-      .catch((err) => setResultsState({ result: null, loading: false, error: err.message || "Failed to load results" }));
+      .catch((err) => setResultsState({ result: null, loading: false, error: err.message || "读取结果失败" }));
   }, [jobId]);
 
   // Refresh on SSE event
@@ -71,7 +73,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)", minWidth: 0 }}>
           <FileJson2 size={18} color="var(--accent)" />
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Task</h3>
+            <h3 style={{ margin: 0, fontSize: "0.95rem" }}>任务</h3>
             <p style={{ margin: "2px 0 0", color: "var(--text-tertiary)", fontSize: "0.76rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {jobId}
             </p>
@@ -80,8 +82,8 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
         <button
           type="button"
           onClick={onClose}
-          title="Close job details"
-          aria-label="Close job details"
+          title="关闭任务详情"
+          aria-label="关闭任务详情"
           style={{
             width: "32px",
             height: "32px",
@@ -102,28 +104,28 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
       <div style={{ padding: "var(--spacing-lg)", display: "grid", gap: "var(--spacing-lg)" }}>
         {loading && (
           <div style={{ color: "var(--text-tertiary)", fontSize: "0.82rem" }}>
-            Loading latest job details...
+            正在读取最新任务详情…
           </div>
         )}
 
-        <div style={tabListStyle} role="tablist" aria-label="Task detail sections">
+        <div style={tabListStyle} role="tablist" aria-label="任务详情分区">
           <TabButton active={activeTab === "config"} onClick={() => setActiveTab("config")}>
             <FileJson2 size={14} />
-            Config
+            配置
           </TabButton>
           <TabButton active={activeTab === "progress"} onClick={() => setActiveTab("progress")}>
             <Activity size={14} />
-            Progress
+            进度
           </TabButton>
           <TabButton active={activeTab === "results"} onClick={() => setActiveTab("results")}>
             <Package size={14} />
-            Results
+            结果
           </TabButton>
         </div>
 
         {activeTab === "config" && (
           <div>
-            <div style={sectionLabelStyle}>Analysis Module Config</div>
+            <div style={sectionLabelStyle}>分析模块配置</div>
             {hasConfig ? (
             <pre
               style={{
@@ -153,7 +155,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                 fontSize: "0.82rem",
               }}
             >
-              No analysis module config recorded.
+              尚未记录分析模块配置。
             </div>
             )}
           </div>
@@ -164,9 +166,9 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
             <div style={{ display: "grid", gap: "var(--spacing-sm)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)" }}>
                 <div>
-                  <div style={sectionLabelStyle}>Task Progress</div>
+                  <div style={sectionLabelStyle}>任务进度</div>
                   <div style={{ color: "var(--text-tertiary)", fontSize: "0.76rem" }}>
-                    {job.stage || job.detail || "Waiting for updates"}
+                    {job.stage || job.detail || "等待更新"}
                   </div>
                 </div>
                 <StatusBadge status={job.status} />
@@ -184,14 +186,14 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                 gap: "var(--spacing-sm)",
               }}
             >
-              <DetailItem label="Module" value={job.module || "-"} />
-              <DetailItem label="Status" value={job.status || "-"} />
-              <DetailItem label="Stage" value={job.stage || "-"} />
-              <DetailItem label="Detail" value={job.detail || "-"} />
-              <DetailItem label="Created" value={formatDate(job.created_at)} />
-              <DetailItem label="Updated" value={formatDate(job.updated_at)} />
-              <DetailItem label="Started" value={formatDate(job.started_at)} />
-              <DetailItem label="Completed" value={formatDate(job.completed_at)} />
+              <DetailItem label="分析模块" value={analysisLabel(job.module)} />
+              <DetailItem label="状态" value={statusLabels[job.status] || "未知状态"} />
+              <DetailItem label="运行阶段" value={job.stage || "-"} />
+              <DetailItem label="详情" value={job.detail || "-"} />
+              <DetailItem label="创建时间" value={formatDate(job.created_at)} />
+              <DetailItem label="更新时间" value={formatDate(job.updated_at)} />
+              <DetailItem label="开始时间" value={formatDate(job.started_at)} />
+              <DetailItem label="已完成" value={formatDate(job.completed_at)} />
             </div>
 
             {job.error && (
@@ -213,7 +215,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
             )}
 
             <div style={{ display: "grid", gap: "var(--spacing-sm)" }}>
-              <div style={sectionLabelStyle}>Progress History</div>
+              <div style={sectionLabelStyle}>进度记录</div>
               {progressHistory.length > 0 ? (
                 <div style={{ display: "grid", gap: "8px" }}>
                   {progressHistory.map((entry, index) => (
@@ -260,7 +262,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                     fontSize: "0.82rem",
                   }}
                 >
-                  No progress history recorded.
+                  暂无进度记录。
                 </div>
               )}
             </div>
@@ -269,7 +271,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
 
         {activeTab === "results" && (
           <div style={{ display: "grid", gap: "var(--spacing-lg)" }}>
-            <div style={sectionLabelStyle}>Job Outputs</div>
+            <div style={sectionLabelStyle}>任务输出</div>
 
             {resultsState.loading ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
@@ -294,10 +296,10 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                        {resultsState.result.job.module || job.module || "Analysis Results"}
+                        {analysisLabel(resultsState.result.job.module || job.module)}
                       </div>
                       <div style={{ color: "var(--text-secondary)", fontSize: "0.78rem", marginTop: "3px" }}>
-                        {resultOutputs.length} output{resultOutputs.length !== 1 ? "s" : ""} available. Open the dedicated viewer to inspect figures and tables.
+                        {resultOutputs.length} 输出 可供查看，请打开报告查看图表和数据。
                       </div>
                     </div>
                     <StatusBadge status={resultsState.result.status} />
@@ -316,7 +318,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                       }}
                     >
                       <ExternalLink size={15} />
-                      Open Viewer
+                      查看报告
                     </a>
                     {zipOutputs.length > 0 ? (
                       zipOutputs.map((output, index) => (
@@ -327,10 +329,10 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                           rel="noreferrer"
                           download
                           style={secondaryLinkButtonStyle}
-                          title={output.label || "Download ZIP"}
+                          title={output.label || "下载 ZIP"}
                         >
                           <Download size={15} />
-                          {output.label || `Download ZIP ${index + 1}`}
+                          {output.label || `下载压缩包 ${index + 1}`}
                         </a>
                       ))
                     ) : (
@@ -342,7 +344,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                           rel="noreferrer"
                           download
                           style={secondaryLinkButtonStyle}
-                          title={output.label || "Download output"}
+                          title={output.label || "下载输出文件"}
                         >
                           <Download size={15} />
                           {output.label || `Download ${index + 1}`}
@@ -353,7 +355,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
                 </div>
                 {resultsState.result.assets && resultsState.result.assets.length > 0 && (
                   <div>
-                    <div style={sectionLabelStyle}>Registered Assets ({resultsState.result.assets.length})</div>
+                    <div style={sectionLabelStyle}>已登记数据（{resultsState.result.assets.length})</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
                       {resultsState.result.assets.map((a: any) => (
                         <a key={a.id} href={`/api/assets/${a.id}/download`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 12px", borderRadius: "var(--radius-pill)", border: "1px solid var(--separator)", fontSize: "0.78rem", color: "var(--accent)", textDecoration: "none" }}>
@@ -366,7 +368,7 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
               </>
             ) : (
               <div style={{ padding: "var(--spacing-lg)", borderRadius: "var(--radius-control)", background: "var(--bg-root)", color: "var(--text-tertiary)", fontSize: "0.82rem", textAlign: "center" }}>
-                {job.status === "running" || job.status === "queued" ? "Waiting for job to complete…" : "No results available."}
+                {job.status === "running" || job.status === "queued" ? "等待任务完成…" : "暂无结果。"}
               </div>
             )}
           </div>

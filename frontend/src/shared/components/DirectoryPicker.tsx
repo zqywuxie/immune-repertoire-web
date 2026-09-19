@@ -14,7 +14,7 @@ type Props = {
   title?: string;
 };
 
-export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = "Browse Directory" }: Props) {
+export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = "浏览目录" }: Props) {
   const [currentPath, setCurrentPath] = useState(initialPath || "");
   const [pathDraft, setPathDraft] = useState(initialPath || "");
   const [breadcrumb, setBreadcrumb] = useState<string[]>([]);
@@ -117,10 +117,10 @@ export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = 
             borderBottom: "1px solid var(--separator)",
             background: "var(--bg-root)",
           }}>
-            <button onClick={goToRoot} title="Root" style={navBtnStyle}>
+            <button onClick={goToRoot} title="根目录" style={navBtnStyle}>
               <Home size={14} />
             </button>
-            <button onClick={navigateUp} disabled={!parentPath && !currentPath} title="Up" style={navBtnStyle}>
+            <button onClick={navigateUp} disabled={!parentPath && !currentPath} title="上一级" style={navBtnStyle}>
               <ChevronRight size={14} style={{ transform: "rotate(-90deg)" }} />
             </button>
             <input
@@ -134,7 +134,7 @@ export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = 
                 }
               }}
               placeholder="/path/to/directory"
-              aria-label="Directory path"
+              aria-label="目录路径"
               style={{
               flex: 1, padding: "4px 8px", borderRadius: "6px",
               border: "1px solid var(--separator)",
@@ -144,10 +144,10 @@ export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = 
               outline: "none",
             }}
             />
-            <button onClick={commitTypedPath} title="Go to typed path" style={navBtnStyle}>
-              Go
+            <button onClick={commitTypedPath} title="打开输入的路径" style={navBtnStyle}>
+              前往
             </button>
-            <button onClick={() => dirsState.refetch?.()} title="Refresh" style={navBtnStyle}>
+            <button onClick={() => dirsState.refetch?.()} title="刷新" style={navBtnStyle}>
               <RefreshCw size={14} />
             </button>
           </div>
@@ -160,11 +160,11 @@ export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = 
               </div>
             ) : error ? (
               <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--danger)", fontSize: "0.85rem" }}>
-                Failed to load: {error}
+                读取失败： {error}
               </div>
             ) : items.length === 0 ? (
               <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--text-tertiary)", fontSize: "0.85rem" }}>
-                {currentPath ? "No subdirectories found." : "Select a directory root to browse."}
+                {currentPath ? "没有子目录。" : "请选择要浏览的根目录。"}
               </div>
             ) : (
               items.map((item) => (
@@ -201,14 +201,14 @@ export function DirectoryPicker({ open, onClose, onSelect, initialPath, title = 
             padding: "var(--spacing-md) var(--spacing-lg)",
             borderTop: "1px solid var(--separator)",
           }}>
-            <button onClick={onClose} className="btn btn-secondary" style={{ fontSize: "0.82rem" }}>Cancel</button>
+            <button onClick={onClose} className="btn btn-secondary" style={{ fontSize: "0.82rem" }}>取消</button>
             <button
               onClick={() => { onSelect(pathDraft.trim() || currentPath); onClose(); }}
               className="btn btn-primary"
               style={{ fontSize: "0.82rem" }}
               disabled={!(pathDraft.trim() || currentPath)}
             >
-              Select This Directory
+              选择此目录
             </button>
           </div>
         </div>

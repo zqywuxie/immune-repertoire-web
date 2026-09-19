@@ -12,11 +12,11 @@ interface StageIndicatorProps {
 }
 
 const DEFAULT_STEPS: StageIndicatorStep[] = [
-  { label: "Data", description: "Select sources" },
-  { label: "Inspect", description: "Review inputs" },
-  { label: "Config", description: "Set modules" },
-  { label: "Execute", description: "Run analysis" },
-  { label: "Results", description: "Open viewer" },
+  { label: "数据", description: "选择数据" },
+  { label: "检查", description: "核对输入" },
+  { label: "配置", description: "配置分析" },
+  { label: "运行", description: "运行分析" },
+  { label: "结果", description: "查看结果" },
 ];
 
 export function StageIndicator({
@@ -27,7 +27,7 @@ export function StageIndicator({
   return (
     <div
       role="list"
-      aria-label="Analysis stages"
+      aria-label="分析步骤"
       style={{
         display: "flex",
         alignItems: "flex-start",
@@ -97,7 +97,7 @@ export function StageIndicator({
                           border: "2px solid var(--separator)",
                         }),
                 }}
-                aria-label={`Step ${idx + 1}: ${
+                aria-label={`步骤 ${idx + 1}: ${
                   isCompleted ? "complete" : isActive ? "current" : "pending"
                 } — ${step.label}`}
               >

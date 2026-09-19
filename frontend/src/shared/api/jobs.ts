@@ -69,7 +69,7 @@ export function listJobs(params: { projectId?: string; status?: string; limit?: 
     project_id: params.projectId,
     status: params.status,
     limit: params.limit
-  });
+  }, { skipCache: true });
 }
 
 export function listJobModules() {
@@ -89,15 +89,22 @@ export function submitJob({ module, payload, projectId, forceRerun }: SubmitJobP
 }
 
 export function getJob(jobId: string) {
-  return apiClient.get<JobDetailResponse>(`/api/jobs/${jobId}`);
+  return apiClient.get<JobDetailResponse>(`/api/jobs/${jobId}`, undefined, { skipCache: true });
 }
 
 export function getJobResults(jobId: string) {
-  return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`);
+  return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`, undefined, { skipCache: true });
 }
 
 export function jobEventsUrl(jobId: string) {
   return `/api/jobs/${jobId}/events`;
+}
+
+export function retryJob(jobId: string) {
+  return apiClient.post<{success: boolean; job_id: string}>(`/api/jobs/${jobId}/retry`).then((response) => {
+    apiClient.invalidatePath("/api/jobs");
+    return response;
+  });
 }
 
 export function cancelJob(jobId: string) {
@@ -123,4 +130,21 @@ export function bulkDeleteJobs(jobIds: string[], params: { deleteResults?: boole
     apiClient.invalidatePath("/api/jobs");
     return response;
   });
+}
+
+
+export async function downloadResultArchive(items: Array<{ job_id: string; url: string }>) {
+  const response = await fetch("/api/jobs/results/archive", {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || "结果打包失败，请重试。");
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url; link.download = "分析结果.zip";
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

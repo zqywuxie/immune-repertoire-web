@@ -2,7 +2,7 @@
 
 > 最后更新：2026-06-29 | 当前阶段：Phase 3-5 并行推进中
 
-本文档对照 `docs/architecture/frontend-backend-separation-refactor.md` 的迁移路线，
+本文档对照 `docs/archive/architecture/frontend-backend-separation-refactor.md` 的迁移路线，
 追踪每个 Phase 的任务完成状态。完成状态标记：✅ 已完成 | 🔄 进行中 | ⬜ 未开始 | ❌ 已废弃
 
 ---
@@ -246,7 +246,7 @@ Overall  ████████████████████ 100%
 
 ## 关联文档
 
-- `docs/architecture/frontend-backend-separation-refactor.md` — 完整重构方案
+- `docs/archive/architecture/frontend-backend-separation-refactor.md` — 完整重构方案
 - `docs/architecture/domain-model.md` — 领域模型定义
 - `docs/api/openapi-draft.yaml` — API 契约草案
 - `docs/superpowers/plans/` — 各功能实现计划

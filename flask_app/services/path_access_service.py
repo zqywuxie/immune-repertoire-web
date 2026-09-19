@@ -68,6 +68,7 @@ class PathAccessService:
     @classmethod
     def validate_read_path(cls, path: str | os.PathLike, user=None) -> Path:
         resolved = cls._resolve_existing(path)
+        cls._assert_scope(resolved, user)
         cls._assert_readable(resolved)
         return resolved
 
@@ -76,12 +77,13 @@ class PathAccessService:
         target = Path(path).expanduser()
         parent = target if target.exists() and target.is_dir() else target.parent
         resolved_parent = cls._resolve_existing(parent)
+        cls._assert_scope(target.resolve(), user, write=True)
         cls._assert_writable(resolved_parent)
         return target.resolve() if target.exists() else target
 
     @classmethod
     def default_root(cls, user=None) -> Path:
-        candidates = [
+        candidates = cls.allowed_roots_for_user(user) if current_app.config.get("REQUIRE_LOGIN", True) or current_app.config.get("INTERNAL_MODE") else [
             Path.cwd(),
             Path.home(),
             Path(current_app.root_path).parent,
@@ -137,6 +139,10 @@ class PathAccessService:
                 continue
             try:
                 resolved_item = item.resolve()
+                try:
+                    cls._assert_scope(resolved_item, user)
+                except ValidationError:
+                    continue
                 if not cls._is_readable(resolved_item):
                     continue
                 is_dir = item.is_dir()
@@ -160,6 +166,11 @@ class PathAccessService:
                 continue
 
         parent = root.parent if root.parent != root and cls._is_readable(root.parent) else None
+        if parent is not None:
+            try:
+                cls._assert_scope(parent, user)
+            except ValidationError:
+                parent = None
         return {
             "current_path": str(root),
             "parent_path": str(parent) if parent else None,
@@ -167,6 +178,43 @@ class PathAccessService:
             "platform": platform.system(),
             "roots": [str(cls.default_root(user))],
         }
+
+    @classmethod
+    def _assert_scope(cls, resolved: Path, user=None, write=False) -> None:
+        if current_app.config.get('INTERNAL_MODE'):
+            if any(resolved == base or base in resolved.parents for base in cls.allowed_roots_for_user()):
+                return
+            raise ValidationError(message='请选择项目数据目录内的文件')
+        if not current_app.config.get('REQUIRE_LOGIN', True):
+            return
+        user = user or current_user
+        if not getattr(user, 'is_authenticated', False):
+            if current_app.config.get('TESTING'):
+                return
+            raise ValidationError(message='请先登录')
+        if any(resolved == base or base in resolved.parents for base in cls.allowed_roots_for_user(user)):
+            return
+        # Project directories and individually registered uploads remain usable
+        # without granting access to the common uploads directory.
+        from flask_app.models.database import File, Project, ProjectAsset
+        user_id = int(user.get_id())
+        projects = Project.query.filter_by(user_id=user_id).all()
+        projects_root = Path(current_app.root_path) / 'data' / 'projects'
+        for project in projects:
+            base = (projects_root / str(project.id)).resolve()
+            if resolved == base or base in resolved.parents:
+                return
+        if not write:
+            paths = [item.storage_path for item in File.query.filter_by(user_id=user_id).all()]
+            project_ids = [project.id for project in projects]
+            if project_ids:
+                paths.extend(item.storage_path for item in ProjectAsset.query.filter(ProjectAsset.project_id.in_(project_ids)).all())
+            if any(Path(path).resolve() == resolved for path in paths if path):
+                return
+            results = (Path(current_app.config.get('RESULTS_FOLDER', Path(current_app.root_path) / 'data' / 'results')) / str(user_id)).resolve()
+            if resolved == results or results in resolved.parents:
+                return
+        raise ValidationError(message='无权访问此文件或目录')
 
     @classmethod
     def _resolve_existing(cls, path: str | os.PathLike) -> Path:

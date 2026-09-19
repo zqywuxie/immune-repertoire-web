@@ -4,6 +4,176 @@
  */
 
 export interface paths {
+    "/api/jobs/results/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 打包下载所选任务结果
+         * @description 核对任务访问权和文件归属，任一文件不可读时返回错误，不生成缺文件的成功包。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        items: {
+                            job_id: string;
+                            /** @description 任务结果清单中的本地文件链接 */
+                            url: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 按任务分目录的压缩包，重复选择去重 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                /** @description 选择项或文件链接不正确 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 任务不存在或无权访问 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 文件缺失或不可读取 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 所选文件超过打包大小限制 */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/table-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 分页查看并筛选完整结果数据表
+         * @description 支持 UTF-8 CSV 与 TSV；保留字符串值，筛选全部记录后按偏移返回一页。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    job_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description 当前任务结果清单中的数据表链接 */
+                        url: string;
+                        /** @default 0 */
+                        offset?: number;
+                        /** @default 25 */
+                        limit?: number;
+                        /**
+                         * @description 所有单元格不区分大小写的文本包含筛选
+                         * @default
+                         */
+                        query?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 数据页与完整表及匹配记录计数 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            columns: string[];
+                            rows: string[][];
+                            total_rows: number;
+                            matched_rows: number;
+                            offset: number;
+                            limit: number;
+                        };
+                    };
+                };
+                /** @description 分页参数、文件链接或类型不正确 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 任务不存在或无权访问 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 文件缺失或不可读取 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 编码或表格格式无法解析 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/info": {
         parameters: {
             query?: never;
@@ -851,7 +1021,7 @@ export interface components {
             job_type: string;
             module: string;
             /** @enum {string} */
-            status: "queued" | "running" | "completed" | "failed" | "cancelled";
+            status: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
             progress: number;
             stage?: string | null;
             detail?: string | null;

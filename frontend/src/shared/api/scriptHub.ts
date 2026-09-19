@@ -1,12 +1,17 @@
+import type { InputQuality } from "../../features/scripthub/InputQualityPanel";
+import { analysisLabel } from "../utils/analysisLabels";
+import { analysisTools } from "../../features/analysis/tools";
 import { apiClient } from "./client";
 import type { JobModule, JobOutput, JobSummary } from "../types/domain";
 import type { JobResultsResponse, SubmitJobResponse } from "./jobs";
 
 export interface ScriptHubInspectRequest {
   project_id?: string;
+  asset_set?: string;
   pep_paths: string[];
   profile_path?: string;
   transcriptome_path?: string;
+  deconvolution_path?: string;
 }
 
 export interface ScriptHubPepPreview {
@@ -17,6 +22,7 @@ export interface ScriptHubPepPreview {
 }
 
 export interface ScriptHubInspectResponse {
+  input_quality?: InputQuality;
   success: boolean;
   pep_paths: string[];
   profile_path?: string;
@@ -25,6 +31,7 @@ export interface ScriptHubInspectResponse {
   registered_profile_paths?: string[];
   invalid_profile_paths?: string[];
   transcriptome_path?: string;
+  deconvolution_path?: string;
   registered_transcriptome_paths?: string[];
   invalid_transcriptome_paths?: string[];
   group_fields?: string[];
@@ -80,6 +87,10 @@ export function readScriptHubGroupValues(filePath: string, column: string) {
 
 export interface PepCacheCandidate {
   id: string;
+  artifact_id?: string;
+  asset_set?: string;
+  reason?: string;
+  source_task_name?: string;
   asset_id?: string;
   job_id?: string;
   source?: string;
@@ -105,10 +116,10 @@ export interface PepCacheCandidatesResponse {
   candidates: PepCacheCandidate[];
 }
 
-export function listPepCacheCandidates(projectId?: string, cacheType?: string) {
+export function listPepCacheCandidates(projectId?: string, cacheType?: string, assetSet?: string) {
   return apiClient.get<PepCacheCandidatesResponse>(
     "/api/script-hub/pep-cache-candidates",
-    { project_id: projectId, cache_type: cacheType },
+    { project_id: projectId, cache_type: cacheType, asset_set: assetSet },
     { skipCache: true },
   );
 }
@@ -123,7 +134,7 @@ export interface ScriptHubTaskStatusResponse {
   job_id: string;
   task_id: string;
   module?: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
   progress?: number;
   stage?: string;
   detail?: string;
@@ -194,7 +205,9 @@ export function listScriptHubModules() {
       ...response,
       modules: response.modules.map((module) => ({
         ...module,
-        category: "Script Hub",
+        label: analysisLabel(module.key),
+        description: module.key === "charts" ? "选择图表类型、样本和链，生成组库图表。" : module.key === "volcano" ? "比较表达矩阵或基因使用数据，查看差异结果。" : analysisTools.find(tool=>tool.module === module.key)?.description || "选择数据并配置此项分析。",
+        category: "组合分析",
         execution_mode: module.key === "charts" ? "job" as const : "script-hub-legacy" as const,
         ui_entry: MODULE_UI_ENTRIES[module.key] || module.ui_entry || "LegacyScriptHubForm",
         output_kinds: module.output_kinds || MODULE_OUTPUT_KINDS[module.key] || ["html", "zip"],
@@ -335,7 +348,11 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
   }
 
   if (module === "go-kegg-enrichment") {
-    normalized.expression_path = transcriptomePath || payload.expression_path || undefined;
+    if (payload.input_mode === "deg") {
+      delete normalized.expression_path;
+      delete normalized.transcriptome_path;
+      delete normalized.deg_directory;
+    } else normalized.expression_path = transcriptomePath || payload.expression_path || undefined;
   }
 
   if (module === "umapin") {
@@ -354,6 +371,10 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
     normalized.source_job_id = payload.source_job_id || undefined;
   }
 
+  if (payload.upstream_artifact_id) {
+    const field = module === "volcano" ? "data_dir" : module === "umapin" ? "data_path" : module === "ml-analysis" ? "usage_path" : module === "mait-nkt" ? "tra_path" : null;
+    if (field) delete normalized[field];
+  }
   return normalized;
 }
 
@@ -418,14 +439,14 @@ function scriptHubResultOutputs(result: Record<string, unknown>): JobOutput[] {
       const url = typeof raw.url === "string" ? raw.url.trim() : "";
       if (!url) return;
       structuredUrls.add(url);
-      const section = String(raw.section || raw.category || "PEP Result").trim();
+      const section = String(raw.section || raw.category || "克隆分析结果").trim();
       const step = String(raw.step || "").trim();
       const groupField = String(raw.group_field || raw.group || "").trim();
       const chain = String(raw.chain || "").trim();
       const usageType = String(raw.usage_type || "").trim();
       const plotType = String(raw.plot_type || "").trim();
       const labelParts = [
-        step ? `Step ${step}` : "",
+        step ? `步骤 ${step}` : "",
         groupField && groupField !== "Summary" ? groupField : "",
         chain,
         usageType && usageType !== "All" ? usageType : "",
@@ -434,17 +455,17 @@ function scriptHubResultOutputs(result: Record<string, unknown>): JobOutput[] {
       outputs.push({
         kind: String(raw.kind || kindFromUrl(url)).toLowerCase(),
         url,
-        label: String(raw.title || raw.label || labelParts.join(" · ") || `PEP Result ${index + 1}`),
-        module: "Pep Analysis",
+        label: String(raw.title || raw.label || labelParts.join(" · ") || `克隆分析结果 ${index + 1}`),
+        module: "克隆共享分析",
         category: section,
         download_url: typeof raw.download_url === "string" ? raw.download_url : null,
       });
     });
   };
 
-  add("html", result.viewer_url || result.report_url, "Interactive Report");
+  add("html", result.viewer_url || result.report_url, "交互报告");
   add("json", result.metadata_url, "Metadata");
-  add("zip", result.zip_url, "Result Bundle");
+  add("zip", result.zip_url, "结果文件包");
   addStructuredItems(result.viewer_items);
   if (!structuredUrls.size) addMany("png", result.png_urls, "Figure");
   else if (Array.isArray(result.png_urls)) {
@@ -455,9 +476,9 @@ function scriptHubResultOutputs(result: Record<string, unknown>): JobOutput[] {
     });
   }
   addMany("csv", result.csv_urls, "CSV");
-  addMany("csv", result.shared_matrix_urls, "Shared Matrix");
-  addMany("csv", result.usage_urls, "Usage Table");
-  addMany("csv", result.detail_urls, "Detail Table");
+  addMany("csv", result.shared_matrix_urls, "共享矩阵");
+  addMany("csv", result.usage_urls, "基因使用数据表");
+  addMany("csv", result.detail_urls, "明细表");
 
   return outputs.filter((output, index, arr) => (
     arr.findIndex((candidate) => candidate.url === output.url && candidate.kind === output.kind) === index
@@ -479,4 +500,12 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
+}
+
+
+export function submitAnalysisBatch(projectId: string, assetSet: string, taskName: string, items: Array<{module: string; payload: Record<string, unknown>; upstream_from?: number; depends_on?: number[]}>) {
+  return apiClient.post<SubmitJobResponse>("/api/script-hub/batches", {
+    project_id: projectId, asset_set: assetSet, task_name: taskName,
+    items: items.map(item => ({...item, module: item.module, payload: isLegacyScriptHubModule(item.module) ? normalizeLegacyScriptHubPayload(item.module, item.payload) : item.payload})),
+  });
 }

@@ -96,9 +96,11 @@ export class ApiClient {
 
     const promise = this.fetchAndCache<T>(fullPath, key, maxRetries);
     pendingRequests.set(key, promise);
-    const result = await promise;
-    pendingRequests.delete(key);
-    return result;
+    try {
+      return await promise;
+    } finally {
+      if (pendingRequests.get(key) === promise) pendingRequests.delete(key);
+    }
   }
 
   private async fetchAndCache<T>(fullPath: string, cacheKey: string, maxRetries: number): Promise<T> {

@@ -49,8 +49,8 @@ describe("Stage2SourceInspection", () => {
       />,
     );
 
-    expect(screen.getByText("Profile head5")).toBeInTheDocument();
-    expect(screen.getByText("PEP head5")).toBeInTheDocument();
+    expect(screen.getByText("样本指标表前 5 行")).toBeInTheDocument();
+    expect(screen.getByText("克隆序列表前 5 行")).toBeInTheDocument();
     expect(screen.getByText("Control")).toBeInTheDocument();
     expect(screen.getByText("CASSL")).toBeInTheDocument();
     expect(screen.queryByText("Profile Data Format")).not.toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -16,11 +16,15 @@ import { Stage1DataIntake } from "../../features/scripthub/stages/Stage1DataInta
 import { Stage2SourceInspection } from "../../features/scripthub/stages/Stage2SourceInspection";
 import { Stage3ModuleConfig } from "../../features/scripthub/stages/Stage3ModuleConfig";
 import { Stage4Execution } from "../../features/scripthub/stages/Stage4Execution";
+import { Stage6History } from "../../features/scripthub/stages/Stage6History";
 import { Stage5Results } from "../../features/scripthub/stages/Stage5Results";
 import type { InspectionResult } from "../../features/scripthub/stages/Stage2SourceInspection";
 import type { TablePreview } from "../../features/scripthub/stages/Stage2SourceInspection";
 import type { JobResultsResponse } from "../../shared/api/jobs";
 import { hasAnySelectableModule, isModuleSelectable } from "../../features/scripthub/moduleRequirements";
+
+import type { AnalysisTool } from "../../features/analysis/tools";
+import { useAnalysisData } from "../../features/analysis/AnalysisDataContext";
 
 /* ── Wizard State ── */
 interface WizardState {
@@ -30,6 +34,7 @@ interface WizardState {
   pepPaths: string[];
   profilePath: string;
   transcriptomePath: string;
+  deconvolutionPath?: string;
   inspection: InspectionResult | null;
   selectedModules: string[];
   moduleConfigs: Record<string, Record<string, unknown>>;
@@ -44,6 +49,7 @@ const INITIAL_STATE: WizardState = {
   pepPaths: [],
   profilePath: "",
   transcriptomePath: "",
+  deconvolutionPath: "",
   inspection: null,
   selectedModules: [],
   moduleConfigs: {},
@@ -52,25 +58,42 @@ const INITIAL_STATE: WizardState = {
 };
 
 const WIZARD_STEPS = [
-  "Data Intake",
-  "Source Inspection",
-  "Module Config",
-  "Execution",
-  "Results",
+  "上传与选择数据",
+  "检查数据",
+  "选择分析与分组",
+  "运行分析",
+  "查看结果",
 ];
 
-export function ScriptHubWizard() {
-  const [searchParams] = useSearchParams();
-  const initialProjectId = searchParams.get("project") || searchParams.get("project_id") || "";
-  const [wizard, setWizard] = useState<WizardState>({ ...INITIAL_STATE, projectId: initialProjectId });
+export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
+  const {data:sharedData,setData:shareData}=useAnalysisData();
+  const fixedModule=tool?.module;
+  const initialModules=fixedModule ? [fixedModule] : [];
+  const [searchParams,setSearchParams] = useSearchParams();
+  const linkedArtifact = searchParams.get("upstream_artifact") || "";
+  const linkedConfig = linkedArtifact ? {
+    upstream_artifact_id: linkedArtifact,
+    ...(fixedModule === "ml-analysis" ? {mode: "vj"} : {}),
+    ...(fixedModule === "mait-nkt" ? {tra_source: "pep_analysis"} : {}),
+  } : {};
+  const initialConfigs=fixedModule ? {[fixedModule]: {...linkedConfig, ...tool?.preset}} : {};
+  const initialProjectId = searchParams.get("project") || searchParams.get("project_id") || sharedData?.projectId || "";
+  const requestedAssetSet = searchParams.get("asset_set") || "";
+  const sharedContextMatches = sharedData?.projectId === initialProjectId && (!requestedAssetSet || sharedData.assetSetName === requestedAssetSet);
+  const [wizard, setWizard] = useState<WizardState>({ ...INITIAL_STATE, ...(sharedContextMatches ? sharedData : {}), projectId: initialProjectId, assetSetName:requestedAssetSet || (sharedContextMatches ? sharedData.assetSetName : ""), selectedModules:initialModules, moduleConfigs:initialConfigs });
   const [inspectionError, setInspectionError] = useState<string | null>(null);
+  const [batchStatuses, setBatchStatuses] = useState<string[]>([]);
+  const [running, setRunning] = useState(false);
+  const [showHistory, setShowHistory] = useState(Boolean(searchParams.get("job")));
+  const inspectionVersion = useRef(0);
+  useEffect(() => () => { inspectionVersion.current += 1; }, []);
 
   // Load legacy Script Hub modules from the Flask single-machine module catalog.
   const modulesState = useApi(() => listScriptHubModules(), []);
-  const availableModules = modulesState.status === "ready" ? modulesState.data.modules : [];
+  const availableModules = modulesState.status === "ready" ? modulesState.data.modules.filter(module=>!fixedModule || module.key===fixedModule) : [];
 
   const completedSteps: number[] = [];
-  if (wizard.pepPaths.length > 0 || wizard.profilePath || wizard.transcriptomePath)
+  if (wizard.pepPaths.length > 0 || wizard.profilePath || wizard.transcriptomePath || wizard.deconvolutionPath)
     completedSteps.push(0);
   if (wizard.inspection) completedSteps.push(1);
   if (wizard.selectedModules.length) completedSteps.push(2);
@@ -92,7 +115,12 @@ export function ScriptHubWizard() {
 
   /* ── Stage callbacks ── */
   const handleDataUpdate = useCallback(
-    (data: { projectId: string; assetSetName: string; pepPaths: string[]; profilePath: string; transcriptomePath: string }) => {
+    (data: { projectId: string; assetSetName: string; pepPaths: string[]; profilePath: string; transcriptomePath: string; deconvolutionPath?: string }) => {
+      setBatchStatuses([]);
+      inspectionVersion.current += 1;
+      const sameLinkedDataset = data.projectId === initialProjectId && data.assetSetName === searchParams.get("asset_set");
+      shareData(data);
+      setSearchParams(previous=>{const next=new URLSearchParams(previous);next.set("project",data.projectId);if(data.assetSetName) next.set("asset_set",data.assetSetName); else next.delete("asset_set");next.delete("job");next.delete("batch");if (!sameLinkedDataset) next.delete("upstream_artifact");return next;},{replace:true});
       setWizard((prev) => ({
         ...prev,
         projectId: data.projectId,
@@ -100,27 +128,44 @@ export function ScriptHubWizard() {
         pepPaths: data.pepPaths,
         profilePath: data.profilePath,
         transcriptomePath: data.transcriptomePath,
+        deconvolutionPath: data.deconvolutionPath || "",
         inspection: null,
-        selectedModules: [],
-        moduleConfigs: {},
+        selectedModules: initialModules,
+        moduleConfigs: sameLinkedDataset ? initialConfigs : (fixedModule ? {[fixedModule]: {...tool?.preset}} : {}),
         jobIds: [],
         resultsByJobId: {},
       }));
       setInspectionError(null);
     },
-    [],
+    [fixedModule,tool,shareData,setSearchParams,linkedArtifact,initialProjectId,searchParams],
   );
 
-  const handleInspect = useCallback(async () => {
+  const handleInspect = useCallback(async (mappingChanged = false) => {
+    if (mappingChanged) {
+      setWizard(previous => ({...previous, inspection: null,
+        moduleConfigs: fixedModule ? {[fixedModule]: {...tool?.preset}} : {},
+        jobIds: [], resultsByJobId: {},
+      }));
+      setBatchStatuses([]);
+      setSearchParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.delete("upstream_artifact"); next.delete("job"); next.delete("batch");
+        return next;
+      }, {replace: true});
+    }
+    const version = ++inspectionVersion.current;
     setInspectionError(null);
     try {
       const data = await inspectScriptHubDataSelection({
         project_id: wizard.projectId || undefined,
+        asset_set: wizard.assetSetName || undefined,
         pep_paths: wizard.pepPaths,
         profile_path: wizard.profilePath || undefined,
         transcriptome_path: wizard.transcriptomePath || undefined,
+        deconvolution_path: wizard.deconvolutionPath || undefined,
       });
 
+      if (version !== inspectionVersion.current) return;
       const chains = Array.isArray(data.chains) ? data.chains : [];
       const sampleNames = Array.isArray(data.samples) ? data.samples.map(String).filter(Boolean) : [];
       const profileColumns = Array.isArray(data.profile_columns) ? data.profile_columns : [];
@@ -137,6 +182,7 @@ export function ScriptHubWizard() {
         resolvedProfilePath ? readScriptHubTablePreview(resolvedProfilePath) : Promise.resolve(null),
         resolvedPepPreviewPath ? readScriptHubTablePreview(resolvedPepPreviewPath) : Promise.resolve(null),
       ]);
+      if (version !== inspectionVersion.current) return;
       const profilePreview = profilePreviewResult.status === "fulfilled"
         ? tablePreviewFromResponse(profilePreviewResult.value)
         : undefined;
@@ -145,13 +191,14 @@ export function ScriptHubWizard() {
         : undefined;
 
       if (profilePreviewResult.status === "rejected") {
-        previewWarnings.push(`Profile preview failed: ${profilePreviewResult.reason instanceof Error ? profilePreviewResult.reason.message : "unable to read table"}`);
+        previewWarnings.push(`Profile 预览失败： ${profilePreviewResult.reason instanceof Error ? profilePreviewResult.reason.message : "无法读取数据表"}`);
       }
       if (pepPreviewResult.status === "rejected") {
-        previewWarnings.push(`PEP preview failed: ${pepPreviewResult.reason instanceof Error ? pepPreviewResult.reason.message : "unable to read table"}`);
+        previewWarnings.push(`PEP 预览失败： ${pepPreviewResult.reason instanceof Error ? pepPreviewResult.reason.message : "无法读取数据表"}`);
       }
 
       const inspection: InspectionResult = {
+        inputQuality: data.input_quality,
         samples: Number(data.sample_count || 0),
         sampleNames,
         chains: Number(data.chain_count ?? chains.length),
@@ -159,6 +206,7 @@ export function ScriptHubWizard() {
         pepFiles: Number(data.pep_file_count || 0),
         profileLoaded: Boolean(data.profile_path || profileColumns.length > 0),
         transcriptomeLoaded: Boolean(data.transcriptome_path || wizard.transcriptomePath),
+        deconvolutionLoaded: Boolean(data.deconvolution_path),
         warnings: Array.isArray(data.warnings) ? data.warnings : [],
         profileFields: profileColumns,
         groupFields,
@@ -174,50 +222,55 @@ export function ScriptHubWizard() {
         pepPaths: data.pep_paths?.length ? data.pep_paths : prev.pepPaths,
         profilePath: resolvedProfilePath || prev.profilePath,
         transcriptomePath: data.transcriptome_path || prev.transcriptomePath,
+        deconvolutionPath: data.deconvolution_path || prev.deconvolutionPath,
         inspection,
       }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Source inspection failed";
+      if (version !== inspectionVersion.current) return;
+      const message = err instanceof Error ? err.message : "数据检查失败";
       setInspectionError(message);
+      if (mappingChanged) throw err;
     }
-  }, [wizard.projectId, wizard.pepPaths, wizard.profilePath, wizard.transcriptomePath]);
+  }, [wizard.projectId, wizard.assetSetName, wizard.pepPaths, wizard.profilePath, wizard.transcriptomePath, wizard.deconvolutionPath, fixedModule, tool, setSearchParams]);
 
   const handleModuleUpdate = useCallback(
     (selectedModules: string[], moduleConfigs: Record<string, Record<string, unknown>>) => {
       setWizard((prev) => ({
         ...prev,
-        selectedModules,
-        moduleConfigs,
+        selectedModules: fixedModule ? [fixedModule] : selectedModules,
+        moduleConfigs: fixedModule ? {[fixedModule]: {...moduleConfigs[fixedModule],...tool?.preset}} : moduleConfigs,
         jobIds: [],
         resultsByJobId: {},
       }));
     },
-    [],
+    [fixedModule,tool,shareData,setSearchParams,linkedArtifact,initialProjectId,searchParams],
   );
 
   const handleJobsCreated = useCallback((jobIds: string[]) => {
     setWizard((prev) => ({ ...prev, jobIds }));
-  }, []);
+    setSearchParams(previous=>{const next=new URLSearchParams(previous);if(jobIds[0] && !next.has("batch")) next.set("job",jobIds[0]);next.set("project",wizard.projectId);return next;},{replace:true});
+  }, [setSearchParams,wizard.projectId]);
 
   const handleComplete = useCallback((resultsByJobId: Record<string, JobResultsResponse>) => {
     setWizard((prev) => ({ ...prev, resultsByJobId }));
   }, []);
 
   const handleReset = useCallback(() => {
+    setBatchStatuses([]);
+    inspectionVersion.current += 1;
+    setInspectionError(null);
+    setSearchParams(previous=>{const next=new URLSearchParams(previous);next.delete("job");next.delete("batch");next.delete("upstream_artifact");return next;},{replace:true});
     setWizard((prev) => ({
         ...prev,
         stage: 1,
-        assetSetName: "",
-        pepPaths: [],
-        profilePath: "",
-        transcriptomePath: "",
+
         inspection: null,
-      selectedModules: [],
-      moduleConfigs: {},
+      selectedModules: initialModules,
+      moduleConfigs: fixedModule ? {[fixedModule]: {...tool?.preset}} : {},
       jobIds: [],
       resultsByJobId: {},
     }));
-  }, []);
+  }, [fixedModule,tool,setSearchParams]);
 
   const sourceContext = wizard.inspection
     ? {
@@ -226,6 +279,7 @@ export function ScriptHubWizard() {
         profilePath: wizard.profilePath,
         pepPaths: wizard.pepPaths,
         transcriptomePath: wizard.transcriptomePath,
+        deconvolutionPath: wizard.deconvolutionPath,
         chains: wizard.inspection.chainLabels,
         sampleNames: wizard.inspection.sampleNames,
         profileFields: wizard.inspection.profileFields,
@@ -236,34 +290,37 @@ export function ScriptHubWizard() {
       }
     : undefined;
 
+  const presetInputReady = !tool?.preset?.input_mode || (tool.preset.input_mode === "expression" ? !!wizard.transcriptomePath : wizard.pepPaths.length > 0);
+
   /* ── Validation ── */
   const canProceed = () => {
     const s = wizard.stage;
     if (s === 1)
       return (
         wizard.projectId &&
-        (wizard.pepPaths.length > 0 || !!wizard.profilePath || !!wizard.transcriptomePath)
+        (wizard.pepPaths.length > 0 || !!wizard.profilePath || !!wizard.transcriptomePath || !!wizard.deconvolutionPath)
       );
-    if (s === 2) return !!wizard.inspection && hasAnySelectableModule(availableModules, sourceContext);
+    if (s === 2) return !!wizard.inspection && !wizard.inspection.inputQuality?.errors.length && presetInputReady && hasAnySelectableModule(availableModules, sourceContext);
     if (s === 3) {
-      return wizard.selectedModules.length > 0 && wizard.selectedModules.every((key) => {
+      return presetInputReady && wizard.selectedModules.length > 0 && wizard.selectedModules.every((key) => {
         const selected = availableModules.find((module) => module.key === key);
         return isModuleSelectable(selected, sourceContext);
       });
     }
-    if (s === 4) return wizard.jobIds.length > 0;
+    if (s === 4) return !running && wizard.jobIds.length > 0 && wizard.jobIds.every((id) => Boolean(wizard.resultsByJobId[id]));
     if (s === 5) return Object.keys(wizard.resultsByJobId).length > 0;
     return true; // stage 6 always can proceed (it's the end)
   };
 
   const stageGateMessage = (() => {
     if (wizard.stage !== 2 || !wizard.inspection) return "";
-    if (hasAnySelectableModule(availableModules, sourceContext)) return "";
-    return "No analysis module can run with the current asset set. Please add PEP, Profile, or Transcriptome data before entering module configuration.";
+    if (wizard.inspection.inputQuality?.errors.length) return "请先修正上方输入问题，再重新检查数据。";
+    if (presetInputReady && hasAnySelectableModule(availableModules, sourceContext)) return "";
+    return tool ? `当前数据尚不满足「${tool.title}」的输入要求，或运行环境未启用。所需输入：${tool.input}。` : "当前数据集尚不满足任何分析模块的输入要求，请返回补充 PEP、Profile 或转录组数据。";
   })();
 
   /* ── Build stepper steps ── */
-  const stepperSteps: StepDef[] = WIZARD_STEPS.map((label) => ({ label }));
+  const stepperSteps: StepDef[] = WIZARD_STEPS.map((label,index) => ({ label:tool && index===2 ? "配置参数与分组" : label }));
 
   const isFirstStage = wizard.stage === 1;
   const isLastStage = wizard.stage === 5;
@@ -281,8 +338,8 @@ export function ScriptHubWizard() {
       }}
     >
       <PageHeader
-        title="Script Hub Wizard"
-        subtitle={`Stage ${wizard.stage} of ${WIZARD_STEPS.length} — ${WIZARD_STEPS[wizard.stage - 1]}`}
+        title={tool?.title || "组合分析"}
+        subtitle={tool ? `${tool.description} 所需输入：${tool.input}` : `第 ${wizard.stage} / ${WIZARD_STEPS.length} 步 · ${WIZARD_STEPS[wizard.stage - 1]}`}
       >
         <span
           style={{
@@ -293,30 +350,42 @@ export function ScriptHubWizard() {
             borderRadius: "var(--radius-pill)",
           }}
         >
-          Project: {wizard.projectId ? wizard.projectId.slice(0, 8) : "none"}
+          当前数据集：{wizard.assetSetName || "尚未选择"}
         </span>
+        <button className="btn btn-secondary" onClick={() => setShowHistory(value => !value)}>
+          {showHistory ? "返回当前分析" : "查看分析历史"}
+        </button>
+        <a className="btn btn-secondary" href="/guide" target="_blank" rel="noreferrer">使用指南与示例数据</a>
       </PageHeader>
 
+      {showHistory && <Stage6History moduleFilter={fixedModule === "charts" ? "charts.combined" : fixedModule} initialJobId={searchParams.get("job") || undefined} projectId={wizard.projectId} onSelectResult={() => { handleReset(); setShowHistory(false); }} />}
+      <div hidden={showHistory} style={{ display: showHistory ? "none" : "grid", gridTemplateColumns: "minmax(0, 1fr)", minWidth: 0, gap: "var(--spacing-2xl)" }}>
+      {modulesState.status === "error" && <p role="alert">分析目录读取失败：{modulesState.error}<button className="btn btn-secondary" onClick={modulesState.refetch}>重新读取</button></p>}
       {/* Stepper */}
       <Stepper steps={stepperSteps} currentStep={wizard.stage - 1} />
 
       {/* Stage Content */}
-      <div style={{ minHeight: "400px" }}>
-        {wizard.stage === 1 && (
+      <div style={{ minHeight: "400px", minWidth: 0 }}>
+        {wizard.stage === 1 && !showHistory && (
           <Stage1DataIntake
+            assetSetName={wizard.assetSetName}
             projectId={wizard.projectId}
             pepPaths={wizard.pepPaths}
             profilePath={wizard.profilePath}
             transcriptomePath={wizard.transcriptomePath}
+            deconvolutionPath={wizard.deconvolutionPath}
             onUpdate={handleDataUpdate}
           />
         )}
 
         {wizard.stage === 2 && (
           <Stage2SourceInspection
+            projectId={wizard.projectId}
+            assetSet={wizard.assetSetName}
             pepPaths={wizard.pepPaths}
             profilePath={wizard.profilePath}
             transcriptomePath={wizard.transcriptomePath}
+            deconvolutionPath={wizard.deconvolutionPath}
             inspection={wizard.inspection}
             inspectionError={inspectionError}
             onInspect={handleInspect}
@@ -325,6 +394,8 @@ export function ScriptHubWizard() {
 
         {wizard.stage === 3 && (
           <Stage3ModuleConfig
+            fixedModule={fixedModule}
+            fixedParameters={tool?.preset}
             modules={availableModules}
             projectId={wizard.projectId}
             selectedModules={wizard.selectedModules}
@@ -336,6 +407,8 @@ export function ScriptHubWizard() {
 
         {wizard.stage === 4 && (
           <Stage4Execution
+            onBatchStatuses={setBatchStatuses}
+            onBatchCreated={jobId => setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("batch", jobId); next.set("job", jobId); return next; }, {replace: true})}
             projectId={wizard.projectId}
             modules={wizard.selectedModules}
             baseConfig={{
@@ -346,16 +419,20 @@ export function ScriptHubWizard() {
               pep_paths: wizard.pepPaths,
               profile_path: wizard.profilePath,
               transcriptome_path: wizard.transcriptomePath,
+              deconvolution_path: wizard.deconvolutionPath,
             }}
             moduleConfigs={wizard.moduleConfigs}
             jobIds={wizard.jobIds}
             onJobsCreated={handleJobsCreated}
             onComplete={handleComplete}
+            onRunningChange={setRunning}
           />
         )}
 
         {wizard.stage === 5 && (
           <Stage5Results
+            batchStatuses={batchStatuses}
+            expectedCount={wizard.selectedModules.length}
             jobIds={wizard.jobIds}
             resultsByJobId={wizard.resultsByJobId}
             onReset={handleReset}
@@ -389,7 +466,7 @@ export function ScriptHubWizard() {
       >
         <button
           onClick={handleBack}
-          disabled={isFirstStage}
+          disabled={isFirstStage || running}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -406,7 +483,7 @@ export function ScriptHubWizard() {
           }}
         >
           <ArrowLeft size={16} />
-          Back
+          上一步
         </button>
 
         {!isLastStage && (
@@ -427,7 +504,7 @@ export function ScriptHubWizard() {
               cursor: canProceed() ? "pointer" : "not-allowed",
             }}
           >
-            Next
+            {wizard.stage === 4 ? "查看结果" : "下一步"}
             <ArrowRight size={16} />
           </button>
         )}
@@ -450,9 +527,10 @@ export function ScriptHubWizard() {
             }}
           >
             <FlaskConical size={16} />
-            Start New Analysis
+            开始新的分析
           </button>
         )}
+      </div>
       </div>
     </div>
   );

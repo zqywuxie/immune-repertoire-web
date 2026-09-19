@@ -8,6 +8,7 @@ import { AuthProvider } from "../shared/context/AuthContext";
 import { ToastProvider } from "../shared/hooks/useToast";
 import { ProtectedRoute } from "../shared/components/ProtectedRoute";
 import "./App.css";
+import { AnalysisDataProvider } from "../features/analysis/AnalysisDataContext";
 
 // ── Lazy-loaded pages ──────────────────────────────────────────────────
 
@@ -19,11 +20,15 @@ const SampleRegistry = lazy(() => import("../pages/management/SampleRegistry").t
 
 // Analysis workspace
 const UnifiedAnalysis = lazy(() => import("../pages/analysis/UnifiedAnalysis").then(m => ({ default: m.UnifiedAnalysis })));
+const GettingStarted = lazy(() => import("../pages/public/GettingStarted").then(m => ({ default: m.GettingStarted })));
 const ScriptHubWizard = lazy(() => import("../pages/analysis/ScriptHubWizard").then(m => ({ default: m.ScriptHubWizard })));
 const JobMonitor = lazy(() => import("../pages/analysis/JobMonitor").then(m => ({ default: m.JobMonitor })));
 const StatisticalComparison = lazy(() => import("../pages/analysis/StatisticalComparison").then(m => ({ default: m.StatisticalComparison })));
 const PdfExtractor = lazy(() => import("../pages/analysis/PdfExtractor").then(m => ({ default: m.PdfExtractor })));
 const PptTools = lazy(() => import("../pages/analysis/PptTools").then(m => ({ default: m.PptTools })));
+
+const AnalysisCenter = lazy(() => import("../pages/analysis/AnalysisCenter").then(m => ({ default: m.AnalysisCenter })));
+const AnalysisToolPage = lazy(() => import("../pages/analysis/AnalysisToolPage").then(m => ({ default: m.AnalysisToolPage })));
 
 // Auth & shared
 const Login = lazy(() => import("../pages/auth/Login").then(m => ({ default: m.Login })));
@@ -65,6 +70,8 @@ export function App() {
       <WorkspaceProvider>
         <ToastProvider>
           <Routes>
+            <Route path="/" element={<Suspense fallback={<PageLoader />}><Navigate to="/management" replace /></Suspense>} />
+            <Route path="/guide" element={<Suspense fallback={<PageLoader />}><GettingStarted /></Suspense>} />
             {/* Login — outside shell */}
             <Route path="/login" element={
               <Suspense fallback={<PageLoader />}>
@@ -72,10 +79,12 @@ export function App() {
               </Suspense>
             } />
 
+            <Route path="/register" element={<Navigate to="/login" replace />} />
+
             {/* Shell layout — wraps all workspace pages */}
-            <Route element={<ProtectedRoute><Shell /></ProtectedRoute>}>
+            <Route element={<ProtectedRoute allowUnauthenticated={false}><AnalysisDataProvider><Shell /></AnalysisDataProvider></ProtectedRoute>}>
               {/* Root redirect */}
-              <Route index element={<Navigate to="/management" replace />} />
+
 
               {/* ── Management workspace ── */}
               <Route path="management">
@@ -89,6 +98,8 @@ export function App() {
               {/* ── Analysis workspace ── */}
               <Route path="analysis">
                 <Route index element={<UnifiedAnalysis />} />
+                <Route path="center" element={<AnalysisCenter />} />
+                <Route path="tools/:toolId" element={<AnalysisToolPage />} />
                 <Route path="script-hub" element={<ScriptHubWizard />} />
                 <Route path="script-hub/jobs" element={<JobMonitor />} />
                 <Route path="statistical" element={<StatisticalComparison />} />
@@ -130,9 +141,9 @@ function NotFound() {
       >
         404
       </div>
-      <h2 style={{ margin: 0 }}>Page not found</h2>
+      <h2 style={{ margin: 0 }}>页面不存在</h2>
       <p style={{ color: "var(--text-secondary)", maxWidth: "360px" }}>
-        The page you're looking for doesn't exist or has been moved.
+        您访问的页面不存在或已移动。
       </p>
       <a
         href="/management"
@@ -145,7 +156,7 @@ function NotFound() {
           textDecoration: "none",
         }}
       >
-        Go to Dashboard
+        返回工作台
       </a>
     </div>
   );

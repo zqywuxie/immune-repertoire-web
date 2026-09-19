@@ -45,7 +45,9 @@ class GoKeggEnrichmentService:
     def generate_report(
         self,
         *,
-        expression_path: str,
+        expression_path: str = "",
+        deg_directory: Optional[str] = None,
+        differential_metadata: Optional[Dict[str, Any]] = None,
         group_prefix: str = "tpm_",
         comparisons: Optional[Sequence[Sequence[str]]] = None,
         pvalue_threshold: float = 0.05,
@@ -59,7 +61,7 @@ class GoKeggEnrichmentService:
         progress_callback=None,
     ) -> GoKeggEnrichmentReport:
         expression_file = Path(expression_path)
-        if not expression_file.exists() or not expression_file.is_file():
+        if not deg_directory and (not expression_file.exists() or not expression_file.is_file()):
             raise FileNotFoundError(f"Expression matrix not found: {expression_path}")
 
         rscript = shutil.which("Rscript")
@@ -71,22 +73,34 @@ class GoKeggEnrichmentService:
         output_base = self.output_parent / job_id
         output_base.mkdir(parents=True, exist_ok=True)
 
-        if progress_callback:
-            progress_callback(5, "GO/KEGG", "生成差异表达和火山图")
+        if deg_directory:
+            from flask_app.services.path_access_service import PathAccessService
+            source_root = PathAccessService.validate_read_path(deg_directory)
+            copied = self._copy_deg_inputs(source_root, output_base / "DEG", do_gsea=do_gsea)
+            source_metadata = dict(differential_metadata or {})
+            source_metadata.update(input_mode="deg", reused_differential_results=True,
+                                   source_deg_directory=str(source_root), source_deg_files=copied)
+            if progress_callback:
+                progress_callback(30, "GO/KEGG", "已复用差异表达结果，保留上游筛选标记与统计值")
+        else:
+            if progress_callback:
+                progress_callback(5, "GO/KEGG", "生成差异表达和火山图")
 
-        volcano_report = VolcanoService(output_parent=self.output_parent).generate_expression_report(
-            expression_path=str(expression_file),
-            group_prefix=group_prefix,
-            comparisons=comparisons,
-            pvalue_threshold=pvalue_threshold,
-            logfc_cutoff=logfc_cutoff,
-            output_base=output_base,
-            job_id=job_id,
-            progress_callback=lambda progress, stage, detail, meta=None: (
-                progress_callback(5 + float(progress or 0) * 0.25, stage, detail, meta)
-                if progress_callback else None
-            ),
-        )
+            volcano_report = VolcanoService(output_parent=self.output_parent).generate_expression_report(
+                expression_path=str(expression_file),
+                group_prefix=group_prefix,
+                comparisons=comparisons,
+                pvalue_threshold=pvalue_threshold,
+                logfc_cutoff=logfc_cutoff,
+                output_base=output_base,
+                job_id=job_id,
+                progress_callback=lambda progress, stage, detail, meta=None: (
+                    progress_callback(5 + float(progress or 0) * 0.25, stage, detail, meta)
+                    if progress_callback else None
+                ),
+            )
+
+            source_metadata = volcano_report.metadata
 
         if progress_callback:
             progress_callback(34, "GO/KEGG", "准备 clusterProfiler 脚本")
@@ -133,13 +147,9 @@ class GoKeggEnrichmentService:
         csv_paths = [str(path) for path in sorted(output_base.rglob("*.csv"))]
 
         zip_path = output_base / "go_kegg_enrichment_results.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for path in sorted(output_base.rglob("*")):
-                if path.is_file() and path.name != zip_path.name:
-                    zf.write(path, path.relative_to(output_base).as_posix())
 
         metadata = {
-            **volcano_report.metadata,
+            **source_metadata,
             "job_id": job_id,
             "module": "go-kegg-enrichment",
             "generated_at": datetime.now().isoformat(),
@@ -157,6 +167,11 @@ class GoKeggEnrichmentService:
         (output_base / "go_kegg_enrichment_metadata.json").write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(output_base.rglob("*")):
+                if path.is_file() and path.name != zip_path.name:
+                    zf.write(path, path.relative_to(output_base).as_posix())
+
         if progress_callback:
             progress_callback(100, "GO/KEGG", f"完成 {len(csv_paths)} 个表格，{len(png_paths)} 张图")
 
@@ -170,6 +185,31 @@ class GoKeggEnrichmentService:
             log_path=str(log_path),
             metadata=metadata,
         )
+
+    @staticmethod
+    def _copy_deg_inputs(source_root: Path, destination: Path, *, do_gsea: bool) -> List[str]:
+        """Snapshot full differential tables; never recompute their significance flags."""
+        import pandas as pd
+        if not source_root.is_dir():
+            raise ValueError("请选择差异表达结果目录。")
+        files = [path for path in sorted(source_root.rglob('DEG_*.csv'))
+                 if 'significant' not in path.name.lower() and path.is_file()]
+        if not files:
+            raise ValueError("所选结果没有完整差异表达表，不能仅使用显著基因子集。")
+        required = {'gene_symbol', 'significant'} | ({'t'} if do_gsea else set())
+        copied = []
+        for path in files:
+            if not path.resolve().is_relative_to(source_root.resolve()):
+                raise ValueError("差异表达文件不在来源结果目录内。")
+            columns = set(pd.read_csv(path, nrows=0).columns)
+            if not required.issubset(columns):
+                raise ValueError("差异表达表缺少基因、筛选标记或所需排序统计量，请检查来源分析。")
+            relative = path.relative_to(source_root)
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+            copied.append(relative.as_posix())
+        return copied
 
     def _allocate_job_id(self, prefix: str) -> str:
         safe = VolcanoService._safe_title(prefix)
@@ -263,6 +303,13 @@ bg_map <- suppressMessages(bitr(all_symbols, fromType = "SYMBOL", toType = "ENTR
 bg_entrez <- unique(bg_map$ENTREZID)
 if (length(bg_entrez) < 10) stop("Too few background genes mapped to ENTREZID")
 
+analysis_errors <- character()
+record_analysis_error <- function(label, error) {
+  text <- paste0(label, ": ", conditionMessage(error))
+  analysis_errors <<- c(analysis_errors, text)
+  message(text)
+  NULL
+}
 go_onts <- c("BP", "CC", "MF")
 for (deg_file in deg_files) {
   deg <- read.csv(deg_file, check.names = FALSE)
@@ -287,7 +334,7 @@ for (deg_file in deg_files) {
                           error = function(e) res)
         }
         res
-      }, error = function(e) { message("GO error: ", e$message); NULL })
+      }, error = function(e) record_analysis_error("GO", e))
       out_dir <- make_dir(output_go, ont, comp_name, "ORA", direction)
       if (write_result(go_res, file.path(out_dir, paste0(comp_name, "_", direction, "_GO_", ont, ".csv")))) {
         save_basic_plots(go_res, out_dir, paste0(comp_name, "_", direction, "_GO_", ont))
@@ -297,7 +344,7 @@ for (deg_file in deg_files) {
       enrichKEGG(gene = entrez, universe = bg_entrez, organism = "hsa",
                  pAdjustMethod = pAdjustMethod_enrich,
                  pvalueCutoff = pvalue_cutoff_enrich)
-    }, error = function(e) { message("KEGG error: ", e$message); NULL })
+    }, error = function(e) record_analysis_error("KEGG", e))
     out_dir <- make_dir(output_kegg, comp_name, "ORA", direction)
     if (write_result(kegg_res, file.path(out_dir, paste0("KEGG_", comp_name, "_", direction, ".csv")))) {
       save_basic_plots(kegg_res, out_dir, paste0("KEGG_", comp_name, "_", direction))
@@ -324,7 +371,7 @@ for (deg_file in deg_files) {
                             error = function(e) res)
           }
           res
-        }, error = function(e) { message("GSEA GO error: ", e$message); NULL })
+        }, error = function(e) record_analysis_error("GSEA GO", e))
         out_dir <- make_dir(output_go, ont, comp_name, "GSEA")
         if (write_result(gse_go, file.path(out_dir, paste0("GSEA_GO_", ont, ".csv")))) {
           save_gsea_plots(gse_go, out_dir, paste0(comp_name, "_GSEA_GO_", ont))
@@ -334,13 +381,17 @@ for (deg_file in deg_files) {
         gseKEGG(geneList = ranked, organism = "hsa",
                 pAdjustMethod = pAdjustMethod_enrich,
                 pvalueCutoff = pvalue_cutoff_enrich, seed = TRUE)
-      }, error = function(e) { message("GSEA KEGG error: ", e$message); NULL })
+      }, error = function(e) record_analysis_error("GSEA KEGG", e))
       out_dir <- make_dir(output_kegg, comp_name, "GSEA")
       if (write_result(gse_kegg, file.path(out_dir, "GSEA_KEGG.csv"))) {
         save_gsea_plots(gse_kegg, out_dir, paste0(comp_name, "_GSEA_KEGG"))
       }
     }
   }
+}
+if (length(analysis_errors)) {
+  writeLines(analysis_errors, file.path(output_dir, "analysis_errors.txt"))
+  stop("富集分析未完整完成：", paste(unique(analysis_errors), collapse = "; "))
 }
 message("GO / KEGG enrichment completed: ", output_dir)
 '''

@@ -55,7 +55,8 @@ export function MlAnalysisConfig({ sourceContext, value, onChange }: ModuleFormP
       project_id: sourceContext.projectId,
       profile_path: sourceContext.profilePath,
       datapoint_path: sourceContext.profilePath,
-      usage_path: current.usage_path,
+      mode: current.mode,
+      usage_path: current.upstream_artifact_id ? undefined : current.usage_path,
       label_col: current.label_col,
       sample_col: current.sample_col,
       filter_col: current.filter_col,
@@ -70,15 +71,15 @@ export function MlAnalysisConfig({ sourceContext, value, onChange }: ModuleFormP
         if (!value.param_over && data.suggested_param_over) defaults.param_over = data.suggested_param_over;
         if (!value.usage_path && data.usage_path) defaults.usage_path = data.usage_path;
         if (Object.keys(defaults).length) onChange({ ...current, ...defaults });
-        setInspectNote("ML inspect loaded label/sample columns and feature candidates.");
+        setInspectNote("已读取标签列、样本列及候选特征。");
       })
       .catch((error) => {
-        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "ML inspect failed");
+        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "机器学习输入检查失败");
       });
     return () => {
       cancelled = true;
     };
-  }, [sourceContext?.profilePath, sourceContext?.projectId, current.usage_path, current.label_col, current.sample_col, current.filter_col]);
+  }, [sourceContext?.profilePath, sourceContext?.projectId, sourceContext?.assetSetId, current.upstream_artifact_id, current.mode, current.upstream_artifact_id, sourceContext?.assetSetId, current.usage_path, current.label_col, current.sample_col, current.filter_col]);
 
   const usageFeatureColumns = (inspect?.usage_feature_candidates || []).map((item) => (
     typeof item === "string" ? item : String(item.column || item.name || "")
@@ -86,56 +87,56 @@ export function MlAnalysisConfig({ sourceContext, value, onChange }: ModuleFormP
 
   return (
     <ModuleShell
-      title="Machine Learning"
-      detail="先选择 Data Mode，再选择对应数据源；支持 Profile、VJ、Profile + VJ。"
+      title="机器学习"
+      detail="选择数据模式，再配置样本指标、基因使用特征或联合特征。"
       sourceContext={sourceContext}
     >
       {inspectNote && <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{inspectNote}</div>}
-      <Section title="Data Mode">
+      <Section title="数据模式">
         <div style={gridStyle}>
-          <Field label="Data Mode">
+          <Field label="数据模式">
             <select
               value={stringValue(current.mode, "profile")}
               onChange={(event) => setField("mode", event.target.value)}
               style={inputStyle}
             >
-              <option value="profile">Profile</option>
+              <option value="profile">样本指标表</option>
               <option value="vj">VJ</option>
-              <option value="profile_vj">Profile + VJ</option>
+              <option value="profile_vj">样本指标与 V/J 特征</option>
             </select>
           </Field>
-          <Field label="Profile Source">
-            <input value={sourceContext?.profilePath ? "Selected project Profile" : "No Profile selected"} readOnly style={{ ...inputStyle, color: "var(--text-secondary)" }} />
+          <Field label="样本指标表来源">
+            <input value={sourceContext?.profilePath ? "Selected project Profile" : "未选择样本指标表"} readOnly style={{ ...inputStyle, color: "var(--text-secondary)" }} />
           </Field>
         </div>
       </Section>
-      <Section title="Data Source">
+      <Section title="数据来源">
         <div style={gridStyle}>
           {stringValue(current.mode, "profile") === "profile" ? (
             <div style={{ gridColumn: "1 / -1", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
-              Using the selected Profile source.
+              正在使用已选样本指标表。
             </div>
           ) : (
             <PepCacheCardSelector
               sourceContext={sourceContext}
               cacheType="ml-vj"
-              value={stringValue(current.usage_path)}
-              label="PEP VJ Cache"
-              emptyText="No PEP cache with VJ usage found. Run PEP Analysis with VJ usage outputs first."
-              onSelect={(candidate) => setField("usage_path", candidate.path)}
+              value={stringValue(current.upstream_artifact_id || current.usage_path)}
+              label="V/J 基因使用分析结果"
+              emptyText="未找到 V/J 使用缓存，请先运行并生成相应克隆分析结果。"
+              onSelect={(candidate) => onChange({ ...current, usage_path: candidate.path, upstream_artifact_id: candidate.artifact_id, source_job_id: candidate.job_id })}
             />
           )}
         </div>
       </Section>
-      <Section title="Label And Samples">
+      <Section title="标签与样本">
         <div style={gridStyle}>
-          <GroupFieldSelect label="Label Column" value={stringValue(current.label_col)} sourceContext={sourceContext} onChange={(next) => setField("label_col", next)} />
+          <GroupFieldSelect label="标签列" value={stringValue(current.label_col)} sourceContext={sourceContext} onChange={(next) => setField("label_col", next)} />
           <GroupValueSamplePicker value={current} setField={setField} sourceContext={sourceContext} fields={[stringValue(current.label_col)].filter(Boolean)} />
-          <ColumnSelect label="Sample Column" value={stringValue(current.sample_col, "Sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "Sample")} emptyLabel="No Profile columns detected" />
-          <GroupFieldSelect label="Filter Column" value={stringValue(current.filter_col)} sourceContext={sourceContext} onChange={(next) => setField("filter_col", next || undefined)} emptyLabel="No Profile filter candidates detected" optional />
+          <ColumnSelect label="样本列" value={stringValue(current.sample_col, "Sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "Sample")} emptyLabel="未识别到样本指标表的列" />
+          <GroupFieldSelect label="筛选列" value={stringValue(current.filter_col)} sourceContext={sourceContext} onChange={(next) => setField("filter_col", next || undefined)} emptyLabel="未识别到可用的指标表筛选项" optional />
         </div>
       </Section>
-      <Section title="Feature Range">
+      <Section title="特征范围">
         <div style={gridStyle}>
           {current.mode === "profile" || current.mode === "profile_vj" ? (
             <>
@@ -144,23 +145,23 @@ export function MlAnalysisConfig({ sourceContext, value, onChange }: ModuleFormP
           ) : null}
           {current.mode === "vj" ? (
             <>
-              <ColumnMultiPicker label="Usage Features" selected={Array.isArray(current.usage_feature_cols) ? current.usage_feature_cols.map(String) : []} options={usageFeatureColumns} onChange={(next) => setField("usage_feature_cols", next)} emptyLabel="No usage feature candidates detected" />
+              <ColumnMultiPicker label="基因使用特征" selected={Array.isArray(current.usage_feature_cols) ? current.usage_feature_cols.map(String) : []} options={usageFeatureColumns} onChange={(next) => setField("usage_feature_cols", next)} emptyLabel="未识别到基因使用候选特征" />
             </>
           ) : null}
           {current.mode === "profile_vj" ? (
-            <ColumnMultiPicker label="Optional VJ Features" selected={Array.isArray(current.usage_feature_cols) ? current.usage_feature_cols.map(String) : []} options={usageFeatureColumns} onChange={(next) => setField("usage_feature_cols", next)} emptyLabel="No usage feature candidates detected" />
+            <ColumnMultiPicker label="可选 V/J 特征" selected={Array.isArray(current.usage_feature_cols) ? current.usage_feature_cols.map(String) : []} options={usageFeatureColumns} onChange={(next) => setField("usage_feature_cols", next)} emptyLabel="未识别到基因使用候选特征" />
           ) : null}
         </div>
       </Section>
-      <Section title="Model Parameters">
+      <Section title="模型参数">
         <div style={gridStyle}>
-          <Field label="Custom Threshold">
+          <Field label="自定义阈值">
             <input type="number" min="0" step="0.001" value={String(current.custom_threshold ?? 0.003)} onChange={(event) => setField("custom_threshold", Number(event.target.value || 0.003))} style={inputStyle} />
           </Field>
-          <Field label="CV Splits">
+          <Field label="交叉验证折数">
             <input type="number" min="2" value={String(current.cv_splits ?? 3)} onChange={(event) => setField("cv_splits", Number(event.target.value || 3))} style={inputStyle} />
           </Field>
-          <Field label="ROC CV Splits">
+          <Field label="分类评估交叉验证折数">
             <input type="number" min="2" value={String(current.roc_cv_splits ?? 7)} onChange={(event) => setField("roc_cv_splits", Number(event.target.value || 7))} style={inputStyle} />
           </Field>
         </div>

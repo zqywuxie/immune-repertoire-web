@@ -21,9 +21,12 @@ interface SetEntry {
   existingPepPaths: string[];
   existingProfilePath: string;
   existingTranscriptomePath: string;
+  existingDeconvolutionPath: string;
   pepPaths: string[];
   profileFile: { name: string; size: number; file: File } | null;
   transcriptomeFile: { name: string; size: number; file: File } | null;
+  deconvolutionFile: { name: string; size: number; file: File } | null;
+  pepFiles: File[];
 }
 
 const emptySet = (): SetEntry => ({
@@ -31,9 +34,12 @@ const emptySet = (): SetEntry => ({
   existingPepPaths: [],
   existingProfilePath: "",
   existingTranscriptomePath: "",
+  existingDeconvolutionPath: "",
   pepPaths: [],
   profileFile: null,
   transcriptomeFile: null,
+  deconvolutionFile: null,
+  pepFiles: [],
 });
 
 const setFromExisting = (set?: AssetSet, fallbackName = "Set1"): SetEntry => ({
@@ -42,6 +48,7 @@ const setFromExisting = (set?: AssetSet, fallbackName = "Set1"): SetEntry => ({
   existingPepPaths: set?.pepPaths || [],
   existingProfilePath: set?.profilePath || "",
   existingTranscriptomePath: set?.transcriptomePath || "",
+  existingDeconvolutionPath: set?.deconvolutionPath || "",
 });
 
 export function AssetUpload({ projectId, onSuccess }: Props) {
@@ -81,6 +88,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
     selectedExistingSet?.pepPaths.join("|"),
     selectedExistingSet?.profilePath,
     selectedExistingSet?.transcriptomePath,
+    selectedExistingSet?.deconvolutionPath,
     existingSets.length,
   ]);
 
@@ -122,7 +130,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
   };
 
   const handleUpload = async () => {
-    // Validate: analysis data sets require PEP + Profile. Transcriptome is optional.
+    // Allow each input independently; module requirements are checked after inspection.
     const validSets = sets.filter((s) => hasRequiredAnalysisData(s) && hasPendingAsset(s));
     if (validSets.length === 0) return;
     setState("loading");
@@ -130,6 +138,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
 
     let uploaded = 0;
     let failed = 0;
+    const errors: string[] = [];
 
     for (const [setIndex, s] of validSets.entries()) {
       const label = (mode === "existing" ? selectedSetName : s.groupLabel).trim() || `Set${setIndex + 1}`;
@@ -147,7 +156,19 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(registerBody),
           });
-          if (r.ok) uploaded++; else failed++;
+          if (!r.ok) {
+            const error = await r.json().catch(() => ({}));
+            throw new Error(error.message || `PEP 注册失败 (${r.status})`);
+          }
+          uploaded++;
+        }
+        if (s.pepFiles.length) {
+          const result = await uploadProjectAssets(projectId, { assetType: "pep", files: s.pepFiles, replaceExisting: false, assetSet: label });
+          uploaded += result.assets.length;
+        }
+        if (s.deconvolutionFile) {
+          const result = await uploadProjectAssets(projectId, { assetType: "deconvolution", files: [s.deconvolutionFile.file], replaceExisting, assetSet: label });
+          uploaded += result.assets.length;
         }
         // Upload Profile via FormData (metadata via separate register call)
         if (s.profileFile) {
@@ -169,15 +190,20 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
           });
           uploaded += result.assets.length;
         }
-      } catch {
+      } catch (error) {
         failed++;
+        errors.push(error instanceof Error ? error.message : "上传失败，请重试。");
       }
     }
 
-    setState("idle");
+    setState(failed > 0 ? "error" : "idle");
     setMessage(failed > 0
-      ? `${uploaded} asset(s) registered, ${failed} failed.`
-      : `${uploaded} asset(s) across ${validSets.length} data set(s) registered successfully.`);
+      ? `已保存 ${uploaded} 个文件；${errors.join("；")}。所选文件已保留。`
+      : `已保存 ${uploaded} 个文件，可以继续检查数据。`);
+    if (failed > 0) {
+      if (uploaded > 0) onSuccess();
+      return;
+    }
     if (mode === "new") {
       setSets([{ ...emptySet(), groupLabel: nextAssetSetName(existingSets) }]);
     } else {
@@ -197,9 +223,9 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h4 style={{ margin: 0, fontSize: "0.95rem" }}>Register Data Set</h4>
+          <h4 style={{ margin: 0, fontSize: "0.95rem" }}>上传分析数据</h4>
           <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-            Each analysis set requires PEP paths + Profile. Transcriptome is optional.
+            可单独上传 样本指标表 开始箱线图分析；克隆序列表 和表达矩阵按分析需要补充。文件将上传至服务器。
           </p>
         </div>
         <StatusBadge status={state === "loading" ? "running" : state === "error" ? "failed" : "idle"} />
@@ -207,7 +233,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: "var(--spacing-md)", alignItems: "end" }}>
         <label className="field-label">
-          Set mode
+          数据集模式
           <Select
             value={mode}
             onChange={(value) => {
@@ -224,14 +250,14 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
             }}
             disabled={state === "loading"}
             options={[
-              { value: "new", label: "Create new set" },
-              { value: "existing", label: "Update existing set" },
+              { value: "new", label: "新建数据集" },
+              { value: "existing", label: "更新已有数据集" },
             ]}
           />
         </label>
         {mode === "existing" ? (
           <label className="field-label">
-            Existing set
+            已有数据集
             <Select
               value={selectedSetName}
               onChange={(name) => {
@@ -240,16 +266,16 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 setSets([setFromExisting(existingSets.find((set) => set.name === name), name || "Set1")]);
               }}
               disabled={state === "loading" || existingSets.length === 0}
-              placeholder={existingSets.length === 0 ? "No sets available" : "Select set"}
+              placeholder={existingSets.length === 0 ? "暂无数据集" : "选择数据集"}
               options={existingSets.map((set) => ({
                 value: set.name,
-                label: `${set.name} · ${set.assets.length} asset${set.assets.length !== 1 ? "s" : ""}`,
+                label: `${set.name} · ${set.assets.length} 个文件`,
               }))}
             />
           </label>
         ) : (
           <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", paddingBottom: "10px" }}>
-            New sets default to {defaultNewSetName}; names can be edited on each set card.
+            新数据集默认命名为 {defaultNewSetName}；可在数据集卡片中修改名称。
           </div>
         )}
       </div>
@@ -264,7 +290,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)" }}>
               <Layers size={16} style={{ color: "var(--accent)" }} />
               <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                {mode === "existing" ? `Current Set: ${selectedSetName || s.groupLabel}` : `Data Set ${idx + 1}`}
+                {mode === "existing" ? `当前数据集： ${selectedSetName || s.groupLabel}` : `数据集 ${idx + 1}`}
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)" }}>
@@ -274,13 +300,13 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 <input
                   value={mode === "existing" ? selectedSetName : s.groupLabel}
                   onChange={(e) => updateSet(idx, { groupLabel: e.target.value })}
-                  placeholder="Set name"
+                  placeholder="数据集名称"
                   disabled={state === "loading" || mode === "existing"}
                   style={{ border: "none", outline: "none", background: "transparent", fontSize: "0.78rem", color: "var(--text-primary)", width: "120px", fontFamily: "var(--font-family)" }}
                 />
               </div>
               {sets.length > 1 && (
-                <button onClick={() => removeSet(idx)} style={iconBtn} title="Remove set" disabled={state === "loading"}>
+                <button onClick={() => removeSet(idx)} style={iconBtn} title="移除数据集" disabled={state === "loading"}>
                   <Trash2 size={14} style={{ color: "var(--danger)" }} />
                 </button>
               )}
@@ -291,16 +317,23 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-sm)" }}>
               <FolderTree size={14} style={{ color: "var(--accent)" }} />
-              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>PEP Paths</span>
-              <span style={{ fontSize: "0.7rem", color: "var(--danger)" }}>(required · multiple supported)</span>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>克隆序列表路径</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--danger)" }}>(组库分析需要，可多选)</span>
             </div>
             {mode === "existing" && (
               <ExistingPathList
-                label="Current registered PEP paths"
+                label="已登记的克隆序列表路径"
                 values={s.existingPepPaths}
-                emptyLabel="No PEP path registered in this set."
+                emptyLabel="此数据集尚未登记克隆序列表路径。"
               />
             )}
+            <FileDropZone
+              files={s.pepFiles.map(file => ({ name: file.name, size: file.size, file }))}
+              onFilesAdded={incoming => updateSet(idx, { pepFiles: [...s.pepFiles, ...Array.from(incoming as FileList)] })}
+              onRemoveFile={name => updateSet(idx, { pepFiles: s.pepFiles.filter(file => file.name !== name) })}
+              accept=".csv,.tsv,.csv.gz" multiple disabled={state === "loading"}
+              label="上传克隆序列表，可选择多个文件" />
+            <details><summary style={{ cursor: "pointer", margin: "10px 0" }}>从服务器已有目录导入</summary>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "var(--spacing-sm)", alignItems: "start" }}>
               <PathInput
                 value={pepDrafts[idx] || ""}
@@ -309,7 +342,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 placeholder="/data/projects/.../pep_sample_dir/"
                 disabled={state === "loading"}
                 browsable
-                hint="Browse or enter server directory paths. Press Enter or Add to register the path."
+                hint="浏览或输入服务器目录，按回车或点击“添加”登记路径。"
               />
               <button
                 type="button"
@@ -319,12 +352,12 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 style={{ minHeight: "42px", padding: "8px 14px", whiteSpace: "nowrap" }}
               >
                 <Plus size={14} />
-                Add
+                添加
               </button>
             </div>
             {s.pepPaths.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)", marginTop: "var(--spacing-sm)" }}>
-                {mode === "existing" && <span style={subtleLabelStyle}>Pending PEP additions</span>}
+                {mode === "existing" && <span style={subtleLabelStyle}>待添加的克隆序列表</span>}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)" }}>
                 {s.pepPaths.map((p, pi) => (
                   <span key={pi} style={{
@@ -342,20 +375,21 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 </div>
               </div>
             )}
+            </details>
           </div>
 
           {/* Profile */}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-sm)" }}>
               <FileText size={14} style={{ color: "var(--success)" }} />
-              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>Profile File</span>
-              <span style={{ fontSize: "0.7rem", color: "var(--danger)" }}>(required)</span>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>样本指标表</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--danger)" }}>(按分析需要)</span>
             </div>
             {mode === "existing" && (
               <ExistingPathLine
-                label="Current registered Profile"
+                label="已登记的样本指标表"
                 value={s.existingProfilePath}
-                emptyLabel="No Profile file registered in this set."
+                emptyLabel="此数据集尚未登记样本指标表。"
               />
             )}
             <FileDropZone
@@ -365,10 +399,10 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
                 if (f) updateSet(idx, { profileFile: { name: f.name, size: f.size, file: f } });
               }}
               onRemoveFile={() => updateSet(idx, { profileFile: null })}
-              accept=".csv,.tsv,.csv.gz"
+              accept=".csv,.tsv,.csv.gz,.xlsx"
               multiple={false}
               disabled={state === "loading"}
-              label={mode === "existing" && s.existingProfilePath ? "Drop a profile/datapoint CSV here to add or replace" : "Drop a profile/datapoint CSV here"}
+              label={mode === "existing" && s.existingProfilePath ? "选择新的 样本指标表 表格" : "上传 样本指标表（CSV / TSV / Excel）"}
             />
           </div>
 
@@ -376,14 +410,14 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-sm)" }}>
               <Database size={14} style={{ color: "var(--warning)" }} />
-              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>Transcriptome</span>
-              <span style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>(optional)</span>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>转录组</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>（可选）</span>
             </div>
             {mode === "existing" && (
               <ExistingPathLine
-                label="Current registered Transcriptome"
+                label="已登记的转录组数据"
                 value={s.existingTranscriptomePath}
-                emptyLabel="No Transcriptome file registered in this set."
+                emptyLabel="此数据集尚未登记转录组文件。"
               />
             )}
             <FileDropZone
@@ -396,7 +430,34 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
               accept=".csv,.tsv,.csv.gz,.xlsx"
               multiple={false}
               disabled={state === "loading"}
-              label={mode === "existing" && s.existingTranscriptomePath ? "Drop an expression matrix here to add or replace" : "Drop an expression matrix here (optional)"}
+              label={mode === "existing" && s.existingTranscriptomePath ? "将表达矩阵拖到此处以添加或替换" : "将表达矩阵拖到此处（可选）"}
+            />
+          </div>
+          {/* Deconvolution */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-sm)" }}>
+              <Database size={14} style={{ color: "var(--warning)" }} />
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>免疫细胞浸润</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>（可选）</span>
+            </div>
+            {mode === "existing" && (
+              <ExistingPathLine
+                label="已登记的免疫细胞浸润数据"
+                value={s.existingDeconvolutionPath}
+                emptyLabel="此数据集尚未登记免疫细胞浸润文件。"
+              />
+            )}
+            <FileDropZone
+              files={s.deconvolutionFile ? [{ name: s.deconvolutionFile.name, size: s.deconvolutionFile.size, file: s.deconvolutionFile.file }] : []}
+              onFilesAdded={(incoming) => {
+                const f = Array.from(incoming as FileList)[0];
+                if (f) updateSet(idx, { deconvolutionFile: { name: f.name, size: f.size, file: f } });
+              }}
+              onRemoveFile={() => updateSet(idx, { deconvolutionFile: null })}
+              accept=".csv,.tsv,.csv.gz,.xlsx"
+              multiple={false}
+              disabled={state === "loading"}
+              label={mode === "existing" && s.existingDeconvolutionPath ? "将浸润结果表拖到此处以添加或替换" : "将浸润结果表拖到此处（可选）"}
             />
           </div>
         </div>
@@ -408,7 +469,7 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
         borderRadius: "var(--radius-control)", border: "1px dashed var(--separator)", background: "transparent",
         color: "var(--text-secondary)", fontSize: "0.82rem", fontWeight: 500, cursor: "pointer", alignSelf: "flex-start",
       }}>
-        <Plus size={15} /> Add Another Data Set
+        <Plus size={15} /> 添加数据集
       </button>}
 
       {invalidActiveSets.length > 0 && (
@@ -428,17 +489,17 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
         >
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "2px" }} />
           <span>
-            Analysis data set requires at least one PEP path and one Profile file. Transcriptome is optional.
+            请至少选择一种数据。后续会根据已上传的数据显示可运行的分析。
           </span>
         </div>
       )}
 
       {/* Submit */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--separator)", paddingTop: "var(--spacing-md)" }}>
-        <Toggle checked={replaceExisting} onChange={setReplaceExisting} disabled={state === "loading"} label="Replace existing" size="sm" />
+        <Toggle checked={replaceExisting} onChange={setReplaceExisting} disabled={state === "loading"} label="替换已有文件" size="sm" />
         <button disabled={!canSubmit || state === "loading"} onClick={handleUpload} className="btn btn-primary" style={{ padding: "10px 24px" }}>
           <Upload size={15} />
-          {state === "loading" ? "Registering…" : `Register ${sets.filter((s) => hasRequiredAnalysisData(s) && hasPendingAsset(s)).length} Set${sets.length !== 1 ? "s" : ""}`}
+          {state === "loading" ? "正在上传…" : "保存数据"}
         </button>
       </div>
 
@@ -450,20 +511,20 @@ export function AssetUpload({ projectId, onSuccess }: Props) {
 }
 
 function hasPendingAsset(set: SetEntry): boolean {
-  return set.pepPaths.length > 0 || Boolean(set.profileFile || set.transcriptomeFile);
+  return set.pepPaths.length > 0 || Boolean(set.profileFile || set.transcriptomeFile || set.deconvolutionFile || set.pepFiles.length);
 }
 
 function hasRequiredAnalysisData(set: SetEntry): boolean {
-  const hasPep = set.existingPepPaths.length > 0 || set.pepPaths.length > 0;
+  const hasPep = set.existingPepPaths.length > 0 || set.pepPaths.length > 0 || set.pepFiles.length > 0;
   const hasProfile = Boolean(set.existingProfilePath || set.profileFile);
-  return hasPep && hasProfile;
+  return hasPep || hasProfile || Boolean(set.existingTranscriptomePath || set.transcriptomeFile || set.existingDeconvolutionPath || set.deconvolutionFile);
 }
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; text: string; label: string }> = {
-    idle: { bg: "var(--bg-inset)", text: "var(--text-tertiary)", label: "Ready" },
-    running: { bg: "rgba(0,113,227,0.1)", text: "var(--accent)", label: "Working" },
-    failed: { bg: "rgba(255,59,48,0.1)", text: "var(--danger)", label: "Error" },
+    idle: { bg: "var(--bg-inset)", text: "var(--text-tertiary)", label: "就绪" },
+    running: { bg: "rgba(0,113,227,0.1)", text: "var(--accent)", label: "处理中" },
+    failed: { bg: "rgba(255,59,48,0.1)", text: "var(--danger)", label: "错误" },
   };
   const s = map[status] || map.idle;
   return <span style={{ padding: "3px 10px", borderRadius: "var(--radius-pill)", fontSize: "0.72rem", fontWeight: 600, background: s.bg, color: s.text }}>{s.label}</span>;

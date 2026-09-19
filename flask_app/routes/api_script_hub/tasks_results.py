@@ -7,7 +7,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, current_app
+from flask_app.services.user_scope import current_user_id, is_admin
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.path_access_service import PathAccessService
@@ -56,13 +57,29 @@ from .profile_analysis import (
 
 bp = Blueprint("script_hub_tasks", __name__)
 
+@bp.before_request
+def check_task_owner():
+    if not current_app.config.get('REQUIRE_LOGIN', True) or is_admin():
+        return None
+    if current_app.config.get('TESTING') and current_user_id() is None:
+        return None
+    arguments = request.view_args or {}
+    task_id = arguments.get('task_id') or arguments.get('job_id')
+    if task_id and '/results/' not in request.path:
+        job = get_script_hub_job_service().get_job(task_id) or _get_task_state(task_id)
+        if not job or current_user_id() is None or job.get('user_id') != current_user_id():
+            return jsonify(success=False, message='任务不存在'), 404
+
+
 @bp.route("/task/<task_id>", methods=["GET"])
 def get_script_hub_task_status(task_id: str):
     task = _get_task_state(task_id)
     if task is None:
         task = get_script_hub_job_service().get_job(task_id)
     else:
-        _sync_job_state(task_id, task)
+        import os
+        if os.environ.get("JOB_QUEUE", "").lower() != "redis":
+            _sync_job_state(task_id, task)
         job = get_script_hub_job_service().get_job(task_id) or {}
         if job.get("cancel_requested") or job.get("status") == "cancelled":
             task = _mark_script_task_cancelled(task_id)
@@ -88,6 +105,8 @@ def list_script_hub_jobs():
         status=status,
         limit=limit,
     )
+    if current_app.config.get('REQUIRE_LOGIN', True) and not is_admin():
+        jobs = [job for job in jobs if current_user_id() is not None and job.get('user_id') == current_user_id()]
     return jsonify({"success": True, "jobs": _sanitize_nan(jobs)})
 
 
@@ -221,6 +240,14 @@ def list_pep_cache_candidates():
     if not project_id:
         return jsonify({"success": True, "candidates": []})
 
+    asset_set = str(request.args.get('asset_set') or '').strip()
+    if asset_set:
+        from flask_app.services.analysis_artifacts import scoped_pep_candidates
+        try:
+            candidates = scoped_pep_candidates(project_id, asset_set, cache_type)
+            return jsonify(success=True, candidates=_sanitize_nan(candidates))
+        except ValidationError as error:
+            return jsonify(success=False, message=error.message), 400
     accepted = _pep_cache_type_filter(cache_type)
     candidates = _build_pep_cache_candidates(project_id)
     if accepted:
@@ -297,6 +324,8 @@ def _build_pep_cache_candidates(project_id: str) -> List[Dict[str, Any]]:
             "file_count": file_count,
             "status": "available" if file_count > 0 else "missing",
             "chains": chain_values,
+            "profile_path": meta.get("profile_path") or "",
+            "asset_set": meta.get("asset_set") or "",
             "group_field": meta.get("group_field") or "",
             "group_fields": meta.get("group_fields") if isinstance(meta.get("group_fields"), list) else [],
             "created_at": asset.get("created_at") or meta.get("created_at") or "",
@@ -362,6 +391,8 @@ def _build_pep_manifest_cache_candidates(project_id: str) -> List[Dict[str, Any]
         base = {
             "asset_id": manifest.get("cache_id") or entry.get("cache_id") or "",
             "job_id": manifest.get("job_id") or entry.get("job_id") or "",
+            "profile_path": manifest.get("profile_path") or "",
+            "asset_set": manifest.get("asset_set") or "",
             "source": "cache_manifest",
             "source_module": "pep-analysis",
             "chains": chains,
@@ -390,7 +421,7 @@ def _build_pep_manifest_cache_candidates(project_id: str) -> List[Dict[str, Any]
         umapin_tables = output_files.get("umapin_tables") if isinstance(output_files.get("umapin_tables"), dict) else {}
         for usage_type, path_value in umapin_tables.items():
             if str(path_value or "").strip():
-                candidates.append(_manifest_candidate(base, path_value, "umapin_table", usage_type, usage_type))
+                candidates.append(_manifest_candidate({**base, "group_fields": group_fields[:1]}, path_value, "umapin_table", usage_type, usage_type))
 
         pep_shared = output_files.get("pep_shared") if isinstance(output_files.get("pep_shared"), dict) else {}
         if pep_shared.get("TRA"):
@@ -603,7 +634,7 @@ def read_table_preview():
         file_path = str(data.get("file_path") or "").strip()
         if not file_path:
             raise ValidationError(message="file_path is required", details={"field": "file_path"})
-        dp = Path(file_path)
+        dp = PathAccessService.validate_read_path(file_path)
         if not dp.exists() or not dp.is_file():
             raise ValidationError(message="File not found", details={"file_path": file_path})
         df = _robust_read_csv(dp, nrows=5)
@@ -621,3 +652,32 @@ def read_table_preview():
     except Exception as exc:
         logger.error("read_table_preview error: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_READ_ERROR", "message": str(exc)}), 500
+
+
+@bp.route("/batches", methods=["POST"])
+def create_analysis_batch():
+    from flask_app.models.database import db, Project
+    from flask_app.services.user_scope import assert_owned
+    from flask_app.services.analysis_batch_service import validate_batch, execute_batch
+    from flask_app.services.background_job_service import get_background_job_service
+    from flask_app.services.persistent_queue import enqueue
+    data = request.get_json(silent=True) or {}
+    try:
+        project_id = str(data.get("project_id") or "").strip()
+        assert_owned(db.session.get(Project, project_id), "项目")
+        items = validate_batch(data)
+        if not str(data.get("asset_set") or "").strip():
+            raise ValidationError(message="请选择当前批次的数据集。")
+    except ValidationError as error:
+        return jsonify(success=False, message=error.message), 400
+    if os.environ.get("JOB_QUEUE", "").lower() != "redis":
+        return jsonify(success=False, message="批次分析需要启动容器中的任务队列。"), 503
+    service = get_background_job_service()
+    job = service.create_job(job_type="analysis_batch", module="analysis-batch", project_id=project_id,
+        user_id=current_user_id(), payload={"items": items, "asset_set": str(data["asset_set"]).strip(), "task_name": str(data.get("task_name") or "批次分析")},
+        stage="等待执行", detail=f"已保存 {len(items)} 项分析计划。")
+    try:
+        enqueue(execute_batch, job["job_id"], job["job_id"])
+    except Exception:
+        return jsonify(success=False, job_id=job["job_id"], message="批次入队失败，请稍后重试。"), 503
+    return jsonify(success=True, job_id=job["job_id"], status="queued"), 202

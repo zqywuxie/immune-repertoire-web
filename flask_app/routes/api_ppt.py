@@ -35,6 +35,8 @@ from flask_app.exceptions import (
     PPTSessionNotFoundError, PPTNoHeatmapsError
 )
 from flask_app.services.path_access_service import PathAccessService
+from flask_app.services.user_scope import current_user_id
+from flask_app.exceptions import ValidationError
 from flask_app.routes.api_ppt_comparison import register_ppt_session
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,15 @@ ppt_bp = Blueprint('ppt', __name__, url_prefix='/api/ppt')
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {'pptx', 'ppt'}
+
+
+def _ppt_session_dir(session_id):
+    try:
+        clean = str(uuid.UUID(str(session_id)))
+    except (ValueError, TypeError, AttributeError):
+        raise ValidationError(message='无效的 PPT 会话')
+    scope = str(current_user_id()) if current_user_id() is not None else 'shared'
+    return Path(tempfile.gettempdir()) / 'ppt_heatmap' / scope / clean
 
 
 def allowed_file(filename):
@@ -115,7 +126,7 @@ def analyze_ppt():
         session_id = str(uuid.uuid4())
         
         # Create temp directory for this session
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         temp_dir.mkdir(parents=True, exist_ok=True)
         
         # Save uploaded file
@@ -234,6 +245,10 @@ def replace_heatmaps():
         if heatmap_dir:
             heatmap_dir = str(PathAccessService.validate_read_path(heatmap_dir))
         explicit_heatmaps = data.get('heatmaps')
+        if isinstance(explicit_heatmaps, dict):
+            for mapping in explicit_heatmaps.values():
+                for image_path in mapping.values():
+                    PathAccessService.validate_read_path(image_path)
         sample_images = data.get('sample_images') or {}
         
         # Get border configuration (Requirement 11.8)
@@ -262,7 +277,7 @@ def replace_heatmaps():
             }), 400
         
         # Find session directory
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         if not temp_dir.exists():
             raise PPTSessionNotFoundError(
                 message="会话未找到，请重新上传PPT文件",
@@ -453,7 +468,7 @@ def download_ppt(session_id: str, filename: str):
         PPT file as attachment
     """
     try:
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         
         if not temp_dir.exists():
             raise PPTSessionNotFoundError(
@@ -530,7 +545,7 @@ def replace_heatmaps_direct():
         
         # Create temp directory
         session_id = str(uuid.uuid4())
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         temp_dir.mkdir(parents=True, exist_ok=True)
         
         # Save PPT file
@@ -642,7 +657,7 @@ def cleanup_session(session_id: str):
         Success status
     """
     try:
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
@@ -972,7 +987,7 @@ def render_slides():
             }), 400
         
         # Find session directory
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         if not temp_dir.exists():
             raise PPTSessionNotFoundError(
                 message="会话未找到，请重新上传PPT文件",
@@ -1082,7 +1097,7 @@ def get_session_status():
             }), 400
         
         # Find session directory
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         if not temp_dir.exists():
             return jsonify({
                 'success': False,
@@ -1165,7 +1180,7 @@ def download_with_summary():
             }), 400
         
         # Find the session directory
-        temp_dir = Path(tempfile.gettempdir()) / 'ppt_heatmap' / session_id
+        temp_dir = _ppt_session_dir(session_id)
         
         if not temp_dir.exists():
             raise PPTSessionNotFoundError(

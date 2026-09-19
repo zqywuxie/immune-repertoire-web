@@ -5,9 +5,9 @@ import { MetricCard } from "../shared/components/MetricCard";
 
 describe("MetricCard", () => {
   it("renders value and label", () => {
-    render(<MetricCard icon={Boxes} label="Projects" value={42} />);
+    render(<MetricCard icon={Boxes} label="项目" value={42} />);
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Projects")).toBeInTheDocument();
+    expect(screen.getByText("项目")).toBeInTheDocument();
   });
 
   it("formats large numbers with locale", () => {

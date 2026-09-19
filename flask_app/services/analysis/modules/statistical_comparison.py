@@ -221,7 +221,8 @@ class StatisticalComparisonModule(AnalysisModule):
         fig, ax = plt.subplots(figsize=(10, 6))
         
         if palette:
-            plot_palette = {k: v for k, v in palette.items() if k in group_order}
+            fallback = sns.color_palette('tab10', n_colors=len(group_order))
+            plot_palette = {group: palette.get(group, fallback[index]) for index, group in enumerate(group_order)}
         else:
             plot_palette = None
         
@@ -298,7 +299,8 @@ class StatisticalComparisonModule(AnalysisModule):
                 order = group_order
             
             if palette:
-                plot_palette = {k: v for k, v in palette.items() if k in order}
+                fallback = sns.color_palette('tab10', n_colors=len(order))
+                plot_palette = {group: palette.get(group, fallback[index]) for index, group in enumerate(order)}
             else:
                 plot_palette = None
             

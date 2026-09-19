@@ -1,3 +1,6 @@
+import { downloadResultArchive } from "../../../shared/api/jobs";
+import { JobResultPanel } from "../../jobs/JobResultPanel";
+import { BatchStatus } from "../../jobs/BatchStatus";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -15,6 +18,8 @@ interface Stage5ResultsProps {
   jobIds: string[];
   resultsByJobId: Record<string, JobResultsResponse>;
   onReset: () => void;
+  expectedCount?: number;
+  batchStatuses?: string[];
 }
 
 interface ExportableOutput {
@@ -27,8 +32,9 @@ interface ExportableOutput {
   url: string;
 }
 
-export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5ResultsProps) {
+export function Stage5Results({ jobIds, resultsByJobId, onReset, expectedCount = jobIds.length, batchStatuses = [] }: Stage5ResultsProps) {
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
   const outputItems = useMemo<ExportableOutput[]>(() => {
     return jobIds.flatMap((jobId) => {
       const result = resultsByJobId[jobId];
@@ -59,13 +65,13 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
 
   const results = jobIds.map((jobId) => resultsByJobId[jobId]).filter(Boolean);
 
-  if (!results.length) {
+  if (!results.length && !batchStatuses.length) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
         <div>
-          <h2 style={{ margin: 0 }}>Stage 5: Results</h2>
+          <h2 style={{ margin: 0 }}>第五步：查看结果</h2>
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            Waiting for results...
+            等待分析结果…
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
@@ -77,21 +83,15 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
     );
   }
 
-  const completedCount = results.filter((result) => result.status === "completed").length;
-  const failedCount = results.filter((result) => result.status === "failed" || result.status === "cancelled").length;
-  const isSuccess = results.length > 0 && completedCount === results.length;
-  const isFailed = failedCount > 0;
-
   const handleDownloadSelected = async () => {
     setDownloading(true);
+    setDownloadError("");
     try {
       const selectedSet = new Set(selectedKeys);
       const targets = outputItems.filter((item) => selectedSet.has(item.key));
-      for (const output of targets) {
-        if (output.url) {
-          window.open(output.url, "_blank");
-        }
-      }
+      await downloadResultArchive(targets.map(output => ({ job_id: output.jobId, url: output.url })));
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "结果打包失败，请重试。");
     } finally {
       setDownloading(false);
     }
@@ -111,80 +111,13 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       {/* Header */}
       <div>
-        <h2 style={{ margin: 0 }}>Stage 5: Results</h2>
+        <h2 style={{ margin: 0 }}>第五步：查看结果</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Review analysis outputs, download files, or start a new analysis.
+          查看分析报告，按需下载图像、统计表或完整结果包。
         </p>
       </div>
 
-      {/* Status Alert */}
-      {isSuccess ? (
-        <div
-          style={{
-            padding: "var(--spacing-lg)",
-            borderRadius: "var(--radius-card)",
-            background: "rgba(52, 199, 89, 0.08)",
-            border: "1px solid rgba(52, 199, 89, 0.2)",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "var(--spacing-md)",
-          }}
-        >
-          <CheckCircle2 size={28} style={{ color: "var(--success)", flexShrink: 0, marginTop: "2px" }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--success)" }}>
-              Analysis Completed Successfully
-            </div>
-            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-              {completedCount} job{completedCount !== 1 ? "s" : ""} completed — {outputItems.length} exportable output{outputItems.length !== 1 ? "s" : ""}
-            </div>
-          </div>
-        </div>
-      ) : isFailed ? (
-        <div
-          style={{
-            padding: "var(--spacing-lg)",
-            borderRadius: "var(--radius-card)",
-            background: "rgba(255, 59, 48, 0.08)",
-            border: "1px solid rgba(255, 59, 48, 0.2)",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "var(--spacing-md)",
-          }}
-        >
-          <AlertCircle size={28} style={{ color: "var(--danger)", flexShrink: 0, marginTop: "2px" }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--danger)" }}>
-              Analysis Failed
-            </div>
-            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-              {failedCount} job{failedCount !== 1 ? "s" : ""} failed or cancelled. Check the execution log for details.
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div
-          style={{
-            padding: "var(--spacing-lg)",
-            borderRadius: "var(--radius-card)",
-            background: "rgba(255, 149, 0, 0.08)",
-            border: "1px solid rgba(255, 149, 0, 0.2)",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "var(--spacing-md)",
-          }}
-        >
-          <Info size={28} style={{ color: "var(--warning)", flexShrink: 0, marginTop: "2px" }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--warning)" }}>
-              Analysis In Progress
-            </div>
-            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Completed {completedCount}/{results.length} jobs.
-            </div>
-          </div>
-        </div>
-      )}
+      <BatchStatus statuses={batchStatuses.length ? batchStatuses : results.map(result => result.status)} expectedCount={Math.max(expectedCount, jobIds.length)} />
 
       {/* Action Buttons */}
       <div
@@ -216,7 +149,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
           }}
         >
           <Eye size={16} />
-          Open Viewer
+          查看报告
         </button>
 
         <button
@@ -237,7 +170,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
           }}
         >
           <Download size={16} />
-          {downloading ? "Downloading..." : `Export Selected (${selectedKeys.length})`}
+          {downloading ? "正在准备下载…" : `打包下载所选（${selectedKeys.length}）`}
         </button>
 
         <button
@@ -257,10 +190,13 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
           }}
         >
           <RotateCcw size={16} />
-          Start New
+          开始新分析
         </button>
       </div>
 
+      {results.map(result => <JobResultPanel key={result.job.id} result={result} loading={false} />)}
+
+      {downloadError && <p role="alert" style={{ color: "var(--danger)" }}>{downloadError}</p>}
       {/* Selectable exports */}
       <div
         style={{
@@ -282,24 +218,24 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
           }}
         >
           <div>
-            <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>Export Outputs</div>
+            <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>结果文件</div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-              Choose the result files to export. ZIP outputs are selected by default.
+              可打开报告或选择文件下载，默认选中完整 ZIP 结果包。
             </div>
           </div>
           <div style={{ display: "flex", gap: "var(--spacing-xs)", flexWrap: "wrap" }}>
             <button type="button" onClick={() => setSelectedKeys(outputItems.map((item) => item.key))} style={smallBtnStyle}>
-              Select all
+              全选
             </button>
             <button type="button" onClick={() => setSelectedKeys([])} style={smallBtnStyle}>
-              Clear
+              清空
             </button>
           </div>
         </div>
 
         {outputItems.length === 0 ? (
           <div style={{ padding: "var(--spacing-xl)", color: "var(--text-tertiary)", fontSize: "0.85rem" }}>
-            No exportable outputs were reported for these jobs.
+            这些任务没有可导出的输出。
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--spacing-sm)", padding: "var(--spacing-md)" }}>
@@ -330,7 +266,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset }: Stage5Results
                       {item.label}
                     </span>
                     <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                      {item.module} · {item.kind} · Job {item.jobId.slice(0, 8)}
+                      {item.module} · {item.kind} · 任务 {item.jobId.slice(0, 8)}
                     </span>
                   </span>
                 </label>

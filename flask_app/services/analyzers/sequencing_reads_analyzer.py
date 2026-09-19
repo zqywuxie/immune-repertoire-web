@@ -3,6 +3,7 @@ Sequencing Reads Chart Analyzer - 测序Reads条形图分析器
 分析TCR/IG各链的测序reads数量和百分比
 """
 
+from flask_app.services.figure_export import save_analysis_figure
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
@@ -297,7 +298,7 @@ class SequencingReadsChartAnalyzer(BaseAnalyzer):
                 )
                 if fig_tcr:
                     buf = io.BytesIO()
-                    fig_tcr.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                    save_analysis_figure(fig_tcr, buf, params)
                     buf.seek(0)
                     charts.append({
                         'title': 'TCR Sequencing Reads',
@@ -313,7 +314,7 @@ class SequencingReadsChartAnalyzer(BaseAnalyzer):
                 )
                 if fig_ig:
                     buf = io.BytesIO()
-                    fig_ig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                    save_analysis_figure(fig_ig, buf, params)
                     buf.seek(0)
                     charts.append({
                         'title': 'IG Sequencing Reads',

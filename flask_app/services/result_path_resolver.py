@@ -32,6 +32,18 @@ def candidate_job_roots(
     nested_dir: Optional[str] = None,
 ) -> Iterable[Path]:
     """Yield compatible job roots for legacy and user-scoped result URLs."""
+    if job_id in {'.', '..'} or '/' in job_id or '\\' in job_id:
+        return
+    if current_app.config.get('REQUIRE_LOGIN', True) and getattr(current_user, 'is_authenticated', False) and not getattr(current_user, 'is_admin', False):
+        base = scoped_results_root().resolve()
+        candidate = (base / result_dir / job_id).resolve()
+        if base not in candidate.parents:
+            return
+        if nested_dir:
+            candidate = (candidate / nested_dir).resolve()
+        if base in candidate.parents:
+            yield candidate
+        return
     root = Path(results_root).resolve()
     roots: list[Path] = [root]
 

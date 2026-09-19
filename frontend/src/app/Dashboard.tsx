@@ -49,9 +49,9 @@ export function Dashboard() {
   };
 
   const quickActions = [
-    { icon: Database, label: "Browse Assets", to: "/database", color: "var(--accent)" },
-    { icon: Zap, label: "Submit Job", to: "/scripthub", color: "var(--warning)" },
-    { icon: Clock, label: "View Jobs", to: "/scripthub", color: "var(--success)" },
+    { icon: Database, label: "浏览数据文件", to: "/database", color: "var(--accent)" },
+    { icon: Zap, label: "提交任务", to: "/scripthub", color: "var(--warning)" },
+    { icon: Clock, label: "查看任务", to: "/scripthub", color: "var(--success)" },
   ];
 
   const handleCreateProject = async (data: { name: string; institution?: string; cooperation_level?: string; description?: string; status: string }) => {
@@ -61,7 +61,7 @@ export function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then((r) => {
-      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || e.message || "Failed to create project"); });
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || e.message || "创建项目失败"); });
       return r.json();
     });
     projects.refetch();
@@ -71,7 +71,7 @@ export function Dashboard() {
 
   return (
     <>
-      <PageHeader title="Immune Repertoire Platform" subtitle="Database & ScriptHub analysis workspace" />
+      <PageHeader title="免疫组库分析平台" subtitle="免疫组库数据与分析工作台" />
 
       {/* Error banners */}
       {projectsError && <ErrorBanner message={projectsError} />}
@@ -87,9 +87,9 @@ export function Dashboard() {
           </>
         ) : (
           <>
-            <MetricCard icon={Boxes} label="Projects" value={stats.projects} color="var(--accent)" />
-            <MetricCard icon={FlaskConical} label="Results" value={stats.results} color="var(--success)" />
-            <MetricCard icon={Activity} label="Active Jobs" value={stats.activeJobs} color="var(--warning)" />
+            <MetricCard icon={Boxes} label="项目" value={stats.projects} color="var(--accent)" />
+            <MetricCard icon={FlaskConical} label="结果" value={stats.results} color="var(--success)" />
+            <MetricCard icon={Activity} label="运行中的任务" value={stats.activeJobs} color="var(--warning)" />
           </>
         )}
       </div>
@@ -112,10 +112,10 @@ export function Dashboard() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(360px, 100%), 1fr))", gap: "var(--spacing-lg)" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-            <h3 style={{ margin: 0 }}>Projects</h3>
+            <h3 style={{ margin: 0 }}>项目</h3>
             <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
               <SearchBar
-                placeholder="Search by name…"
+                placeholder="按名称搜索…"
                 value={searchName}
                 onChange={setSearchName}
                 onClear={() => setSearchName("")}
@@ -126,13 +126,13 @@ export function Dashboard() {
                 background: "var(--accent)", color: "#fff", fontWeight: 500,
                 fontSize: "0.85rem", border: "none", cursor: "pointer",
               }}>
-                <Plus size={16} /> New Project
+                <Plus size={16} /> 新建项目
               </button>
             </div>
           </div>
 
           {filteredProjects.length === 0 && !loadingProjects && (searchName || searchInstitution) ? (
-            <EmptyState icon={FolderOpen} title="No matching projects" description="Try a different search term." />
+            <EmptyState icon={FolderOpen} title="没有匹配的项目" description="请尝试其他搜索词。" />
           ) : (
             <ProjectList projects={filteredProjects} loading={loadingProjects} />
           )}
@@ -140,7 +140,7 @@ export function Dashboard() {
 
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-            <h3 style={{ margin: 0 }}>Latest Activity</h3>
+            <h3 style={{ margin: 0 }}>最新动态</h3>
           </div>
           <Card>
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
@@ -148,7 +148,7 @@ export function Dashboard() {
                 [1, 2, 3].map((i) => <Skeleton key={i} height="50px" variant="text" />)
               ) : latestActivity.length === 0 ? (
                 <p style={{ color: "var(--text-tertiary)", fontSize: "0.85rem", textAlign: "center", padding: "var(--spacing-lg) 0" }}>
-                  No recent activity. Submit your first job from ScriptHub.
+                  暂无近期动态，请进入分析中心提交首个任务。
                 </p>
               ) : (
                 latestActivity.map((job) => (
@@ -174,7 +174,7 @@ export function Dashboard() {
                   padding: "8px", borderRadius: "var(--radius-control)", color: "var(--accent)",
                   fontWeight: 500, fontSize: "0.82rem", textAlign: "center", width: "100%",
                 }}>
-                  View all jobs →
+                  查看全部任务 →
                 </button>
               )}
             </div>

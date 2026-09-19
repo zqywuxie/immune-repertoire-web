@@ -25,7 +25,7 @@ class StatisticalAnalysisService:
     def _init_module(self):
         """初始化统计比较模块"""
         try:
-            from services.analysis.modules.statistical_comparison import StatisticalComparisonModule
+            from flask_app.services.analysis.modules.statistical_comparison import StatisticalComparisonModule
             self.module = StatisticalComparisonModule()
         except Exception as e:
             logger.error(f"Failed to initialize StatisticalComparisonModule: {e}")
@@ -58,9 +58,11 @@ class StatisticalAnalysisService:
             'alpha': alpha
         }
         
-        is_valid, msg = self.module.validate_data(data)
-        if not is_valid:
-            return {'success': False, 'error': msg}
+        if data.empty:
+            return {'success': False, 'error': '数据为空'}
+        missing = [column for column in (value_column, group_column) if column not in data.columns]
+        if missing:
+            return {'success': False, 'error': f"缺少所选字段: {', '.join(missing)}"}
         
         return self.module.analyze(data, params)
     
@@ -100,7 +102,11 @@ class StatisticalAnalysisService:
         }
         
         results = self.analyze_groups(data, value_column, group_column, group_order)
-        
+        if not results.get('success'):
+            raise ValueError(results.get('error') or '统计分析未完成')
+        if results.get('kruskal_wallis', {}).get('error'):
+            raise ValueError(results['kruskal_wallis']['error'])
+
         return self.module.create_boxplot(data, params, results, title)
     
     def analyze_multiple_datasets(self, datasets: Dict[str, pd.DataFrame],

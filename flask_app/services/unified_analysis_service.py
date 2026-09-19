@@ -118,13 +118,13 @@ class UnifiedAnalysisService:
             return self._analyzers
         
         try:
-            from services.analyzers.bcell_isotype_analyzer import BCellIsotypeAnalyzer
-            from services.analyzers.shm_analyzer import SHMAnalyzer
-            from services.analyzers.ig_metrics_analyzer import IGMetricsAnalyzer
-            from services.analyzers.custom_field_analyzer import CustomFieldAnalyzer
-            from services.analyzers.sequencing_reads_analyzer import SequencingReadsChartAnalyzer
-            from services.analyzers.bcell_maturation_analyzer import BcellMaturationAnalyzer
-            from services.analyzers.ppt_report_analyzer import PPTReportGenerator
+            from flask_app.services.analyzers.bcell_isotype_analyzer import BCellIsotypeAnalyzer
+            from flask_app.services.analyzers.shm_analyzer import SHMAnalyzer
+            from flask_app.services.analyzers.ig_metrics_analyzer import IGMetricsAnalyzer
+            from flask_app.services.analyzers.custom_field_analyzer import CustomFieldAnalyzer
+            from flask_app.services.analyzers.sequencing_reads_analyzer import SequencingReadsChartAnalyzer
+            from flask_app.services.analyzers.bcell_maturation_analyzer import BcellMaturationAnalyzer
+            from flask_app.services.analyzers.ppt_report_analyzer import PPTReportGenerator
             
             self._analyzers = {
                 'BCellIsotypeAnalyzer': BCellIsotypeAnalyzer,
@@ -428,7 +428,7 @@ class UnifiedAnalysisService:
         Returns:
             鍒嗘瀽缁撴灉瀛楀吀
         """
-        from services.analysis_pipeline import AnalysisPipeline
+        from flask_app.services.analysis_pipeline import AnalysisPipeline
         
         try:
             logger.info(f"Executing analysis: mode={mode}, file_id={file_id}")
@@ -493,7 +493,7 @@ class UnifiedAnalysisService:
         Returns:
             鍒嗘瀽缁撴灉瀛楀吀
         """
-        from services.analysis_pipeline import AnalysisPipeline
+        from flask_app.services.analysis_pipeline import AnalysisPipeline
         
         # 鑾峰彇鏂规
         scheme = self.scheme_manager.get_scheme(scheme_id)
@@ -570,7 +570,7 @@ class UnifiedAnalysisService:
         Returns:
             鍒嗘瀽缁撴灉瀛楀吀
         """
-        from services.analysis_pipeline import AnalysisPipeline
+        from flask_app.services.analysis_pipeline import AnalysisPipeline
         
         if not selected_fields or len(selected_fields) == 0:
             return {
@@ -603,6 +603,7 @@ class UnifiedAnalysisService:
         # 鍑嗗鍙傛暟
         merged_parameters = {
             'selected_fields': selected_fields,
+            'fields': selected_fields,
             'chart_config': {
                 'title': '',
                 'figsize': [12, 8],

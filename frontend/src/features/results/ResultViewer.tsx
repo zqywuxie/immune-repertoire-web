@@ -1,3 +1,4 @@
+import { TablePreview } from "./TablePreview";
 import { useState, useEffect } from "react";
 import type { JobOutput } from "../../shared/types/domain";
 
@@ -16,16 +17,18 @@ type Props = {
 /** Map an output kind to a human-readable label. */
 export function kindLabel(kind: string): string {
   const map: Record<string, string> = {
-    html: "Interactive Report",
-    png: "Image",
-    image: "Image",
-    csv: "CSV Data",
-    zip: "Archive",
-    ppt: "PowerPoint",
-    pptx: "PowerPoint",
+    html: "交互报告",
+    png: "图像",
+    image: "图像",
+    csv: "数据表",
+    tsv: "数据表",
+    xlsx: "电子表格",
+    zip: "压缩包",
+    ppt: "演示文稿",
+    pptx: "演示文稿",
     pdf: "PDF",
     json: "JSON",
-    data: "Download",
+    data: "下载",
   };
   return map[kind] ?? kind.toUpperCase();
 }
@@ -51,7 +54,7 @@ export function ResultViewer({ outputs, className }: Props) {
   if (!outputs?.length) {
     return (
       <div className={className} style={{ color: "var(--text-tertiary)", padding: "var(--spacing-md)" }}>
-        No outputs available.
+        暂无输出文件。
       </div>
     );
   }
@@ -102,7 +105,7 @@ export function OutputCard({ output }: { output: ResultOutput }) {
             borderRadius: "var(--radius-pill)",
           }}
         >
-          {kind}
+          {kindLabel(kind)}
         </span>
         {openUrl && (
           <a
@@ -116,7 +119,7 @@ export function OutputCard({ output }: { output: ResultOutput }) {
               textDecoration: "none",
             }}
           >
-            Open in new tab ↗
+            在新标签页打开 ↗
           </a>
         )}
       </div>
@@ -129,21 +132,25 @@ export function OutputCard({ output }: { output: ResultOutput }) {
   );
 }
 
-function ViewArea({ kind, url, downloadUrl }: { kind: string; url: string; downloadUrl?: string }) {
+export function ViewArea({ kind, url, downloadUrl, jobId }: { kind: string; url: string; downloadUrl?: string; jobId?: string }) {
   if (!url) {
-    return <EmptyState message="No URL available for this output." />;
+    return <EmptyState message="此输出没有可用链接。" />;
   }
 
   switch (kind) {
     case "html":
       return <HtmlViewer url={url} />;
     case "png":
+    case "jpg":
+    case "jpeg":
+    case "svg":
     case "image":
       return <ImageViewer url={url} />;
     case "pdf":
       return <PdfViewer url={url} />;
+    case "tsv":
     case "csv":
-      return <CsvViewer url={downloadUrl || url} />;
+      return <CsvViewer jobId={jobId} kind={kind} url={downloadUrl || url} />;
     case "zip":
       return <ZipViewer url={downloadUrl || url} />;
     case "ppt":
@@ -162,7 +169,7 @@ function HtmlViewer({ url }: { url: string }) {
   return (
     <iframe
       src={url}
-      title="HTML report"
+      title="网页报告"
       style={{
         width: "100%",
         height: "500px",
@@ -176,11 +183,15 @@ function HtmlViewer({ url }: { url: string }) {
 }
 
 function ImageViewer({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <div role="alert">图片加载失败，文件可能已移除。<button type="button" onClick={() => setFailed(false)}>重新加载</button></div>;
   return (
     <div style={{ textAlign: "center" }}>
       <img
         src={url}
-        alt="Output image"
+        alt="输出图片"
+        loading="lazy"
+        onError={() => setFailed(true)}
         style={{
           maxWidth: "100%",
           maxHeight: "600px",
@@ -197,7 +208,7 @@ function PdfViewer({ url }: { url: string }) {
     <div>
       <iframe
         src={url}
-        title="PDF viewer"
+        title="文档查看器"
         style={{
           width: "100%",
           height: "600px",
@@ -205,27 +216,21 @@ function PdfViewer({ url }: { url: string }) {
           borderRadius: "var(--radius-sm)",
         }}
       />
-      <DownloadLink url={url} label="Download PDF" />
+      <DownloadLink url={url} label="下载文档" />
     </div>
   );
 }
 
-function CsvViewer({ url }: { url: string }) {
-  return (
-    <DownloadLink
-      url={url}
-      label="Download CSV"
-      hint="CSV files can be opened in Excel, Numbers, or any text editor."
-    />
-  );
+function CsvViewer({ url, kind, jobId }: { url: string; kind: string; jobId?: string }) {
+  return <div><TablePreview key={url} url={url} kind={kind} jobId={jobId} /><DownloadLink url={url} label="下载完整数据表" /></div>;
 }
 
 function ZipViewer({ url }: { url: string }) {
   return (
     <DownloadLink
       url={url}
-      label="Download Archive"
-      hint="Contains all output files for this job."
+      label="下载文件包"
+      hint="包含此任务的全部输出文件。"
     />
   );
 }
@@ -234,8 +239,8 @@ function PptViewer({ url }: { url: string }) {
   return (
     <DownloadLink
       url={url}
-      label="Download PowerPoint"
-      hint="Download and open in Microsoft PowerPoint or Google Slides."
+      label="下载演示文稿"
+      hint="下载后可使用演示文稿软件打开。"
     />
   );
 }
@@ -265,7 +270,7 @@ function JsonViewer({ url }: { url: string }) {
         if (!cancelled) setJson(formatted);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || "Failed to load JSON");
+        if (!cancelled) setError(err.message || "读取结构化数据失败");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -277,12 +282,12 @@ function JsonViewer({ url }: { url: string }) {
     <div>
       {loading && (
         <div style={{ padding: "var(--spacing-md)", color: "var(--text-tertiary)", fontSize: "0.85rem" }}>
-          Loading…
+          正在加载…
         </div>
       )}
       {error && (
         <div style={{ padding: "var(--spacing-md)", color: "var(--danger)", fontSize: "0.85rem" }}>
-          Error: {error}
+          错误： {error}
         </div>
       )}
       {json && (
@@ -303,13 +308,13 @@ function JsonViewer({ url }: { url: string }) {
           <code>{json}</code>
         </pre>
       )}
-      <DownloadLink url={url} label="Download JSON" />
+      <DownloadLink url={url} label="下载结构化数据" />
     </div>
   );
 }
 
 function DownloadViewer({ url, kind }: { url: string; kind: string }) {
-  return <DownloadLink url={url} label={`Download ${kindLabel(kind)}`} />;
+  return <DownloadLink url={url} label={`下载${kindLabel(kind)}`} />;
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────

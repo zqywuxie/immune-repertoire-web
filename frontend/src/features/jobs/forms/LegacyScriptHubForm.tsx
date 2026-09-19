@@ -14,9 +14,9 @@ type Props = {
 
 const CHAIN_OPTIONS = ["TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"];
 const PEP_OPTIONAL_STEPS = [
-  { key: "2", label: "PEP shared / usage" },
-  { key: "5", label: "Differential heatmaps" },
-  { key: "6", label: "CDR3 category tables" },
+  { key: "2", label: "克隆共享与基因使用" },
+  { key: "5", label: "差异热力图" },
+  { key: "6", label: "CDR3 分类表" },
 ];
 
 export function LegacyScriptHubForm({
@@ -164,8 +164,8 @@ function ModuleNotice({ module }: { module: string }) {
   };
   return (
     <div style={noticeStyle}>
-      <strong style={{ color: "var(--text-primary)" }}>Module contract</strong>
-      <span>{text[module] || "Configure the selected Script Hub module."}</span>
+      <strong style={{ color: "var(--text-primary)" }}>模块接口说明</strong>
+      <span>{text[module] || "配置已选分析模块。"}</span>
     </div>
   );
 }
@@ -173,12 +173,12 @@ function ModuleNotice({ module }: { module: string }) {
 function SourceSummary({ sourceContext }: { sourceContext?: ScriptHubSourceContext }) {
   if (!sourceContext) return null;
   return (
-    <Section title="Detected Sources">
+    <Section title="已识别的数据">
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--spacing-sm)" }}>
-        <SourceLine label="Asset Set" value={sourceContext.assetSetId || "Manual selection"} />
-        <SourceLine label="PEP Paths" value={`${sourceContext.pepPaths?.length || 0} selected`} title={(sourceContext.pepPaths || []).join("\n")} />
-        <SourceLine label="Profile" value={sourceContext.profilePath || "Not selected"} />
-        <SourceLine label="Transcriptome" value={sourceContext.transcriptomePath || "Not selected"} />
+        <SourceLine label="数据集" value={sourceContext.assetSetId || "手动选择"} />
+        <SourceLine label="克隆序列表路径" value={`${sourceContext.pepPaths?.length || 0} 已选择`} title={(sourceContext.pepPaths || []).join("\n")} />
+        <SourceLine label="样本指标表" value={sourceContext.profilePath || "尚未选择"} />
+        <SourceLine label="转录组" value={sourceContext.transcriptomePath || "尚未选择"} />
       </div>
     </Section>
   );
@@ -206,17 +206,17 @@ function CommonFields({
   setField: (key: string, next: unknown) => void;
 }) {
   return (
-    <Section title="Run">
+    <Section title="运行设置">
       <div style={gridStyle}>
-        <Field label="Output Name">
+        <Field label="输出名称">
           <input
             value={stringValue(value.output_name)}
             onChange={(event) => setField("output_name", event.target.value || undefined)}
-            placeholder="Defaults to task name"
+            placeholder="默认使用任务名称"
             style={inputStyle}
           />
         </Field>
-        <Field label="P Value Threshold">
+        <Field label="p 值阈值">
           <input
             type="number"
             min="0"
@@ -245,39 +245,39 @@ function DbAlignmentFields({
   const pepColumns = sourceContext?.pepColumns || [];
   const groupFields = detectedGroupFields(sourceContext);
   return (
-    <Section title="DB Alignment">
+    <Section title="数据库比对">
       <div style={gridStyle}>
         <ColumnSelect
-          label="CDR3 Column"
+          label="CDR3 序列列"
           value={stringValue(mapping.cdr3_column)}
           options={pepColumns}
           onChange={(next) => setField("field_mapping", { ...mapping, cdr3_column: next })}
-          emptyLabel="No PEP columns detected"
+          emptyLabel="未识别到克隆序列表的列"
         />
         <ColumnSelect
-          label="Copy Column"
+          label="拷贝数列"
           value={stringValue(mapping.copy_column)}
           options={pepColumns}
           onChange={(next) => setField("field_mapping", { ...mapping, copy_column: next })}
-          emptyLabel="No PEP columns detected"
+          emptyLabel="未识别到克隆序列表的列"
         />
         <ColumnMultiPicker
-          label="Profile Categories"
+          label="样本指标分类"
           selected={stringList(value.categories)}
           options={groupFields}
           onChange={(next) => setField("categories", next)}
-          emptyLabel="No Profile group fields detected"
+          emptyLabel="未识别到样本指标表的分组列"
         />
-        <Field label="Pathology Values">
+        <Field label="病理分组值">
           <input
             value={listInput(value.pathology_values)}
             onChange={(event) => setField("pathology_values", splitList(event.target.value))}
-            placeholder="optional value filter"
+            placeholder="可选，填写筛选值"
             style={inputStyle}
           />
         </Field>
         <SwitchField
-          label="Contained Pathology"
+          label="包含病理分组"
           checked={Boolean(value.contained_pathology)}
           onChange={(checked) => setField("contained_pathology", checked)}
         />
@@ -300,17 +300,17 @@ function ProfileBoxplotFields({
   loadingSpecs: boolean;
 }) {
   return (
-    <Section title="Profile / Boxplot">
+    <Section title="指标分组箱线图">
       <div style={gridStyle}>
         <RangeFields value={value} setField={setField} sourceContext={sourceContext} groupPrefix="classification" parameterLabels />
         <ColumnMultiPicker
-          label="Group Type Fields"
+          label="分组类型列"
           selected={stringList(value.grouptype_fields)}
           options={detectedGroupFields(sourceContext)}
           onChange={(next) => setField("grouptype_fields", next)}
-          emptyLabel="No Profile group fields detected"
+          emptyLabel="未识别到样本指标表的分组列"
         />
-        <Field label="Group Order">
+        <Field label="分组顺序">
           <input
             value={stringValue(value.group_order)}
             onChange={(event) => setField("group_order", event.target.value || undefined)}
@@ -334,16 +334,16 @@ function PepAnalysisFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="PEP Shared Analysis">
+    <Section title="克隆共享分析">
       <div style={gridStyle}>
         <ColumnMultiPicker
-          label="Group Fields"
+          label="分组列"
           selected={stringList(value.group_fields)}
           options={detectedGroupFields(sourceContext)}
           onChange={(next) => setField("group_fields", next)}
-          emptyLabel="No Profile group fields detected"
+          emptyLabel="未识别到样本指标表的分组列"
         />
-        <Field label="Min Sample Threshold">
+        <Field label="最少样本数">
           <input
             type="number"
             min="1"
@@ -354,7 +354,7 @@ function PepAnalysisFields({
         </Field>
         <ChainPicker value={value} setField={setField} sourceContext={sourceContext} />
         <ChipPicker
-          label="Optional Steps"
+          label="可选步骤"
           selected={stringList(value.optional_steps)}
           options={PEP_OPTIONAL_STEPS}
           onToggle={(next) => setField("optional_steps", next)}
@@ -374,17 +374,17 @@ function PgenFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="Pgen">
+    <Section title="生成概率">
       <div style={gridStyle}>
         <ChainPicker value={value} setField={setField} sourceContext={sourceContext} disabled={["TRD", "TRG"]} />
-        <Field label="Species">
+        <Field label="物种">
           <select value={stringValue(value.species, "human")} onChange={(event) => setField("species", event.target.value)} style={inputStyle}>
-            <option value="human">human</option>
-            <option value="mouse">mouse</option>
+            <option value="human">人</option>
+            <option value="mouse">小鼠</option>
           </select>
         </Field>
-        <ColumnSelect label="Sample Column" value={stringValue(value.sample_col, "sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "sample")} emptyLabel="No Profile columns detected" />
-        <ColumnSelect label="Distribution Category Column" value={stringValue(value.distribution_category_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("distribution_category_col", next || undefined)} emptyLabel="No Profile group fields detected" optional />
+        <ColumnSelect label="样本列" value={stringValue(value.sample_col, "sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "sample")} emptyLabel="未识别到样本指标表的列" />
+        <ColumnSelect label="分布分类列" value={stringValue(value.distribution_category_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("distribution_category_col", next || undefined)} emptyLabel="未识别到样本指标表的分组列" optional />
       </div>
     </Section>
   );
@@ -400,20 +400,20 @@ function TopCloneFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="TopClone">
+    <Section title="优势克隆">
       <div style={gridStyle}>
-        <Field label="Mode">
+        <Field label="分析模式">
           <select value={stringValue(value.mode, "trace")} onChange={(event) => setField("mode", event.target.value)} style={inputStyle}>
-            <option value="trace">trace</option>
+            <option value="trace">跟踪记录</option>
             <option value="per_sample">per_sample</option>
           </select>
         </Field>
-        <Field label="Top N">
+        <Field label="排名前几位">
           <input type="number" min="1" value={String(value.top_n ?? 10)} onChange={(event) => setField("top_n", Number(event.target.value || 10))} style={inputStyle} />
         </Field>
-        <ColumnSelect label="Group Field" value={stringValue(value.group_field)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("group_field", next || undefined)} emptyLabel="No Profile group fields detected" optional />
-        <Field label="Group Order">
-          <input value={stringValue(value.group_order)} onChange={(event) => setField("group_order", event.target.value || undefined)} placeholder="optional comma order" style={inputStyle} />
+        <ColumnSelect label="分组列" value={stringValue(value.group_field)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("group_field", next || undefined)} emptyLabel="未识别到样本指标表的分组列" optional />
+        <Field label="分组顺序">
+          <input value={stringValue(value.group_order)} onChange={(event) => setField("group_order", event.target.value || undefined)} placeholder="可选，按顺序填写并用逗号分隔" style={inputStyle} />
         </Field>
         <ChainPicker value={value} setField={setField} sourceContext={sourceContext} />
       </div>
@@ -431,7 +431,7 @@ function UmapFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="UMAP">
+    <Section title="统一流形降维">
       <div style={gridStyle}>
         <RangeFields value={value} setField={setField} sourceContext={sourceContext} groupPrefix="classification" parameterLabels />
         <Field label="n_neighbors">
@@ -453,12 +453,12 @@ function VolcanoFields({
   setField: (key: string, next: unknown) => void;
 }) {
   return (
-    <Section title="Volcano">
+    <Section title="差异分析">
       <div style={gridStyle}>
-        <Field label="Input Mode">
+        <Field label="输入模式">
           <select value={stringValue(value.input_mode, "expression")} onChange={(event) => setField("input_mode", event.target.value)} style={inputStyle}>
-            <option value="expression">expression matrix</option>
-            <option value="usage">VJ usage cache</option>
+            <option value="expression">表达矩阵</option>
+            <option value="usage">V/J 基因使用缓存</option>
           </select>
         </Field>
         <ExpressionComparisonFields value={value} setField={setField} />
@@ -478,23 +478,23 @@ function GoKeggFields({
     <Section title="GO / KEGG">
       <div style={gridStyle}>
         <ExpressionComparisonFields value={value} setField={setField} />
-        <Field label="Enrichment P Value">
+        <Field label="富集分析 p 值阈值">
           <input type="number" min="0" max="1" step="0.001" value={String(value.enrich_pvalue_cutoff ?? 0.05)} onChange={(event) => setField("enrich_pvalue_cutoff", Number(event.target.value || 0.05))} style={inputStyle} />
         </Field>
-        <Field label="P Adjust Method">
+        <Field label="多重检验校正方法">
           <select value={stringValue(value.p_adjust_method, "none")} onChange={(event) => setField("p_adjust_method", event.target.value)} style={inputStyle}>
-            <option value="none">none</option>
+            <option value="none">无</option>
             <option value="BH">BH</option>
             <option value="BY">BY</option>
             <option value="holm">holm</option>
             <option value="bonferroni">bonferroni</option>
           </select>
         </Field>
-        <Field label="Show Category">
+        <Field label="展示条目数">
           <input type="number" min="1" value={String(value.show_category ?? 20)} onChange={(event) => setField("show_category", Number(event.target.value || 20))} style={inputStyle} />
         </Field>
-        <SwitchField label="Simplify GO" checked={Boolean(value.simplify_go ?? true)} onChange={(checked) => setField("simplify_go", checked)} />
-        <SwitchField label="Run GSEA" checked={Boolean(value.do_gsea ?? true)} onChange={(checked) => setField("do_gsea", checked)} />
+        <SwitchField label="合并冗余功能条目" checked={Boolean(value.simplify_go ?? true)} onChange={(checked) => setField("simplify_go", checked)} />
+        <SwitchField label="运行基因集富集分析" checked={Boolean(value.do_gsea ?? true)} onChange={(checked) => setField("do_gsea", checked)} />
       </div>
     </Section>
   );
@@ -510,17 +510,17 @@ function UmapinFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="UMAPin">
+    <Section title="特征降维">
       <div style={gridStyle}>
         <RangeFields value={value} setField={setField} sourceContext={sourceContext} />
-        <ColumnSelect label="Category Column" value={stringValue(value.category_col, "Category")} options={detectedAnyColumns(sourceContext)} onChange={(next) => setField("category_col", next || "Category")} emptyLabel="No cached usage columns detected" />
+        <ColumnSelect label="分类列" value={stringValue(value.category_col, "Category")} options={detectedAnyColumns(sourceContext)} onChange={(next) => setField("category_col", next || "Category")} emptyLabel="未识别到缓存中的基因使用数据列" />
         <Field label="n_neighbors">
           <input type="number" min="2" value={String(value.n_neighbors ?? 6)} onChange={(event) => setField("n_neighbors", Number(event.target.value || 6))} style={inputStyle} />
         </Field>
         <Field label="min_dist">
           <input type="number" min="0" max="1" step="0.01" value={String(value.min_dist ?? 0.01)} onChange={(event) => setField("min_dist", Number(event.target.value || 0.01))} style={inputStyle} />
         </Field>
-        <SwitchField label="FDR Correction" checked={Boolean(value.do_fdr)} onChange={(checked) => setField("do_fdr", checked)} />
+        <SwitchField label="假发现率校正" checked={Boolean(value.do_fdr)} onChange={(checked) => setField("do_fdr", checked)} />
       </div>
     </Section>
   );
@@ -536,31 +536,31 @@ function MlFields({
   sourceContext?: ScriptHubSourceContext;
 }) {
   return (
-    <Section title="Machine Learning">
+    <Section title="机器学习">
       <div style={gridStyle}>
-        <Field label="Feature Source">
+        <Field label="特征来源">
           <select value={stringValue(value.mode, "profile")} onChange={(event) => setField("mode", event.target.value)} style={inputStyle}>
-            <option value="profile">Profile feature range</option>
-            <option value="vj-usage">VJ usage feature range</option>
+            <option value="profile">样本指标特征范围</option>
+            <option value="vj-usage">V/J 使用特征范围</option>
           </select>
         </Field>
-        <ColumnSelect label="Label Column" value={stringValue(value.label_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("label_col", next)} emptyLabel="No Profile group fields detected" />
-        <ColumnSelect label="Sample Column" value={stringValue(value.sample_col, "Sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "Sample")} emptyLabel="No Profile columns detected" />
+        <ColumnSelect label="标签列" value={stringValue(value.label_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("label_col", next)} emptyLabel="未识别到样本指标表的分组列" />
+        <ColumnSelect label="样本列" value={stringValue(value.sample_col, "Sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "Sample")} emptyLabel="未识别到样本指标表的列" />
         <RangeFields value={value} setField={setField} sourceContext={sourceContext} />
-        <Field label="Usage Path">
-          <input value={stringValue(value.usage_path)} onChange={(event) => setField("usage_path", event.target.value || undefined)} placeholder="required for VJ usage mode" style={inputStyle} />
+        <Field label="基因使用数据路径">
+          <input value={stringValue(value.usage_path)} onChange={(event) => setField("usage_path", event.target.value || undefined)} placeholder="使用 V/J 基因使用模式时必填" style={inputStyle} />
         </Field>
-        <ColumnSelect label="Filter Column" value={stringValue(value.filter_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("filter_col", next || undefined)} emptyLabel="No Profile group fields detected" optional />
-        <Field label="Filter Value">
-          <input value={stringValue(value.filter_value)} onChange={(event) => setField("filter_value", event.target.value || undefined)} placeholder="optional" style={inputStyle} />
+        <ColumnSelect label="筛选列" value={stringValue(value.filter_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("filter_col", next || undefined)} emptyLabel="未识别到样本指标表的分组列" optional />
+        <Field label="筛选值">
+          <input value={stringValue(value.filter_value)} onChange={(event) => setField("filter_value", event.target.value || undefined)} placeholder="可选" style={inputStyle} />
         </Field>
-        <Field label="Custom Threshold">
+        <Field label="自定义阈值">
           <input type="number" min="0" step="0.001" value={String(value.custom_threshold ?? 0.003)} onChange={(event) => setField("custom_threshold", Number(event.target.value || 0.003))} style={inputStyle} />
         </Field>
-        <Field label="CV Splits">
+        <Field label="交叉验证折数">
           <input type="number" min="2" value={String(value.cv_splits ?? 3)} onChange={(event) => setField("cv_splits", Number(event.target.value || 3))} style={inputStyle} />
         </Field>
-        <Field label="ROC CV Splits">
+        <Field label="分类评估交叉验证折数">
           <input type="number" min="2" value={String(value.roc_cv_splits ?? 7)} onChange={(event) => setField("roc_cv_splits", Number(event.target.value || 7))} style={inputStyle} />
         </Field>
       </div>
@@ -580,20 +580,20 @@ function MaitNktFields({
   return (
     <Section title="MAIT / NKT">
       <div style={gridStyle}>
-        <Field label="TRA Source">
+        <Field label="受体 α 链数据来源">
           <select value={stringValue(value.tra_source, "upload")} onChange={(event) => setField("tra_source", event.target.value)} style={inputStyle}>
-            <option value="upload">uploaded TRA CSV</option>
-            <option value="pep_analysis">PEP shared result</option>
+            <option value="upload">上传的受体 α 链数据表</option>
+            <option value="pep_analysis">克隆共享结果</option>
           </select>
         </Field>
-        <Field label="TRA Path">
-          <input value={stringValue(value.tra_path)} onChange={(event) => setField("tra_path", event.target.value || undefined)} placeholder="required for upload source" style={inputStyle} />
+        <Field label="受体 α 链数据路径">
+          <input value={stringValue(value.tra_path)} onChange={(event) => setField("tra_path", event.target.value || undefined)} placeholder="使用上传数据时必填" style={inputStyle} />
         </Field>
-        <Field label="Source Job ID">
-          <input value={stringValue(value.source_job_id)} onChange={(event) => setField("source_job_id", event.target.value || undefined)} placeholder="optional PEP result job id" style={inputStyle} />
+        <Field label="来源任务编号">
+          <input value={stringValue(value.source_job_id)} onChange={(event) => setField("source_job_id", event.target.value || undefined)} placeholder="可选，填写克隆分析来源任务编号" style={inputStyle} />
         </Field>
-        <ColumnSelect label="Group Field" value={stringValue(value.group_field)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("group_field", next)} emptyLabel="No Profile group fields detected" />
-        <Field label="Group Order">
+        <ColumnSelect label="分组列" value={stringValue(value.group_field)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("group_field", next)} emptyLabel="未识别到样本指标表的分组列" />
+        <Field label="分组顺序">
           <input value={stringValue(value.group_order)} onChange={(event) => setField("group_order", event.target.value || undefined)} placeholder="Control,Treatment,Recovery" style={inputStyle} />
         </Field>
       </div>
@@ -603,7 +603,7 @@ function MaitNktFields({
 
 function ChartsNotice() {
   return (
-    <Section title="Charts">
+    <Section title="图表">
       <div style={noticeStyle}>
         综合图表模块原版由页面内独立逻辑触发热图、Treemap、Chord。当前配置先保留入口，执行桥需要接入 `charts.combined` 或专用 ScriptHub charts endpoint。
       </div>
@@ -620,10 +620,10 @@ function ExpressionComparisonFields({
 }) {
   return (
     <>
-      <Field label="Group Prefix">
+      <Field label="分组前缀">
         <input value={stringValue(value.group_prefix, "tpm_")} onChange={(event) => setField("group_prefix", event.target.value || "tpm_")} style={inputStyle} />
       </Field>
-      <Field label="Comparisons">
+      <Field label="比较组合">
         <input
           value={listInput(value.comparisons)}
           onChange={(event) => setField("comparisons", splitList(event.target.value))}
@@ -631,7 +631,7 @@ function ExpressionComparisonFields({
           style={inputStyle}
         />
       </Field>
-      <Field label="LogFC Cutoff">
+      <Field label="对数倍数变化阈值">
         <input type="number" min="0" step="0.1" value={String(value.logfc_cutoff ?? 1)} onChange={(event) => setField("logfc_cutoff", Number(event.target.value || 1))} style={inputStyle} />
       </Field>
     </>
@@ -657,12 +657,12 @@ function RangeFields({
     <>
       {groupPrefix === "classification" && (
         <>
-          <ColumnSelect label={parameterLabels ? "Group Begin Column" : "Classification Begin"} value={stringValue(value.classification_begin || value.grouping_begin)} options={groupFields} onChange={(next) => setField("classification_begin", next)} emptyLabel="No Profile group fields detected" />
-          <ColumnSelect label={parameterLabels ? "Group End Column" : "Classification End"} value={stringValue(value.classification_over || value.grouping_over)} options={groupFields} onChange={(next) => setField("classification_over", next)} emptyLabel="No Profile group fields detected" />
+          <ColumnSelect label={parameterLabels ? "分组起始列" : "分类起始列"} value={stringValue(value.classification_begin || value.grouping_begin)} options={groupFields} onChange={(next) => setField("classification_begin", next)} emptyLabel="未识别到样本指标表的分组列" />
+          <ColumnSelect label={parameterLabels ? "分组结束列" : "分类结束列"} value={stringValue(value.classification_over || value.grouping_over)} options={groupFields} onChange={(next) => setField("classification_over", next)} emptyLabel="未识别到样本指标表的分组列" />
         </>
       )}
-      <ColumnSelect label="Parameter Begin" value={stringValue(value.param_begin)} options={profileFields} onChange={(next) => setField("param_begin", next)} emptyLabel="No Profile columns detected" />
-      <ColumnSelect label="Parameter End" value={stringValue(value.param_over)} options={profileFields} onChange={(next) => setField("param_over", next)} emptyLabel="No Profile columns detected" />
+      <ColumnSelect label="指标起始列" value={stringValue(value.param_begin)} options={profileFields} onChange={(next) => setField("param_begin", next)} emptyLabel="未识别到样本指标表的列" />
+      <ColumnSelect label="指标结束列" value={stringValue(value.param_over)} options={profileFields} onChange={(next) => setField("param_over", next)} emptyLabel="未识别到样本指标表的列" />
     </>
   );
 }
@@ -679,14 +679,14 @@ function GroupSpecSelect({
   loadingSpecs: boolean;
 }) {
   return (
-    <Field label="Project Group Spec">
+    <Field label="项目分组方案">
       <select
         value={stringValue(value.group_spec_id)}
         onChange={(event) => setField("group_spec_id", event.target.value || undefined)}
         disabled={loadingSpecs}
         style={inputStyle}
       >
-        <option value="">Profile fields / none</option>
+        <option value="">使用指标表字段或不设置</option>
         {groupSpecs.map((spec) => (
           <option key={spec.id} value={spec.id}>{spec.name}</option>
         ))}
@@ -710,7 +710,7 @@ function ChainPicker({
   const chains = sourceContext?.chains?.length ? sourceContext.chains : CHAIN_OPTIONS;
   return (
     <ChipPicker
-      label="Chains"
+      label="链类型"
       selected={selected}
       options={chains.map((chain) => ({ key: chain, label: disabled.includes(chain) ? `${chain} (skip)` : chain, disabled: disabled.includes(chain) }))}
       onToggle={(next) => setField("selected_chains", next)}
@@ -737,7 +737,7 @@ function ColumnSelect({
   return (
     <Field label={label}>
       <select value={value} onChange={(event) => onChange(event.target.value)} disabled={!normalizedOptions.length} style={inputStyle}>
-        <option value="">{normalizedOptions.length ? (optional ? "None" : "Select detected column") : emptyLabel}</option>
+        <option value="">{normalizedOptions.length ? (optional ? "None" : "选择已识别的列") : emptyLabel}</option>
         {normalizedOptions.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}

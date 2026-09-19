@@ -1,3 +1,5 @@
+import { InputMappingPanel } from "../InputMappingPanel";
+import { InputQualityPanel, type InputQuality } from "../InputQualityPanel";
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -15,6 +17,7 @@ export interface TablePreview {
 }
 
 export interface InspectionResult {
+  inputQuality?: InputQuality;
   samples: number;
   sampleNames: string[];
   chains: number;
@@ -22,6 +25,7 @@ export interface InspectionResult {
   pepFiles: number;
   profileLoaded: boolean;
   transcriptomeLoaded: boolean;
+  deconvolutionLoaded?: boolean;
   warnings: string[];
   profileFields: string[];
   groupFields: string[];
@@ -31,18 +35,23 @@ export interface InspectionResult {
 }
 
 interface Stage2SourceInspectionProps {
+  projectId?: string;
+  assetSet?: string;
   pepPaths: string[];
   profilePath: string;
   transcriptomePath: string;
+  deconvolutionPath?: string;
   inspection: InspectionResult | null;
   inspectionError?: string | null;
-  onInspect: () => Promise<void> | void;
+  onInspect: (mappingChanged?: boolean) => Promise<void> | void;
 }
 
 export function Stage2SourceInspection({
+  projectId, assetSet,
   pepPaths,
   profilePath,
   transcriptomePath,
+  deconvolutionPath,
   inspection,
   inspectionError,
   onInspect,
@@ -58,15 +67,16 @@ export function Stage2SourceInspection({
     }
   };
 
-  const hasData = pepPaths.length > 0 || !!profilePath || !!transcriptomePath;
+  const hasData = pepPaths.length > 0 || !!profilePath || !!transcriptomePath || !!deconvolutionPath;
 
   if (!hasData) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
+        {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} onSaved={() => onInspect(true)} />}
         <div>
-          <h2 style={{ margin: 0 }}>Stage 2: Source Inspection</h2>
+          <h2 style={{ margin: 0 }}>检查输入数据</h2>
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            Review and validate selected data sources.
+            核对并检查已选数据。
           </p>
         </div>
         <div
@@ -80,20 +90,21 @@ export function Stage2SourceInspection({
         >
           <AlertCircle size={40} style={{ color: "var(--text-tertiary)", marginBottom: "var(--spacing-md)" }} />
           <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>
-            No data sources selected. Go back to Data Intake and select files first.
+            尚未选择数据，请返回数据选择步骤添加文件。
           </p>
         </div>
       </div>
     );
   }
 
-  return (
+  return (<>
+    {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} onSaved={() => onInspect(true)} />}
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       {/* Header */}
       <div>
-        <h2 style={{ margin: 0 }}>Stage 2: Source Inspection</h2>
+        <h2 style={{ margin: 0 }}>检查输入数据</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Review and validate selected data sources before configuring analysis.
+          配置分析前，请先核对并检查已选数据。
         </p>
       </div>
 
@@ -130,7 +141,7 @@ export function Stage2SourceInspection({
           }}
         >
           <AlertCircle size={16} />
-          Profile file could not be loaded. Please check the file path and try again.
+          无法读取样本指标表，请检查文件路径后重试。
         </div>
       )}
 
@@ -158,6 +169,8 @@ export function Stage2SourceInspection({
         </div>
       )}
 
+      {inspection?.inputQuality && <InputQualityPanel quality={inspection.inputQuality} />}
+
       {inspection ? (
         <div
           style={{
@@ -167,19 +180,19 @@ export function Stage2SourceInspection({
           }}
         >
           <PreviewTableCard
-            title="Profile head5"
-            path={inspection.profilePreview?.path || profilePath || "No profile selected"}
+            title="样本指标表前 5 行"
+            path={inspection.profilePreview?.path || profilePath || "未选择样本指标表"}
             preview={inspection.profilePreview}
             accent="var(--success)"
-            empty="Profile file selected, but no preview rows could be read."
+            empty="已选择样本指标表，但未能读取预览行。"
           />
 
           <PreviewTableCard
-            title="PEP head5"
-            path={inspection.pepPreview?.path || (pepPaths.length ? pepPaths[0] : "No PEP path selected")}
+            title="克隆序列表前 5 行"
+            path={inspection.pepPreview?.path || (pepPaths.length ? pepPaths[0] : "未选择克隆序列表路径")}
             preview={inspection.pepPreview}
             accent="var(--accent)"
-            empty="PEP file selected, but no preview rows could be read."
+            empty="已选择克隆序列表，但未能读取预览行。"
           />
         </div>
       ) : (
@@ -187,9 +200,9 @@ export function Stage2SourceInspection({
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)" }}>
             <Table2 size={20} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
             <div>
-              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Data format not inspected yet</div>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>尚未检查数据格式</div>
               <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                Run inspection to show the detected Profile and PEP data formats.
+                运行检查后，可查看样本指标表与克隆序列表的格式。
               </div>
             </div>
           </div>
@@ -224,11 +237,11 @@ export function Stage2SourceInspection({
           }}
         >
           <RefreshCw size={16} style={inspecting ? { animation: "spin 1s linear infinite" } : undefined} />
-          {inspecting ? "Inspecting..." : inspection ? "Re-Inspect Sources" : "Inspect Sources"}
+          {inspecting ? "正在检查…" : inspection ? "重新检查" : "检查数据"}
         </button>
       </div>
     </div>
-  );
+  </>);
 }
 
 function PreviewTableCard({
@@ -277,9 +290,9 @@ function PreviewTableCard({
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-md)" }}>
-        <PreviewMeta>{columns.length} columns</PreviewMeta>
-        <PreviewMeta>showing {rows.length} rows</PreviewMeta>
-        {typeof preview?.totalRows === "number" && <PreviewMeta>{preview.totalRows} preview rows read</PreviewMeta>}
+        <PreviewMeta>{columns.length} 列</PreviewMeta>
+        <PreviewMeta>显示 {rows.length} 行</PreviewMeta>
+        {typeof preview?.totalRows === "number" && <PreviewMeta>{preview.totalRows} 行预览数据已读取</PreviewMeta>}
       </div>
 
       {columns.length && rows.length ? (

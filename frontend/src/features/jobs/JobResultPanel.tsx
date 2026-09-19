@@ -1,3 +1,8 @@
+import { ViewArea } from "../results/ResultViewer";
+import { BatchResultPanel } from "./BatchResultPanel";
+import { ContinueAnalysis } from "../results/ContinueAnalysis";
+import { analysisLabel } from "../../shared/utils/analysisLabels";
+import { RunManifest } from "../results/RunManifest";
 import { useEffect, useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
 import type { JobResultsResponse } from "../../shared/api/jobs";
@@ -51,13 +56,17 @@ export function JobResultPanel({ result, loading, embedded = false }: Props) {
   }, [moduleOutputs]);
 
   if (loading) {
-    return <PanelShell embedded={embedded}><EmptyState message="Loading job results..." /></PanelShell>;
+    return <PanelShell embedded={embedded}><EmptyState message="正在读取任务状态与结果…" /></PanelShell>;
   }
 
   if (!result) {
     return embedded
-      ? <PanelShell embedded={embedded}><EmptyState message="No results available yet." /></PanelShell>
+      ? <PanelShell embedded={embedded}><EmptyState message="暂无可用结果。" /></PanelShell>
       : null;
+  }
+
+  if (result.job.module === "analysis-batch") {
+    return <PanelShell embedded={embedded}><BatchResultPanel key={result.job.id} result={result} renderResult={child => <JobResultPanel result={child} loading={false} embedded />} /></PanelShell>;
   }
 
   return (
@@ -71,29 +80,31 @@ export function JobResultPanel({ result, loading, embedded = false }: Props) {
             gap: "var(--spacing-md)",
           }}
         >
-          <h4 style={{ margin: 0 }}>{result.job.module || "Job Result"}</h4>
+          <h4 style={{ margin: 0 }}>{analysisLabel(result.job.module)}</h4>
           <StatusBadge status={result.status} />
         </div>
       )}
 
+      <ContinueAnalysis result={result} />
+      <RunManifest results={[result]} />
       {viewableOutputs.length > 0 ? (
         <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
               gap: "var(--spacing-sm)",
               alignItems: "end",
             }}
           >
             <SelectField
-              label="Module"
+              label="分析模块"
               value={selectedModule}
               onChange={setSelectedModule}
-              options={moduleOptions.map((value) => ({ value, label: value }))}
+              options={moduleOptions.map((value) => ({ value, label: analysisLabel(value) }))}
             />
             <SelectField
-              label="Result"
+              label="结果文件"
               value={selectedOutput?.key || ""}
               onChange={setSelectedOutputKey}
               options={moduleOutputs.map((item) => ({
@@ -132,18 +143,19 @@ export function JobResultPanel({ result, loading, embedded = false }: Props) {
                 style={downloadButtonStyle}
               >
                 <ExternalLink size={15} />
-                {selectedOutput.kind === "html" ? "Open Viewer" : "Open Output"}
+                {selectedOutput.kind === "html" ? "打开交互报告" : "打开结果文件"}
               </a>
             </div>
           )}
+          {selectedOutput && <ViewArea jobId={String(result.job.id || result.job.job_id)} key={selectedOutput.key} kind={selectedOutput.kind} url={selectedOutput.url} downloadUrl={selectedOutput.download_url || undefined} />}
         </div>
       ) : (
-        <EmptyState message="No previewable results available." />
+        <EmptyState message="暂无可预览结果；如有压缩包，可在下方下载。" />
       )}
 
       {moduleArchives.length > 0 && (
         <div style={{ display: "grid", gap: "var(--spacing-sm)" }}>
-          <div style={sectionLabelStyle}>ZIP Downloads</div>
+          <div style={sectionLabelStyle}>下载结果压缩包</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
             {moduleArchives.map((item) => (
               <a
@@ -157,7 +169,7 @@ export function JobResultPanel({ result, loading, embedded = false }: Props) {
               >
                 <Download size={15} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.module}
+                  {analysisLabel(item.module)}
                 </span>
               </a>
             ))}
@@ -167,7 +179,7 @@ export function JobResultPanel({ result, loading, embedded = false }: Props) {
 
       {result.assets.length > 0 && (
         <div style={{ display: "grid", gap: "var(--spacing-sm)" }}>
-          <div style={sectionLabelStyle}>Registered Assets</div>
+          <div style={sectionLabelStyle}>已登记的结果文件</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
             {result.assets.map((asset) => (
               <a
@@ -232,6 +244,7 @@ function SelectField({
     <label style={{ display: "grid", gap: "6px", minWidth: 0 }}>
       <span style={sectionLabelStyle}>{label}</span>
       <select
+        aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         style={{
@@ -285,7 +298,7 @@ function normalizeOutputs(result: JobResultsResponse | null): DisplayOutput[] {
       url,
       kind: kindFromAsset(asset),
       module: assetModule(asset, baseModule),
-      category: "Registered Asset",
+      category: "已登记数据",
       download_url: asset.download_url || url,
       asset_id: asset.id,
     });
@@ -316,13 +329,13 @@ function normalizeOutputs(result: JobResultsResponse | null): DisplayOutput[] {
 }
 
 function isArchive(output: DisplayOutput) {
-  return output.kind === "zip" || defaultCategory(output.kind) === "Archive";
+  return output.kind === "zip" || defaultCategory(output.kind) === "压缩包";
 }
 
 function defaultCategory(kind: string) {
-  if (kind === "zip") return "Archive";
-  if (kind === "html") return "Viewer";
-  if (kind === "png" || kind === "image") return "Plots";
+  if (kind === "zip") return "压缩包";
+  if (kind === "html") return "交互报告";
+  if (kind === "png" || kind === "image") return "图表";
   return kindLabel(kind);
 }
 
@@ -346,7 +359,7 @@ function kindFromAsset(asset: { mime_type?: string | null; original_name?: strin
   if (mime.includes("html")) return "html";
   if (mime.includes("image") || mime.includes("png") || mime.includes("jpeg")) return "image";
   if (mime.includes("pdf")) return "pdf";
-  if (mime.includes("csv") || mime.includes("excel")) return "csv";
+  if (mime.includes("csv")) return "csv";
   if (mime.includes("json")) return "json";
   return kindFromUrl(asset.original_name || "");
 }
@@ -357,7 +370,9 @@ function kindFromUrl(url: string) {
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
   if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".svg")) return "image";
   if (lower.endsWith(".pdf")) return "pdf";
-  if (lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".xlsx")) return "csv";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".tsv")) return "tsv";
+  if (lower.endsWith(".xlsx")) return "xlsx";
   if (lower.endsWith(".json")) return "json";
   if (lower.endsWith(".ppt") || lower.endsWith(".pptx")) return "ppt";
   return "data";

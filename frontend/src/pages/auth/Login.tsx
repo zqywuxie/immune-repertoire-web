@@ -1,39 +1,37 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { LogIn, AlertCircle } from "lucide-react";
 import { useAuth } from "../../shared/context/AuthContext";
 
 export function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, loading: checkingAuth } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    const redirect = searchParams.get("redirect") || "/management";
-    navigate(redirect, { replace: true });
-    return null;
-  }
+  const requested = searchParams.get("redirect") || "/management";
+  const redirect = requested.startsWith("/") && !requested.startsWith("//") && !requested.includes("\\") && !/^\/(login|register|auth)(\/|\?|$)/.test(requested)
+    ? requested : "/management";
+  if (checkingAuth) return <div role="status">正在进入工作台…</div>;
+  if (isAuthenticated) return <Navigate to={redirect} replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
-      setError("Username and password are required.");
+      setError("请输入用户名和密码。");
       return;
     }
     setLoading(true);
     setError("");
     try {
       await login(username.trim(), password);
-      const redirect = searchParams.get("redirect") || "/management";
       navigate(redirect, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : "登录失败，请检查用户名和密码，或联系管理员。");
     } finally {
       setLoading(false);
     }
@@ -77,13 +75,13 @@ export function Login() {
               letterSpacing: "0.04em",
             }}
           >
-            IR
+            免
           </div>
           <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
-            Immune Repertoire Platform
+            免疫组库分析平台
           </h2>
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Sign in to your account
+            登录您的账号
           </p>
         </div>
 
@@ -110,12 +108,12 @@ export function Login() {
           )}
 
           <label className="field-label">
-            Username
+            用户名
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder="请输入用户名"
               autoFocus
               autoComplete="username"
               className="input"
@@ -124,12 +122,12 @@ export function Login() {
           </label>
 
           <label className="field-label">
-            Password
+            密码
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder="请输入密码"
               autoComplete="current-password"
               className="input"
               disabled={loading}
@@ -143,7 +141,7 @@ export function Login() {
             style={{ width: "100%", justifyContent: "center", padding: "10px 20px" }}
           >
             <LogIn size={16} />
-            {loading ? "Signing in…" : "Sign In"}
+            {loading ? "正在登录…" : "登录"}
           </button>
         </form>
 
@@ -156,7 +154,7 @@ export function Login() {
             color: "var(--text-tertiary)",
           }}
         >
-          Development mode: token-based authentication via <code>API_AUTH_TOKEN</code>
+          内部分析工作台 · 请使用已有账号登录
         </p>
       </div>
     </div>

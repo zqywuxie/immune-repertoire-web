@@ -21,8 +21,8 @@ import type { ProjectAsset } from "../shared/types/domain";
 const ASSET_PAGE_SIZE = 10;
 
 const TABS = [
-  { key: "assets", label: "Assets" },
-  { key: "results", label: "Results" },
+  { key: "assets", label: "数据文件" },
+  { key: "results", label: "结果" },
 ];
 
 export function DatabasePage() {
@@ -73,9 +73,9 @@ export function DatabasePage() {
     return (
       <EmptyState
         icon={DbIcon}
-        title="Select a Project"
-        description="Choose a project from the Dashboard or navigate to a project URL."
-        action={{ label: "Go to Dashboard", to: "/" }}
+        title="选择项目"
+        description="请从工作台选择项目，或打开已有项目地址。"
+        action={{ label: "返回工作台", to: "/" }}
       />
     );
   }
@@ -102,8 +102,8 @@ export function DatabasePage() {
         title={project?.name || "Loading…"}
         subtitle={
           project
-            ? `${project.institution || "No institution"} · ${project.sample_count || 0} samples · ${project.result_count || 0} results`
-            : "Project details"
+            ? `${project.institution || "未填写机构"} · ${project.sample_count || 0} 个样本 · ${project.result_count || 0} 项结果`
+            : "项目详情"
         }
       >
         <button
@@ -122,7 +122,7 @@ export function DatabasePage() {
           }}
         >
           <ArrowLeft size={16} />
-          All Projects
+          全部项目
         </button>
         <button
           onClick={() => window.open(projectExportUrl(projectId, exportOptions), "_blank")}
@@ -142,7 +142,7 @@ export function DatabasePage() {
           }}
         >
           <Download size={16} />
-          Export Project
+          导出项目
         </button>
       </PageHeader>
 
@@ -173,12 +173,12 @@ export function DatabasePage() {
         }}
       >
         <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)" }}>
-          Export includes
+          导出内容包含
         </span>
-        <ExportCheckbox label="Assets" checked={exportOptions.includeAssets} onChange={() => toggleExportOption("includeAssets")} />
-        <ExportCheckbox label="Results" checked={exportOptions.includeResults} onChange={() => toggleExportOption("includeResults")} />
-        <ExportCheckbox label="Group specs" checked={exportOptions.includeGroupSpecs} onChange={() => toggleExportOption("includeGroupSpecs")} />
-        <ExportCheckbox label="Manifest" checked={exportOptions.includeManifest} onChange={() => toggleExportOption("includeManifest")} />
+        <ExportCheckbox label="数据文件" checked={exportOptions.includeAssets} onChange={() => toggleExportOption("includeAssets")} />
+        <ExportCheckbox label="结果" checked={exportOptions.includeResults} onChange={() => toggleExportOption("includeResults")} />
+        <ExportCheckbox label="分组方案" checked={exportOptions.includeGroupSpecs} onChange={() => toggleExportOption("includeGroupSpecs")} />
+        <ExportCheckbox label="模块清单" checked={exportOptions.includeManifest} onChange={() => toggleExportOption("includeManifest")} />
       </div>
 
       <Tabs tabs={TABS} activeKey={tab} onChange={setTab} />
@@ -189,7 +189,7 @@ export function DatabasePage() {
           <AssetTable
             assets={assets}
             loading={assetsState.status === "loading" || loading}
-            emptyLabel="No assets registered for this project."
+            emptyLabel="此项目尚未登记数据文件。"
           />
           <Pagination
             pagination={pagination}
@@ -202,7 +202,7 @@ export function DatabasePage() {
         <AssetTable
           assets={results}
           loading={resultsState.status === "loading" || loading}
-          emptyLabel="No processed results for this project."
+          emptyLabel="此项目暂无分析结果。"
         />
       )}
     </>

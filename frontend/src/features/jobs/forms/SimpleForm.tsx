@@ -19,14 +19,14 @@ export function SimpleForm({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-      <FormField label="Group Spec">
+      <FormField label="分组方案">
         <select
           value={(value.group_spec_id as string) || ""}
           onChange={(e) => setField("group_spec_id", e.target.value)}
           disabled={loadingSpecs}
           style={inputSelectStyle}
         >
-          <option value="">— None (all samples) —</option>
+          <option value="">不设置（全部样本）</option>
           {groupSpecs.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -35,33 +35,33 @@ export function SimpleForm({
         </select>
         {loadingSpecs && (
           <small style={{ color: "var(--text-tertiary)", fontSize: "0.72rem" }}>
-            Loading group specs…
+            正在读取分组方案…
           </small>
         )}
       </FormField>
 
       {/* Optional: metric selector for boxplot-style modules */}
-      <FormField label="Metric (optional)">
+      <FormField label="指标（可选）">
         <select
           value={(value.metric as string) || ""}
           onChange={(e) => setField("metric", e.target.value || undefined)}
           style={inputSelectStyle}
         >
-          <option value="">— Auto —</option>
-          <option value="diversity">Diversity</option>
-          <option value="clonality">Clonality</option>
-          <option value="richness">Richness</option>
-          <option value="evenness">Evenness</option>
+          <option value="">自动</option>
+          <option value="diversity">多样性</option>
+          <option value="clonality">克隆性</option>
+          <option value="richness">丰富度</option>
+          <option value="evenness">均匀度</option>
         </select>
       </FormField>
 
       {/* Template ID for ppt.render-slides */}
-      <FormField label="Template ID (optional)">
+      <FormField label="模板编号（可选）">
         <input
           type="text"
           value={(value.template_id as string) || ""}
           onChange={(e) => setField("template_id", e.target.value || undefined)}
-          placeholder="e.g. default_template"
+          placeholder="例如：默认模板"
           style={inputTextStyle}
         />
       </FormField>

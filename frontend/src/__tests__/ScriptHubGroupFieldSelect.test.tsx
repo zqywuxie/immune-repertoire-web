@@ -96,8 +96,8 @@ describe("ScriptHub group field controls", () => {
 
     render(<Harness />);
 
-    expect(screen.queryByText("Group Begin Column")).not.toBeInTheDocument();
-    expect(screen.queryByText("Group End Column")).not.toBeInTheDocument();
+    expect(screen.queryByText("分组起始列")).not.toBeInTheDocument();
+    expect(screen.queryByText("分组结束列")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText("Control")).toBeInTheDocument();

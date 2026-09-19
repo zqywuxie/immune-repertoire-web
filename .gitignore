@@ -10,6 +10,8 @@ venv/
 ENV/
 
 # Data files
+/_reference/
+/test_data/
 flask_app/data/uploads/
 flask_app/data/results/
 flask_app/data/projects/
@@ -67,3 +69,7 @@ flask_app/.tmp_pytest_auto/
 .tmp_pytest_treemap_run/
 .tmp_pytest_treemap_topclone/
 pytest-cache-files-*/
+
+# Runtime reference datasets are provisioned separately
+flask_app/data/reference/
+flask_app/data/reference_db/

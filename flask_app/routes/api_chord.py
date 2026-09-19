@@ -7,7 +7,8 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from flask_app.services.persistent_queue import ScriptExecutor
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -23,7 +24,7 @@ from flask_app.services.user_scope import current_user_id
 logger = logging.getLogger(__name__)
 
 chord_bp = Blueprint("chord", __name__, url_prefix="/api/chord")
-_chord_executor = ThreadPoolExecutor(max_workers=2)
+_chord_executor = ScriptExecutor()
 _chord_task_lock = threading.Lock()
 _chord_tasks: Dict[str, Dict[str, Any]] = {}
 
@@ -70,12 +71,16 @@ def _set_task_state(task_id: str, **updates: Any) -> None:
 
 
 def _sync_task_state(task_id: str) -> None:
-    task = _get_task_state(task_id)
+    with _chord_task_lock:
+        task = dict(_chord_tasks.get(task_id) or {})
     if task:
+        task.pop("task_id", None)
         _set_task_state(task_id, **task)
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
+    if os.environ.get('JOB_QUEUE', '').lower() == 'redis':
+        return get_background_job_service().get_job(task_id)
     with _chord_task_lock:
         task = _chord_tasks.get(task_id)
         return dict(task) if task else None

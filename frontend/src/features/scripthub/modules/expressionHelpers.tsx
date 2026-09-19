@@ -26,11 +26,13 @@ type ExpressionInspectResponse = {
 
 export function useExpressionInspect({
   module,
+  enabled = true,
   sourceContext,
   value,
   onChange,
 }: {
   module: "volcano" | "go-kegg-enrichment";
+  enabled?: boolean;
   sourceContext?: ScriptHubSourceContext;
   value: Record<string, unknown>;
   onChange: (v: Record<string, unknown>) => void;
@@ -40,7 +42,7 @@ export function useExpressionInspect({
   const groupPrefix = stringValue(value.group_prefix, "tpm_");
 
   useEffect(() => {
-    if (!sourceContext?.transcriptomePath) return;
+    if (!enabled || !sourceContext?.transcriptomePath) { setInspect(null); setNote(""); return; }
     let cancelled = false;
     inspectScriptHubModule<ExpressionInspectResponse>(module, {
       input_mode: "expression",
@@ -55,15 +57,15 @@ export function useExpressionInspect({
         if (suggestions.length && !stringList(value.comparisons).length) {
           onChange({ ...value, comparisons: suggestions });
         }
-        setNote(`Expression inspect loaded ${(data.groups || data.group_names || []).length} groups and ${suggestions.length} comparisons.`);
+        setNote(`表达数据检查已读取 ${(data.groups || data.group_names || []).length} 个分组，共 ${suggestions.length} 个比较组合。`);
       })
       .catch((error) => {
-        if (!cancelled) setNote(error instanceof Error ? error.message : "Expression inspect failed");
+        if (!cancelled) setNote(error instanceof Error ? error.message : "表达数据检查失败");
       });
     return () => {
       cancelled = true;
     };
-  }, [module, sourceContext?.transcriptomePath, groupPrefix]);
+  }, [module, enabled, sourceContext?.transcriptomePath, groupPrefix]);
 
   return { inspect, note };
 }
@@ -82,22 +84,22 @@ export function ExpressionComparisonFields({
   const setField = (key: string, next: unknown) => setFieldValue(value, onChange, key, next);
   return (
     <div style={gridStyle}>
-      <Field label="Group Prefix">
+      <Field label="分组前缀">
         <input value={stringValue(value.group_prefix, "tpm_")} onChange={(event) => setField("group_prefix", event.target.value || "tpm_")} style={inputStyle} />
       </Field>
       {suggestions.length ? (
         <ChipPicker
-          label="Comparisons"
+          label="比较组合"
           selected={comparisons}
           options={suggestions.map((item) => ({ key: item, label: item }))}
           onToggle={(next) => setField("comparisons", next)}
         />
       ) : (
-        <Field label="Comparisons">
+        <Field label="比较组合">
           <input value={listInput(value.comparisons)} onChange={(event) => setField("comparisons", splitList(event.target.value))} placeholder="A_vs_B, C_vs_D" style={inputStyle} />
         </Field>
       )}
-      <Field label="LogFC Cutoff">
+      <Field label="对数倍数变化阈值">
         <input type="number" min="0" step="0.1" value={String(value.logfc_cutoff ?? 1)} onChange={(event) => setField("logfc_cutoff", Number(event.target.value || 1))} style={inputStyle} />
       </Field>
     </div>

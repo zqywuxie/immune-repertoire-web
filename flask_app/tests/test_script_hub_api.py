@@ -89,10 +89,9 @@ def test_robust_read_csv_latin1_fallback(api_module):
 
 # ── _discover_boxplot_inputs ──
 
-def test_discover_boxplot_inputs_direct_file(api_module):
-    csv = Path(__file__).parent / ".." / ".." / "test_data" / "all_data_points-beads.csv"
-    if not csv.exists():
-        pytest.skip("test data file not found")
+def test_discover_boxplot_inputs_direct_file(api_module, tmp_path):
+    csv = tmp_path / "all_data_points.csv"
+    pd.DataFrame({f"metric_{i}": [i, i + 1] for i in range(60)}).to_csv(csv, index=False)
     result = api_module._discover_boxplot_inputs(str(csv.parent), str(csv))
     assert "columns" in result
     assert result["column_count"] > 50
@@ -227,8 +226,8 @@ def test_project_profile_asset_detection(api_module):
     )
 
     assert api_module._is_project_profile_asset(profile_asset)
-    assert not api_module._is_project_profile_asset(legacy_role_asset)
-    assert not api_module._is_project_profile_asset(datapoint_asset)
+    assert api_module._is_project_profile_asset(legacy_role_asset)
+    assert api_module._is_project_profile_asset(datapoint_asset)
 
 
 def test_project_primary_pep_path_uses_registered_asset(api_module, tmp_path):
@@ -412,8 +411,8 @@ def test_pep_viewer_switches_by_chain_and_collapses_csv(api_module, tmp_path):
     assert "CDR3 arrangement heatmaps" in html
     assert "Unique CDR3 heatmaps" in html
     assert 'id="pepImageCategorySelect"' in html
-    assert '<option value="Differential heatmaps" selected>Differential heatmaps (2)</option>' in html
-    assert '<option value="CDR3 arrangement heatmaps">CDR3 arrangement heatmaps (1)</option>' in html
+    assert '<option value="Differential heatmaps" selected>Differential heatmaps</option>' in html
+    assert '<option value="CDR3 arrangement heatmaps">CDR3 arrangement heatmaps</option>' in html
     assert "therapy/CDR3_arrage_heatmap/TRA.png" in html
     assert "chain-tab" not in html
     assert "<details><summary>2.Pep_shared.py / Pep_shared</summary>" in html
@@ -448,7 +447,7 @@ def test_pep_viewer_displays_arrange_heatmap_category_when_only_step7_images(api
     })
 
     html = (output_base / "viewer.html").read_text(encoding="utf-8")
-    assert '<option value="CDR3 arrangement heatmaps" selected>CDR3 arrangement heatmaps (1)</option>' in html
+    assert '<option value="CDR3 arrangement heatmaps" selected>CDR3 arrangement heatmaps</option>' in html
     assert "group_type/CDR3_arrage_heatmap/TRA.png" in html
     assert "No images generated" not in html
 
@@ -521,14 +520,14 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text("sample,Category,TRAV1;TRAJ1\nsampleA,A,1\n", encoding="utf-8")
 
-    def fake_step6(self, chains, pep_shared_cate_dir, field_dir, min_sample_threshold):
+    def fake_step6(self, chains, pep_shared_cate_dir, field_dir, min_sample_threshold, progress_callback=None):
         order.append(6)
         out = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared" / "TRA.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("CDR3(pep),A__sum\nAAA,1\n", encoding="utf-8")
         return [str(out)], [], []
 
-    def fake_step7(self, chains, field_dir):
+    def fake_step7(self, chains, field_dir, progress_callback=None):
         assert 6 in order
         order.append(7)
         out = field_dir / "CDR3_arrage_heatmap" / "TRA.png"
@@ -536,7 +535,7 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
         out.write_bytes(b"png")
         return [str(out)]
 
-    def fake_step8(self, chains, field_dir):
+    def fake_step8(self, chains, field_dir, progress_callback=None):
         assert 6 in order
         order.append(8)
         out = field_dir / "plot_heatmap" / "TRA_unique_heatmap.png"
@@ -900,7 +899,7 @@ def test_inspect_data_selection_uses_project_profile_asset(api_module, tmp_path)
     assert topclone_payload["category_cols"] == ["disease"]
 
 
-def test_project_datapoint_asset_is_not_used_as_profile(api_module, tmp_path):
+def test_empty_legacy_datapoint_does_not_override_valid_profile(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
@@ -947,7 +946,8 @@ def test_project_datapoint_asset_is_not_used_as_profile(api_module, tmp_path):
 
     assert response.status_code == 200
     assert payload["profile_path"] == str(profile)
-    assert payload["registered_profile_paths"] == [str(profile)]
+    assert set(payload["registered_profile_paths"]) == {str(profile), str(legacy_datapoint)}
+    assert payload["profile_path"] == str(profile)
     assert "invalid_profile_paths" not in payload
 
 
@@ -969,7 +969,7 @@ def test_project_asset_path_is_rebased_after_workspace_move(api_module, tmp_path
     profile.parent.mkdir(parents=True)
     pd.DataFrame({"sample": ["sampleA"], "disease": ["healthy"]}).to_csv(profile, index=False)
     old_storage_path = rf"E:\old-workspace\flask_app\data\projects\{project_id}\assets\profile\Profile_All.csv"
-    monkeypatch.setattr(api_module, "_project_assets_root", lambda: current_projects_root)
+    monkeypatch.setattr(import_module("flask_app.routes.api_script_hub._common"), "_project_assets_root", lambda: current_projects_root)
 
     with app.app_context():
         db.create_all()
@@ -1096,8 +1096,13 @@ def test_project_profile_asset_rejects_only_empty_registered_file(api_module, tm
 def test_project_transcriptome_asset_drives_go_kegg_and_deg_inspect(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
-    aligned = ROOT_DIR / "test_data" / "aligned.csv"
-    assert aligned.exists()
+    aligned = tmp_path / "aligned.csv"
+    pd.DataFrame({
+        "Gene": ["B2M", "CD3D"],
+        "tpm_ICI_T1DM_1": [10, 20], "tpm_ICI_T1DM_2": [12, 21],
+        "tpm_T1DM_1": [30, 40], "tpm_T1DM_2": [31, 42],
+        "tpm_T_CT_1": [50, 60], "tpm_T_CT_2": [52, 61],
+    }).to_csv(aligned, index=False)
 
     app = Flask(__name__)
     app.config.update(
@@ -1391,7 +1396,7 @@ def test_cache_pep_usage_assets_writes_mongodb_usage_and_usage_cate(api_module, 
 
 def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, monkeypatch):
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
 
     output_base = tmp_path / "results" / "script_hub" / "pep_job_context"
     output_base.mkdir(parents=True)
@@ -1428,8 +1433,8 @@ def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, mon
         assert current_app._get_current_object() is app
         cache_calls.append(kwargs)
 
-    monkeypatch.setattr(api_module, "PepAnalysisService", FakePepAnalysisService)
-    monkeypatch.setattr(api_module, "_cache_pep_usage_assets", fake_cache_pep_usage_assets)
+    monkeypatch.setattr(import_module("flask_app.routes.api_script_hub.profile_analysis"), "PepAnalysisService", FakePepAnalysisService)
+    monkeypatch.setattr(import_module("flask_app.routes.api_script_hub.profile_analysis"), "_cache_pep_usage_assets", fake_cache_pep_usage_assets)
 
     task_id = "task_context_cache"
     api_module._run_pep_analysis_task(
@@ -1507,10 +1512,23 @@ def test_volcano_and_umapin_inspect_use_project_cached_usage(api_module, tmp_pat
     assert "TRAV1;TRAJ1" in umapin_payload["columns"]
 
 
-def test_script_hub_jobs_api_tracks_task_state(api_module):
+@pytest.fixture
+def script_job_app(api_module):
+    # Keep task writes and request reads in the same isolated database context.
+    from flask_app.models.database import db
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
     app.register_blueprint(api_module.script_hub_bp)
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.session.remove()
+        db.drop_all()
+
+
+def test_script_hub_jobs_api_tracks_task_state(api_module, script_job_app):
+    app = script_job_app
 
     job_service = api_module.get_script_hub_job_service()
     job_service.clear()
@@ -1556,10 +1574,8 @@ def test_script_hub_jobs_api_tracks_task_state(api_module):
     assert task_payload["module"] == "profile"
 
 
-def test_script_hub_jobs_cancel_updates_task_state(api_module):
-    app = Flask(__name__)
-    app.config.update(TESTING=True)
-    app.register_blueprint(api_module.script_hub_bp)
+def test_script_hub_jobs_cancel_updates_task_state(api_module, script_job_app):
+    app = script_job_app
 
     api_module.get_script_hub_job_service().clear()
     with api_module._script_task_lock:
@@ -1587,7 +1603,7 @@ def test_script_hub_jobs_cancel_updates_task_state(api_module):
 def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monkeypatch):
     tasks_results = import_module("flask_app.routes.api_script_hub.tasks_results")
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
     dispatch_names = {
@@ -1625,9 +1641,9 @@ def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monk
         "pep-analysis": {"group_fields": ["group"]},
         "pgen-analysis": {"distribution_category_col": "group"},
         "umap": {"group_field": "group"},
-        "umapin": {"category_col": "group"},
+        "umapin": {"category_col": "group", "data_path": "cache.csv"},
         "ml-analysis": {"label_col": "group"},
-        "mait-nkt": {"group_field": "group"},
+        "mait-nkt": {"group_field": "group", "tra_path": "TRA.csv"},
     }
     for module_name in dispatch_names:
         response = client.post("/api/script-hub/jobs", json={"module": module_name, **minimal_payloads.get(module_name, {})})
@@ -1643,7 +1659,7 @@ def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
     api_jobs = import_module("flask_app.routes.api_jobs")
 
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_jobs.jobs_bp)
 
     class BrokenJobService:
@@ -1858,7 +1874,7 @@ def test_volcano_service_runs_expression_matrix():
 
 def test_go_kegg_inspect_expression_matrix_route(api_module, tmp_path):
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
     expr = tmp_path / "aligned.csv"
@@ -1908,7 +1924,7 @@ def test_run_go_kegg_task_normalizes_fake_service(api_module, tmp_path, monkeypa
                 metadata={"expression_path": kwargs["expression_path"], "comparisons": [{"group1": "A", "group2": "B"}]},
             )
 
-    monkeypatch.setattr(api_module, "GoKeggEnrichmentService", FakeGoKeggService)
+    monkeypatch.setattr(import_module("flask_app.routes.api_script_hub.enrichment"), "GoKeggEnrichmentService", FakeGoKeggService)
     task_id = "task_go_kegg_fake"
     api_module._run_go_kegg_enrichment_task(
         task_id,
@@ -1975,7 +1991,7 @@ def test_pgen_public_distribution_generates_png_and_stats(tmp_path):
 
 def test_pgen_inspect_returns_distribution_category_candidates(api_module, tmp_path):
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
     pep_dir = tmp_path / "pep"
@@ -2147,7 +2163,7 @@ def test_mait_nkt_service_matches_profile_sample_alias(monkeypatch, tmp_path):
 
 def test_mait_nkt_run_reuses_resolved_pep_tra_path(api_module, monkeypatch, tmp_path):
     app = Flask(__name__)
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
     tra = tmp_path / "TRA.csv"

@@ -191,7 +191,7 @@ export function DirectoryBrowser({
   onSelect,
   selectedPath,
   searchable = true,
-  emptyMessage = "No assets in this project.",
+  emptyMessage = "此项目暂无数据文件。",
 }: DirectoryBrowserProps) {
   const assetsResult = useApi(
     () => listProjectAssets(projectId).then((res) => res.assets),
@@ -227,7 +227,7 @@ export function DirectoryBrowser({
       <div className={styles.browser}>
         <div className={styles.header}>
           <Folder size={14} />
-          Files
+          文件
         </div>
         <div style={{ padding: "var(--spacing-md)" }}>
           {Array.from({ length: 6 }).map((_, i) => (
@@ -244,10 +244,10 @@ export function DirectoryBrowser({
       <div className={styles.browser}>
         <div className={styles.header}>
           <Folder size={14} />
-          Files
+          文件
         </div>
         <div className={styles.empty} style={{ color: "var(--danger)" }}>
-          Failed to load assets: {error}
+          数据文件读取失败： {error}
         </div>
       </div>
     );
@@ -259,7 +259,7 @@ export function DirectoryBrowser({
       <div className={styles.browser}>
         <div className={styles.header}>
           <Folder size={14} />
-          Files
+          文件
         </div>
         <div className={styles.empty}>{emptyMessage}</div>
       </div>
@@ -270,9 +270,9 @@ export function DirectoryBrowser({
     <div className={styles.browser}>
       <div className={styles.header}>
         <Folder size={14} />
-        Files
+        文件
         <span style={{ marginLeft: "auto", fontWeight: 400, fontSize: "0.7rem" }}>
-          {assets.length} item{assets.length !== 1 ? "s" : ""}
+          {assets.length} 项
         </span>
       </div>
 
@@ -291,7 +291,7 @@ export function DirectoryBrowser({
             <input
               type="text"
               className={styles.searchInput}
-              placeholder="Filter files..."
+              placeholder="筛选文件…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{ paddingLeft: "28px" }}
@@ -311,7 +311,7 @@ export function DirectoryBrowser({
           />
         ) : (
           <div className={styles.empty}>
-            {query ? "No matching files." : emptyMessage}
+            {query ? "没有匹配的文件。" : emptyMessage}
           </div>
         )}
       </div>

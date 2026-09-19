@@ -114,9 +114,15 @@ class RedisJobQueue:
             })
             self.fallback.submit(job_id, runner, module=module, **kwargs)
             return
+        from flask_app.services.analysis_batch_service import attach_batch_child, batch_child_context
+        if batch_child_context.get() is not None:
+            attach_batch_child(job_id)
+            from analysis_workers.main import execute
+            return execute(module, job_id)
         if module:
             from analysis_workers.main import execute
-            self._queue.enqueue(execute, module, job_id)
+            from flask_app.services.persistent_queue import enqueue
+            enqueue(execute, job_id, module, job_id, queue=self._queue)
             return
         self._queue.enqueue(runner, job_id)
 
@@ -127,8 +133,8 @@ def get_job_queue() -> JobQueue:
 
     if backend == "redis":
         try:
-            return RedisJobQueue(fallback=threadpool)
-        except Exception:
-            return threadpool
+            return RedisJobQueue()
+        except Exception as error:
+            raise RuntimeError("Redis 队列不可用，请检查容器连接。") from error
 
     return threadpool

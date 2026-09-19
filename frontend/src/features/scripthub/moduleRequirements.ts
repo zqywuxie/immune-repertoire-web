@@ -6,6 +6,7 @@ export type SourceAvailabilityContext = {
   pepPaths?: string[];
   profilePath?: string;
   transcriptomePath?: string;
+  deconvolutionPath?: string;
 };
 
 type RequirementRule = {
@@ -14,9 +15,9 @@ type RequirementRule = {
 };
 
 const ASSET_LABELS: Record<RequiredAsset, string> = {
-  pep: "PEP",
-  profile: "Profile",
-  transcriptome: "Transcriptome",
+  pep: "克隆序列表",
+  profile: "样本指标表",
+  transcriptome: "转录组",
 };
 
 const MODULE_REQUIREMENTS: Record<string, RequirementRule> = {
@@ -52,10 +53,10 @@ export function getModuleAvailability(
   sourceContext?: SourceAvailabilityContext,
 ) {
   if (!module) {
-    return { selectable: false, reason: "Module is not available.", missing: [] as RequiredAsset[] };
+    return { selectable: false, reason: "未找到此分析模块。", missing: [] as RequiredAsset[] };
   }
   if (module.status === "unavailable") {
-    return { selectable: false, reason: "Module is unavailable.", missing: [] as RequiredAsset[] };
+    return { selectable: false, reason: module.unavailable_reason || "此模块当前不可用。", missing: [] as RequiredAsset[] };
   }
 
   const rule = MODULE_REQUIREMENTS[module.key];
@@ -78,11 +79,11 @@ export function getModuleAvailability(
   }
 
   const allText = missingAll.length ? missingAll.map(assetLabel).join(" + ") : "";
-  const anyText = missingAny.length ? missingAny.map(assetLabel).join(" or ") : "";
+  const anyText = missingAny.length ? missingAny.map(assetLabel).join(" 或 ") : "";
   const reasonParts = [allText, anyText].filter(Boolean);
   return {
     selectable: false,
-    reason: `Missing required ${reasonParts.join(" and ")} data in the selected asset set.`,
+    reason: `当前数据集需要补充 ${reasonParts.join(" 和 ")} 数据。`,
     missing,
   };
 }

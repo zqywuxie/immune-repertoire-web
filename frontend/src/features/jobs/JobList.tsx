@@ -16,7 +16,8 @@ type Props = {
 export function JobList({
   jobs,
   loading,
-  emptyLabel = "No jobs found.",
+  emptyLabel = "暂无任务。",
+  onSelectResult,
   onOpenDetails,
   selectedJobIds,
   onToggleSelected,
@@ -41,7 +42,7 @@ export function JobList({
         <JobRow
           key={job.job_id || job.id}
           job={job}
-          onOpenDetails={onOpenDetails}
+          onOpenDetails={onOpenDetails || (onSelectResult ? (selectedJob) => onSelectResult(selectedJob.job_id || selectedJob.id) : undefined)}
           selected={selectedJobIds?.has(job.job_id || job.id)}
           onToggleSelected={onToggleSelected}
           onDelete={onDelete}

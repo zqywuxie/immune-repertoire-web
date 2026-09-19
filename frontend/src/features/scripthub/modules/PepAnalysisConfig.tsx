@@ -17,14 +17,14 @@ import {
 } from "./shared";
 
 const PEP_PIPELINE_STEPS = [
-  { key: "1", script: "1.move_file.ipynb", label: "Prepare PEP input files", mode: "asset" },
-  { key: "2", script: "2.Pep_shared.py", label: "CDR3 shared matrix and V/J/VJ usage", mode: "required" },
-  { key: "3", script: "3.add_cate_shared.py", label: "Add profile categories to Pep_shared", mode: "required" },
-  { key: "4", script: "4.add_cate_usage.py", label: "Add profile categories to usage outputs", mode: "required" },
-  { key: "5", script: "5.Heat_map_Thread.py", label: "Differential usage heatmaps", mode: "optional" },
-  { key: "6", script: "6.Pep_statistication.py", label: "CDR3 classification statistics", mode: "optional" },
-  { key: "7", script: "7.CDR3_arrage_heatmap_ver1.0.py", label: "CDR3 arrangement heatmap", mode: "optional" },
-  { key: "8", script: "8.plot_heatmap.py", label: "Unique CDR3 heatmap", mode: "optional" },
+  { key: "1", script: "1.move_file.ipynb", label: "准备克隆序列输入文件", mode: "asset" },
+  { key: "2", script: "2.Pep_shared.py", label: "CDR3 共享矩阵与 V/J 基因使用", mode: "required" },
+  { key: "3", script: "3.add_cate_shared.py", label: "向克隆共享结果添加样本分类", mode: "required" },
+  { key: "4", script: "4.add_cate_usage.py", label: "向基因使用结果添加样本分类", mode: "required" },
+  { key: "5", script: "5.Heat_map_Thread.py", label: "基因使用差异热力图", mode: "optional" },
+  { key: "6", script: "6.Pep_statistication.py", label: "CDR3 分类统计", mode: "optional" },
+  { key: "7", script: "7.CDR3_arrage_heatmap_ver1.0.py", label: "CDR3 排列热力图", mode: "optional" },
+  { key: "8", script: "8.plot_heatmap.py", label: "唯一 CDR3 热力图", mode: "optional" },
 ];
 const PEP_OPTIONAL_STEP_KEYS = PEP_PIPELINE_STEPS.filter((step) => step.mode === "optional").map((step) => step.key);
 
@@ -42,18 +42,18 @@ export function PepAnalysisConfig({ sourceContext, value, onChange }: ModuleForm
 
   return (
     <ModuleShell
-      title="PEP Shared Analysis"
-      detail="按 Pep_260213 的旧版配置组织：链、Profile 分组字段、样本阈值和可选 pipeline steps。"
+      title="克隆共享分析"
+      detail="选择链类型、样本分组、样本数阈值及需要运行的分析步骤。"
       sourceContext={sourceContext}
     >
-      <Section title="PEP Pipeline">
+      <Section title="克隆分析流程">
         <div style={gridStyle}>
           <GroupFieldMultiSelect
-            label="Group Fields"
+            label="分组列"
             selected={stringList(current.group_fields)}
             sourceContext={sourceContext}
             onChange={(next) => setField("group_fields", next)}
-            emptyLabel="No Profile group fields detected"
+            emptyLabel="未识别到样本指标表的分组列"
             reorderable={false}
           />
           <GroupOrderEditor
@@ -63,7 +63,7 @@ export function PepAnalysisConfig({ sourceContext, value, onChange }: ModuleForm
             onChange={(next) => setField("group_order", next)}
           />
           <GroupValueSamplePicker value={current} setField={setField} sourceContext={sourceContext} fields={stringList(current.group_fields)} />
-          <Field label="Min Sample Threshold">
+          <Field label="最少样本数">
             <input type="number" min="1" value={String(current.min_sample_threshold ?? 3)} onChange={(event) => setField("min_sample_threshold", Number(event.target.value || 3))} style={inputStyle} />
           </Field>
           <ChainPicker value={current} setField={setField} sourceContext={sourceContext} />
@@ -88,20 +88,20 @@ function PepPipelineSteps({ selected, onChange }: { selected: string[]; onChange
   return (
     <div style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: "8px" }}>
       <span style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", color: "var(--text-secondary)" }}>
-        Pipeline Steps
+        流程步骤
       </span>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "8px" }}>
         {PEP_PIPELINE_STEPS.map((step) => {
           const optional = step.mode === "optional";
           const active = !optional || selectedOptional.includes(step.key);
-          const modeLabel = step.mode === "asset" ? "Assets" : optional ? "Optional" : "Required";
+          const modeLabel = step.mode === "asset" ? "文件" : optional ? "Optional" : "Required";
           return (
             <button
               key={step.key}
               type="button"
               disabled={!optional}
               onClick={() => optional && toggleOptional(step.key)}
-              title={optional ? "Click to enable or skip this optional script step" : "This step is always included"}
+              title={optional ? "点击启用或跳过此可选步骤" : "始终运行此步骤"}
               style={{
                 minHeight: "72px",
                 padding: "9px 10px",
@@ -115,7 +115,7 @@ function PepPipelineSteps({ selected, onChange }: { selected: string[]; onChange
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginBottom: "5px" }}>
-                <strong style={{ fontSize: "0.78rem" }}>Step {step.key}</strong>
+                <strong style={{ fontSize: "0.78rem" }}>步骤 {step.key}</strong>
                 <span style={{ fontSize: "0.68rem", color: optional && !active ? "var(--text-tertiary)" : "var(--accent)", fontWeight: 700 }}>
                   {active ? modeLabel : "Skipped"}
                 </span>

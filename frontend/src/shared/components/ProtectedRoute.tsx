@@ -23,7 +23,7 @@ export function ProtectedRoute({ children, allowUnauthenticated = true }: Props)
   }
 
   if (!isAuthenticated && !allowUnauthenticated) {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search + location.hash)}`} replace />;
   }
 
   return <>{children}</>;

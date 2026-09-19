@@ -39,6 +39,8 @@ export function ProfileConfig({ sourceContext, groupSpecs, loadingSpecs, value, 
     if (!sourceContext?.profilePath) return;
     let cancelled = false;
     inspectScriptHubModule<ProfileInspectResponse>("profile", {
+      project_id: sourceContext.projectId,
+      asset_set: sourceContext.assetSetId,
       profile_path: sourceContext.profilePath,
       datapoint_path: sourceContext.profilePath,
       base_path: sourceContext.pepPaths?.[0],
@@ -53,10 +55,10 @@ export function ProfileConfig({ sourceContext, groupSpecs, loadingSpecs, value, 
         if (Object.keys(next).length && !value.param_begin && !value.param_over) {
           onChange({ ...current, ...next });
         }
-        setInspectNote("Profile inspect loaded suggested parameter ranges.");
+        setInspectNote("已读取指标范围，请确认分组列和要比较的指标。");
       })
       .catch((error) => {
-        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "Profile inspect failed");
+        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "读取 Profile 失败");
       });
     return () => {
       cancelled = true;
@@ -65,19 +67,19 @@ export function ProfileConfig({ sourceContext, groupSpecs, loadingSpecs, value, 
 
   return (
     <ModuleShell
-      title="Profile / Boxplot"
-      detail="参考老版 Profile 配置；分组统一通过 Group Type Fields 添加，并可为每个字段自定义组别顺序。"
+      title="指标分组箱线图"
+      detail="选择分组列与指标范围，按样本比较组间分布，并输出箱线图和统计表。"
       sourceContext={sourceContext}
     >
       {inspectNote && <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{inspectNote}</div>}
-      <Section title="Profile Columns">
+      <Section title="分组与分析指标">
         <div style={gridStyle}>
           <GroupFieldMultiSelect
-            label="Group Type Fields"
+            label="分组列（必选）"
             selected={stringList(current.grouptype_fields)}
             sourceContext={sourceContext}
             onChange={(next) => setField("grouptype_fields", next)}
-            emptyLabel="No Profile group fields detected"
+            emptyLabel="未检测到分组列，请返回检查 样本指标表"
           />
           <GroupOrderEditor
             selectedFields={stringList(current.grouptype_fields)}

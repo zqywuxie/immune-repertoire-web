@@ -96,13 +96,19 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
     profile_file = Path(resolved_profile) if resolved_profile else None
     profile_columns = _read_table_columns(profile_file)
     group_fields = [column for column in profile_columns if str(column).strip().lower() != "sample"]
+    if profile_file and not pep_files and profile_columns:
+        sample_column = next((column for column in profile_columns
+                              if str(column).strip().lower() in {"sample", "sample_id", "sample_name", "id"}), None)
+        if sample_column:
+            profile_samples = _robust_read_csv(profile_file, usecols=[sample_column], dtype=str, keep_default_na=False)[sample_column]
+            sample_names.update(str(value).strip() for value in profile_samples if str(value).strip())
 
     if pep_paths and not pep_files:
-        warnings.append("No CSV files were found under the selected PEP paths.")
+        warnings.append("所选克隆序列目录中没有找到数据文件。")
     if pep_files and not discovered_chains:
-        warnings.append("CSV files were found, but no supported chain suffix was detected.")
+        warnings.append("已找到数据文件，但未识别出支持的链类型。")
     if resolved_profile and not profile_columns:
-        warnings.append("Profile file was selected, but its header could not be read.")
+        warnings.append("无法读取所选样本指标表的表头。")
 
     return {
         "pep_paths": pep_paths,
@@ -494,7 +500,7 @@ def _run_db_alignment_task(
 
 @bp.route("/modules", methods=["GET"])
 def list_modules():
-    return jsonify(
+    response = jsonify(
         {
             "success": True,
             "modules": [
@@ -575,12 +581,27 @@ def list_modules():
     )
 
 
+    import importlib.util
+    from flask_app.services.module_runtime import enrichment_runtime_ready
+    payload = response.get_json()
+    required = {'pgen-analysis': ('sonnia', 'Pgen 运行环境未配置，请联系管理员启用 SoNNia 模型。'), 'umap': ('umap', 'UMAP 运行环境未配置。'), 'umapin': ('umap', 'UMAP 运行环境未配置。')}
+    for module in payload['modules']:
+        dependency = required.get(module['key'])
+        if dependency and importlib.util.find_spec(dependency[0]) is None:
+            module.update(status='unavailable', unavailable_reason=dependency[1])
+        if module['key'] == 'go-kegg-enrichment' and not enrichment_runtime_ready():
+            module.update(status='unavailable', unavailable_reason='GO/KEGG 运行环境未就绪，需要 R 与 clusterProfiler、org.Hs.eg.db、enrichplot、DOSE。')
+    return jsonify(payload)
+
+
 @bp.route("/data-selection/inspect", methods=["POST"])
 def inspect_data_selection():
     try:
         data = request.get_json() or {}
         project_id = str(data.get("project_id") or "").strip()
-        project_assets = _collect_project_script_hub_assets(project_id)
+        asset_set = str(data.get("asset_set") or "").strip()
+        project_assets = (_collect_project_script_hub_assets(project_id, asset_set)
+                          if asset_set else _collect_project_script_hub_assets(project_id))
         if project_id:
             pep_paths = project_assets["pep_paths"]
             profile_path = project_assets["profile_path"] or None
@@ -592,6 +613,12 @@ def inspect_data_selection():
         registered_profiles = project_assets.get("profile_paths", []) if project_id else []
         invalid_transcriptomes = project_assets.get("invalid_transcriptome_paths", []) if project_id else []
         registered_transcriptomes = project_assets.get("transcriptome_paths", []) if project_id else []
+        if project_id:
+            discovery["deconvolution_path"] = project_assets.get("deconvolution_path", "")
+            discovery["registered_deconvolution_paths"] = project_assets.get("deconvolution_paths", [])
+            discovery["invalid_deconvolution_paths"] = project_assets.get("invalid_deconvolution_paths", [])
+            if discovery["invalid_deconvolution_paths"]:
+                discovery["warnings"].append("免疫细胞浸润结果表无法读取，请检查所选文件。")
         if registered_profiles:
             discovery["registered_profile_paths"] = registered_profiles[:20]
         if registered_transcriptomes:
@@ -607,6 +634,12 @@ def inspect_data_selection():
                 "项目已注册转录组表达矩阵无效或为空，请在项目资产页删除后重新注册有效的表达矩阵。"
             )
             discovery["invalid_transcriptome_paths"] = invalid_transcriptomes[:5]
+        from flask_app.services.input_quality import inspect_input_quality
+        discovery["input_quality"] = inspect_input_quality(
+            pep_paths, profile_path,
+            project_assets.get("transcriptome_path", "") if project_id else data.get("transcriptome_path", ""),
+            project_assets.get("deconvolution_path", "") if project_id else data.get("deconvolution_path", ""),
+        )
         return jsonify(_sanitize_nan({"success": True, **discovery}))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_data_selection: %s", exc.message)
@@ -742,3 +775,26 @@ def run_db_alignment():
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error queuing DB alignment task: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
+
+
+@bp.route("/data-selection/table-schema", methods=["POST"])
+def inspect_selected_table_schema():
+    try:
+        from flask_app.routes.api_script_hub._common import _request_registered_assets
+        from flask_app.services.input_table_schema import inspect_table_schema
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        if kind not in {'profile', 'transcriptome', 'deconvolution'}:
+            raise ValidationError(message='请选择样本指标表、转录组或浸润表。')
+        if not str(data.get('project_id') or '').strip():
+            raise ValidationError(message='请先选择项目和数据集。')
+        assets = _request_registered_assets(data)
+        value = assets.get(kind + '_path')
+        if not value:
+            raise ValidationError(message='当前数据集尚未登记可读取的此类表格。')
+        schema = inspect_table_schema(value, data.get('sheet_name'))
+        return jsonify({'success': True, 'kind': kind, **schema})
+    except ValidationError as exc:
+        return jsonify({'success': False, 'message': exc.message, 'details': exc.details}), 400
+    except (OSError, ValueError, KeyError):
+        return jsonify({'success': False, 'message': '表格无法读取，请检查文件格式。'}), 400

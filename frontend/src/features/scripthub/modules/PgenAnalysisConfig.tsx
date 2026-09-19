@@ -57,10 +57,10 @@ export function PgenAnalysisConfig({ sourceContext, value, onChange }: ModuleFor
           defaults.distribution_category_col = data.distribution_category_candidates[0];
         }
         if (Object.keys(defaults).length) onChange({ ...current, ...defaults });
-        setInspectNote(data.sonnia?.message || "Pgen inspect loaded runnable chains and Profile column candidates.");
+        setInspectNote(data.sonnia?.message || "已读取可分析的链类型和样本指标候选列。");
       })
       .catch((error) => {
-        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "Pgen inspect failed");
+        if (!cancelled) setInspectNote(error instanceof Error ? error.message : "生成概率输入检查失败");
       });
     return () => {
       cancelled = true;
@@ -69,21 +69,21 @@ export function PgenAnalysisConfig({ sourceContext, value, onChange }: ModuleFor
 
   return (
     <ModuleShell
-      title="Pgen Analysis"
-      detail="按 Pgen_260213/SoNNia 参数配置；sample 和 category 字段从 Profile 列选择。"
+      title="生成概率分析"
+      detail="配置生成概率分析参数，并从样本指标表中选择样本列和分类列。"
       sourceContext={sourceContext}
     >
       {inspectNote && <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{inspectNote}</div>}
-      <Section title="Pgen Parameters">
+      <Section title="生成概率参数">
         <div style={gridStyle}>
-          <GroupFieldSelect label="Distribution Category Column" value={stringValue(current.distribution_category_col)} sourceContext={sourceContext} onChange={(next) => setField("distribution_category_col", next || undefined)} />
+          <GroupFieldSelect label="分布分类列" value={stringValue(current.distribution_category_col)} sourceContext={sourceContext} onChange={(next) => setField("distribution_category_col", next || undefined)} />
           <GroupValueSamplePicker value={current} setField={setField} sourceContext={sourceContext} fields={[stringValue(current.distribution_category_col)].filter(Boolean)} />
-          <ColumnSelect label="Sample Column" value={stringValue(current.sample_col, "sample")} options={inspect?.sample_column_candidates || sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "sample")} emptyLabel="No Profile columns detected" />
+          <ColumnSelect label="样本列" value={stringValue(current.sample_col, "sample")} options={inspect?.sample_column_candidates || sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "sample")} emptyLabel="未识别到样本指标表的列" />
           <ChainPicker value={current} setField={setField} sourceContext={{ ...(sourceContext || { sampleNames: [], chains: [], profileFields: [], groupFields: [], pepColumns: [] }), chains: inspect?.runnable_chains || sourceContext?.chains || [] }} disabled={["TRD", "TRG"]} />
-          <Field label="Species">
+          <Field label="物种">
             <select value={stringValue(current.species, "human")} onChange={(event) => setField("species", event.target.value)} style={inputStyle}>
-              <option value="human">human</option>
-              <option value="mouse">mouse</option>
+              <option value="human">人</option>
+              <option value="mouse">小鼠</option>
             </select>
           </Field>
         </div>

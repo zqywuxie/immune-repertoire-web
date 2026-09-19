@@ -6,6 +6,7 @@ Refactored to use BaseAnalyzer interface.
 Requirements: 7.1, 11.2
 """
 
+from flask_app.services.figure_export import save_analysis_figure
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
@@ -513,7 +514,7 @@ class BCellIsotypeAnalyzer(BaseAnalyzer):
             )
             if fig_expr:
                 buf = io.BytesIO()
-                fig_expr.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                save_analysis_figure(fig_expr, buf, params)
                 buf.seek(0)
                 charts.append({
                     'title': 'B Cell Isotype Expression',
@@ -528,7 +529,7 @@ class BCellIsotypeAnalyzer(BaseAnalyzer):
             )
             if fig_cdr3:
                 buf = io.BytesIO()
-                fig_cdr3.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                save_analysis_figure(fig_cdr3, buf, params)
                 buf.seek(0)
                 charts.append({
                     'title': 'B Cell Isotype Unique CDR3',

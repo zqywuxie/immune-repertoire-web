@@ -259,3 +259,8 @@
     justify-content: flex-start;
   }
 }
+
+.homeLink { display: block; padding: 22px 14px; color: var(--text-primary); font-size: 15px; font-weight: 650; text-align: center; border-bottom: 1px solid var(--separator); }
+.navItem { min-height: 40px; }
+.navItemActive { background: #edf2fc; }
+.sidebar :is(button,a):focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }

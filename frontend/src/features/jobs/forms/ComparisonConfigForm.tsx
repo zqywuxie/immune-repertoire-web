@@ -14,41 +14,41 @@ export function ComparisonConfigForm({ projectId, value, onChange }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-      <FormField label="Group A Name">
+      <FormField label="第一组名称">
         <input
           type="text"
           value={(config.group_a_name as string) || ""}
           onChange={(e) => updateConfig("group_a_name", e.target.value)}
-          placeholder="e.g. Healthy"
+          placeholder="例如：健康组"
           style={inputStyle}
         />
       </FormField>
 
-      <FormField label="Group B Name">
+      <FormField label="第二组名称">
         <input
           type="text"
           value={(config.group_b_name as string) || ""}
           onChange={(e) => updateConfig("group_b_name", e.target.value)}
-          placeholder="e.g. Disease"
+          placeholder="例如：疾病组"
           style={inputStyle}
         />
       </FormField>
 
-      <FormField label="Comparison Method">
+      <FormField label="比较方法">
         <select
           value={(config.method as string) || "wilcoxon"}
           onChange={(e) => updateConfig("method", e.target.value)}
           style={inputSelectStyle}
         >
-          <option value="wilcoxon">Wilcoxon Rank-Sum</option>
-          <option value="ttest">T-Test</option>
-          <option value="mannwhitney">Mann-Whitney U</option>
+          <option value="wilcoxon">秩和检验</option>
+          <option value="ttest">均值检验</option>
+          <option value="mannwhitney">两独立样本秩和检验</option>
           <option value="edgeR">edgeR</option>
           <option value="deseq2">DESeq2</option>
         </select>
       </FormField>
 
-      <FormField label="Heatmap IDs (comma-separated)">
+      <FormField label="热力图编号（多个编号用逗号分隔）">
         <input
           type="text"
           value={(config.heatmap_ids as string[])?.join(", ") || ""}
@@ -66,12 +66,12 @@ export function ComparisonConfigForm({ projectId, value, onChange }: Props) {
         />
       </FormField>
 
-      <FormField label="Output Title (optional)">
+      <FormField label="输出标题（可选）">
         <input
           type="text"
           value={(config.title as string) || ""}
           onChange={(e) => updateConfig("title", e.target.value)}
-          placeholder="Comparison Report Title"
+          placeholder="比较报告标题"
           style={inputStyle}
         />
       </FormField>

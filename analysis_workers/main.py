@@ -88,8 +88,8 @@ def execute(module: str, job_id: str):
 
     Returns the worker's return value (dict with success/error).
     """
-    worker = get_worker(module)
-    return worker(job_id)
+    from flask_app.services.persistent_queue import execute_api
+    return execute_api(module, job_id)
 
 
 __all__ = [

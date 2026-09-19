@@ -43,7 +43,7 @@ class LocalStorageAdapter:
     def uri_for_path(self, path: Path) -> str:
         """Convert a filesystem path to a ``local://`` URI."""
         resolved = Path(path).resolve()
-        return f"{self.scheme}:///{quote(resolved.as_posix(), safe='/')}"
+        return f"{self.scheme}:///{quote(resolved.as_posix().lstrip('/'), safe='/')}"
 
     def resolve(self, storage_ref: Union[str, Path, None]) -> Optional[Path]:
         """Resolve a storage URI or legacy path to a filesystem Path.

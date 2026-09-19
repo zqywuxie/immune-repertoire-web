@@ -4,6 +4,7 @@ PPT Report Generator - PPT报告生成器
 参考sequencing_depth_ppt_module_final.py
 """
 
+from flask_app.services.figure_export import save_analysis_figure
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
@@ -247,7 +248,7 @@ class PPTReportGenerator(BaseAnalyzer):
             fig1 = self._create_table_module(depth_data, samples, labels, baseline_sample, baseline_idx)
             if fig1:
                 buf = io.BytesIO()
-                fig1.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                save_analysis_figure(fig1, buf, params)
                 buf.seek(0)
                 charts.append({
                     'title': 'Sequencing Depth Table',

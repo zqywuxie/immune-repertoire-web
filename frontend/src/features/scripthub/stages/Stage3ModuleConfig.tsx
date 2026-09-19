@@ -1,21 +1,13 @@
-import { useEffect, useState, useMemo } from "react";
-import {
-  Layers,
-  Check,
-  X,
-  Zap,
-  AlertTriangle,
-} from "lucide-react";
+import { useEffect, useState } from "react";
 import { useApi } from "../../../shared/hooks/useApi";
-import { listGroupSpecs } from "../../../shared/api/groupSpecs";
+import { listGroupSpecs, type GroupSpec } from "../../../shared/api/groupSpecs";
 import type { JobModule } from "../../../shared/types/domain";
-import { Card } from "../../../shared/components/Card";
-import { getFormComponent } from "../../jobs/forms";
-import type { ScriptHubSourceContext } from "../../jobs/forms";
-import type { GroupSpec } from "../../../shared/api/groupSpecs";
+import { getFormComponent, type ScriptHubSourceContext } from "../../jobs/forms";
 import { assetLabel, getModuleAvailability } from "../moduleRequirements";
 
 interface Stage3ModuleConfigProps {
+  fixedModule?: string;
+  fixedParameters?: Record<string,unknown>;
   modules: JobModule[];
   projectId: string;
   selectedModules: string[];
@@ -23,391 +15,55 @@ interface Stage3ModuleConfigProps {
   sourceContext?: ScriptHubSourceContext;
   onUpdate: (selectedModules: string[], moduleConfigs: Record<string, Record<string, unknown>>) => void;
 }
-
-export function Stage3ModuleConfig({
-  modules,
-  projectId,
-  selectedModules,
-  moduleConfigs,
-  sourceContext,
-  onUpdate,
-}: Stage3ModuleConfigProps) {
-  const [activeConfigKey, setActiveConfigKey] = useState<string | null>(selectedModules[0] || null);
-
-  const allModules = modules;
-
-  const groupSpecsState = useApi(
-    () => projectId ? listGroupSpecs(projectId) : Promise.resolve({ group_specs: [] as GroupSpec[] }),
-    [projectId],
-  );
-  const groupSpecs = groupSpecsState.status === "ready" ? groupSpecsState.data.group_specs : [];
-  const loadingSpecs = groupSpecsState.status === "loading";
-
+export function Stage3ModuleConfig({fixedModule,fixedParameters,modules,projectId,selectedModules,moduleConfigs,sourceContext,onUpdate}: Stage3ModuleConfigProps) {
+  const [activeKey,setActiveKey] = useState<string | null>(selectedModules[0] || null);
+  const [search,setSearch] = useState("");
+  const [onlyAvailable,setOnlyAvailable] = useState(false);
+  const specs = useApi(() => projectId ? listGroupSpecs(projectId) : Promise.resolve({group_specs: [] as GroupSpec[]}),[projectId]);
   useEffect(() => {
-    if (!selectedModules.length) return;
-    const validSelected = selectedModules.filter((key) => {
-      const mod = allModules.find((item) => item.key === key);
-      return getModuleAvailability(mod, sourceContext).selectable;
-    });
-    if (validSelected.length !== selectedModules.length) {
-      const nextConfigs = Object.fromEntries(
-        validSelected.map((key) => [key, moduleConfigs[key] || {}]),
-      );
-      onUpdate(validSelected, nextConfigs);
-    }
-    if (activeConfigKey && !validSelected.includes(activeConfigKey)) {
-      setActiveConfigKey(null);
-    }
-  }, [allModules, activeConfigKey, selectedModules, moduleConfigs, sourceContext?.pepPaths?.join("|"), sourceContext?.profilePath, sourceContext?.transcriptomePath]);
-
-  const groupedModules = useMemo(() => {
-    const map = new Map<string, JobModule[]>();
-    for (const m of allModules) {
-      const cat = m.category || "Other";
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(m);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [allModules]);
-
-  const handleSelectModule = (key: string) => {
-    const mod = allModules.find((item) => item.key === key);
-    if (!getModuleAvailability(mod, sourceContext).selectable) return;
-    const alreadySelected = selectedModules.includes(key);
-    setActiveConfigKey(key);
-    if (!alreadySelected) {
-      onUpdate([...selectedModules, key], {
-        ...moduleConfigs,
-        [key]: moduleConfigs[key] || {},
-      });
-    }
-  };
-
-  const handleRemoveModule = (key: string) => {
-    const nextSelected = selectedModules.filter((item) => item !== key);
-    const nextConfigs = { ...moduleConfigs };
-    delete nextConfigs[key];
-    if (activeConfigKey === key) {
-      setActiveConfigKey(nextSelected[0] || null);
-    }
-    onUpdate(nextSelected, nextConfigs);
-  };
-
-  const activeModule = allModules.find((m) => m.key === activeConfigKey);
-  const ConfigForm = activeModule?.ui_entry
-    ? getFormComponent(activeModule.ui_entry)
-    : null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
-      {/* Header */}
-      <div>
-        <h2 style={{ margin: 0 }}>Stage 3: Module Configuration</h2>
-        <p
-          style={{
-            margin: "4px 0 0",
-            color: "var(--text-secondary)",
-            fontSize: "0.875rem",
-          }}
-        >
-          Select and configure the analysis modules to run. {allModules.length > 0 && `${allModules.length} modules available.`}
-        </p>
-      </div>
-
-      {/* Module Grid */}
-      {groupedModules.length === 0 ? (
-        <div
-          style={{
-            padding: "var(--spacing-3xl)",
-            textAlign: "center",
-            color: "var(--text-tertiary)",
-            background: "var(--bg-elevated)",
-            borderRadius: "var(--radius-card)",
-            border: "1px solid var(--separator)",
-          }}
-        >
-          No analysis modules available.
-        </div>
-      ) : (
-        groupedModules.map(([category, mods]) => (
-          <div key={category}>
-            <div
-              style={{
-                fontSize: "0.72rem",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                color: "var(--text-tertiary)",
-                letterSpacing: "0.05em",
-                marginBottom: "var(--spacing-sm)",
-              }}
-            >
-              {category}
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                gap: "var(--spacing-sm)",
-              }}
-            >
-              {mods.map((mod) => {
-                const isActive = activeConfigKey === mod.key;
-                const isSelected = selectedModules.includes(mod.key);
-                const availability = getModuleAvailability(mod, sourceContext);
-                const unavailable = !availability.selectable;
-                return (
-                  <div
-                    key={mod.key}
-                    onClick={() => handleSelectModule(mod.key)}
-                    title={availability.reason || undefined}
-                    style={{
-                      padding: "var(--spacing-md) var(--spacing-lg)",
-                      borderRadius: "var(--radius-control)",
-                      border: isActive
-                        ? "2px solid var(--accent)"
-                        : isSelected
-                          ? "1px solid rgba(0, 113, 227, 0.45)"
-                        : "1px solid var(--separator)",
-                      background: isActive
-                        ? "rgba(0, 113, 227, 0.04)"
-                        : isSelected
-                          ? "rgba(0, 113, 227, 0.025)"
-                        : "var(--bg-elevated)",
-                      cursor: unavailable ? "not-allowed" : "pointer",
-                      opacity: unavailable ? 0.55 : 1,
-                      transition: "all var(--duration-fast) ease-out",
-                      boxShadow: isActive ? "var(--shadow-md)" : "none",
-                    }}
-                  >
-                    {/* Header row */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--spacing-sm)",
-                        marginBottom: "var(--spacing-xs)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "32px",
-                          height: "32px",
-                          borderRadius: "var(--radius-control)",
-                          background: isActive ? "var(--accent)" : "var(--bg-inset)",
-                          color: isActive ? "#fff" : "var(--text-secondary)",
-                          display: "grid",
-                          placeItems: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                          {unavailable ? <AlertTriangle size={15} /> : isSelected ? <Check size={16} /> : <Layers size={16} />}
-                      </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            fontSize: "0.85rem",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {mod.label}
-                        </div>
-                        {mod.description && (
-                          <div
-                            style={{
-                              fontSize: "0.7rem",
-                              color: "var(--text-tertiary)",
-                              marginTop: "2px",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                            }}
-                          >
-                            {mod.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Status badges */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--spacing-xs)",
-                        flexWrap: "wrap",
-                        marginTop: "var(--spacing-sm)",
-                      }}
-                    >
-                      {isSelected && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleRemoveModule(mod.key);
-                          }}
-                          style={{
-                            border: "1px solid rgba(0,113,227,0.25)",
-                            background: "rgba(0,113,227,0.08)",
-                            color: "var(--accent)",
-                            borderRadius: "var(--radius-pill)",
-                            padding: "2px 8px",
-                            fontSize: "0.65rem",
-                            cursor: "pointer",
-                          }}
-                        >
-                          selected ×
-                        </button>
-                      )}
-                      {mod.ui_entry && (
-                        <span
-                          style={{
-                            fontSize: "0.65rem",
-                            padding: "2px 6px",
-                            borderRadius: "var(--radius-pill)",
-                            background: "var(--bg-inset)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          configurable
-                        </span>
-                      )}
-                      {mod.output_kinds && mod.output_kinds.length > 0 && (
-                        <span
-                          style={{
-                            fontSize: "0.65rem",
-                            padding: "2px 6px",
-                            borderRadius: "var(--radius-pill)",
-                            background: "var(--bg-inset)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          {mod.output_kinds.length} outputs
-                        </span>
-                      )}
-                      {availability.missing.map((asset) => (
-                        <span
-                          key={asset}
-                          style={{
-                            fontSize: "0.65rem",
-                            padding: "2px 6px",
-                            borderRadius: "var(--radius-pill)",
-                            background: "rgba(255,59,48,0.08)",
-                            color: "var(--danger)",
-                            border: "1px solid rgba(255,59,48,0.18)",
-                          }}
-                        >
-                          Missing {assetLabel(asset)}
-                        </span>
-                      ))}
-                      {isActive && (
-                        <span
-                          style={{
-                            fontSize: "0.65rem",
-                            padding: "2px 6px",
-                            borderRadius: "var(--radius-pill)",
-                            background: "var(--accent)",
-                            color: "#fff",
-                          }}
-                        >
-                          configuring
-                        </span>
-                      )}
-                    </div>
-                    {availability.reason && (
-                      <div style={{ marginTop: "var(--spacing-xs)", fontSize: "0.7rem", color: "var(--danger)", lineHeight: 1.35 }}>
-                        {availability.reason}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))
-      )}
-
-      {/* Configuration Panel */}
-      {activeConfigKey && ConfigForm && activeModule && (
-        <div
-          style={{
-            background: "var(--bg-elevated)",
-            borderRadius: "var(--radius-panel)",
-            border: "2px solid var(--accent)",
-            padding: "var(--spacing-lg)",
-            boxShadow: "var(--shadow-md)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: "var(--spacing-md)",
-              flexWrap: "wrap",
-              gap: "var(--spacing-sm)",
-            }}
-          >
-            <div>
-              <h4 style={{ margin: 0, fontSize: "0.95rem" }}>{activeModule.label} Configuration</h4>
-              {activeModule.description && (
-                <p style={{ margin: "4px 0 0", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  {activeModule.description}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => setActiveConfigKey(null)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "6px 14px",
-                borderRadius: "var(--radius-pill)",
-                border: "1px solid var(--separator)",
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                fontSize: "0.75rem",
-                cursor: "pointer",
-              }}
-            >
-              <X size={14} /> Close
-            </button>
-          </div>
-          <ConfigForm
-            projectId={projectId}
-            module={activeConfigKey}
-            sourceContext={sourceContext}
-            groupSpecs={groupSpecs}
-            loadingSpecs={loadingSpecs}
-            value={moduleConfigs[activeConfigKey] || {}}
-            onChange={(v) => onUpdate(selectedModules, { ...moduleConfigs, [activeConfigKey]: v })}
-          />
-        </div>
-      )}
-
-      {/* Summary */}
-      {selectedModules.length > 0 && (
-        <Card>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)" }}>
-            <Zap size={18} style={{ color: "var(--accent)", flexShrink: 0 }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                Ready to Execute
-              </div>
-              <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                Selected modules: {selectedModules
-                  .map((key) => allModules.find((m) => m.key === key)?.label || key)
-                  .join(", ")}
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
+    if (fixedModule) return;
+    const valid = selectedModules.filter(key => getModuleAvailability(modules.find(module => module.key === key),sourceContext).selectable);
+    if (valid.length !== selectedModules.length) onUpdate(valid,Object.fromEntries(valid.map(key => [key,moduleConfigs[key] || {}])));
+    if (activeKey && !valid.includes(activeKey)) setActiveKey(null);
+  },[modules,selectedModules,moduleConfigs,sourceContext,onUpdate,activeKey,fixedModule]);
+  const active = modules.find(module => module.key === (fixedModule || activeKey));
+  const ConfigForm = active?.ui_entry ? getFormComponent(active.ui_entry) : null;
+  const availableCount = modules.filter(module => getModuleAvailability(module,sourceContext).selectable).length;
+  const filtered = modules.filter(module => `${module.label} ${module.description || ""} ${module.key}`.toLowerCase().includes(search.trim().toLowerCase()) && (!onlyAvailable || getModuleAvailability(module,sourceContext).selectable));
+  function choose(module: JobModule) {
+    if (!getModuleAvailability(module,sourceContext).selectable) return;
+    setActiveKey(module.key);
+    if (!selectedModules.includes(module.key)) onUpdate([...selectedModules,module.key],{...moduleConfigs,[module.key]:moduleConfigs[module.key] || {}});
+  }
+  function remove(key: string) {
+    const next=selectedModules.filter(item => item !== key);
+    const configs={...moduleConfigs};delete configs[key];
+    if (activeKey === key) setActiveKey(next[0] || null);
+    onUpdate(next,configs);
+  }
+  return <div style={{display:"grid",gap:24}}>
+    {!fixedModule && <>
+    <div><h2>第三步：选择分析与配置参数</h2><p style={{color:"var(--text-secondary)",marginTop:6}}>当前数据可用于 {availableCount} / {modules.length} 个模块。选择模块后，在下方配置分组与参数。</p></div>
+    <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:16}}>
+      <label className="field-label" style={{flex:"1 1 220px"}}>搜索分析模块<input className="input" type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="输入分析名称或关键词，例如 样本指标表、UMAP" /></label>
+      <label style={{display:"flex",gap:8,alignItems:"center"}}><input type="checkbox" checked={onlyAvailable} onChange={event=>setOnlyAvailable(event.target.checked)} />只显示当前可运行模块</label>
     </div>
-  );
+    {!modules.length ? <p>暂无分析模块。</p> : !filtered.length ? <p role="status">没有匹配的模块，请调整关键词或筛选条件。</p> : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,250px),1fr))",gap:12}}>
+      {filtered.map(module=>{const availability=getModuleAvailability(module,sourceContext);const selected=selectedModules.includes(module.key);return <article key={module.key} style={{background:"var(--bg-elevated)",border:`1px solid ${activeKey === module.key ? "var(--accent)" : "var(--separator)"}`,borderRadius:8,padding:16}}>
+        <button type="button" aria-label={`配置 ${module.label}`} aria-pressed={selected} aria-disabled={!availability.selectable} onClick={()=>choose(module)} style={{display:"block",width:"100%",textAlign:"left",color:"var(--text-primary)",cursor:availability.selectable?"pointer":"not-allowed"}}><strong>{module.label}</strong><span style={{display:"block",fontSize:13,lineHeight:1.7,color:"var(--text-secondary)",marginTop:8}}>{module.description}</span></button>
+        <p style={{fontSize:12,color:"var(--text-secondary)",marginTop:12}}>输出：{module.output_kinds?.join(" / ").toUpperCase() || "以实际分析结果为准"}</p>
+        {availability.missing.map(asset=><span key={asset} style={{display:"inline-block",fontSize:12,color:"var(--danger)",marginRight:10}}>缺少 {assetLabel(asset)}</span>)}
+        {availability.reason && <p style={{fontSize:12,color:"var(--danger)",marginTop:8}}>{availability.reason}</p>}
+        {selected && <button className="btn btn-secondary" aria-label={`移除 ${module.label}`} style={{marginTop:12}} onClick={()=>remove(module.key)}>已选择 · 移除</button>}
+      </article>;})}
+    </div>}
+    {!!selectedModules.length && <div style={{padding:16,background:"var(--bg-inset)",borderRadius:8}}><strong>已选 {selectedModules.length} 个模块</strong><p style={{fontSize:13,marginTop:6}}>{selectedModules.map(key=>modules.find(module=>module.key===key)?.label || key).join("、")}</p><p style={{fontSize:12,color:"var(--text-secondary)",marginTop:6}}>请逐项确认配置，下一步将检查输入并提交任务。</p></div>}
+    </>}
+    {fixedModule && <div><h2>配置参数与分组</h2><p>确认下方参数后，进入运行步骤。</p></div>}
+    {active && ConfigForm && <section style={{padding:20,border:"1px solid var(--accent)",borderRadius:8,background:"var(--bg-elevated)",minWidth:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",marginBottom:20}}><h3>{active.label} · 参数配置</h3>{!fixedModule && <button className="btn btn-secondary" onClick={()=>setActiveKey(null)}>收起配置</button>}</div>
+      {specs.status === "error" && <p role="alert">分组方案读取失败：{specs.error}</p>}
+      <ConfigForm fixedParameters={fixedParameters} key={JSON.stringify([active.key,projectId,sourceContext?.assetSetId,sourceContext?.profilePath,sourceContext?.pepPaths,sourceContext?.transcriptomePath])} projectId={projectId} module={active.key} sourceContext={sourceContext} groupSpecs={specs.status === "ready"?specs.data.group_specs:[]} loadingSpecs={specs.status === "loading"} value={moduleConfigs[active.key] || {}} onChange={value=>onUpdate(selectedModules,{...moduleConfigs,[active.key]:value})} />
+    </section>}
+  </div>;
 }

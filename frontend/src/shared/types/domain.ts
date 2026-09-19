@@ -35,4 +35,5 @@ export interface JobModule {
   ui_entry?: string;
   execution_mode?: "job" | "script-hub-legacy";
   status?: string;
+  unavailable_reason?: string;
 }

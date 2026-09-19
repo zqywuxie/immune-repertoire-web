@@ -8,6 +8,7 @@ import uuid
 import logging
 import tempfile
 from pathlib import Path
+from flask_app.services.user_scope import current_user_id
 from flask import Blueprint, request, jsonify, send_file, current_app
 from werkzeug.utils import secure_filename
 
@@ -129,7 +130,7 @@ def generate_comparison_ppt():
             }), 400
         
         # 检查会话
-        if session_id not in ppt_sessions:
+        if session_id not in ppt_sessions or ppt_sessions[session_id].get("user_id") != current_user_id():
             return jsonify({
                 'success': False,
                 'error': 'PPT会话不存在或已过期'
@@ -181,7 +182,7 @@ def register_ppt_session(session_id: str, template_path: str):
         template_path: PPT模板路径
     """
     ppt_sessions[session_id] = {
-        'template_path': template_path
+        'template_path': template_path, 'user_id': current_user_id()
     }
     logger.info(f"注册PPT会话: {session_id}")
 

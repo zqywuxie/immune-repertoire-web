@@ -3,6 +3,7 @@ import type { ScriptHubSourceContext } from "./index";
 import type { GroupSpec } from "../../../shared/api/groupSpecs";
 
 type Props = {
+  fixedParameters?: Record<string,unknown>;
   projectId: string;
   sourceContext?: ScriptHubSourceContext;
   groupSpecs: GroupSpec[];
@@ -12,12 +13,13 @@ type Props = {
 };
 
 const CHART_TYPES = [
-  { key: "heatmap", label: "热力图 (Heatmap)" },
-  { key: "treemap", label: "树图 (Treemap)" },
-  { key: "chord", label: "弦图 (Chord)" },
+  { key: "heatmap", label: "热力图" },
+  { key: "treemap", label: "树图" },
+  { key: "chord", label: "弦图" },
 ];
 
 export function ChartsCombinedForm({
+  fixedParameters,
   sourceContext,
   groupSpecs,
   loadingSpecs,
@@ -84,52 +86,52 @@ export function ChartsCombinedForm({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-      <Section title="Chart Types">
+      {!fixedParameters?.selected_modules && <Section title="图表类型">
         <ChipGrid
           items={CHART_TYPES}
           selected={selectedModules}
           onToggle={toggleChart}
         />
-      </Section>
+      </Section>}
 
-      <Section title="Samples">
+      <Section title="样本">
         {sampleOptions.length ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
             <input
               value={sampleFilter}
               onChange={(event) => setSampleFilter(event.target.value)}
-              placeholder="Filter samples by keyword"
+              placeholder="按关键词筛选样本"
               style={inputSelectStyle}
             />
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", gap: "var(--spacing-xs)" }}>
               <select value={sampleCandidate} onChange={(event) => setSampleCandidate(event.target.value)} style={inputSelectStyle}>
-                <option value="">{availableSamples.length ? "Select sample" : "All detected samples selected"}</option>
+                <option value="">{availableSamples.length ? "选择样本" : "已选中全部识别到的样本"}</option>
                 {availableSamples.map((sample) => (
                   <option key={sample} value={sample}>{sample}</option>
                 ))}
               </select>
               <button type="button" onClick={addSample} disabled={!sampleCandidate} style={buttonStyle(Boolean(sampleCandidate))}>
-                Add
+                添加
               </button>
               <button type="button" onClick={() => setField("samples", [])} disabled={!selectedSamples.length} style={buttonStyle(Boolean(selectedSamples.length), false)}>
-                Clear
+                清空
               </button>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)" }}>
               <button type="button" onClick={() => selectSamples(sampleOptions)} disabled={!sampleOptions.length} style={buttonStyle(Boolean(sampleOptions.length))}>
-                All
+                全选
               </button>
               <button type="button" onClick={selectVisible} disabled={!visibleSamples.length} style={buttonStyle(Boolean(visibleSamples.length))}>
-                Select visible
+                选中筛选结果
               </button>
               <button type="button" onClick={onlyVisible} disabled={!visibleSamples.length} style={buttonStyle(Boolean(visibleSamples.length))}>
-                Only visible
+                仅保留筛选结果
               </button>
               <button type="button" onClick={invertVisible} disabled={!visibleSamples.length} style={buttonStyle(Boolean(visibleSamples.length), false)}>
-                Invert visible
+                反选筛选结果
               </button>
               <button type="button" onClick={() => selectSamples(sampleOptions.slice(0, 20))} disabled={!sampleOptions.length} style={buttonStyle(Boolean(sampleOptions.length), false)}>
-                First 20
+                前 20 个
               </button>
             </div>
             {selectedSamples.length ? (
@@ -142,11 +144,11 @@ export function ChartsCombinedForm({
             )}
           </div>
         ) : (
-          <div style={hintStyle}>No samples detected from the selected PEP assets.</div>
+          <div style={hintStyle}>所选克隆序列表中未识别到样本。</div>
         )}
       </Section>
 
-      <Section title="Chains">
+      <Section title="链类型">
         {chainOptions.length ? (
           <ChipGrid
             items={chainOptions.map((chain) => ({ key: chain, label: chain }))}
@@ -154,18 +156,18 @@ export function ChartsCombinedForm({
             onToggle={toggleChain}
           />
         ) : (
-          <div style={hintStyle}>No chains detected from the selected PEP assets.</div>
+          <div style={hintStyle}>所选克隆序列表中未识别到链类型。</div>
         )}
       </Section>
 
-      <FormField label="Group Spec">
+      <FormField label="分组方案">
         <select
           value={(value.group_spec_id as string) || ""}
           onChange={(e) => setField("group_spec_id", e.target.value || undefined)}
           disabled={loadingSpecs}
           style={inputSelectStyle}
         >
-          <option value="">Profile fields / none</option>
+          <option value="">使用指标表字段或不设置</option>
           {groupSpecs.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -237,7 +239,7 @@ function RemovableChips({
           key={value}
           type="button"
           onClick={() => onRemove(value)}
-          title="Remove sample"
+          title="移除样本"
           style={{
             padding: "5px 10px",
             borderRadius: "var(--radius-pill)",

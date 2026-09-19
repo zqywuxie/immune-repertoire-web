@@ -62,7 +62,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
             {title && <h3 style={{ margin: 0 }}>{title}</h3>}
             <button
               onClick={onClose}
-              aria-label="Close"
+              aria-label="关闭"
               style={{
                 width: "32px",
                 height: "32px",

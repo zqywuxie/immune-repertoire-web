@@ -642,8 +642,20 @@ def execute_unified_analysis():
         scheme_id = data.get('scheme_id')
         selected_fields = data.get('selected_fields')
         field_mapping = data.get('field_mapping')
-        parameters = data.get('parameters', {})
-        
+        parameters = dict(data.get('parameters') or {})
+        from flask_app.services.config_service import ConfigService, UserConfig
+        from flask_app.services.user_scope import current_user_id
+        user_id = current_user_id()
+        preference_id = f'u{user_id}-analysis' if user_id is not None else 'analysis'
+        if db.session.get(UserConfig, preference_id) is not None:
+            preference = ConfigService().get_config(preference_id)
+            parameters['chart_config'] = {
+                'figsize': preference.default_figure_size,
+                'dpi': preference.default_dpi,
+                'font_size': preference.default_font_size,
+                **(parameters.get('chart_config') or {}),
+            }
+
         # 验证模式特定参数
         if mode == 'scheme' and not scheme_id:
             raise ValidationError(

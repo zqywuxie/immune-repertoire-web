@@ -1,0 +1,34 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { PdfExtractor } from '../pages/analysis/PdfExtractor';
+import { PptTools } from '../pages/analysis/PptTools';
+import { uploadDocument, documentAction } from '../shared/api/documentTools';
+vi.mock('../shared/api/documentTools',()=>({uploadDocument:vi.fn(),documentAction:vi.fn()}));
+vi.mock('../shared/api/projects',()=>({listProjects:vi.fn().mockResolvedValue({projects:[{id:'p1',name:'项目1'}]}),uploadProjectAssets:vi.fn().mockResolvedValue({assets:[{storage_path:'/owned/image.png'}]})}));
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it('uses the real uploaded PDF ID and displays only the extracted values',async()=>{
+ vi.mocked(uploadDocument).mockResolvedValue({file_id:'pdf123'});
+ vi.mocked(documentAction).mockResolvedValue({table_data:{headers:['样本','指标'],rows:[['S1',42]]},success_count:1});
+ render(<PdfExtractor/>);
+ fireEvent.change(screen.getByLabelText('上传 PDF（最大 50 MB）'),{target:{files:[new File(['pdf'],'report.pdf',{type:'application/pdf'})]}});
+ fireEvent.click(screen.getByRole('button',{name:'开始提取'}));
+ await screen.findByText('42');
+ expect(documentAction).toHaveBeenCalledWith('/api/pdf/extract-tables',{file_ids:['pdf123']});
+ expect(screen.queryByText('Data A1')).not.toBeInTheDocument();
+ expect(screen.getByRole('link',{name:'下载 CSV'})).toHaveAttribute('href',expect.stringContaining('42'));
+});
+it('parses real PPT targets and submits uploaded replacement assets',async()=>{
+ vi.mocked(uploadDocument).mockResolvedValue({session_id:'session1',slide_count:5,heatmap_slides:[{slide_index:1,chain_type:'TRA',image_positions:[{index:0,metric:'r2_inner',metric_display:'R2'}]}]});
+ vi.mocked(documentAction).mockResolvedValue({success:true,replaced_count:1,total_count:1,download_url:'/download.pptx'});
+ render(<PptTools/>);
+ await screen.findByRole('option',{name:'项目1'});
+ fireEvent.change(screen.getByLabelText('项目'),{target:{value:'p1'}});
+ fireEvent.change(screen.getByLabelText('上传 PPTX 模板'),{target:{files:[new File(['ppt'],'template.pptx')]}});
+ expect(screen.queryByText('TRA · R2')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'解析模板'}));
+ const target=await screen.findByLabelText('TRA · R2');
+ fireEvent.change(target,{target:{files:[new File(['png'],'plot.png',{type:'image/png'})]}});
+ fireEvent.click(screen.getByRole('button',{name:'生成替换后的 PPT'}));
+ await screen.findByRole('link',{name:'下载 PPTX'});
+ expect(documentAction).toHaveBeenCalledWith('/api/ppt/replace',{session_id:'session1',heatmaps:{TRA:{r2_inner:'/owned/image.png'}},apply_borders:true});
+});

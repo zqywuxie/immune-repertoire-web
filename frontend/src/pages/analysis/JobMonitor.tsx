@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   Activity, Play, CheckCircle2, XCircle, Ban,
@@ -22,6 +23,11 @@ import { buildAssetSets } from "../../features/assets/assetSets";
 /* ── Component ── */
 
 export function JobMonitor() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedRef = useRef<string | null>(null);
+  const resultVersion = useRef(0);
+  const [readError, setReadError] = useState("");
+  useEffect(() => () => { selectedRef.current = null; resultVersion.current += 1; }, []);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterModule, setFilterModule] = useState("");
   const [filterProjectId, setFilterProjectId] = useState("");
@@ -52,7 +58,7 @@ export function JobMonitor() {
       void refreshTick;
       return listJobs({ projectId: filterProjectId || undefined, limit: 100 });
     },
-    autoRefresh ? 3000 : 999999
+    autoRefresh ? 3000 : null, [filterProjectId, refreshTick]
   );
   const jobs = jobsState.data?.jobs || [];
   const jobsLoading = jobsState.loading;
@@ -113,30 +119,49 @@ export function JobMonitor() {
   const allVisibleSelected = filteredJobs.length > 0 && filteredJobs.every((job) => selectedJobIds.has(job.job_id || job.id));
 
   const fetchJobResults = useCallback(async (jobId: string) => {
+    const version = ++resultVersion.current;
+    setReadError("");
     setDetailState((current) => ({ result: current.result, loading: true }));
     try {
       const data = await getJobResults(jobId);
+      if (selectedRef.current !== jobId || version !== resultVersion.current) return;
       setDetailState({ result: data, loading: false });
       setJobDetailState({ job: data.job, loading: false });
-    } catch {
+    } catch (reason) {
+      if (selectedRef.current !== jobId || version !== resultVersion.current) return;
+      setReadError(reason instanceof Error ? reason.message : "结果读取失败");
       lastResultFetchKeyRef.current = "";
       setDetailState((current) => ({ result: current.result, loading: false }));
     }
   }, []);
 
   const handleSelectJob = useCallback(async (jobId: string) => {
+    selectedRef.current = jobId;
+    resultVersion.current += 1;
+    setReadError("");
+    setSearchParams({ job: jobId }, { replace: true });
     setSelectedJobId(jobId);
     lastResultFetchKeyRef.current = "";
-    setJobDetailState((current) => ({ job: current.job, loading: true }));
+    setJobDetailState({ job: null, loading: true });
     setDetailState({ result: null, loading: true });
     try {
       const data = await getJob(jobId);
+      if (selectedRef.current !== jobId) return;
       setJobDetailState({ job: data.job, loading: false });
-    } catch {
-      setJobDetailState((current) => ({ job: current.job, loading: false }));
+    } catch (reason) {
+      if (selectedRef.current !== jobId) return;
+      setReadError(reason instanceof Error ? reason.message : "任务读取失败");
+      setJobDetailState({ job: null, loading: false });
+      setDetailState({ result: null, loading: false });
+      return;
     }
     await fetchJobResults(jobId);
-  }, [fetchJobResults]);
+  }, [fetchJobResults, setSearchParams]);
+
+  useEffect(() => {
+    const id = searchParams.get("job");
+    if (id && selectedRef.current !== id) void handleSelectJob(id);
+  }, [searchParams, handleSelectJob]);
 
   const handleOpenDetails = useCallback((job: JobSummary) => {
     const jobId = job.job_id || job.id;
@@ -177,28 +202,31 @@ export function JobMonitor() {
       return next;
     });
     if (selectedJobId && deletedIds.includes(selectedJobId)) {
+      selectedRef.current = null;
+      resultVersion.current += 1;
+      setSearchParams({}, { replace: true });
       setSelectedJobId(null);
       setJobDetailState({ job: null, loading: false });
       setDetailState({ result: null, loading: false });
     }
     setRefreshTick((tick) => tick + 1);
-  }, [selectedJobId]);
+  }, [selectedJobId, setSearchParams]);
 
   const handleDeleteOne = useCallback(async (job: JobSummary) => {
     if (!isTerminalJob(job)) {
-      addToast("Cancel or wait for the job to finish before deleting it.", "warning");
+      addToast("请取消任务或等待任务结束后再删除。", "warning");
       return;
     }
     const jobId = job.job_id || job.id;
-    const suffix = deleteResults ? " and attached result files/assets" : "";
-    if (!confirm(`Delete job ${job.module || jobId}${suffix}?`)) return;
+    const suffix = deleteResults ? " 及关联结果文件" : "";
+    if (!confirm(`删除任务 ${job.module || jobId}${suffix}?`)) return;
     setDeleting(true);
     try {
       await deleteJob(jobId, { deleteResults });
       clearDeletedState([jobId]);
-      addToast("Job deleted.", "success");
+      addToast("任务已删除。", "success");
     } catch (err) {
-      addToast(err instanceof Error ? err.message : "Failed to delete job.", "error");
+      addToast(err instanceof Error ? err.message : "删除任务失败。", "error");
     } finally {
       setDeleting(false);
     }
@@ -206,14 +234,14 @@ export function JobMonitor() {
 
   const handleDeleteSelected = useCallback(async () => {
     if (terminalSelectedJobs.length === 0) {
-      addToast("No terminal jobs selected. Cancel running jobs first.", "warning");
+      addToast("未选择已结束的任务，请先取消运行中的任务。", "warning");
       return;
     }
     const skipped = selectedJobs.length - terminalSelectedJobs.length;
-    const suffix = deleteResults ? " and attached result files/assets" : "";
+    const suffix = deleteResults ? " 及关联结果文件" : "";
     const message = [
-      `Delete ${terminalSelectedJobs.length} selected job(s)${suffix}?`,
-      skipped > 0 ? `${skipped} running/queued job(s) will be skipped.` : "",
+      `Delete ${terminalSelectedJobs.length} 个已选任务${suffix}?`,
+      skipped > 0 ? `${skipped} 个运行中或等待中的任务将被跳过。` : "",
     ].filter(Boolean).join("\n");
     if (!confirm(message)) return;
     setDeleting(true);
@@ -225,7 +253,7 @@ export function JobMonitor() {
       const failed = response.results.length - deletedIds.length;
       addToast(failed ? `Deleted ${deletedIds.length}; ${failed} failed.` : `Deleted ${deletedIds.length} job(s).`, failed ? "warning" : "success");
     } catch (err) {
-      addToast(err instanceof Error ? err.message : "Failed to delete selected jobs.", "error");
+      addToast(err instanceof Error ? err.message : "删除所选任务失败。", "error");
     } finally {
       setDeleting(false);
     }
@@ -290,17 +318,18 @@ export function JobMonitor() {
 
   return (
     <>
-      <PageHeader title="Job Monitor" subtitle="Track, inspect, and manage analysis jobs">
+      <PageHeader title="任务与结果" subtitle="跟踪分析进度，查看配置和结果">
         <label style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", fontSize: "0.85rem", cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={autoRefresh}
             onChange={(e) => setAutoRefresh(e.target.checked)}
           />
-          Auto-refresh
+          自动刷新
         </label>
       </PageHeader>
 
+      {readError && <div role="alert"><p>{readError}</p><button className="btn btn-secondary" onClick={() => selectedJobId && handleSelectJob(selectedJobId)}>重新读取任务</button></div>}
       {/* Error banner */}
       {jobsError && (
         <div style={{
@@ -315,10 +344,10 @@ export function JobMonitor() {
 
       {/* Stats bar */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--spacing-lg)" }}>
-        <MetricCard icon={Play} label="Running" value={stats.running} color="var(--warning)" />
-        <MetricCard icon={CheckCircle2} label="Completed" value={stats.completed} color="var(--success)" />
-        <MetricCard icon={XCircle} label="Failed" value={stats.failed} color="var(--danger)" />
-        <MetricCard icon={Ban} label="Cancelled" value={stats.cancelled} color="#aeaeb2" />
+        <MetricCard icon={Play} label="运行中" value={stats.running} color="var(--warning)" />
+        <MetricCard icon={CheckCircle2} label="已完成" value={stats.completed} color="var(--success)" />
+        <MetricCard icon={XCircle} label="失败" value={stats.failed} color="var(--danger)" />
+        <MetricCard icon={Ban} label="已取消" value={stats.cancelled} color="#aeaeb2" />
       </div>
 
       {/* Filter toolbar */}
@@ -326,55 +355,55 @@ export function JobMonitor() {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
           <Filter size={16} style={{ color: "var(--text-tertiary)" }} />
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
-            Project:
+            项目：
             <select
               value={filterProjectId}
               onChange={(e) => setFilterProjectId(e.target.value)}
               style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem", minWidth: "150px" }}
             >
-              <option value="">All</option>
+              <option value="">全部</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
-            Dataset:
+            数据集：
             <select
               value={filterAssetSet}
               onChange={(e) => setFilterAssetSet(e.target.value)}
               disabled={!filterProjectId}
               style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem", minWidth: "120px" }}
             >
-              <option value="">All</option>
+              <option value="">全部</option>
               {assetSets.map((set) => (
                 <option key={set} value={set}>{set}</option>
               ))}
             </select>
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
-            Status:
+            状态：
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem" }}
             >
-              <option value="">All</option>
-              <option value="queued">Queued</option>
-              <option value="running">Running</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="">全部</option>
+              <option value="queued">等待中</option>
+              <option value="running">运行中</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+              <option value="cancelled">已取消</option>
             </select>
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
-            Module:
+            模块：
             <select
               value={filterModule}
               onChange={(e) => setFilterModule(e.target.value)}
               style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem" }}
             >
-              <option value="">All</option>
+              <option value="">全部</option>
               {modules.map((m) => (
                 <option key={m.key} value={m.key}>{m.label}</option>
               ))}
@@ -382,7 +411,7 @@ export function JobMonitor() {
           </label>
           <div style={{ flex: 1, minWidth: "200px" }}>
             <SearchBar
-              placeholder="Search job ID…"
+              placeholder="搜索任务编号…"
               value={searchTerm}
               onChange={setSearchTerm}
               onClear={() => setSearchTerm("")}
@@ -407,7 +436,7 @@ export function JobMonitor() {
               cursor: "pointer",
             }}
           >
-            Clear
+            清空
           </button>
         </div>
       </Card>
@@ -432,7 +461,7 @@ export function JobMonitor() {
                   disabled={deleting}
                   style={smallButtonStyle}
                 >
-                  {allVisibleSelected ? "Unselect visible" : "Select visible"}
+                  {allVisibleSelected ? "取消选中筛选结果" : "选中筛选结果"}
                 </button>
                 <button
                   type="button"
@@ -440,7 +469,7 @@ export function JobMonitor() {
                   disabled={deleting || selectedJobIds.size === 0}
                   style={smallButtonStyle}
                 >
-                  Clear
+                  清空
                 </button>
                 <label style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
                   <input
@@ -449,10 +478,10 @@ export function JobMonitor() {
                     onChange={(event) => setDeleteResults(event.target.checked)}
                     disabled={deleting}
                   />
-                  Delete attached results
+                  同时删除关联结果
                 </label>
                 <span style={{ color: "var(--text-tertiary)", fontSize: "0.78rem" }}>
-                  {selectedJobIds.size} selected · {terminalSelectedJobs.length} deletable
+                  {selectedJobIds.size} 已选择 · {terminalSelectedJobs.length} 可删除
                 </span>
                 <button
                   type="button"
@@ -469,7 +498,7 @@ export function JobMonitor() {
                   }}
                 >
                   <Trash2 size={14} />
-                  {deleting ? "Deleting..." : "Delete selected"}
+                  {deleting ? "正在删除…" : "删除所选"}
                 </button>
               </div>
             </Card>
@@ -483,8 +512,8 @@ export function JobMonitor() {
           ) : filteredJobs.length === 0 ? (
             <EmptyState
               icon={Clock}
-              title="No jobs found"
-              description={filterStatus || filterModule || filterProjectId || filterAssetSet || searchTerm ? "Try adjusting your filters." : "Submit a job from ScriptHub to get started."}
+              title="暂无任务"
+              description={filterStatus || filterModule || filterProjectId || filterAssetSet || searchTerm ? "请调整筛选条件。" : "请先进入分析中心提交任务。"}
             />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
@@ -508,8 +537,8 @@ export function JobMonitor() {
             <Card>
               <EmptyState
                 icon={Activity}
-                title="Select a job"
-                description="Click on a job from the list to view its configuration and results."
+                title="选择任务"
+                description="点击任务查看配置、运行状态及结果。"
               />
             </Card>
           ) : (
@@ -530,7 +559,7 @@ export function JobMonitor() {
                     width: "6px", height: "6px", borderRadius: "50%",
                     background: "var(--success)", animation: "pulse 2s infinite",
                   }} />
-                  Live updates
+                  实时更新
                 </div>
               )}
               {liveJob.error && (
@@ -550,7 +579,9 @@ export function JobMonitor() {
                   job={jobDetailState.job}
                   loading={jobDetailState.loading}
                   onClose={() => {
-                    setSelectedJobId(null);
+                    selectedRef.current = null;
+            setSearchParams({}, { replace: true });
+            setSelectedJobId(null);
                     setJobDetailState({ job: null, loading: false });
                     setDetailState({ result: null, loading: false });
                   }}

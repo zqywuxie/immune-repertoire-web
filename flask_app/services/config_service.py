@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
 import json
+import math
 
 from flask_app.models.database import db
 
@@ -317,8 +318,8 @@ class ConfigService:
             size = config_data['default_figure_size']
             if not isinstance(size, list) or len(size) != 2:
                 errors['default_figure_size'] = ['Figure size must be a list of [width, height]']
-            elif not all(isinstance(x, (int, float)) and x > 0 for x in size):
-                errors['default_figure_size'] = ['Figure dimensions must be positive numbers']
+            elif not all(type(x) in (int, float) and math.isfinite(x) and 2 <= x <= 24 for x in size):
+                errors['default_figure_size'] = ['图表宽高必须在 2–24 英寸之间']
         
         # Validate font size
         if 'default_font_size' in config_data:
@@ -356,7 +357,7 @@ class ConfigService:
         if 'heatmap_vmin' in config_data and 'heatmap_vmax' in config_data:
             vmin = config_data['heatmap_vmin']
             vmax = config_data['heatmap_vmax']
-            if vmin >= vmax:
+            if vmin is not None and vmax is not None and (type(vmin) not in (int, float) or type(vmax) not in (int, float) or not math.isfinite(vmin) or not math.isfinite(vmax) or vmin >= vmax):
                 errors['heatmap_vmin'] = ['vmin must be less than vmax']
 
         return errors

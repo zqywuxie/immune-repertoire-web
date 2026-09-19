@@ -29,7 +29,7 @@ function getStatus(index: number, currentStep: number): StepStatus {
 export function Stepper({ steps, currentStep, vertical = false }: StepperProps) {
   if (vertical) {
     return (
-      <div className={styles.vertical} role="list" aria-label="Progress steps">
+      <div className={styles.vertical} role="list" aria-label="操作进度">
         {steps.map((step, idx) => {
           const status = getStatus(idx, currentStep);
           return (
@@ -72,7 +72,7 @@ export function Stepper({ steps, currentStep, vertical = false }: StepperProps) 
   }
 
   return (
-    <div className={styles.stepper} role="list" aria-label="Progress steps">
+    <div className={styles.stepper} role="list" aria-label="操作进度">
       {steps.map((step, idx) => {
         const status = getStatus(idx, currentStep);
         return (
@@ -126,7 +126,7 @@ function StepCircle({
   return (
     <div
       className={`${styles.stepCircle} ${cls}`}
-      aria-label={`Step ${index + 1}: ${status}`}
+      aria-label={`步骤 ${index + 1}: ${status}`}
     >
       {status === "complete" ? (
         <Check size={14} strokeWidth={3} />

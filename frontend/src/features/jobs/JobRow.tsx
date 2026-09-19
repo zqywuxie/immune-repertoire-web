@@ -1,8 +1,9 @@
+import { analysisLabel } from "../../shared/utils/analysisLabels";
 import { StatusBadge } from "../../shared/components/StatusBadge";
 import { ProgressBar } from "../../shared/components/ProgressBar";
-import { cancelJob } from "../../shared/api/jobs";
+import { cancelJob, retryJob } from "../../shared/api/jobs";
 import { Eye, Trash2 } from "lucide-react";
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import type { JobSummary } from "../../shared/types/domain";
 
 type Props = {
@@ -22,6 +23,9 @@ export function JobRow({
   onDelete,
   onJobChanged,
 }: Props) {
+  const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [cancelError, setCancelError] = useState("");
   const jobId = job.job_id || job.id;
   const isRunning = job.status === "running" || job.status === "queued";
   const isTerminal = ["completed", "failed", "cancelled", "interrupted"].includes(job.status);
@@ -29,13 +33,14 @@ export function JobRow({
 
   const handleCancel = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (!confirm(`Cancel job ${job.module || jobId}?`)) return;
+    if (cancelling || !confirm(`确定取消任务 ${analysisLabel(job.module) || jobId}？`)) return;
+    setCancelling(true); setCancelError("");
     try {
       await cancelJob(jobId);
       onJobChanged?.();
-    } catch {
-      // best effort
-    }
+    } catch (reason) {
+      setCancelError(reason instanceof Error ? reason.message : "取消失败，请重试");
+    } finally { setCancelling(false); }
   };
 
   return (
@@ -44,7 +49,7 @@ export function JobRow({
       tabIndex={clickable ? 0 : undefined}
       onClick={() => onOpenDetails?.(job)}
       onKeyDown={(event) => {
-        if (!clickable) return;
+        if (!clickable || event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onOpenDetails?.(job);
@@ -67,7 +72,7 @@ export function JobRow({
         <input
           type="checkbox"
           checked={selected}
-          aria-label={`Select job ${jobId}`}
+          aria-label={`选择任务 ${jobId}`}
           onClick={(event) => event.stopPropagation()}
           onChange={() => onToggleSelected(job)}
           style={{ width: "16px", height: "16px", flexShrink: 0, cursor: "pointer" }}
@@ -75,9 +80,10 @@ export function JobRow({
       )}
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)", marginBottom: "6px" }}>
-          <strong style={{ fontSize: "0.9rem" }}>{job.module || job.job_type}</strong>
+          <strong style={{ fontSize: "0.9rem" }}>{analysisLabel(job.module || job.job_type)}</strong>
           <StatusBadge status={job.status} />
         </div>
+        {cancelError && <p role="alert" style={{ color: "var(--danger)" }}>{cancelError}</p>}
         <ProgressBar value={Number(job.progress || 0)} />
         <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "4px" }}>
           {job.stage || job.detail || job.status}
@@ -91,8 +97,8 @@ export function JobRow({
               event.stopPropagation();
               onOpenDetails(job);
             }}
-            title="View job configuration"
-            aria-label="View job configuration"
+            title="查看任务详情"
+            aria-label="查看任务详情"
             style={{
               width: "32px", height: "32px", borderRadius: "var(--radius-control)",
               border: "1px solid var(--separator)", background: "var(--bg-elevated)",
@@ -106,6 +112,7 @@ export function JobRow({
         {isRunning && (
           <button
             onClick={handleCancel}
+            disabled={cancelling}
             style={{
               padding: "6px 14px", borderRadius: "var(--radius-control)",
               border: "1px solid var(--danger)", background: "transparent",
@@ -113,8 +120,21 @@ export function JobRow({
               whiteSpace: "nowrap", cursor: "pointer",
             }}
           >
-            Cancel
+            {cancelling ? "正在取消…" : "取消任务"}
           </button>
+        )}
+        {["failed", "cancelled", "interrupted"].includes(job.status) && (
+          <button className="btn btn-secondary" disabled={retrying} onClick={async (event) => {
+            event.stopPropagation();
+            if (retrying) return;
+            setRetrying(true); setCancelError("");
+            try {
+              await retryJob(jobId);
+              onJobChanged?.();
+            } catch (error) {
+              setCancelError(error instanceof Error ? error.message : "重试提交失败");
+            } finally { setRetrying(false); }
+          }}>{retrying ? "正在提交…" : "重试任务"}</button>
         )}
         {onDelete && isTerminal && (
           <button
@@ -122,8 +142,8 @@ export function JobRow({
               event.stopPropagation();
               onDelete(job);
             }}
-            title="Delete job"
-            aria-label="Delete job"
+            title="删除任务"
+            aria-label="删除任务"
             style={{
               width: "32px", height: "32px", borderRadius: "var(--radius-control)",
               border: "1px solid color-mix(in srgb, var(--danger) 55%, var(--separator))",

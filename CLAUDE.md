@@ -46,7 +46,7 @@ cd flask_app && pytest                             # 运行测试
 
 ## 关键文档
 
-- `docs/architecture/frontend-backend-separation-refactor.md` — 完整重构方案
+- `docs/archive/architecture/frontend-backend-separation-refactor.md` — 完整重构方案
 - `docs/architecture/domain-model.md` — 领域模型 (Project/Asset/Job/Result)
 - `docs/api/openapi-draft.yaml` — API 契约 (v0.2.0)
 - `docs/migration-progress.md` — 迁移进度追踪

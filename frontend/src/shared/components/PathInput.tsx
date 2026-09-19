@@ -21,7 +21,7 @@ export function PathInput({
   placeholder = "/data/projects/project-name/pep/",
   disabled,
   browsable = true,
-  browseLabel = "Browse",
+  browseLabel = "浏览",
   label,
   hint,
   onCommit,
@@ -86,7 +86,7 @@ export function PathInput({
             <button
               onClick={() => onChange("")}
               style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: "2px", flexShrink: 0 }}
-              aria-label="Clear path"
+              aria-label="清空路径"
             >
               <X size={14} />
             </button>
@@ -121,7 +121,7 @@ export function PathInput({
             onCommit?.(path);
           }}
           initialPath={value}
-          title="Select Directory"
+          title="选择目录"
         />
       )}
     </div>

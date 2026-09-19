@@ -6,6 +6,7 @@ Refactored to use BaseAnalyzer interface.
 Requirements: 7.3, 11.2
 """
 
+from flask_app.services.figure_export import save_analysis_figure
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
@@ -764,7 +765,7 @@ class IGMetricsAnalyzer(BaseAnalyzer):
                 plt.tight_layout(rect=[0, 0, 1, 0.94])
                 
                 buf = io.BytesIO()
-                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                save_analysis_figure(fig, buf, params)
                 buf.seek(0)
                 chart_base64 = base64.b64encode(buf.read()).decode('utf-8')
                 plt.close(fig)

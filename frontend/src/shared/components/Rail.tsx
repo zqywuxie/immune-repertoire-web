@@ -28,7 +28,7 @@ export function Rail({ links, footer }: Props) {
         gap: "var(--spacing-md)",
         flexShrink: 0,
       }}
-      aria-label="Main navigation"
+      aria-label="主导航"
     >
       <div
         style={{
@@ -43,7 +43,7 @@ export function Rail({ links, footer }: Props) {
           marginBottom: "var(--spacing-sm)",
         }}
       >
-        IR
+        免
       </div>
 
       <div
@@ -101,7 +101,7 @@ function DefaultFooter() {
       }}
     >
       <div
-        title={`Auth mode: ${authMode}`}
+        title={`认证方式： ${authMode}`}
         style={{
           width: "36px",
           height: "36px",

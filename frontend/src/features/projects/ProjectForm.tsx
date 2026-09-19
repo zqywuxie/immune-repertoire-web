@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sheet } from "../../shared/components/Sheet";
 import type { ProjectCreate } from "../../shared/types/domain";
 
@@ -10,7 +10,7 @@ type Props = {
   title?: string;
 };
 
-export function ProjectForm({ open, onClose, onSubmit, initial, title = "New Project" }: Props) {
+export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建项目" }: Props) {
   const [name, setName] = useState(initial?.name || "");
   const [institution, setInstitution] = useState(initial?.institution || "");
   const [cooperationLevel, setCooperationLevel] = useState(initial?.cooperation_level || "");
@@ -19,9 +19,15 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "New Pro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (!open) return;
+    setName(initial?.name || ""); setInstitution(initial?.institution || "");
+    setCooperationLevel(initial?.cooperation_level || ""); setDescription(initial?.description || "");
+    setStatus(initial?.status || "active"); setError("");
+  }, [open, initial?.name, initial?.institution, initial?.cooperation_level, initial?.description, initial?.status]);
   const handleSave = async () => {
     if (!name.trim()) {
-      setError("Project name is required.");
+      setError("请填写项目名称。");
       return;
     }
     setSaving(true);
@@ -36,7 +42,7 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "New Pro
       } as ProjectCreate);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -45,50 +51,50 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "New Pro
   return (
     <Sheet open={open} onClose={onClose} title={title}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-        <Field label="Name *">
+        <Field label="名称 *">
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Project name"
+            placeholder="项目名称"
             autoFocus
             style={inputStyle}
           />
         </Field>
 
-        <Field label="Institution">
+        <Field label="所属机构">
           <input
             type="text"
             value={institution}
             onChange={(e) => setInstitution(e.target.value)}
-            placeholder="e.g. Tsinghua University"
+            placeholder="例如：南华大学"
             style={inputStyle}
           />
         </Field>
 
-        <Field label="Cooperation Level">
+        <Field label="合作类型">
           <select value={cooperationLevel} onChange={(e) => setCooperationLevel(e.target.value)} style={inputSelectStyle}>
-            <option value="">— None —</option>
-            <option value="internal">Internal</option>
-            <option value="public">Public</option>
-            <option value="collaboration">Collaboration</option>
-            <option value="restricted">Restricted</option>
+            <option value="">未设置</option>
+            <option value="internal">内部</option>
+            <option value="public">公开</option>
+            <option value="collaboration">合作</option>
+            <option value="restricted">受限</option>
           </select>
         </Field>
 
-        <Field label="Status">
+        <Field label="状态">
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputSelectStyle}>
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="archived">Archived</option>
+            <option value="active">进行中</option>
+            <option value="paused">已暂停</option>
+            <option value="archived">已归档</option>
           </select>
         </Field>
 
-        <Field label="Description">
+        <Field label="说明">
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Project description…"
+            placeholder="填写项目说明…"
             rows={3}
             style={{ ...inputStyle, resize: "vertical", minHeight: "60px" }}
           />
@@ -100,10 +106,10 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "New Pro
 
         <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end" }}>
           <button type="button" onClick={onClose} disabled={saving} style={secondaryBtnStyle}>
-            Cancel
+            取消
           </button>
           <button type="button" onClick={handleSave} disabled={saving || !name.trim()} style={primaryBtnStyle}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? "正在保存…" : "保存"}
           </button>
         </div>
       </div>

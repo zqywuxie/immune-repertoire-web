@@ -5,9 +5,9 @@ type Props = {
 };
 
 const ANALYSIS_TYPES = [
-  { key: "full", label: "Full Pipeline", desc: "Complete analysis from raw data to reports" },
-  { key: "quick", label: "Quick Analysis", desc: "Fast overview with key metrics" },
-  { key: "custom", label: "Custom", desc: "Select specific analysis steps" },
+  { key: "full", label: "完整分析流程", desc: "运行从输入数据到报告的完整流程" },
+  { key: "quick", label: "快速分析", desc: "快速查看关键指标" },
+  { key: "custom", label: "自定义", desc: "选择需要运行的分析步骤" },
 ];
 
 const CUSTOM_STEPS = [
@@ -55,7 +55,7 @@ export function PipelineConfigForm({ projectId, value, onChange }: Props) {
             marginBottom: "var(--spacing-sm)",
           }}
         >
-          Analysis Type
+          分析类型
         </legend>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
           {ANALYSIS_TYPES.map((at) => {
@@ -112,7 +112,7 @@ export function PipelineConfigForm({ projectId, value, onChange }: Props) {
               marginBottom: "var(--spacing-sm)",
             }}
           >
-            Pipeline Steps {customSteps.length > 0 && `(${customSteps.length})`}
+            流程步骤 {customSteps.length > 0 && `(${customSteps.length})`}
           </legend>
           <div
             style={{
@@ -149,15 +149,15 @@ export function PipelineConfigForm({ projectId, value, onChange }: Props) {
       )}
 
       {/* Output format */}
-      <FormField label="Output Format">
+      <FormField label="输出格式">
         <select
           value={(config.output_format as string) || "html"}
           onChange={(e) => updateConfig("output_format", e.target.value)}
           style={inputSelectStyle}
         >
-          <option value="html">HTML Report</option>
-          <option value="pdf">PDF Report</option>
-          <option value="zip">ZIP Archive</option>
+          <option value="html">网页报告</option>
+          <option value="pdf">便携文档报告</option>
+          <option value="zip">压缩包</option>
         </select>
       </FormField>
     </div>

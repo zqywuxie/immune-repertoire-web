@@ -31,11 +31,11 @@ export function ProjectFileUpload({ projectId, onSuccess }: Props) {
       });
       setFiles([]);
       setState("idle");
-      setMessage(`${result.assets.length} project file(s) uploaded.`);
+      setMessage(`${result.assets.length} 个项目文件已上传。`);
       onSuccess();
     } catch (err) {
       setState("error");
-      setMessage(err instanceof Error ? err.message : "Project file upload failed.");
+      setMessage(err instanceof Error ? err.message : "项目文件上传失败。");
     }
   };
 
@@ -55,9 +55,9 @@ export function ProjectFileUpload({ projectId, onSuccess }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)" }}>
           <FileUp size={18} style={{ color: "var(--accent)" }} />
           <div>
-            <h4 style={{ margin: 0, fontSize: "0.95rem" }}>Project Files</h4>
+            <h4 style={{ margin: 0, fontSize: "0.95rem" }}>项目文件</h4>
             <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-              Upload project-related files that should not be used as analysis inputs.
+              上传项目相关文件，这些文件不作为分析输入。
             </p>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function ProjectFileUpload({ projectId, onSuccess }: Props) {
             }}
           >
             <X size={14} />
-            Clear
+            清空
           </button>
         )}
       </div>
@@ -102,12 +102,12 @@ export function ProjectFileUpload({ projectId, onSuccess }: Props) {
         onRemoveFile={(name) => setFiles((prev) => prev.filter((item) => item.name !== name))}
         multiple
         disabled={state === "loading"}
-        label="Drop project documents, notes, tables, or attachments here"
+        label="将项目文档、笔记、表格或附件拖到此处"
       />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)" }}>
         <span style={{ color: "var(--text-tertiary)", fontSize: "0.78rem" }}>
-          These files are stored with the project and excluded from analysis data sets.
+          这些文件随项目保存，不作为分析数据集的输入。
         </span>
         <button
           type="button"
@@ -117,7 +117,7 @@ export function ProjectFileUpload({ projectId, onSuccess }: Props) {
           style={{ padding: "10px 18px", whiteSpace: "nowrap" }}
         >
           <Upload size={15} />
-          {state === "loading" ? "Uploading..." : `Upload ${files.length || ""}`}
+          {state === "loading" ? "正在上传…" : `Upload ${files.length || ""}`}
         </button>
       </div>
 

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from flask import current_app
+from flask import current_app, request
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.auto_heatmap_service import get_auto_heatmap_service
@@ -44,7 +44,8 @@ from flask_app.services.user_scope import assert_owned, current_user_id
 
 logger = logging.getLogger(__name__)
 
-_script_executor = ThreadPoolExecutor(max_workers=2)
+from flask_app.services.persistent_queue import ScriptExecutor
+_script_executor = ScriptExecutor()
 _script_task_lock = threading.Lock()
 _script_tasks: Dict[str, Dict[str, Any]] = {}
 
@@ -115,6 +116,9 @@ def _set_task_state(task_id: str, **updates: Any) -> None:
 
 
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
+    import os
+    if os.environ.get('JOB_QUEUE', '').lower() == 'redis':
+        return get_script_hub_job_service().get_job(task_id)
     with _script_task_lock:
         task = _script_tasks.get(task_id)
         return dict(task) if task else None
@@ -134,6 +138,9 @@ def _sync_job_state(task_id: str, task: Dict[str, Any]) -> None:
         get_script_hub_job_service().upsert_job(str(job["job_id"]), job)
     except Exception:
         logger.warning("Failed to sync Script Hub job state for %s", task_id, exc_info=True)
+        import os
+        if os.environ.get("JOB_QUEUE", "").lower() == "redis":
+            raise
 
 
 def _script_task_cancel_requested(task_id: str) -> bool:
@@ -144,7 +151,15 @@ def _script_task_cancel_requested(task_id: str) -> bool:
         job = get_script_hub_job_service().get_job(task_id)
     except Exception:
         job = None
-    return bool(job and (job.get("cancel_requested") or job.get("status") == "cancelled"))
+    from flask_app.services.background_job_service import get_background_job_service
+    try:
+        return bool(job and get_background_job_service().is_cancel_requested(task_id))
+    except Exception:
+        import os
+        if os.environ.get("JOB_QUEUE", "").lower() == "redis":
+            raise
+        # The legacy executor can keep standalone tasks in its process-local catalog.
+        return bool(job and (job.get("cancel_requested") or job.get("status") == "cancelled"))
 
 
 def _mark_script_task_cancelled(task_id: str, detail: str = "Job cancelled by user.") -> Dict[str, Any]:
@@ -410,7 +425,7 @@ def _is_readable_table_asset(path: str) -> bool:
 
 
 def _project_assets_root() -> Path:
-    return Path(__file__).resolve().parents[1] / "data" / "projects"
+    return Path(__file__).resolve().parents[2] / "data" / "projects"
 
 
 def _resolve_registered_asset_path(project_id: str, storage_path: str) -> str:
@@ -435,7 +450,7 @@ def _resolve_registered_asset_path(project_id: str, storage_path: str) -> str:
 
 def _is_project_profile_asset(asset: Any) -> bool:
     asset_type = str(getattr(asset, "asset_type", "") or "").strip().lower()
-    return asset_type == "profile"
+    return asset_type in {"profile", "datapoint"}
 
 
 def _is_project_transcriptome_asset(asset: Any) -> bool:
@@ -443,7 +458,7 @@ def _is_project_transcriptome_asset(asset: Any) -> bool:
     return asset_type == "transcriptome"
 
 
-def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, Any]:
+def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Optional[str] = None) -> Dict[str, Any]:
     if not str(project_id or "").strip():
         return {
             "pep_paths": [],
@@ -453,6 +468,7 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
             "transcriptome_path": "",
             "transcriptome_paths": [],
             "invalid_transcriptome_paths": [],
+            "deconvolution_path": "", "deconvolution_paths": [], "invalid_deconvolution_paths": [],
         }
     try:
         from flask_app.models.database import Project
@@ -466,6 +482,7 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
             "transcriptome_path": "",
             "transcriptome_paths": [],
             "invalid_transcriptome_paths": [],
+            "deconvolution_path": "", "deconvolution_paths": [], "invalid_deconvolution_paths": [],
         }
 
     project = Project.query.get(str(project_id).strip())
@@ -474,10 +491,18 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
     pep_paths: List[str] = []
     profile_paths: List[str] = []
     transcriptome_paths: List[str] = []
+    deconvolution_paths: List[str] = []
     for asset in assets:
+        if asset_set:
+            metadata = getattr(asset, "metadata_json", None) or {}
+            set_name = str(metadata.get("asset_set") or metadata.get("dataset") or metadata.get("data_set")
+                           or metadata.get("group_label") or metadata.get("group") or "Set1").strip() or "Set1"
+            if set_name != asset_set:
+                continue
+        from flask_app.services.input_preparation import analysis_input_path
         storage_path = _resolve_registered_asset_path(
             str(getattr(asset, "project_id", "") or project_id).strip(),
-            str(getattr(asset, "storage_path", "") or "").strip(),
+            str(analysis_input_path(asset) or "").strip(),
         )
         if not storage_path:
             continue
@@ -488,12 +513,18 @@ def _collect_project_script_hub_assets(project_id: Optional[str]) -> Dict[str, A
             profile_paths.append(storage_path)
         if _is_project_transcriptome_asset(asset):
             transcriptome_paths.append(storage_path)
+        if asset_type in {"deconvolution", "cibersort"}:
+            deconvolution_paths.append(storage_path)
 
     readable_profiles = [path for path in profile_paths if _is_readable_table_asset(path)]
     invalid_profiles = [path for path in profile_paths if path not in readable_profiles]
     readable_transcriptomes = [path for path in transcriptome_paths if _is_readable_table_asset(path)]
     invalid_transcriptomes = [path for path in transcriptome_paths if path not in readable_transcriptomes]
+    readable_deconvolutions = [path for path in deconvolution_paths if _is_readable_table_asset(path)]
     return {
+        "deconvolution_paths": list(dict.fromkeys(deconvolution_paths)),
+        "deconvolution_path": (readable_deconvolutions or [""])[0],
+        "invalid_deconvolution_paths": [path for path in deconvolution_paths if path not in readable_deconvolutions],
         "pep_paths": list(dict.fromkeys(pep_paths)),
         "profile_paths": list(dict.fromkeys(profile_paths)),
         "profile_path": (readable_profiles or [""])[0],
@@ -770,7 +801,9 @@ def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict
     """Resolve Script Hub PEP/Profile inputs through one project-first policy."""
     project_id = str(data.get("project_id") or "").strip()
     if project_id:
-        project_assets = _collect_project_script_hub_assets(project_id)
+        asset_set = str(data.get("asset_set") or "").strip()
+        project_assets = (_collect_project_script_hub_assets(project_id, asset_set)
+                          if asset_set else _collect_project_script_hub_assets(project_id))
         profile_paths = project_assets.get("profile_paths") or []
         return {
             **project_assets,
@@ -808,9 +841,9 @@ def _profile_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str
 def _transcriptome_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
     project_id = str(data.get("project_id") or "").strip()
     if project_id:
-        value = _collect_project_script_hub_assets(project_id).get("transcriptome_path") or ""
-        if value:
-            return str(PathAccessService.validate_read_path(value))
+        value = _request_registered_assets(data).get("transcriptome_path") or ""
+        # A project request must not silently use another dataset or client path.
+        return str(PathAccessService.validate_read_path(value)) if value else None
     for key in keys:
         value = str(data.get(key) or "").strip()
         if value:
@@ -1016,14 +1049,24 @@ def _build_script_cache_context(
     input_paths: List[Dict[str, str]],
     config_json: Dict[str, Any],
 ) -> Dict[str, Any]:
+    from flask_app.services.input_quality import validate_analysis_inputs
+    validate_analysis_inputs(input_paths)
     project_id = str(project_id or "").strip()
     if not project_id:
-        return {"project_id": "", "analysis_signature": "", "input_assets": [], "config_json": config_json}
+        return {"project_id": "", "analysis_signature": "", "input_assets": input_paths, "config_json": config_json}
+    from flask import has_request_context
+    from flask_app.services.analysis_artifacts import capture_input_lineage
+    data = (request.get_json(silent=True) or {}) if has_request_context() else {}
+    lineage = capture_input_lineage(project_id, input_paths, str(data.get('asset_set') or ''))
     input_assets = []
     for item in input_paths:
         path_value = str(item.get("path") or "").strip()
         if path_value:
-            input_assets.append(_analysis_input_descriptor(path_value, item.get("asset_type", "input")))
+            descriptor = _analysis_input_descriptor(path_value, item.get("asset_type", "input"))
+            ref = next((ref for ref in lineage['source_assets'] if ref['path'] == descriptor['path']), None)
+            if ref:
+                descriptor.update(asset_id=ref['asset_id'], asset_set=ref['asset_set'], mtime_ns=ref['mtime_ns'])
+            input_assets.append(descriptor)
         elif any(key for key in item.keys() if key not in {"asset_type", "path"}):
             input_assets.append(_analysis_external_input_descriptor(item))
     input_assets.sort(key=lambda item: (item.get("asset_type", ""), item.get("path", "")))
@@ -1039,6 +1082,8 @@ def _build_script_cache_context(
         logger.warning("Failed to build analysis signature for %s", module_name, exc_info=True)
         analysis_signature = ""
     return {
+        **lineage,
+        "upstream_input": data.get("upstream_input"),
         "project_id": project_id,
         "analysis_signature": analysis_signature,
         "input_assets": input_assets,

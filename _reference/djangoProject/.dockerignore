@@ -1,8 +1,0 @@
-.git
-.venv
-.tmp
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-*.log

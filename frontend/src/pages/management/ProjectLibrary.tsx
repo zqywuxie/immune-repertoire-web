@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Plus, Search, FolderOpen, Boxes, FlaskConical, Layers, Database, AlertTriangle, Building2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../../shared/hooks/useApi";
+import { apiClient } from "../../shared/api/client";
 import { listProjects } from "../../shared/api/projects";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { SearchBar } from "../../shared/components/SearchBar";
@@ -64,9 +65,10 @@ export function ProjectLibrary() {
       throw new Error(
         (e as { detail?: string }).detail ||
           (e as { message?: string }).message ||
-          "Failed to create project"
+          "创建项目失败"
       );
     }
+    apiClient.invalidatePath("/api/projects");
     projects.refetch();
   };
 
@@ -74,7 +76,7 @@ export function ProjectLibrary() {
 
   return (
     <>
-      <PageHeader title="Project Library" subtitle="Create and manage immune repertoire analysis projects">
+      <PageHeader title="项目管理" subtitle="创建和管理免疫组库分析项目">
         <button
           onClick={() => setShowNewProject(true)}
           style={{
@@ -92,7 +94,7 @@ export function ProjectLibrary() {
           }}
         >
           <Plus size={16} />
-          New Project
+          新建项目
         </button>
       </PageHeader>
 
@@ -106,17 +108,17 @@ export function ProjectLibrary() {
         </div>
       ) : !error && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--spacing-md)" }}>
-          <MetricCard icon={FolderOpen} label="Total Projects" value={stats.total} color="var(--accent)" />
-          <MetricCard icon={Boxes} label="Active" value={stats.active} color="var(--success)" />
-          <MetricCard icon={FlaskConical} label="Total Assets" value={stats.totalAssets} color="var(--warning)" />
-          <MetricCard icon={Database} label="Samples" value={stats.totalSamples} color="var(--info)" />
+          <MetricCard icon={FolderOpen} label="项目总数" value={stats.total} color="var(--accent)" />
+          <MetricCard icon={Boxes} label="进行中" value={stats.active} color="var(--success)" />
+          <MetricCard icon={FlaskConical} label="文件总数" value={stats.totalAssets} color="var(--warning)" />
+          <MetricCard icon={Database} label="样本" value={stats.totalSamples} color="var(--info)" />
         </div>
       )}
 
       {/* Filter toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
         <SearchBar
-          placeholder="Search by project name or institution…"
+          placeholder="搜索项目名称或机构…"
           value={search}
           onChange={setSearch}
           onClear={() => setSearch("")}
@@ -127,10 +129,10 @@ export function ProjectLibrary() {
           className="select"
           style={{ width: "auto", minWidth: "140px" }}
         >
-          <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="archived">Archived</option>
+          <option value="">全部状态</option>
+          <option value="active">进行中</option>
+          <option value="paused">已暂停</option>
+          <option value="archived">已归档</option>
         </select>
         {hasFilters && (
           <button
@@ -142,11 +144,11 @@ export function ProjectLibrary() {
               color: "var(--text-secondary)", fontSize: "0.8rem", cursor: "pointer",
             }}
           >
-            <X size={14} /> Clear Filters
+            <X size={14} /> 清除筛选
           </button>
         )}
         <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-tertiary)" }}>
-          {filteredProjects.length} of {projectList.length} project{projectList.length !== 1 ? "s" : ""}
+          显示 {filteredProjects.length} / {projectList.length} 个项目
         </span>
       </div>
 
@@ -154,9 +156,9 @@ export function ProjectLibrary() {
       {filteredProjects.length === 0 && !loading ? (
         <EmptyState
           icon={hasFilters ? Search : FolderOpen}
-          title={hasFilters ? "No matching projects" : "No projects yet"}
-          description={hasFilters ? "Try a different search term or adjust your filters." : "Create your first project to get started with immune repertoire analysis."}
-          action={hasFilters ? undefined : { label: "Create Project", to: "" }}
+          title={hasFilters ? "没有符合条件的项目" : "暂无项目"}
+          description={hasFilters ? "请调整搜索关键词或筛选条件。" : "创建第一个项目，开始免疫组库分析。"}
+          action={hasFilters ? undefined : { label: "创建项目", onClick: () => setShowNewProject(true) }}
         />
       ) : (
         <ProjectList projects={filteredProjects} loading={loading} />
@@ -167,7 +169,7 @@ export function ProjectLibrary() {
         open={showNewProject}
         onClose={() => setShowNewProject(false)}
         onSubmit={handleCreateProject}
-        title="New Project"
+        title="新建项目"
       />
     </>
   );

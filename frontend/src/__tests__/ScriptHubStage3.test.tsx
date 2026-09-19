@@ -13,8 +13,8 @@ describe("Stage3ModuleConfig", () => {
         modules={[
           {
             key: "charts",
-            label: "Charts",
-            category: "Script Hub",
+            label: "图表",
+            category: "组合分析",
             status: "unavailable",
             ui_entry: "LegacyScriptHubForm",
           },
@@ -26,7 +26,7 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    expect(screen.getByText("Charts")).toBeInTheDocument();
+    expect(screen.getByText("图表")).toBeInTheDocument();
     expect(screen.queryByText(/backend pending/i)).not.toBeInTheDocument();
   });
 
@@ -45,7 +45,7 @@ describe("Stage3ModuleConfig", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("No analysis modules available.")).toBeInTheDocument();
+      expect(screen.getByText("暂无分析模块。")).toBeInTheDocument();
     });
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -61,7 +61,7 @@ describe("Stage3ModuleConfig", () => {
           {
             key: "charts",
             label: "综合图表",
-            category: "Script Hub",
+            category: "组合分析",
             status: "available",
             ui_entry: "ChartsCombinedForm",
           },
@@ -87,14 +87,14 @@ describe("Stage3ModuleConfig", () => {
           {
             key: "charts",
             label: "综合图表",
-            category: "Script Hub",
+            category: "组合分析",
             status: "available",
             ui_entry: "ChartsCombinedForm",
           },
           {
             key: "topclone",
-            label: "TopClone",
-            category: "Script Hub",
+            label: "优势克隆",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubTopCloneConfig",
           },
@@ -116,14 +116,14 @@ describe("Stage3ModuleConfig", () => {
           {
             key: "charts",
             label: "综合图表",
-            category: "Script Hub",
+            category: "组合分析",
             status: "available",
             ui_entry: "ChartsCombinedForm",
           },
           {
             key: "topclone",
-            label: "TopClone",
-            category: "Script Hub",
+            label: "优势克隆",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubTopCloneConfig",
           },
@@ -136,7 +136,7 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("TopClone"));
+    fireEvent.click(screen.getByText("优势克隆"));
     expect(onUpdate).toHaveBeenLastCalledWith(["charts", "topclone"], { charts: {}, topclone: {} });
   });
 
@@ -148,8 +148,8 @@ describe("Stage3ModuleConfig", () => {
         modules={[
           {
             key: "pgen-analysis",
-            label: "Pgen 分析",
-            category: "Script Hub",
+            label: "生成概率 分析",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubPgenAnalysisConfig",
           },
@@ -162,8 +162,8 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    expect(screen.getByText("Missing Profile")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Pgen 分析"));
+    expect(screen.getByText("缺少 样本指标表")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("生成概率 分析"));
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
@@ -175,8 +175,8 @@ describe("Stage3ModuleConfig", () => {
         modules={[
           {
             key: "pgen-analysis",
-            label: "Pgen 分析",
-            category: "Script Hub",
+            label: "生成概率 分析",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubPgenAnalysisConfig",
           },
@@ -192,7 +192,7 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Pgen 分析"));
+    fireEvent.click(screen.getByText("生成概率 分析"));
     expect(onUpdate).toHaveBeenCalledWith(["pgen-analysis"], { "pgen-analysis": {} });
   });
 
@@ -205,7 +205,7 @@ describe("Stage3ModuleConfig", () => {
           {
             key: "mait-nkt",
             label: "MAIT/NKT",
-            category: "Script Hub",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubMaitNktConfig",
           },
@@ -218,7 +218,7 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    expect(screen.queryByText("Missing Profile")).not.toBeInTheDocument();
+    expect(screen.queryByText("缺少 样本指标表")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("MAIT/NKT"));
     expect(onUpdate).toHaveBeenCalledWith(["mait-nkt"], { "mait-nkt": {} });
   });
@@ -232,7 +232,7 @@ describe("Stage3ModuleConfig", () => {
           {
             key: "go-kegg-enrichment",
             label: "GO/KEGG",
-            category: "Script Hub",
+            category: "组合分析",
             status: "available",
             ui_entry: "ScriptHubGoKeggConfig",
           },
@@ -245,7 +245,7 @@ describe("Stage3ModuleConfig", () => {
       />,
     );
 
-    expect(screen.getByText("Missing Transcriptome")).toBeInTheDocument();
+    expect(screen.getByText("缺少 转录组")).toBeInTheDocument();
     fireEvent.click(screen.getByText("GO/KEGG"));
     expect(onUpdate).not.toHaveBeenCalled();
   });

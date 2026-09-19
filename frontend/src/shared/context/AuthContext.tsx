@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     const result = await apiLogin({ username, password });
     if (!result.success) {
-      throw new Error(result.message || "Login failed");
+      throw new Error(result.message || "登录失败，请检查用户名和密码。");
     }
     setUser(result.user || { username, role: "user" });
   }, []);

@@ -29,6 +29,8 @@ class ProjectAssetService:
         'datapoint',
         'profile',
         'transcriptome',
+        'deconvolution',
+        'cibersort',
         'pep',
         'sample_summary',
         'group_spec',

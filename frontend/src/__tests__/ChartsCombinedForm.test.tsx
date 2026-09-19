@@ -9,7 +9,7 @@ describe("ChartsCombinedForm", () => {
 
     const sampleSelect = screen.getAllByRole("combobox")[0];
     fireEvent.change(sampleSelect, { target: { value: "S1" } });
-    fireEvent.click(screen.getByText("Add"));
+    fireEvent.click(screen.getByText("添加"));
 
     await waitFor(() => {
       expect(screen.getByTestId("payload").textContent).toContain('"samples":["S1"]');

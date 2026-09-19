@@ -5,7 +5,7 @@ type EmptyStateProps = {
   icon: LucideIcon;
   title: string;
   description?: string;
-  action?: { label: string; to: string };
+  action?: { label: string; to?: string; onClick?: () => void };
 };
 
 export function EmptyState({ icon: Icon, title, description, action }: EmptyStateProps) {
@@ -44,7 +44,7 @@ export function EmptyState({ icon: Icon, title, description, action }: EmptyStat
       </div>
       {action && (
         <button
-          onClick={() => navigate(action.to)}
+          onClick={() => action.onClick ? action.onClick() : navigate(action.to || "/")}
           style={{
             padding: "10px 20px",
             borderRadius: "var(--radius-control)",

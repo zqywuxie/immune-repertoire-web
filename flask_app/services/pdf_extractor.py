@@ -24,7 +24,7 @@ except ImportError:
 from PIL import Image
 import io
 
-from exceptions import FileParseError
+from flask_app.exceptions import FileParseError
 
 
 @dataclass

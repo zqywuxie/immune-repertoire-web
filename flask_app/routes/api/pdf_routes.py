@@ -1,6 +1,11 @@
 """PDF extraction and chart generation routes."""
 
 import io
+import uuid
+from pathlib import Path
+from flask_app.models.database import db, File
+from flask_app.services.user_scope import assign_owner
+from flask_app.exceptions import FileFormatInvalidError, StorageError, FileParseError
 import re
 import base64
 import zipfile
@@ -728,6 +733,7 @@ def upload_pdf():
         project=project
     )
     
+    assign_owner(file_record)
     db.session.add(file_record)
     db.session.commit()
     

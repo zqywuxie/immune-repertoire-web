@@ -16,9 +16,12 @@ export function useJobEvents(jobId: string | null) {
       return;
     }
 
+    let disposed = false;
+    setEvent(null); setError(null);
     const source = new EventSource(jobEventsUrl(jobId), { withCredentials: true });
 
     const handleEvent = (message: MessageEvent<string>) => {
+      if (disposed) return;
       try {
         const payload = JSON.parse(message.data) as JobEventResponse;
         setEvent(payload);
@@ -28,7 +31,7 @@ export function useJobEvents(jobId: string | null) {
           setConnected(false);
         }
       } catch {
-        setError("Unable to parse job event.");
+        setError("无法解析任务状态信息。");
       }
     };
 
@@ -40,14 +43,15 @@ export function useJobEvents(jobId: string | null) {
     source.addEventListener("completed", handleEvent as EventListener);
     source.addEventListener("error", () => {
       setConnected(false);
-      setError("Job event stream disconnected.");
+      setError("任务状态连接已断开。");
     });
 
     return () => {
+      disposed = true;
       source.close();
       setConnected(false);
     };
   }, [jobId]);
 
-  return { event, error, connected };
+  return { event: event && (event.job.job_id || event.job.id) === jobId ? event : null, error, connected };
 }

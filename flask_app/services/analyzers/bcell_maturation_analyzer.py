@@ -3,6 +3,7 @@ B-cell Maturation Analyzer - B细胞成熟状态分析器
 分析B细胞的成熟状态分布（Class-Switched, Naive-Mutated, Naive-Unmutated等）
 """
 
+from flask_app.services.figure_export import save_analysis_figure
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
@@ -343,7 +344,7 @@ class BcellMaturationAnalyzer(BaseAnalyzer):
                 plt.tight_layout(rect=[0, 0, 1, 0.96])
                 
                 buf = io.BytesIO()
-                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                save_analysis_figure(fig, buf, params)
                 buf.seek(0)
                 chart_base64 = base64.b64encode(buf.read()).decode('utf-8')
                 plt.close(fig)

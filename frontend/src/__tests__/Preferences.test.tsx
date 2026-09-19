@@ -1,0 +1,34 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { Settings } from '../pages/Settings';
+import { apiClient } from '../shared/api/client';
+import { JobRow } from '../features/jobs/JobRow';
+import { cancelJob } from '../shared/api/jobs';
+vi.mock('../shared/api/jobs',()=>({cancelJob:vi.fn()}));
+afterEach(()=>{cleanup();vi.restoreAllMocks();});
+it('loads server settings, reports a failed save, and retries the real endpoint',async()=>{
+  vi.spyOn(apiClient,'get').mockResolvedValue({config:{default_figure_size:[6,4],default_font_size:12,default_dpi:150}});
+  const save=vi.spyOn(apiClient,'post').mockRejectedValueOnce(new Error('保存服务不可用')).mockResolvedValue({success:true,config:{default_figure_size:[6,4],default_font_size:12,default_dpi:300}});
+  render(<MemoryRouter initialEntries={['/analysis/settings']}><Settings/></MemoryRouter>);
+  const dpi=await screen.findByLabelText('导出分辨率（DPI）');
+  await vi.waitFor(()=>expect(dpi).toHaveValue('150'));
+  fireEvent.change(dpi,{target:{value:'300'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存设置'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('保存服务不可用');
+  expect(screen.queryByText('设置已保存到当前账户')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'保存设置'}));
+  await screen.findByText('设置已保存到当前账户');
+  expect(save).toHaveBeenLastCalledWith('/api/config',expect.objectContaining({config_id:'analysis',config:expect.objectContaining({default_dpi:300})}));
+});
+it('shows cancellation failure and permits retry without opening job details',async()=>{
+  vi.spyOn(window,'confirm').mockReturnValue(true);
+  vi.mocked(cancelJob).mockRejectedValueOnce(new Error('取消失败')).mockResolvedValue({success:true} as never);
+  const details=vi.fn(),changed=vi.fn();
+  render(<JobRow job={{id:'j1',status:'running',module:'Profile'} as never} onOpenDetails={details} onJobChanged={changed}/>);
+  fireEvent.click(screen.getByRole('button',{name:'取消任务'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('取消失败');
+  fireEvent.click(screen.getByRole('button',{name:'取消任务'}));
+  await vi.waitFor(()=>expect(changed).toHaveBeenCalledTimes(1));
+  expect(details).not.toHaveBeenCalled();
+});

@@ -24,8 +24,8 @@ export function ProjectList({ projects, loading }: Props) {
     return (
       <EmptyState
         icon={FolderOpen}
-        title="No projects yet"
-        description="Create your first project to get started with immune repertoire analysis."
+        title="暂无项目"
+        description="创建第一个项目，开始免疫组库分析。"
       />
     );
   }

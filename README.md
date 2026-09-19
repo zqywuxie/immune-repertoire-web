@@ -1,110 +1,43 @@
-# Immune Repertoire Web
+> 后续环境统一使用 Docker。应用部署请使用 [Docker 部署说明](docs/docker-deployment.md) 与 `compose.docker.yml`；原 `docker-compose.yml` 保留为历史基础服务配置。
 
-基于 Flask 的免疫组库分析与报告生成项目，当前仓库主要围绕 `flask_app` 提供网页分析流程、结果导出和辅助脚本。
+# 免疫组库分析平台
 
-## 当前结构
+面向科研用户的免疫组库分析应用。React 前端提供项目、数据集、分析向导和结果浏览；Flask 提供当前本地运行的 API 与分析服务。仓库同时保留 FastAPI 后端和分析 worker，具体边界见[当前架构](docs/architecture/current-system.md)。
 
-```text
-immune-repertoire-web/
-├── flask_app/                         # 主应用
-│   ├── app.py                         # Flask 启动入口
-│   ├── config.py                      # 配置
-│   ├── requirements.txt               # Python 依赖
-│   ├── routes/                        # 页面和 API 路由
-│   ├── services/                      # 分析、报表、渲染服务
-│   ├── templates/                     # Jinja 页面模板
-│   ├── static/                        # 前端脚本和样式资源
-│   ├── models/                        # 数据模型
-│   ├── migrations/                    # 数据库迁移
-│   ├── data/                          # 运行期上传与结果目录
-│   └── tests/                         # 测试
-├── treemap/                           # 独立 treemap 脚本与示例
-│   ├── generate_treemap_html.py       # 兼容保留的独立入口
-│   ├── legacy_scripts/                # 历史批处理脚本
-│   └── examples/                      # 示例数据与参考产物
-├── aggregate_shared_analysis_report.py
-├── pipeline_comparison_heatmap.py
-└── standalone_heatmap_cli.py
+## 启动与分析
+
+在项目根目录执行 `rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait`，访问 `http://127.0.0.1:8080`。首次部署的环境文件生成、完整分析镜像、数据迁移与测试见[Docker 部署说明](docs/docker-deployment.md)。
+
+Profile 箱线图流程：
+
+1. 登录并创建项目，打开“分析向导”。
+2. 在第一步选择项目，点击“上传数据”，上传包含样本、分组和数值指标的 Profile CSV/TSV/Excel；无需 PEP。
+3. 选择保存的数据集，检查样本和列预览。
+4. 选择 Profile 分析，明确设置分组列、指标起止列及组别顺序。
+5. 开始运行，完成后点击“查看结果”，打开报告或下载图像、CSV 和 ZIP。
+
+PEP、Transcriptome 可根据其他分析的需要补充。真实文件在服务器处理；失败上传保留所选文件供修正后重试。
+
+## 目录与文档
+
+- `frontend/`：React + TypeScript + Vite。
+- `flask_app/`：当前 API、分析服务、数据模型、旧页面与测试。
+- `backend-api/`：FastAPI API 与任务/资产基础设施。
+- `analysis_workers/`：后台分析 worker。
+- [当前架构与模块边界](docs/architecture/current-system.md)
+- [开发启动指南](docs/dev-startup-guide.md)
+- [本地 Docker 数据库](LOCAL_DOCKER.md)、[数据库部署](DEPLOY_DATABASE.md)
+- [外置数据与目录联接](docs/local-data-storage.md)
+- [迁移进度](docs/migration-progress.md)
+- [历史架构与计划](docs/archive/README.md)
+
+`docs/api/module-manifest.yaml` 是运行时模块注册表，不能按文档清理删除。`docs/superpowers/` 中未完成的计划继续保留。
+
+## 验证
+
+```powershell
+rtk docker compose --env-file .env.docker -f compose.docker.yml run --rm frontend-test
+rtk docker run --rm --network immune-platform_default --tmpfs /app/flask_app/data --tmpfs /app/tmp -e FLASK_CONFIG=testing -e JOB_QUEUE=threadpool -e REDIS_URL=redis://redis:6379/15 immune-platform-api:full python -B -m pytest flask_app/tests/ analysis_workers/tests/ -q
 ```
 
-## 主要功能
-
-- 文件上传与管理
-- 统一分析页面
-- 相似度热图分析
-- Treemap 分析与 HTML/PNG/ZIP 导出
-- Pipeline 对比分析
-- 统计比较分析
-- PDF 提取
-- PPT 热图替换
-
-## 主要页面
-
-- `/`：首页
-- `/upload`：文件上传
-- `/files`：文件管理
-- `/analysis`：统一分析
-- `/analysis/similarity-heatmap`：相似度热图
-- `/analysis/treemap`：Treemap 分析
-- `/analysis/pipeline-comparison`：Pipeline 对比
-- `/analysis/statistical`：统计比较
-- `/analysis/pdf-extractor`：PDF 提取
-- `/analysis/ppt-heatmap`：PPT 热图替换
-
-## 快速启动
-
-### 1. 创建环境并安装依赖
-
-```bash
-cd flask_app
-python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-macOS / Linux:
-
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. 启动应用
-
-在仓库根目录执行：
-
-```bash
-python flask_app/app.py
-```
-
-默认地址：
-
-```text
-http://127.0.0.1:5000
-```
-
-## Treemap 相关说明
-
-- Flask 正式使用的 treemap 渲染逻辑位于 `flask_app/services/treemap_renderer.py`
-- Treemap 报表生成逻辑位于 `flask_app/services/treemap_report_service.py`
-- `treemap/generate_treemap_html.py` 仅作为兼容保留的独立脚本入口
-- `treemap/legacy_scripts/` 下是历史批处理脚本，已改为复用 `flask_app` 内部渲染器
-
-## 开发说明
-
-- 运行期数据默认写入 `flask_app/data/`
-- 测试缓存、临时运行目录和本地工具目录已加入 `.gitignore`
-- 仓库中仍可能存在个别本地权限受限的测试临时目录，不影响正常开发和运行
-
-## GitHub
-
-远程仓库：
-
-```text
-git@github.com:zqywuxie/immune-repertoire-web.git
-```
+本地项目位于 `E:\Desktop\project\immune-repertoire-web`，大数据位于同级 `immune-repertoire-web-data`。目录联接用于保留数据访问；清理缓存时不能跨越这些联接。

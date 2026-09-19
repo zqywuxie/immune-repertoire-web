@@ -56,7 +56,7 @@ export function ScriptHub() {
   // Poll jobs filtered by selected project
   const allJobsState = usePolling(
     () => listJobs({ projectId: selectedProjectId || undefined, limit: 20 }),
-    3000
+    3000, [selectedProjectId]
   );
   const allJobs = allJobsState.data?.jobs || [];
 
@@ -135,8 +135,8 @@ export function ScriptHub() {
   return (
     <>
       <PageHeader
-        title="Script Hub"
-        subtitle="Submit analysis jobs and monitor results"
+        title="组合分析"
+        subtitle="提交分析任务并查看结果"
       >
         {!noProjects && (
         <select
@@ -169,9 +169,9 @@ export function ScriptHub() {
       {noProjects ? (
         <EmptyState
           icon={FlaskConical}
-          title="No projects available"
-          description="Create a project from the Dashboard before submitting analysis jobs."
-          action={{ label: "Go to Dashboard", to: "/" }}
+          title="暂无可用项目"
+          description="请先在工作台创建项目，再提交分析任务。"
+          action={{ label: "返回工作台", to: "/" }}
         />
       ) : (
       <>
@@ -186,11 +186,11 @@ export function ScriptHub() {
 
       {activeJobs.length > 0 && (
         <div>
-          <h3 style={{ marginBottom: "var(--spacing-md)" }}>Active Jobs</h3>
+          <h3 style={{ marginBottom: "var(--spacing-md)" }}>运行中的任务</h3>
           <JobList
             jobs={activeJobs}
             loading={allJobsState.loading && activeJobs.length === 0}
-            emptyLabel="No active jobs."
+            emptyLabel="暂无运行中的任务。"
             onOpenDetails={handleOpenDetails}
           />
         </div>
@@ -207,7 +207,7 @@ export function ScriptHub() {
       {resultState.result && (
         <div>
           <h3 style={{ marginBottom: "var(--spacing-md)" }}>
-            Job Result
+            任务结果
             {liveJob.connected && (
               <span
                 style={{
@@ -217,19 +217,19 @@ export function ScriptHub() {
                   fontWeight: 500,
                 }}
               >
-                live
+                实时
               </span>
             )}
           </h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
             <button type="button" onClick={() => openFirstOutput(resultState.result!)} style={actionButtonStyle(Boolean(resultState.result.outputs.length))} disabled={!resultState.result.outputs.length}>
-              <Eye size={15} /> Open Viewer
+              <Eye size={15} /> 查看报告
             </button>
             <button type="button" onClick={() => openZipOutputs(resultState.result!)} style={actionButtonStyle(Boolean(resultState.result.outputs.length), "var(--success)")} disabled={!resultState.result.outputs.length}>
-              <Download size={15} /> Download ZIP
+              <Download size={15} /> 下载压缩包
             </button>
             <button type="button" onClick={() => setResultState({ result: null, loading: false })} style={secondaryActionButtonStyle}>
-              <RotateCcw size={15} /> Clear
+              <RotateCcw size={15} /> 清空
             </button>
           </div>
         </div>
@@ -241,11 +241,11 @@ export function ScriptHub() {
       )}
 
       <div>
-        <h3 style={{ marginBottom: "var(--spacing-md)" }}>Recent Jobs</h3>
+        <h3 style={{ marginBottom: "var(--spacing-md)" }}>近期任务</h3>
         <JobList
           jobs={recentJobs}
           loading={allJobsState.loading && recentJobs.length === 0}
-          emptyLabel="No completed jobs."
+          emptyLabel="暂无已完成的任务。"
           onSelectResult={handleSelectResult}
           onOpenDetails={handleOpenDetails}
         />

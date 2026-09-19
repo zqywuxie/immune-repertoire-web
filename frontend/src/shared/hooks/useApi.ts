@@ -27,19 +27,20 @@ export function useApi<T>(
   deps: unknown[] = []
 ) {
   const [state, dispatch] = useReducer(reducer<T>, { status: "idle" });
-  const cancelled = useRef(false);
+  const requestVersion = useRef(0);
 
   const execute = useCallback(() => {
+    const version = ++requestVersion.current;
     dispatch({ type: "start" });
     fetcher()
       .then((data) => {
-        if (!cancelled.current) dispatch({ type: "done", data });
+        if (requestVersion.current === version) dispatch({ type: "done", data });
       })
       .catch((err: unknown) => {
-        if (!cancelled.current) {
+        if (requestVersion.current === version) {
           dispatch({
             type: "fail",
-            error: err instanceof Error ? err.message : "Unknown error",
+            error: err instanceof Error ? err.message : "未知错误",
           });
         }
       });
@@ -47,10 +48,9 @@ export function useApi<T>(
   }, deps);
 
   useEffect(() => {
-    cancelled.current = false;
     execute();
     return () => {
-      cancelled.current = true;
+      requestVersion.current += 1;
     };
   }, [execute]);
 

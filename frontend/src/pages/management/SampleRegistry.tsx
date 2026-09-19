@@ -76,7 +76,7 @@ export function SampleRegistry() {
 
   return (
     <>
-      <PageHeader title="Sample Registry" subtitle={`${filteredSamples.length} sample${filteredSamples.length !== 1 ? "s" : ""}`}>
+      <PageHeader title="样本管理" subtitle={`${filteredSamples.length} 样本`}>
         <button
           onClick={handleExport}
           style={{
@@ -94,7 +94,7 @@ export function SampleRegistry() {
           }}
         >
           <Download size={16} />
-          Export CSV
+          导出数据表
         </button>
       </PageHeader>
 
@@ -190,35 +190,35 @@ function FilterToolbar({
             type="text"
             value={searchText}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search samples…"
+            placeholder="搜索样本…"
             style={filterInputStyle}
-            aria-label="Search samples"
+            aria-label="搜索样本"
           />
         </div>
 
         {/* Filter selects */}
         <FilterSelect
-          label="Project"
+          label="项目"
           value={filters.project_name || ""}
           onChange={(v) => onFilterChange("project_name", v)}
         >
-          <option value="">All projects</option>
+          <option value="">全部项目</option>
         </FilterSelect>
 
         <FilterSelect
-          label="Sample ID"
+          label="样本编号"
           value={filters.sample_id || ""}
           onChange={(v) => onFilterChange("sample_id", v)}
         >
-          <option value="">All IDs</option>
+          <option value="">全部编号</option>
         </FilterSelect>
 
         <FilterSelect
-          label="Chain"
+          label="链类型"
           value={filters.chain_flag || ""}
           onChange={(v) => onFilterChange("chain_flag", v)}
         >
-          <option value="">All chains</option>
+          <option value="">全部链</option>
           <option value="TRA">TRA</option>
           <option value="TRB">TRB</option>
           <option value="TRG">TRG</option>
@@ -229,24 +229,24 @@ function FilterToolbar({
         </FilterSelect>
 
         <FilterSelect
-          label="Health"
+          label="健康状态"
           value={filters.is_healthy || ""}
           onChange={(v) => onFilterChange("is_healthy", v)}
         >
-          <option value="">All</option>
-          <option value="yes">Healthy</option>
-          <option value="no">Not healthy</option>
+          <option value="">全选</option>
+          <option value="yes">健康</option>
+          <option value="no">服务异常</option>
         </FilterSelect>
 
         <FilterSelect
-          label="Species"
+          label="物种"
           value={filters.spices || ""}
           onChange={(v) => onFilterChange("spices", v)}
         >
-          <option value="">All species</option>
-          <option value="human">Human</option>
-          <option value="mouse">Mouse</option>
-          <option value="other">Other</option>
+          <option value="">全部物种</option>
+          <option value="human">人</option>
+          <option value="mouse">小鼠</option>
+          <option value="other">其他</option>
         </FilterSelect>
 
         <FilterSelect
@@ -254,9 +254,9 @@ function FilterToolbar({
           value={filters.is_pe || ""}
           onChange={(v) => onFilterChange("is_pe", v)}
         >
-          <option value="">All</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
+          <option value="">全选</option>
+          <option value="yes">是</option>
+          <option value="no">否</option>
         </FilterSelect>
 
         {allHasActive && (
@@ -273,7 +273,7 @@ function FilterToolbar({
               whiteSpace: "nowrap",
             }}
           >
-            Clear filters
+            清空筛选
           </button>
         )}
       </div>
@@ -296,7 +296,7 @@ function FilterToolbar({
           }}
         >
           {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Advanced Filters
+          高级筛选
           {hasAdvancedFilters && (
             <span style={{
               display: "inline-flex",
@@ -328,35 +328,35 @@ function FilterToolbar({
             }}
           >
             <FilterSelect
-              label="Sequence ID"
+              label="序列编号"
               value={filters.sequence_id || ""}
               onChange={(v) => onFilterChange("sequence_id", v)}
             >
-              <option value="">All</option>
+              <option value="">全选</option>
             </FilterSelect>
 
             <FilterSelect
-              label="Institution"
+              label="所属机构"
               value={filters.institution || ""}
               onChange={(v) => onFilterChange("institution", v)}
             >
-              <option value="">All</option>
+              <option value="">全选</option>
             </FilterSelect>
 
             <FilterSelect
-              label="Contain Method"
+              label="纳入方法"
               value={filters.contain_method || ""}
               onChange={(v) => onFilterChange("contain_method", v)}
             >
-              <option value="">All</option>
+              <option value="">全选</option>
             </FilterSelect>
 
             <FilterSelect
-              label="ISO Tag"
+              label="同型标签"
               value={filters.iso_tag || ""}
               onChange={(v) => onFilterChange("iso_tag", v)}
             >
-              <option value="">All</option>
+              <option value="">全选</option>
             </FilterSelect>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
@@ -368,13 +368,13 @@ function FilterToolbar({
                   color: "var(--text-tertiary)",
                 }}
               >
-                Species (comma-sep)
+                物种（多个值用逗号分隔）
               </label>
               <input
                 type="text"
                 value={filters.spices || ""}
                 onChange={(e) => onFilterChange("spices", e.target.value)}
-                placeholder="e.g. human,mouse"
+                placeholder="例如：人、小鼠"
                 style={filterInputStyle}
               />
             </div>
@@ -388,13 +388,13 @@ function FilterToolbar({
                   color: "var(--text-tertiary)",
                 }}
               >
-                Illness (comma-sep)
+                疾病（多个值用逗号分隔）
               </label>
               <input
                 type="text"
                 value={filters.illness || ""}
                 onChange={(e) => onFilterChange("illness", e.target.value)}
-                placeholder="e.g. healthy,influenza"
+                placeholder="例如：健康、流感"
                 style={filterInputStyle}
               />
             </div>
@@ -444,16 +444,16 @@ function FilterSelect({
 /* ── Sample Table ───────────────────────────────────────────────────── */
 
 const SAMPLE_COLUMNS = [
-  "Sample ID",
-  "Name",
-  "Project",
-  "Chain",
-  "Health",
-  "Species",
-  "Illness",
-  "Sequence ID",
+  "样本编号",
+  "名称",
+  "项目",
+  "链类型",
+  "健康状态",
+  "物种",
+  "疾病",
+  "序列编号",
   "PE",
-  "Institution",
+  "所属机构",
   "Method",
   "Actions",
 ] as const;
@@ -473,7 +473,7 @@ function SampleTable({
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Failed to load samples"
+        title="样本加载失败"
         description={error}
       />
     );
@@ -524,7 +524,7 @@ function SampleTable({
                   color: "var(--text-tertiary)",
                 }}
               >
-                No samples found. Try adjusting your filters.
+                未找到样本，请调整筛选条件。
               </td>
             </tr>
           ) : (
@@ -602,7 +602,7 @@ function SampleTable({
                     }}
                   >
                     <Pencil size={14} />
-                    Edit
+                    编辑
                   </button>
                 </td>
               </tr>
@@ -658,21 +658,21 @@ function SampleEditSheet({
       });
       onClose();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      setSaveError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title="Edit Sample">
+    <Sheet open={open} onClose={onClose} title="编辑样本">
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
         {/* Read-only fields */}
-        <ReadOnlyField label="Sample ID" value={sample.sample_id || "—"} />
-        <ReadOnlyField label="Project" value={sample.project_name || "—"} />
+        <ReadOnlyField label="样本编号" value={sample.sample_id || "—"} />
+        <ReadOnlyField label="项目" value={sample.project_name || "—"} />
 
         {/* Editable fields */}
-        <Field label="Sample Name">
+        <Field label="样本名称">
           <input
             type="text"
             value={sampleName}
@@ -681,7 +681,7 @@ function SampleEditSheet({
           />
         </Field>
 
-        <Field label="Sequence ID">
+        <Field label="序列编号">
           <input
             type="text"
             value={sequenceId}
@@ -690,9 +690,9 @@ function SampleEditSheet({
           />
         </Field>
 
-        <Field label="Chain Flag">
+        <Field label="链标记">
           <select value={chainFlag} onChange={(e) => setChainFlag(e.target.value)} style={editSelectStyle}>
-            <option value="">— None —</option>
+            <option value="">未设置</option>
             <option value="TRA">TRA</option>
             <option value="TRB">TRB</option>
             <option value="TRG">TRG</option>
@@ -703,53 +703,53 @@ function SampleEditSheet({
           </select>
         </Field>
 
-        <Field label="Health Status">
+        <Field label="健康状态">
           <select value={isHealthy} onChange={(e) => setIsHealthy(e.target.value)} style={editSelectStyle}>
-            <option value="">— None —</option>
-            <option value="yes">Healthy</option>
-            <option value="no">Not healthy</option>
+            <option value="">未设置</option>
+            <option value="yes">健康</option>
+            <option value="no">服务异常</option>
           </select>
         </Field>
 
-        <Field label="PE (Paired-End)">
+        <Field label="双端测序">
           <select value={isPe} onChange={(e) => setIsPe(e.target.value)} style={editSelectStyle}>
-            <option value="">— None —</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
+            <option value="">未设置</option>
+            <option value="yes">是</option>
+            <option value="no">否</option>
           </select>
         </Field>
 
-        <Field label="Species">
+        <Field label="物种">
           <input
             type="text"
             value={spices}
             onChange={(e) => setSpices(e.target.value)}
-            placeholder="e.g. human, mouse"
+            placeholder="例如：人、小鼠"
             style={editInputStyle}
           />
         </Field>
 
-        <Field label="Illness">
+        <Field label="疾病">
           <input
             type="text"
             value={illness}
             onChange={(e) => setIllness(e.target.value)}
-            placeholder="e.g. healthy, influenza"
+            placeholder="例如：健康、流感"
             style={editInputStyle}
           />
         </Field>
 
-        <Field label="Institution">
+        <Field label="所属机构">
           <input
             type="text"
             value={institution}
             onChange={(e) => setInstitution(e.target.value)}
-            placeholder="e.g. Tsinghua University"
+            placeholder="例如：南华大学"
             style={editInputStyle}
           />
         </Field>
 
-        <Field label="Contain Method">
+        <Field label="纳入方法">
           <input
             type="text"
             value={containMethod}
@@ -758,7 +758,7 @@ function SampleEditSheet({
           />
         </Field>
 
-        <Field label="ISO Tag">
+        <Field label="同型标签">
           <input
             type="text"
             value={isoTag}
@@ -775,10 +775,10 @@ function SampleEditSheet({
 
         <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end" }}>
           <button onClick={onClose} disabled={saving} style={secondaryBtnStyle}>
-            Cancel
+            取消
           </button>
           <button onClick={handleSave} disabled={saving} style={primaryBtnStyle}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? "正在保存…" : "保存"}
           </button>
         </div>
       </div>

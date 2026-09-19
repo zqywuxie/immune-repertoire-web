@@ -11,11 +11,11 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
   );
   const assetStatus = ((project as ProjectSummary & { asset_status?: ProjectAssetStatus }).asset_status || {});
   const statusItems = [
-    { label: "Profile", active: Boolean(assetStatus.has_profile || assetStatus.has_datapoint) },
-    { label: "PEP", active: Boolean(assetStatus.has_pep) },
-    { label: "Sample", active: Boolean(assetStatus.has_sample_summary) },
-    { label: "Group", active: Boolean(assetStatus.has_group_spec) },
-    { label: "Results", active: Boolean(assetStatus.has_results) },
+    { label: "样本指标表", active: Boolean(assetStatus.has_profile || assetStatus.has_datapoint) },
+    { label: "克隆序列表", active: Boolean(assetStatus.has_pep) },
+    { label: "样本", active: Boolean(assetStatus.has_sample_summary) },
+    { label: "分组", active: Boolean(assetStatus.has_group_spec) },
+    { label: "结果", active: Boolean(assetStatus.has_results) },
   ];
 
   return (
@@ -108,7 +108,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
               border: "1px solid rgba(0,113,227,0.18)",
             }}
           >
-            {assetStatus.asset_set_count} sets
+            {assetStatus.asset_set_count} 个数据集
           </span>
         ) : null}
       </div>
@@ -124,19 +124,19 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
       >
         <div>
           <strong style={{ color: "var(--text-primary)" }}>{assetCount}</strong>{" "}
-          assets
+          个数据文件
         </div>
         <div>
           <strong style={{ color: "var(--text-primary)" }}>
             {project.sample_count || 0}
           </strong>{" "}
-          samples
+          个样本
         </div>
         <div>
           <strong style={{ color: "var(--text-primary)" }}>
             {project.result_count || 0}
           </strong>{" "}
-          results
+          项结果
         </div>
       </div>
     </Card>

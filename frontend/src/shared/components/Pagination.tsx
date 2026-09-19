@@ -13,7 +13,7 @@ export function Pagination({
   onPageChange: (page: number) => void;
 }) {
   if (!pagination) {
-    return <p style={{ color: "var(--text-tertiary)", fontSize: "0.875rem" }}>No pagination data</p>;
+    return <p style={{ color: "var(--text-tertiary)", fontSize: "0.875rem" }}>暂无分页数据</p>;
   }
 
   const { page, total, total_pages } = pagination;
@@ -31,11 +31,10 @@ export function Pagination({
       }}
     >
       <span>
-        {total} item{total !== 1 ? "s" : ""} · page {page} of{" "}
-        {Math.max(total_pages, 1)}
+        共 {total} 项 · 第 {page} / {Math.max(total_pages, 1)} 页
       </span>
       <div style={{ display: "flex", gap: "var(--spacing-xs)" }}>
-        <PageBtn disabled={page <= 1} onClick={() => onPageChange(page - 1)} ariaLabel="Previous page">
+        <PageBtn disabled={page <= 1} onClick={() => onPageChange(page - 1)} ariaLabel="上一页">
           ←
         </PageBtn>
         {pages.map((p) => (
@@ -43,7 +42,7 @@ export function Pagination({
             key={p}
             active={p === page}
             onClick={() => onPageChange(p)}
-            ariaLabel={`Page ${p}`}
+            ariaLabel={`第 ${p} 页`}
           >
             {p}
           </PageBtn>
@@ -51,7 +50,7 @@ export function Pagination({
         <PageBtn
           disabled={page >= total_pages}
           onClick={() => onPageChange(page + 1)}
-          ariaLabel="Next page"
+          ariaLabel="下一页"
         >
           →
         </PageBtn>

@@ -53,17 +53,17 @@ export function MultiSelectForm({
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-lg)" }}>
       {/* Group specs multi-select */}
       <MultiSelectSection
-        title="Group Specs"
+        title="分组方案"
         items={groupSpecs.map((s) => ({ key: s.id, label: s.name }))}
         selected={selectedSpecs}
         onToggle={(key) => toggleItem(selectedSpecs, key, "group_spec_ids")}
         loading={loadingSpecs}
-        placeholder="Select group specs…"
+        placeholder="选择分组方案…"
       />
 
       {/* Metrics multi-select (for statistical modules) */}
       <MultiSelectSection
-        title="Metrics"
+        title="指标"
         items={STAT_METRICS.map((m) => ({
           key: m,
           label: m.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -84,10 +84,10 @@ export function MultiSelectForm({
           color: "var(--text-secondary)",
         }}
       >
-        Sample IDs
+        样本编号
         <input
           type="text"
-          placeholder="Comma-separated sample IDs"
+          placeholder="多个样本编号用逗号分隔"
           value={(value.sample_ids as string[])?.join(", ") || ""}
           onChange={(e) =>
             setField(
@@ -114,10 +114,10 @@ export function MultiSelectForm({
           color: "var(--text-secondary)",
         }}
       >
-        Project IDs
+        项目编号
         <input
           type="text"
-          placeholder="Comma-separated project IDs"
+          placeholder="多个项目编号用逗号分隔"
           value={(value.project_ids as string[])?.join(", ") || ""}
           onChange={(e) =>
             setField(
@@ -141,7 +141,7 @@ function MultiSelectSection({
   selected,
   onToggle,
   loading,
-  placeholder = "None selected",
+  placeholder = "尚未选择",
 }: {
   title: string;
   items: { key: string; label: string }[];
@@ -168,7 +168,7 @@ function MultiSelectSection({
       </legend>
       {loading ? (
         <small style={{ color: "var(--text-tertiary)", fontSize: "0.72rem" }}>
-          Loading…
+          正在加载…
         </small>
       ) : (
         <div

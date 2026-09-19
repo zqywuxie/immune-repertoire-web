@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <AlertTriangle size={40} strokeWidth={1} style={{ color: "var(--danger)" }} />
           <div>
             <h3 style={{ margin: 0, color: "var(--text-primary)" }}>
-              Something went wrong
+              页面出现错误
             </h3>
             <p
               style={{
@@ -54,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 maxWidth: "480px",
               }}
             >
-              {this.state.error?.message || "An unexpected error occurred."}
+              {this.state.error?.message || "发生异常，请重试。"}
             </p>
           </div>
           <button
@@ -67,7 +67,7 @@ export class ErrorBoundary extends Component<Props, State> {
               fontWeight: 500,
             }}
           >
-            Try again
+            重试
           </button>
         </div>
       );

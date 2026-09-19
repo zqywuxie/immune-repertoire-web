@@ -72,7 +72,7 @@ type Props = {
 export function AssetTable({
   assets,
   loading,
-  emptyLabel = "No assets found.",
+  emptyLabel = "未找到数据文件。",
   projectId,
   onAssetDeleted,
   showSelect = true,
@@ -126,7 +126,7 @@ export function AssetTable({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ metadata_json: meta }),
       });
-      if (!r.ok) throw new Error("Save failed");
+      if (!r.ok) throw new Error("保存失败");
       setEditAsset(null);
       onAssetDeleted?.();
     } catch { /* ignore */ }
@@ -143,12 +143,12 @@ export function AssetTable({
       const r = await fetch(url, { method: "DELETE", credentials: "include" });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "Delete failed");
+        throw new Error((e as { detail?: string }).detail || (e as { message?: string }).message || "删除失败");
       }
       setConfirmDelete(null);
       onAssetDeleted?.();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+      setDeleteError(err instanceof Error ? err.message : "删除失败");
     } finally {
       setDeleting((prev) => { const n = new Set(prev); n.delete(assetId); return n; });
     }
@@ -170,7 +170,7 @@ export function AssetTable({
     setBulkDeleting(false);
     setSelected(new Set());
     onAssetDeleted?.();
-    setDeleteError(count > 0 ? `${count} asset(s) deleted.` : "Delete failed.");
+    setDeleteError(count > 0 ? `${count} 个数据文件已删除。` : "删除失败。");
   };
 
   const handleBulkDownload = () => {
@@ -182,7 +182,7 @@ export function AssetTable({
 
   const bulkSize = selected.size;
   const columnCount = (showSelect ? 1 : 0) + (showGroup ? 1 : 0) + 5 + (showStatus ? 1 : 0);
-  const headers = ["Name", "Type", ...(showStatus ? ["Status"] : []), "Size", "Uploaded", "Actions"];
+  const headers = ["名称", "Type", ...(showStatus ? ["状态"] : []), "Size", "Uploaded", "Actions"];
 
   return (
     <div style={{ background: "var(--bg-elevated)", borderRadius: "var(--radius-panel)", border: "1px solid var(--separator)", overflow: "hidden" }}>
@@ -190,14 +190,14 @@ export function AssetTable({
       {bulkSize > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", padding: "var(--spacing-sm) var(--spacing-lg)", background: "rgba(0,113,227,0.06)", borderBottom: "1px solid var(--separator)" }}>
           <button onClick={selectAll} style={{ border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-            <X size={14} /> Deselect All
+            <X size={14} /> 取消全选
           </button>
-          <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--accent)" }}>{bulkSize} selected</span>
+          <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--accent)" }}>{bulkSize} 已选择</span>
           <button onClick={handleBulkDownload} className="btn btn-secondary" style={{ marginLeft: "auto", padding: "6px 14px", fontSize: "0.78rem" }}>
-            <Download size={14} /> Download ({bulkSize})
+            <Download size={14} /> 下载（{bulkSize})
           </button>
           <button onClick={handleBulkDelete} disabled={bulkDeleting} className="btn btn-danger" style={{ padding: "6px 14px", fontSize: "0.78rem" }}>
-            <Trash2 size={14} /> {bulkDeleting ? "Deleting…" : `Delete (${bulkSize})`}
+            <Trash2 size={14} /> {bulkDeleting ? "Deleting…" : `删除（${bulkSize})`}
           </button>
         </div>
       )}
@@ -205,12 +205,12 @@ export function AssetTable({
       {showGroup && groups.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)", padding: "var(--spacing-sm) var(--spacing-lg)", borderBottom: "1px solid var(--separator)", background: "var(--bg-root)" }}>
           <Tag size={14} style={{ color: "var(--text-tertiary)" }} />
-          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 500 }}>Set:</span>
+          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 500 }}>数据集：</span>
           <Select
             value={groupFilter}
-            options={[{ value: "", label: "All Sets" }, ...groups.map((g) => ({ value: g, label: g }))]}
+            options={[{ value: "", label: "全部数据集" }, ...groups.map((g) => ({ value: g, label: g }))]}
             onChange={setGroupFilter}
-            placeholder="All Sets"
+            placeholder="全部数据集"
           />
         </div>
       )}
@@ -226,7 +226,7 @@ export function AssetTable({
             )}
             {showGroup && (
               <th scope="col" style={{ textAlign: "left", padding: "12px 8px", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-secondary)" }}>
-                Set
+                数据集
               </th>
             )}
             {headers.map((h) => (
@@ -242,7 +242,7 @@ export function AssetTable({
           ) : filteredAssets.length === 0 ? (
             <tr>
               <td colSpan={columnCount} style={{ padding: "var(--spacing-3xl) var(--spacing-lg)", textAlign: "center", color: "var(--text-tertiary)" }}>
-                {groupFilter ? `No assets in set "${groupFilter}".` : emptyLabel}
+                {groupFilter ? `数据集中暂无文件：${groupFilter}".` : emptyLabel}
               </td>
             </tr>
           ) : (
@@ -296,8 +296,8 @@ export function AssetTable({
                 </td>
                 <td style={{ padding: "12px 16px" }}>
                   <div style={{ display: "flex", gap: "var(--spacing-xs)" }}>
-                    <AssetLink href={previewHref(asset)} label="Preview" />
-                    <AssetLink href={downloadHref(asset)} label="Download" />
+                    <AssetLink href={previewHref(asset)} label="预览" />
+                    <AssetLink href={downloadHref(asset)} label="下载" />
                     <button
                       onClick={() => { setEditAsset(asset); setEditLabel(getAssetSetName(asset)); }}
                       disabled={deleting.has(asset.id)}
@@ -307,7 +307,7 @@ export function AssetTable({
                       onClick={() => { setConfirmDelete(asset.id); setDeleteError(""); }}
                       disabled={deleting.has(asset.id)}
                       style={{ padding: "6px 12px", borderRadius: "var(--radius-control)", border: "1px solid var(--danger)", background: "transparent", color: "var(--danger)", fontSize: "0.8rem", fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}
-                    >Del</button>
+                    >删除</button>
                   </div>
                 </td>
               </tr>
@@ -317,31 +317,31 @@ export function AssetTable({
       </table>
 
       {/* Edit asset Sheet */}
-      <Sheet open={!!editAsset} onClose={() => setEditAsset(null)} title="Edit Asset">
+      <Sheet open={!!editAsset} onClose={() => setEditAsset(null)} title="编辑数据文件">
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
           <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
             <strong>{editAsset?.original_name}</strong> · {editAsset?.asset_type}
           </div>
           <label className="field-label">
-            Asset Set
-            <input type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="input" placeholder="e.g. Set1, baseline-run" />
+            数据集
+            <input type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="input" placeholder="例如：数据集一、基线分析" />
           </label>
           <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end" }}>
-            <button onClick={() => setEditAsset(null)} disabled={savingLabel} style={{ padding: "8px 16px", borderRadius: "var(--radius-control)", border: "1px solid var(--separator)", background: "var(--bg-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>Cancel</button>
-            <button onClick={handleSaveLabel} disabled={savingLabel} className="btn btn-primary"><Save size={14} /> {savingLabel ? "Saving…" : "Save"}</button>
+            <button onClick={() => setEditAsset(null)} disabled={savingLabel} style={{ padding: "8px 16px", borderRadius: "var(--radius-control)", border: "1px solid var(--separator)", background: "var(--bg-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>取消</button>
+            <button onClick={handleSaveLabel} disabled={savingLabel} className="btn btn-primary"><Save size={14} /> {savingLabel ? "正在保存…" : "保存"}</button>
           </div>
         </div>
       </Sheet>
 
       {/* Delete confirmation Sheet */}
-      <Sheet open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Asset">
+      <Sheet open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="删除数据文件">
         <p style={{ fontSize: "0.9rem", color: "var(--text-primary)" }}>
-          Are you sure you want to delete this asset? This action cannot be undone.
+          确定删除此数据文件吗？删除后无法恢复。
         </p>
         {deleteError && <p style={{ fontSize: "0.85rem", color: "var(--danger)" }}>{deleteError}</p>}
         <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end" }}>
           <button onClick={() => setConfirmDelete(null)} disabled={bulkDeleting || deleting.size > 0} style={{ padding: "8px 16px", borderRadius: "var(--radius-control)", border: "1px solid var(--separator)", background: "var(--bg-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
-            Cancel
+            取消
           </button>
           <button onClick={() => confirmDelete && handleSingleDelete(confirmDelete)} disabled={deleting.has(confirmDelete || "")} style={{ padding: "8px 16px", borderRadius: "var(--radius-control)", background: "var(--danger)", color: "#fff", fontWeight: 500, border: "none", cursor: "pointer" }}>
             {deleting.has(confirmDelete || "") ? "Deleting…" : "Delete"}

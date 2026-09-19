@@ -1035,13 +1035,13 @@ def _run_pep_analysis_task(
             def _cache_project_usage_assets() -> None:
                 _cache_pep_usage_assets(
                     project_id=project_id,
-                    job_id=report.job_id,
+                    job_id=task_id,
                     output_base=str(report.output_base),
                     selected_chains=selected_chains,
                     group_fields=group_fields,
                     pep_data_dir=pep_data_dir,
                     profile_path=profile_path,
-                    projects_root=results_root.parent / "projects",
+                    projects_root=Path(current_app.root_path) / "data" / "projects",
                     analysis_signature=str(result.get("analysis_signature") or ""),
                     result_id=str(result.get("result_id") or ""),
                 )

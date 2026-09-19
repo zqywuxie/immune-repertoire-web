@@ -23,7 +23,7 @@ type UsageInspectResponse = {
   files?: string[];
 };
 
-export function VolcanoConfig({ sourceContext, value, onChange }: ModuleFormProps) {
+export function VolcanoConfig({ sourceContext, value, onChange, fixedParameters }: ModuleFormProps) {
   const current = withDefaults(value, {
     output_name: "",
     pvalue_threshold: 0.05,
@@ -43,16 +43,18 @@ export function VolcanoConfig({ sourceContext, value, onChange }: ModuleFormProp
     inspectScriptHubModule<UsageInspectResponse>("volcano", {
       input_mode: "usage",
       base_path: sourceContext?.pepPaths?.[0],
-      data_dir: current.data_dir,
+      data_dir: current.upstream_artifact_id ? undefined : current.data_dir,
       project_id: sourceContext?.projectId,
+      asset_set: sourceContext?.assetSetId,
+      upstream_artifact_id: current.upstream_artifact_id,
     })
       .then((data) => {
         if (cancelled) return;
         if (data.data_dir && !value.data_dir) onChange({ ...current, data_dir: data.data_dir });
-        setUsageNote(`Usage inspect found ${data.file_count || 0} usage files.`);
+        setUsageNote(`基因使用数据检查找到 ${data.file_count || 0} 个基因使用文件。`);
       })
       .catch((error) => {
-        if (!cancelled) setUsageNote(error instanceof Error ? error.message : "Usage inspect failed");
+        if (!cancelled) setUsageNote(error instanceof Error ? error.message : "基因使用数据检查失败");
       });
     return () => {
       cancelled = true;
@@ -61,30 +63,31 @@ export function VolcanoConfig({ sourceContext, value, onChange }: ModuleFormProp
 
   return (
     <ModuleShell
-      title="Volcano"
-      detail="表达矩阵模式自动推导 comparisons；usage 模式使用缓存/目录，不展示手动 feature range。"
+      title="差异分析"
+      detail="使用表达矩阵配置组间比较，或选择已有的基因使用缓存进行差异分析。"
       sourceContext={sourceContext}
     >
       <CommonRunFields value={current} setField={setField} sourceContext={sourceContext} />
-      <Section title="Input">
+      <Section title="输入数据">
         <div style={gridStyle}>
-          <Field label="Input Mode">
+          {!fixedParameters?.input_mode && <Field label="输入模式">
             <select value={stringValue(current.input_mode, "expression")} onChange={(event) => setField("input_mode", event.target.value)} style={inputStyle}>
-              <option value="expression">expression matrix</option>
-              <option value="usage">VJ usage cache</option>
+              <option value="expression">表达矩阵</option>
+              <option value="usage">V/J 基因使用缓存</option>
             </select>
-          </Field>
+          </Field>}
           {current.input_mode === "usage" && (
             <PepCacheCardSelector
               sourceContext={sourceContext}
               cacheType="volcano"
-              value={stringValue(current.data_dir)}
-              label="PEP VJ Usage Cache"
+              value={stringValue(current.upstream_artifact_id || current.data_dir)}
+              label="V/J 基因使用分析结果"
               onSelect={(candidate) => onChange({
                 ...current,
                 data_dir: candidate.path,
                 source_job_id: candidate.job_id || current.source_job_id,
                 pep_cache_id: candidate.asset_id || candidate.id,
+                upstream_artifact_id: candidate.artifact_id,
               })}
             />
           )}
@@ -93,7 +96,7 @@ export function VolcanoConfig({ sourceContext, value, onChange }: ModuleFormProp
       {current.input_mode === "expression" ? (
         <>
           {note && <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{note}</div>}
-          <Section title="Expression Comparison">
+          <Section title="表达差异比较">
             <ExpressionComparisonFields value={current} onChange={onChange} suggested={inspect?.suggested_comparisons || inspect?.comparisons} />
           </Section>
         </>

@@ -1,0 +1,24 @@
+FROM bioconductor/bioconductor_docker:RELEASE_3_20
+USER root
+ENTRYPOINT []
+ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib PATH=/opt/venv/bin:$PATH
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv python3-pip fonts-noto-cjk default-jre-headless libreoffice-impress && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv
+COPY flask_app/requirements.txt flask_app/requirements.txt
+COPY docker/app/requirements.txt docker/app/requirements.txt
+RUN pip install --no-cache-dir -r docker/app/requirements.txt sonnia==0.3.1 tensorflow==2.16.2
+COPY docker/app/install_analysis.R docker/app/install_analysis.R
+RUN Rscript docker/app/install_analysis.R
+COPY flask_app/ flask_app/
+COPY analysis_workers/ analysis_workers/
+COPY scripts/ scripts/
+COPY docker/app/ docker/app/
+RUN useradd --uid 10001 --user-group --create-home --shell /usr/sbin/nologin immune \
+    && mkdir -p /app/flask_app/data /app/tmp \
+    && chown -R 10001:10001 /app/flask_app/data /app/tmp
+ENV HOME=/home/immune
+USER 10001:10001
+RUN python docker/app/check_runtime.py --full
+EXPOSE 5000
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "600", "--access-logfile", "-", "flask_app.app:app"]

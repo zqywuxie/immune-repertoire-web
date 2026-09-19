@@ -118,6 +118,19 @@ def create_app(config_name=None):
             return None
 
     @app.before_request
+    def prepare_internal_workspace():
+        if not app.config.get('INTERNAL_MODE', False):
+            return None
+        # Ignore prior login cookies without changing existing user ownership.
+        from flask import g
+        from flask_login import AnonymousUserMixin
+        g._login_user = AnonymousUserMixin()
+        if request.path in {'/auth/login', '/auth/register', '/auth/logout', '/api/auth/login', '/api/auth/logout'}:
+            from flask_app.services.internal_workspace import internal_redirect
+            return redirect(internal_redirect(request.args.get('redirect') or request.args.get('next')))
+        return None
+
+    @app.before_request
     def require_login_for_application():
         if request.method == 'OPTIONS' and request.path.startswith('/api/'):
             return '', 204
@@ -129,7 +142,7 @@ def create_app(config_name=None):
             return None
         if endpoint.startswith('static') or endpoint.startswith('auth.'):
             return None
-        if endpoint in {'api.health_check', 'api.app_info'}:
+        if endpoint in {'api.health_check', 'api.app_info', 'api.api_files.health_check', 'api.api_files.app_info'}:
             return None
         from flask_login import current_user
         if current_user.is_authenticated:
@@ -169,7 +182,7 @@ def create_app(config_name=None):
         from flask_login import current_user
         if not current_user.is_authenticated:
             if not app.config.get("REQUIRE_LOGIN", True):
-                return jsonify({"username": "dev", "role": "guest", "auth_mode": "none"})
+                return jsonify({"username": "内部工作台", "role": "guest", "auth_mode": "internal" if app.config.get("INTERNAL_MODE") else "none"})
             return jsonify({"error_code": "AUTH_REQUIRED", "message": "Authentication required"}), 401
         return jsonify({
             "user_id": current_user.get_id(),
@@ -261,7 +274,7 @@ def register_error_handlers(app):
     def request_entity_too_large(error):
         return jsonify({
             'error_code': 'FILE_TOO_LARGE',
-            'message': 'File exceeds maximum size limit (100MB)'
+            'message': f"上传请求超过大小上限（{app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)} 兆字节），请减少文件大小或分批上传。"
         }), 413
     
     @app.errorhandler(500)

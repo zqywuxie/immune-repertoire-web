@@ -39,7 +39,7 @@ export function SearchBar({ placeholder = "Search…", value, onChange, onClear 
             fontSize: "0.75rem", cursor: "pointer",
           }}
         >
-          Clear
+          清空
         </button>
       )}
     </div>

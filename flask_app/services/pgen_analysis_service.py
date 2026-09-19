@@ -8,6 +8,7 @@ registered PEP assets and summarizes mean Pgen values by sample and chain.
 from __future__ import annotations
 
 import json
+import os
 import re
 import zipfile
 from collections import defaultdict
@@ -226,7 +227,10 @@ class PgenAnalysisService:
                     })
                     continue
                 data_seqs = filtered.values.astype(str)
-                model = SoNNia(data_seqs=data_seqs, pgen_model=model_ref)
+                model = SoNNia(data_seqs=data_seqs, pgen_model=model_ref, seed=42)
+                # SoNNia 0.3.1 accepts processes but does not assign it.
+                # Limit parallel OLGA workers within each queued analysis.
+                model.processes = 1
                 q_data, pgen_data, ppost_data = model.evaluate_seqs(model.data_seqs)
 
                 detail_df = pd.DataFrame(model.data_seqs, columns=["CDR3(pep)", "V", "J"])
@@ -416,6 +420,8 @@ class PgenAnalysisService:
         SoNNia 0.3.x parses anchor filenames with '/' separators internally.
         On Windows that can turn V/J anchors into D anchors, emptying all filters.
         """
+        if os.name != "nt":
+            return model_name
         try:
             from sonnia.processing import define_pgen_model, gene_to_num_str
         except Exception:
@@ -451,6 +457,8 @@ class PgenAnalysisService:
         """
         Return a SoNNia model path that keeps SoNNia 0.3.x Windows path parsing valid.
         """
+        if os.name != "nt":
+            return model_name
         try:
             from sonnia.processing import define_pgen_model
             *_, pgen_dir = define_pgen_model(model_name, compute_norm=False, return_pgen_dir=True)

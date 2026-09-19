@@ -6,6 +6,15 @@ from flask_app.exceptions import ValidationError
 from flask_app.services.config_service import get_config_service
 
 from ._common import logger
+from flask_app.services.user_scope import current_user_id
+
+
+def owned_config_id(value):
+    value = str(value or 'default')
+    if not value.replace('-', '').replace('_', '').isalnum() or len(value) > 20:
+        raise ValidationError(message='无效的设置名称')
+    user_id = current_user_id()
+    return f'u{user_id}-{value}' if user_id is not None else value
 
 bp = Blueprint("api_config_params", __name__)
 
@@ -23,7 +32,7 @@ def get_config():
     """
     from flask_app.services.config_service import get_config_service
     
-    config_id = request.args.get('config_id', 'default')
+    config_id = owned_config_id(request.args.get('config_id', 'default'))
     
     service = get_config_service()
     config = service.get_config(config_id)
@@ -63,7 +72,7 @@ def save_config():
         )
     
     config_data = data.get('config')
-    config_id = data.get('config_id', 'default')
+    config_id = owned_config_id(data.get('config_id', 'default'))
     
     if not config_data or not isinstance(config_data, dict):
         raise ValidationError(
@@ -121,7 +130,7 @@ def update_config():
         )
     
     updates = data.get('updates')
-    config_id = data.get('config_id', 'default')
+    config_id = owned_config_id(data.get('config_id', 'default'))
     
     if not updates or not isinstance(updates, dict):
         raise ValidationError(
@@ -166,7 +175,7 @@ def reset_config():
     from flask_app.services.config_service import get_config_service
     
     data = request.get_json() or {}
-    config_id = data.get('config_id', 'default')
+    config_id = owned_config_id(data.get('config_id', 'default'))
     
     service = get_config_service()
     default_config = service.reset_config(config_id)
@@ -471,3 +480,17 @@ def validate_parameters():
 # Annotation API - Requirements: 12.5
 # =============================================================================
 
+
+
+@bp.route('/storage', methods=['GET'])
+def storage_usage():
+    from sqlalchemy import func
+    from flask_app.models.database import db, File, Project, ProjectAsset
+    from flask_app.services.user_scope import scope_query
+    projects = scope_query(Project.query, Project)
+    project_ids = projects.with_entities(Project.id).subquery()
+    file_query = scope_query(File.query, File)
+    assets = ProjectAsset.query.filter(ProjectAsset.project_id.in_(db.select(project_ids.c.id)))
+    return jsonify(success=True, files=file_query.count(), assets=assets.count(),
+                   file_bytes=file_query.with_entities(func.coalesce(func.sum(File.size), 0)).scalar(),
+                   asset_bytes=assets.with_entities(func.coalesce(func.sum(ProjectAsset.size), 0)).scalar())

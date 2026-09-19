@@ -6,6 +6,7 @@ export interface AssetSet {
   pepPaths: string[];
   profilePath: string;
   transcriptomePath: string;
+  deconvolutionPath: string;
 }
 
 export function assetPath(asset: ProjectAsset): string {
@@ -32,7 +33,7 @@ export function isInputAsset(asset: ProjectAsset): boolean {
       type.includes("profile") ||
       type.includes("datapoint") ||
       type.includes("transcriptome") ||
-      type.includes("expression"))
+      type.includes("expression") || type === "deconvolution" || type === "cibersort")
   );
 }
 
@@ -48,6 +49,7 @@ export function buildAssetSets(assets: ProjectAsset[]): AssetSet[] {
         pepPaths: [],
         profilePath: "",
         transcriptomePath: "",
+        deconvolutionPath: "",
       });
     }
 
@@ -62,6 +64,8 @@ export function buildAssetSets(assets: ProjectAsset[]): AssetSet[] {
       group.profilePath = path;
     } else if ((type.includes("transcriptome") || type.includes("expression")) && !group.transcriptomePath) {
       group.transcriptomePath = path;
+    } else if (["deconvolution", "cibersort"].includes(type) && !group.deconvolutionPath) {
+      group.deconvolutionPath = path;
     }
   }
 

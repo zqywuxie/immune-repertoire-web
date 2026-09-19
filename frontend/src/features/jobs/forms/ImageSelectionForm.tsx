@@ -51,7 +51,7 @@ export function ImageSelectionForm({ projectId, value, onChange }: Props) {
             color: "var(--text-secondary)",
           }}
         >
-          Image Selections
+          图片选择
         </span>
         <button
           type="button"
@@ -67,7 +67,7 @@ export function ImageSelectionForm({ projectId, value, onChange }: Props) {
             cursor: "pointer",
           }}
         >
-          + Add Image
+          添加图片
         </button>
       </div>
 
@@ -80,7 +80,7 @@ export function ImageSelectionForm({ projectId, value, onChange }: Props) {
             padding: "var(--spacing-md)",
           }}
         >
-          No images selected. Click "+ Add Image" to add.
+          尚未选择图片，请点击“添加图片”。
         </p>
       )}
 
@@ -98,7 +98,7 @@ export function ImageSelectionForm({ projectId, value, onChange }: Props) {
           }}
         >
           <label style={fieldLabelStyle}>
-            Image ID
+            图片编号
             <input
               type="text"
               value={sel.image_id}
@@ -108,7 +108,7 @@ export function ImageSelectionForm({ projectId, value, onChange }: Props) {
             />
           </label>
           <label style={fieldLabelStyle}>
-            Position
+            位置
             <input
               type="number"
               value={sel.slide_position ?? ""}

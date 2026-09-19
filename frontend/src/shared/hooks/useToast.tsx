@@ -123,7 +123,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       </span>
       <button
         onClick={onDismiss}
-        aria-label="Dismiss"
+        aria-label="关闭提示"
         style={{
           flexShrink: 0,
           width: "24px",

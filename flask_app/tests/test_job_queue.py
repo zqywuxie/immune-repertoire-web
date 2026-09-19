@@ -104,15 +104,15 @@ def test_redis_job_queue_integration():
     """Integration test: RedisJobQueue initializes with real Redis connection."""
     try:
         from redis import Redis
-        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r = Redis.from_url(os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
         r.ping()
     except Exception:
         import pytest
         pytest.skip("Redis not available — skipping integration test")
 
     from flask_app.services.job_queue import RedisJobQueue
-    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
-    assert q.redis_url == "redis://127.0.0.1:6379/0"
+    q = RedisJobQueue(redis_url=os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
+    assert q.redis_url == os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
     assert q._queue is not None  # RQ Queue initialized
 
 
@@ -120,7 +120,7 @@ def test_redis_job_queue_enqueue():
     """Integration test: enqueue a real worker task via RedisJobQueue."""
     try:
         from redis import Redis
-        r = Redis.from_url("redis://127.0.0.1:6379/0")
+        r = Redis.from_url(os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
         r.ping()
     except Exception:
         import pytest
@@ -128,22 +128,26 @@ def test_redis_job_queue_enqueue():
 
     from flask_app.services.job_queue import RedisJobQueue
     from analysis_workers.tasks.generic import run_generic_job
-    q = RedisJobQueue(redis_url="redis://127.0.0.1:6379/0")
+    q = RedisJobQueue(redis_url=os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
     q.submit("test-integration-job-id", run_generic_job)
     # Job was enqueued without error
     assert True
 
 
-def test_redis_job_queue_enqueues_worker_dispatcher_for_known_module():
+def test_redis_job_queue_enqueues_worker_dispatcher_for_known_module(monkeypatch):
     from analysis_workers.main import execute
     from flask_app.services.job_queue import RedisJobQueue
 
+    from types import SimpleNamespace
+    from flask_app.services.background_job_service import get_background_job_service
+    monkeypatch.setattr(get_background_job_service(), 'upsert_job', lambda *args, **kwargs: {})
     class FakeRqQueue:
         def __init__(self):
             self.calls = []
 
         def enqueue(self, func, *args, **kwargs):
             self.calls.append((func, args, kwargs))
+            return SimpleNamespace(id=kwargs['job_id'])
 
     queue = object.__new__(RedisJobQueue)
     queue.redis_url = "redis://example.invalid/0"
@@ -154,9 +158,12 @@ def test_redis_job_queue_enqueues_worker_dispatcher_for_known_module():
 
     queue.submit("job-redis-1", runner, module="analysis.execute")
 
-    assert queue._queue.calls == [
-        (execute, ("analysis.execute", "job-redis-1"), {})
-    ]
+    assert len(queue._queue.calls) == 1
+    function, arguments, options = queue._queue.calls[0]
+    assert function is execute and arguments == ("analysis.execute", "job-redis-1")
+    assert options['job_id'] == 'analysis-job-redis-1'
+    assert options['meta']['analysis_job_id'] == 'job-redis-1'
+    assert options['job_timeout'] == 7200
 
 
 def test_redis_job_queue_falls_back_to_job_id_runner_without_module():
@@ -186,10 +193,9 @@ def test_get_job_queue_redis_backend_requires_redis_package(monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, "redis", None)
     monkeypatch.setitem(sys.modules, "rq", None)
-    try:
+    import pytest
+    with pytest.raises(RuntimeError, match="Redis"):
         get_job_queue()
-    except ImportError as exc:
-        assert "redis" in str(exc).lower()
 
 
 def test_get_job_queue_unknown_backend_falls_back_to_threadpool(monkeypatch):

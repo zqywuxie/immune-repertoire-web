@@ -1,207 +1,79 @@
-# 开发环境启动指南
+# Docker 开发与启动指南
 
-> 最后更新：2026-06-30
+应用、分析、测试和前端构建均在 Linux 容器内执行。宿主机负责编辑源码和管理 Docker。
+当前部署入口为 `compose.docker.yml`；旧 `docker-compose.yml` 仅保留历史基础设施配置。
+项目路径可自行选择，无需保留 Windows 绝对路径。
 
----
+## 首次启动
 
-## 总体架构
+在项目根目录初始化独立配置，已有 `.env.docker` 会保持原样。
 
+Windows PowerShell：
+
+```powershell
+rtk proxy powershell -NoProfile -File docker/init-env.ps1
+rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
 ```
-React SPA (:5173) ──proxy──▶ Flask (:5000) ──▶ MySQL (:3307)
-                                        ├──▶ MongoDB (:27018)
-                                        └──▶ Redis (:6379) — RQ workers
-```
 
----
-
-## 前置条件
-
-- **Node.js** ≥ 18 + npm
-- **Python** ≥ 3.10 + pip
-- **Docker Desktop**（用于 MySQL / MongoDB / Redis）或手动安装对应服务
-
----
-
-## 第一步：启动基础设施 (Docker)
+Linux：
 
 ```bash
-# 在项目根目录执行
-cd E:\Desktop\南华\Work\WenJingPan\immune-repertoire-web
-
-# 启动 MySQL + MongoDB + Redis（必须）
-docker compose up -d mysql mongodb redis
-
-# 可选：启动 MinIO 对象存储（需要时）
-docker compose --profile storage up -d minio minio-init
-
-# 检查服务状态
-docker compose ps
+rtk docker run --rm --user "$(rtk proxy id -u):$(rtk proxy id -g)" --mount "type=bind,source=$PWD,target=/workspace" python:3.11-slim-bookworm python /workspace/docker/init_env.py
+rtk docker compose --env-file .env.docker -f compose.docker.yml up -d --build --wait
 ```
 
-**端口映射：**
+默认访问 `http://127.0.0.1:8080`。内部共享模式使用 `FLASK_CONFIG=internal`，无需登录和注册。
+数据库不发布宿主机端口，应用通过 `mysql`、`mongodb`、`redis` 容器服务名连接。
+服务器远程入口、配置变量、备份与迁移参见 [Docker 部署说明](docker-deployment.md)。
+旧 root 镜像的数据卷升级需要先按部署说明完成 `volume-init`，再启动普通用户版本。
 
-| 服务 | 容器内 | 宿主机 |
-|------|--------|--------|
-| MySQL | 3306 | **3307** |
-| MongoDB | 27017 | **27018** |
-| Redis | 6379 | **6379** |
-| MinIO API | 9000 | **9000** |
+## 修改与构建
 
-配置文件：`.env`（项目根目录）
-
----
-
-## 第二步：安装依赖
+前端源码位于 `frontend/src`；Flask 接口位于 `flask_app/routes`；分析服务位于 `flask_app/services`。
+工作进程入口为 `analysis_workers.worker_main`。
 
 ```bash
-# Python 后端依赖
-cd E:\Desktop\南华\Work\WenJingPan\immune-repertoire-web
-pip install -r flask_app/requirements.txt
-
-# 前端依赖
-cd frontend
-npm install
+rtk docker compose --env-file .env.docker -f compose.docker.yml build web
+rtk docker compose --env-file .env.docker -f compose.docker.yml build api
 ```
 
----
+依赖变更写入依赖清单或 Dockerfile，然后重建镜像。不要在宿主机安装项目 Python、R 或 Node 依赖。
+接口与工作进程共享应用镜像；重建后应统一更新两者，避免接口与计算代码版本不一致。
+更新前等待正在执行的任务结束，迁移或恢复数据前完成备份。
 
-## 第三步：启动后端 (Flask)
+## 容器内验证
+
+前端测试容器包含独立依赖，先构建后运行：
 
 ```bash
-# 回到项目根目录
-cd E:\Desktop\南华\Work\WenJingPan\immune-repertoire-web
-
-# 方式一：Flask CLI
-cd flask_app
-python -m flask run --host 0.0.0.0 --port 5000 --debug
-
-# 方式二：直接运行（推荐，自动加载 .env）
-python flask_app/app.py
+rtk docker compose --env-file .env.docker -f compose.docker.yml --profile test build frontend-test
+rtk docker compose --env-file .env.docker -f compose.docker.yml --profile test run --rm frontend-test
 ```
 
-**验证后端：**
-```bash
-# 健康检查
-curl http://127.0.0.1:5000/api/health
-
-# 项目列表
-curl http://127.0.0.1:5000/api/projects
-
-# 可用分析模块
-curl http://127.0.0.1:5000/api/jobs/modules
-```
-
----
-
-## 第四步：启动前端 (Vite)
+后端示例使用临时文件系统，不挂载业务数据卷；普通应用用户需要可写目录：
 
 ```bash
-# 新开一个终端
-cd E:\Desktop\南华\Work\WenJingPan\immune-repertoire-web\frontend
-npm run dev
+rtk docker run --rm --tmpfs /app/flask_app/data:uid=10001,gid=10001 --tmpfs /app/tmp:uid=10001,gid=10001 -e FLASK_CONFIG=testing -e JOB_QUEUE=threadpool immune-platform-api:full python -B -m pytest flask_app/tests/test_input_quality.py flask_app/tests/test_result_table.py -q -p no:cacheprovider
 ```
 
-**Vite 开发服务器：**
-- 地址：`http://127.0.0.1:5173`
-- API 代理：`/api/*` → `http://127.0.0.1:5000`（配置在 `frontend/vite.config.ts`）
+真实队列回归使用独立 Redis 测试库及唯一测试队列，不能指向生产队列或执行 FLUSHDB。
+已有验证范围和未完成事项记录在 [项目输入工作流进度](superpowers/project-input-workflow-progress.md)。
 
----
-
-## 第五步：启动 RQ Worker（可选，用于后台任务）
+## 查看状态与日志
 
 ```bash
-cd E:\Desktop\南华\Work\WenJingPan\immune-repertoire-web
-
-# 设置环境变量
-set PYTHONPATH=.
-
-# 启动 RQ Worker（处理分析任务）
-rq worker analysis-jobs --url redis://127.0.0.1:6379/0
+rtk docker compose --env-file .env.docker -f compose.docker.yml ps
+rtk docker compose --env-file .env.docker -f compose.docker.yml logs --tail 100 api worker
+rtk docker compose --env-file .env.docker -f compose.docker.yml exec worker python -m analysis_workers.healthcheck
 ```
 
-如果不需要后台任务队列，Flask 会在进程内线程池中执行任务（`JOB_QUEUE=redis` 切换）。
-
----
-
-## 常用开发命令汇总
-
-| 命令 | 目录 | 用途 |
-|------|------|------|
-| `docker compose up -d mysql mongodb redis` | 项目根 | 启动数据库 |
-| `docker compose down` | 项目根 | 停止所有服务 |
-| `python flask_app/app.py` | 项目根 | 启动 Flask (:5000) |
-| `npm run dev` | frontend | 启动 Vite (:5173) |
-| `npm run typecheck` | frontend | TypeScript 类型检查 |
-| `npm run test` | frontend | 运行前端测试 (vitest) |
-| `npm run build` | frontend | 生产构建 |
-| `npm run generate-types` | frontend | 从 OpenAPI 生成 TS 类型 |
-| `pytest flask_app/` | 项目根 | Flask 测试 |
-| `pytest backend-api/tests/` | 项目根 | FastAPI 测试 |
-| `pytest analysis_workers/tests/` | 项目根 | Worker 测试 |
-
----
-
-## 页面路由对照
-
-**前端 SPA (React) — `http://127.0.0.1:5173`：**
-
-| 路由 | 页面 | 状态 |
-|------|------|------|
-| `/management` | 数据管理工作台 | ✅ 新 |
-| `/management/projects` | 项目库 | ✅ 新 |
-| `/management/projects/:id` | 项目详情 | ✅ 新 |
-| `/management/samples` | 样本注册表 | ✅ 新 |
-| `/management/settings` | 管理设置 | ✅ 新 |
-| `/analysis` | 统一分析入口 | ✅ 新 |
-| `/analysis/script-hub` | ScriptHub 6 阶段向导 | ✅ 新 |
-| `/analysis/script-hub/jobs` | 任务监控中心 | ✅ 新 |
-| `/analysis/pipeline-comparison` | 管道对比 | ✅ 新 |
-| `/analysis/statistical` | 统计比较 | ✅ 新 |
-| `/analysis/pdf-extractor` | PDF 提取 | ✅ 新 |
-| `/analysis/ppt-tools` | PPT 工具 | ✅ 新 |
-| `/analysis/settings` | 分析设置 | ✅ 新 |
-| `/login` | 登录 | ✅ 新 |
-
-**旧 Flask Jinja 页面 — `http://127.0.0.1:5000`：**
-
-| 路由 | 状态 |
-|------|------|
-| `/management`、`/projects`、`/samples`、`/analysis/*` | 🟡 退役中 (带 Deprecation 横幅) |
-
----
-
-## 环境变量参考
-
-**`.env`（项目根目录，Docker + Flask 共用）：**
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MYSQL_HOST` | 127.0.0.1 | MySQL 主机 |
-| `MYSQL_PORT` | 3307 | MySQL 端口 |
-| `MYSQL_ROOT_PASSWORD` | ir_root_2024 | MySQL root 密码 |
-| `MYSQL_USER` | ir_user | MySQL 用户名 |
-| `MYSQL_PASSWORD` | ir_pass_2024 | MySQL 密码 |
-| `MYSQL_DATABASE` | immune_repertoire | 数据库名 |
-| `MONGO_HOST` | 127.0.0.1 | MongoDB 主机 |
-| `MONGO_PORT` | 27018 | MongoDB 端口 |
-| `REDIS_URL` | redis://127.0.0.1:6379/0 | Redis 连接 |
-| `JOB_QUEUE` | redis | 队列后端 (redis / thread) |
-| `FLASK_ENV` | development | Flask 环境 |
-| `SECRET_KEY` | change-this… | Flask 密钥 |
-| `VITE_API_TARGET` | http://127.0.0.1:5000 | Vite 代理目标 |
-
----
+常驻容器日志已配置轮转。应用数据、上传、分析产物和参考资源属于持久数据，不是可随意删除的缓存。
+日常停止使用 `stop`，不要使用 `down -v` 删除数据卷。
 
 ## 常见问题
 
-**Q: 前端页面显示 500 错误？**
-A: 确保 Flask 后端正在运行（`python flask_app/app.py`），Vite 代理会将 `/api/*` 转发到 `:5000`。
-
-**Q: 数据库连接失败？**
-A: 确保 Docker 服务已启动：`docker compose up -d mysql mongodb redis`
-
-**Q: TypeScript 类型检查失败？**
-A: 运行 `npm run generate-types` 重新生成 OpenAPI 类型，然后 `npm run typecheck`
-
-**Q: 前端路由刷新 404？**
-A: Vite dev server 已配置 SPA fallback，生产环境需配置 nginx `try_files`
+- 页面接口错误：先查看 api 健康状态与日志，再确认数据库服务健康。
+- 任务一直排队：查看当前 worker 的健康检查、队列连接和实际任务状态。
+- 写入被拒绝：检查是否使用普通用户镜像以及应用卷是否已初始化为 UID/GID 10001。
+- 大型分析被终止：核对任务错误、容器内存上限与超时；资源变量见部署说明。
+- 修改后页面未更新：确认已构建并重新创建 web 容器；绑定 Windows 源码的临时开发容器可能需要重启才能读取变化。

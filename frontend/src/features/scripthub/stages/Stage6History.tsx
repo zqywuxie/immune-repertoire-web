@@ -1,279 +1,100 @@
-import { useState, useCallback } from "react";
-import {
-  History,
-  Play,
-  RotateCcw,
-  AlertCircle,
-  FolderOpen,
-} from "lucide-react";
-import { usePolling } from "../../../shared/hooks/usePolling";
+import { useEffect, useState } from "react";
+import { History, FolderOpen, Play, RefreshCw } from "lucide-react";
 import { listJobs } from "../../../shared/api/jobs";
+import { useJobResult } from "../../../shared/hooks/useJobResult";
+import type { JobSummary } from "../../../shared/types/domain";
 import { JobList } from "../../jobs/JobList";
-import { JobRow } from "../../jobs/JobRow";
 import { JobResultPanel } from "../../jobs/JobResultPanel";
-import { getJobResults, type JobResultsResponse } from "../../../shared/api/jobs";
-import { Card } from "../../../shared/components/Card";
-import { Skeleton } from "../../../shared/components/Skeleton";
 import { EmptyState } from "../../../shared/components/EmptyState";
 
 interface Stage6HistoryProps {
+  moduleFilter?: string;
+  initialJobId?: string;
   projectId: string;
   onSelectResult: (jobId: string) => void;
 }
 
-export function Stage6History({ projectId, onSelectResult }: Stage6HistoryProps) {
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [resultLoading, setResultLoading] = useState(false);
-  const [result, setResult] = useState<JobResultsResponse | null>(null);
+export function Stage6History(props: Stage6HistoryProps) {
+  return <ProjectHistory key={`${props.projectId}:${props.moduleFilter || "all"}`} {...props} />;
+}
 
-  // Poll jobs for the selected project
-  const jobsState = usePolling(
-    () =>
-      projectId
-        ? listJobs({ projectId, limit: 50 })
-        : Promise.resolve({ success: true, jobs: [] }),
-    5000,
-  );
+function ProjectHistory({ projectId, onSelectResult, moduleFilter, initialJobId }: Stage6HistoryProps) {
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [loading, setLoading] = useState(Boolean(projectId));
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(initialJobId || null);
+  const resultState = useJobResult(selectedJobId);
 
-  const allJobs = jobsState.data?.jobs || [];
-  const jobsLoading = jobsState.loading;
-  const jobsError = jobsState.error;
-
-  const activeJobs = allJobs.filter(
-    (j) => j.status === "queued" || j.status === "running",
-  );
-  const completedJobs = allJobs.filter(
-    (j) => j.status === "completed",
-  );
-  const failedJobs = allJobs.filter(
-    (j) => j.status === "failed" || j.status === "cancelled",
-  );
-
-  const handleViewResults = useCallback(async (jobId: string) => {
-    setSelectedJobId(jobId);
-    setResultLoading(true);
-    try {
-      const data = await getJobResults(jobId);
-      setResult(data);
-    } catch {
-      // best effort
-    } finally {
-      setResultLoading(false);
+  useEffect(() => {
+    if (!projectId) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setLoading(true);
+    async function poll() {
+      try {
+        const response = await listJobs({ projectId, limit: 50 });
+        if (disposed) return;
+        if (!response.success) throw new Error("无法读取任务历史");
+        setJobs(response.jobs);
+        setError("");
+      } catch (reason) {
+        if (!disposed) setError(reason instanceof Error ? reason.message : "无法读取任务历史");
+      } finally {
+        if (!disposed) {
+          setLoading(false);
+          timer = setTimeout(poll, 5000);
+        }
+      }
     }
-  }, []);
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [projectId, revision]);
 
-  const handleRunNew = () => {
-    onSelectResult("");
-  };
+  const query = search.trim().toLowerCase();
+  const visibleJobs = jobs.filter(job => {
+    const statusMatch = filter === "all" || (filter === "active"
+      ? ["queued", "running"].includes(job.status)
+      : filter === "failed" ? ["failed", "cancelled", "interrupted"].includes(job.status)
+      : job.status === filter);
+    return (!moduleFilter || [job.module,job.job_type].includes(moduleFilter)) && statusMatch && [job.module, job.job_type, job.job_id, job.id].some(value => String(value || "").toLowerCase().includes(query));
+  });
 
-  if (!projectId) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Stage 6: History</h2>
-          <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            View past analysis runs for this project.
-          </p>
-        </div>
-        <EmptyState
-          icon={FolderOpen}
-          title="No project selected"
-          description="Select a project from the Data Intake stage first."
-        />
-      </div>
-    );
-  }
-
-  if (jobsError) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Stage 6: History</h2>
-          <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            View past analysis runs for this project.
-          </p>
-        </div>
-        <div
-          style={{
-            padding: "var(--spacing-xl)",
-            borderRadius: "var(--radius-panel)",
-            background: "var(--danger)",
-            color: "#fff",
-            textAlign: "center",
-          }}
-        >
-          <AlertCircle size={32} style={{ marginBottom: "var(--spacing-sm)" }} />
-          <p style={{ margin: 0 }}>Failed to load job history: {jobsError}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
-      {/* Header */}
-      <div>
-        <h2 style={{ margin: 0 }}>Stage 6: History</h2>
-        <p
-          style={{
-            margin: "4px 0 0",
-            color: "var(--text-secondary)",
-            fontSize: "0.875rem",
-          }}
-        >
-          View past analysis runs for project{" "}
-          <code style={{ background: "var(--bg-inset)", padding: "1px 6px", borderRadius: "4px" }}>
-            {projectId.slice(0, 8)}
-          </code>{" "}
-          — {allJobs.length} job{allJobs.length !== 1 ? "s" : ""} found.
-        </p>
-      </div>
-
-      {/* Action Bar */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-        }}
-      >
-        <button
-          onClick={handleRunNew}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "var(--spacing-sm)",
-            padding: "10px 22px",
-            borderRadius: "var(--radius-control)",
-            background: "var(--accent)",
-            color: "#fff",
-            fontWeight: 500,
-            fontSize: "0.85rem",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          <Play size={16} />
-          Run New Analysis
-        </button>
-      </div>
-
-      {/* Active Jobs */}
-      {activeJobs.length > 0 && (
-        <div>
-          <h4
-            style={{
-              margin: "0 0 var(--spacing-md) 0",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              color: "var(--warning)",
-              textTransform: "uppercase",
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--spacing-sm)",
-            }}
-          >
-            <div
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                background: "var(--warning)",
-                animation: "pulse 1.5s ease-in-out infinite",
-              }}
-            />
-            Active ({activeJobs.length})
-          </h4>
-          <JobList
-            jobs={activeJobs}
-            loading={jobsLoading && activeJobs.length === 0}
-            emptyLabel="No active jobs."
-            onSelectResult={handleViewResults}
-          />
-        </div>
-      )}
-
-      {/* Completed Jobs */}
-      {completedJobs.length > 0 && (
-        <div>
-          <h4
-            style={{
-              margin: "0 0 var(--spacing-md) 0",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              color: "var(--success)",
-              textTransform: "uppercase",
-            }}
-          >
-            Completed ({completedJobs.length})
-          </h4>
-          <JobList
-            jobs={completedJobs}
-            loading={jobsLoading && completedJobs.length === 0}
-            emptyLabel="No completed jobs."
-            onSelectResult={handleViewResults}
-          />
-        </div>
-      )}
-
-      {/* Failed Jobs */}
-      {failedJobs.length > 0 && (
-        <div>
-          <h4
-            style={{
-              margin: "0 0 var(--spacing-md) 0",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              color: "var(--danger)",
-              textTransform: "uppercase",
-            }}
-          >
-            Failed / Cancelled ({failedJobs.length})
-          </h4>
-          <JobList
-            jobs={failedJobs}
-            loading={jobsLoading && failedJobs.length === 0}
-            emptyLabel="No failed jobs."
-            onSelectResult={handleViewResults}
-          />
-        </div>
-      )}
-
-      {/* Empty state */}
-      {allJobs.length === 0 && !jobsLoading && (
-        <EmptyState
-          icon={History}
-          title="No analysis history"
-          description="No jobs have been run for this project yet. Start a new analysis to see results here."
-          action={{ label: "Run New Analysis", to: "#" }}
-        />
-      )}
-
-      {/* Loading */}
-      {jobsLoading && allJobs.length === 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-          <Skeleton height="72px" />
-          <Skeleton height="72px" />
-          <Skeleton height="72px" />
-        </div>
-      )}
-
-      {/* Results Viewer */}
-      {selectedJobId && (
-        <div>
-          <h4
-            style={{
-              margin: "0 0 var(--spacing-md) 0",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              textTransform: "uppercase",
-            }}
-          >
-            Job Results
-          </h4>
-          <JobResultPanel result={result} loading={resultLoading} />
-        </div>
-      )}
+  return <section style={{ display: "grid", gap: "var(--spacing-lg)" }}>
+    <div>
+      <h2 style={{ margin: 0 }}>分析历史</h2>
+      <p style={{ color: "var(--text-secondary)" }}>{moduleFilter ? "从项目最近 50 次任务中筛选当前模块，跟踪运行状态并打开结果。" : "查看当前项目最近 50 次任务，跟踪运行状态并打开分析结果。"}</p>
     </div>
-  );
+    {!projectId ? <EmptyState icon={FolderOpen} title="尚未选择项目" description="请先返回数据准备步骤选择项目。" /> : <>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)", alignItems: "end" }}>
+        <label style={{ flex: "1 1 220px", minWidth: 0 }}>搜索任务
+          <input className="input" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="输入模块名称或任务编号" />
+        </label>
+        <label>任务状态
+          <select className="select" value={filter} onChange={event => setFilter(event.target.value)}>
+            <option value="all">全部状态</option><option value="active">等待 / 运行中</option>
+            <option value="completed">已完成</option><option value="failed">失败 / 取消 / 中断</option>
+          </select>
+        </label>
+        <button className="btn btn-secondary" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw size={16} />刷新列表</button>
+        <button className="btn btn-primary" onClick={() => onSelectResult("")}><Play size={16} />新建分析</button>
+      </div>
+      {error && <div role="alert" style={{ color: "var(--danger)" }}>任务历史读取失败：{error}。可点击“刷新列表”重试。</div>}
+      {!loading && !error && jobs.length === 0 ? <EmptyState icon={History} title="暂无分析历史" description="点击“新建分析”开始当前项目的第一次分析。" /> : <>
+        <p role="status" style={{ margin: 0, color: "var(--text-secondary)" }}>显示 {visibleJobs.length} / {jobs.length} 项任务</p>
+        <JobList jobs={visibleJobs} loading={loading && jobs.length === 0} emptyLabel={error ? "暂时无法显示任务。" : "没有符合条件的任务，请调整搜索或筛选条件。"} onSelectResult={setSelectedJobId} />
+      </>}
+      {selectedJobId && <section aria-label="任务结果" style={{ display: "grid", gap: "var(--spacing-md)", minWidth: 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>任务结果</h3>
+          <code style={{ overflowWrap: "anywhere" }}>{selectedJobId}</code>
+          <button className="btn btn-secondary" onClick={() => setSelectedJobId(null)}>收起结果</button>
+        </div>
+        {resultState.error && <div role="alert"><p>{resultState.error}</p><button className="btn btn-secondary" onClick={resultState.retry}>重新读取结果</button></div>}
+        {(!resultState.error || resultState.result) && <JobResultPanel result={resultState.result} loading={!resultState.result} />}
+      </section>}
+    </>}
+  </section>;
 }

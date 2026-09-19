@@ -15,6 +15,40 @@ def _build_script_hub_bp():
     from . import cache, modules_config, boxplot, profile_analysis, enrichment, tasks_results
 
     bp = Blueprint("script_hub", __name__, url_prefix="/api/script-hub")
+    @bp.before_request
+    def resolve_result_reference():
+        from flask import request, jsonify
+        from flask_app.exceptions import ValidationError
+        from flask_app.services.analysis_artifacts import resolve_upstream_input
+        if request.method != 'POST':
+            return None
+        data = request.get_json(silent=True) or {}
+        module = str(data.get('module') or request.path.split('/')[3] if len(request.path.split('/')) > 3 else '')
+        try:
+            resolve_upstream_input(module, data)
+        except ValidationError as error:
+            return jsonify(success=False, message=error.message, details=error.details), 400
+
+    @bp.before_request
+    def validate_explicit_paths():
+        from flask import request, current_app, jsonify
+        from flask_app.services.path_access_service import PathAccessService
+        from flask_app.exceptions import ValidationError
+        if not current_app.config.get('REQUIRE_LOGIN', True):
+            return None
+        def check(value, key=''):
+            if isinstance(value, dict):
+                for name, item in value.items():
+                    check(item, name)
+            elif isinstance(value, list):
+                for item in value:
+                    check(item, key)
+            elif isinstance(value, str) and value and (key.endswith(('_path', '_paths', '_dir')) or key in {'path', 'file_path', 'data_path'}):
+                PathAccessService.validate_read_path(value)
+        try:
+            check(request.get_json(silent=True) or {})
+        except ValidationError as error:
+            return jsonify(success=False, message=error.message), 400
     bp.register_blueprint(cache.bp)
     bp.register_blueprint(modules_config.bp)
     bp.register_blueprint(boxplot.bp)

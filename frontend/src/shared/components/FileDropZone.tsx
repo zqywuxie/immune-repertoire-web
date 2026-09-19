@@ -1,4 +1,4 @@
-import { useCallback, type DragEvent, type ChangeEvent } from "react";
+import { useCallback, useId, type DragEvent, type ChangeEvent } from "react";
 import { Upload, X, File as FileIcon } from "lucide-react";
 
 interface FileEntry {
@@ -24,7 +24,7 @@ export function FileDropZone({
   accept,
   multiple = false,
   disabled,
-  label = "Drag & drop files here, or click to browse",
+  label = "拖入文件，或点击选择文件",
 }: Props) {
   const handleDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
@@ -46,11 +46,21 @@ export function FileDropZone({
     [multiple, onFilesAdded],
   );
 
-  const inputId = `fd-${Math.random().toString(36).slice(2, 8)}`;
+  const inputId = useId();
 
   return (
     <div>
       <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label={label}
+        aria-disabled={disabled}
+        onKeyDown={(event) => {
+          if (!disabled && event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            document.getElementById(inputId)?.click();
+          }
+        }}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={() => !disabled && document.getElementById(inputId)?.click()}
@@ -79,10 +89,10 @@ export function FileDropZone({
         </p>
         {accept && (
           <p style={{ margin: "4px 0 0", color: "var(--text-tertiary)", fontSize: "0.75rem" }}>
-            Accepted: {accept}
+            支持格式： {accept}
           </p>
         )}
-        <input id={inputId} type="file" multiple={multiple} accept={accept} onChange={handleInput} style={{ display: "none" }} />
+        <input id={inputId} aria-label={label} disabled={disabled} type="file" multiple={multiple} accept={accept} onChange={handleInput} style={{ display: "none" }} />
       </div>
 
       {files.length > 0 && (
@@ -112,7 +122,7 @@ export function FileDropZone({
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemoveFile(f.name); }}
                   style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: "2px", flexShrink: 0 }}
-                  aria-label={`Remove ${f.name}`}
+                  aria-label={`移除 ${f.name}`}
                 >
                   <X size={14} />
                 </button>

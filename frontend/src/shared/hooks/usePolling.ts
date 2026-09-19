@@ -1,41 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-
-export function usePolling<T>(
-  fetcher: () => Promise<T>,
-  intervalMs: number = 3000
-) {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mounted = useRef(true);
-
-  const poll = useCallback(() => {
-    fetcher()
-      .then((result) => {
-        if (mounted.current) {
-          setData(result);
-          setError(null);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (mounted.current) {
-          setError(err instanceof Error ? err.message : "Polling failed");
-          setLoading(false);
-        }
-      });
-  }, [fetcher]);
-
-  useEffect(() => {
-    mounted.current = true;
-    poll();
-    timer.current = setInterval(poll, intervalMs);
-    return () => {
-      mounted.current = false;
-      if (timer.current) clearInterval(timer.current);
-    };
-  }, [poll, intervalMs]);
-
-  return { data, error, loading };
+import { useEffect, useRef, useState, type DependencyList } from 'react';
+export function usePolling<T>(fetcher:()=>Promise<T>, intervalMs:number|null=3000, dependencies:DependencyList=[]) {
+  const fetcherRef=useRef(fetcher);fetcherRef.current=fetcher;
+  const [data,setData]=useState<T|null>(null),[error,setError]=useState<string|null>(null),[loading,setLoading]=useState(true);
+  useEffect(()=>{
+    let disposed=false;
+    let timer:ReturnType<typeof setTimeout>;
+    setData(null);setLoading(true);setError(null);
+    async function poll(){
+      try{const value=await fetcherRef.current();if(!disposed){setData(value);setError(null);}}
+      catch(reason){if(!disposed)setError(reason instanceof Error?reason.message:'状态读取失败');}
+      finally{if(!disposed){setLoading(false);if(intervalMs!==null)timer=setTimeout(poll,intervalMs);}}
+    }
+    void poll();
+    return()=>{disposed=true;clearTimeout(timer);};
+  },[intervalMs,...dependencies]);
+  return {data,error,loading};
 }

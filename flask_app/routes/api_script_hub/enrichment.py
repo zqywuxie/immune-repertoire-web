@@ -652,6 +652,13 @@ def run_volcano():
 
 # ---- GO / KEGG Enrichment ----
 
+@bp.route("/go-kegg-enrichment/sources", methods=["GET"])
+def enrichment_sources():
+    from flask_app.services.differential_artifacts import differential_candidates
+    return jsonify({"success":True, "candidates":differential_candidates(
+        request.args.get('project_id', ''), request.args.get('asset_set', ''))})
+
+
 @bp.route("/go-kegg-enrichment/inspect", methods=["POST"])
 def inspect_go_kegg_enrichment():
     try:
@@ -680,6 +687,8 @@ def _run_go_kegg_enrichment_task(
     *,
     results_root: Path,
     expression_path: str,
+    deg_directory: Optional[str] = None,
+    differential_metadata: Optional[Dict[str, Any]] = None,
     group_prefix: str = "tpm_",
     comparisons: Optional[List[List[str]]] = None,
     pvalue_threshold: float = 0.05,
@@ -694,10 +703,12 @@ def _run_go_kegg_enrichment_task(
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
-        _record_stage(task_id, 4, "GO/KEGG", f"读取表达矩阵 {expression_path}", {"module": module_name})
+        _record_stage(task_id, 4, "GO/KEGG", "读取前置差异表达结果" if deg_directory else "读取表达矩阵", {"module": module_name})
         service = GoKeggEnrichmentService(output_parent=results_root / _RESULT_DIR)
         report = service.generate_report(
             expression_path=expression_path,
+            deg_directory=deg_directory,
+            differential_metadata=differential_metadata,
             group_prefix=group_prefix,
             comparisons=comparisons or None,
             pvalue_threshold=pvalue_threshold,
@@ -762,15 +773,15 @@ def run_go_kegg_enrichment():
     try:
         data = request.get_json() or {}
         module_name = "go-kegg-enrichment"
-        expression_path = _transcriptome_path_from_request(
-            data,
-            "expression_path",
-            "transcriptome_path",
-            "profile_path",
-            "datapoint_path",
-        ) or ""
-        if not expression_path:
-            raise ValidationError(message="expression_path is required", details={"field": "expression_path"})
+        source = None
+        if data.get('input_mode') == 'deg' or data.get('upstream_artifact_id'):
+            from flask_app.services.differential_artifacts import resolve_differential_input
+            source = resolve_differential_input(data)
+            expression_path = ''
+        else:
+            expression_path = _transcriptome_path_from_request(data, 'expression_path', 'transcriptome_path', 'profile_path', 'datapoint_path') or ''
+            if not expression_path:
+                raise ValidationError(message='请选择转录组表达矩阵或已完成的差异表达结果。')
         group_prefix = str(data.get("group_prefix") or "tpm_").strip()
         comparisons = _normalize_expression_comparisons(
             _parse_group_comparisons(data.get("comparisons")),
@@ -788,8 +799,11 @@ def run_go_kegg_enrichment():
         cache_context = _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
-            input_paths=[{"asset_type": "transcriptome", "path": expression_path}],
+            input_paths=([{"asset_type":"differential_expression", "path":str(Path(source['path']) / item['relative_path'])} for item in source['files']]
+                         if source else [{"asset_type":"transcriptome", "path":expression_path}]),
             config_json={
+                "upstream_artifact_id": source["id"] if source else None,
+                "differential_metadata": source["metadata"] if source else None,
                 "group_prefix": group_prefix,
                 "comparisons": comparisons,
                 "pvalue_threshold": pvalue_threshold,
@@ -815,6 +829,8 @@ def run_go_kegg_enrichment():
             _run_go_kegg_enrichment_task, task_id,
             results_root=_resolve_results_root(),
             expression_path=expression_path,
+            deg_directory=source["path"] if source else None,
+            differential_metadata=source["metadata"] if source else None,
             group_prefix=group_prefix,
             comparisons=comparisons,
             pvalue_threshold=pvalue_threshold,
@@ -1486,6 +1502,16 @@ def inspect_mait_nkt():
 
         tra_df = _normalize_mait_tra_dataframe(tra_df, resolved_tra_path or tra_source)
 
+        profile_groups = {}
+        if profile_path:
+            profile_file = PathAccessService.validate_read_path(profile_path)
+            profile_df = _robust_read_csv(profile_file)
+            profile_groups = {
+                str(column): profile_df[column].dropna().astype(str).drop_duplicates().tolist()
+                for column in profile_df.columns
+                if not pd.api.types.is_numeric_dtype(profile_df[column])
+            }
+
         # Detect sample columns
         sample_cols = []
         has_category_row = False
@@ -1506,6 +1532,7 @@ def inspect_mait_nkt():
             "sample_columns": sample_cols,
             "sample_count": len(sample_cols),
             "has_category_row": has_category_row,
+            "profile_groups": profile_groups,
         }))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_mait_nkt: %s", exc.message)
