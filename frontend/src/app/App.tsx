@@ -13,6 +13,11 @@ import { AnalysisDataProvider } from "../features/analysis/AnalysisDataContext";
 // ── Lazy-loaded pages ──────────────────────────────────────────────────
 
 // Management workspace
+const ManagementDashboard = lazy(() => import("../pages/management/ManagementDashboard").then(m => ({ default: m.ManagementDashboard })));
+const ProjectLibrary = lazy(() => import("../pages/management/ProjectLibrary").then(m => ({ default: m.ProjectLibrary })));
+const SampleRegistry = lazy(() => import("../pages/management/SampleRegistry").then(m => ({ default: m.SampleRegistry })));
+const SettingsPage = lazy(() => import("../pages/Settings").then(m => ({ default: m.Settings })));
+const GettingStarted = lazy(() => import("../pages/public/GettingStarted").then(m => ({ default: m.GettingStarted })));
 const ProjectDetail = lazy(() => import("../pages/management/ProjectDetail").then(m => ({ default: m.ProjectDetail })));
 
 // Analysis workspace
@@ -68,7 +73,7 @@ export function App() {
       <WorkspaceProvider>
         <ToastProvider>
           <Routes>
-            <Route path="/" element={<Suspense fallback={<PageLoader />}><Navigate to="/analysis/center" replace /></Suspense>} />
+            <Route path="/" element={<Suspense fallback={<PageLoader />}><Navigate to="/management" replace /></Suspense>} />
             {/* Login — outside shell */}
             <Route path="/login" element={
               <Suspense fallback={<PageLoader />}>
@@ -84,10 +89,13 @@ export function App() {
 
 
               {/* ── Management workspace ── */}
+              <Route path="guide" element={<GettingStarted />} />
               <Route path="account" element={<Account />} />
               <Route path="management">
-                <Route index element={<Navigate to="/analysis/center" replace />} />
-                <Route path="projects" element={<Navigate to="/analysis/center" replace />} />
+                <Route index element={<ManagementDashboard />} />
+                <Route path="projects" element={<ProjectLibrary />} />
+                <Route path="samples" element={<SampleRegistry />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="projects/:projectId" element={<ProjectDetail />} />
               </Route>
 
@@ -95,6 +103,7 @@ export function App() {
               <Route path="analysis">
                 <Route index element={<Navigate to="/analysis/center" replace />} />
                 <Route path="center" element={<AnalysisCenter />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="tools/:toolId" element={<AnalysisToolPage />} />
                 <Route path="script-hub" element={<ScriptHubWizard />} />
                 <Route path="script-hub/jobs" element={<JobMonitor />} />
@@ -138,7 +147,7 @@ function NotFound() {
         您访问的页面不存在或已移动。
       </p>
       <a
-        href="/analysis/center"
+        href="/management"
         style={{
           padding: "10px 24px",
           borderRadius: "var(--radius-control)",

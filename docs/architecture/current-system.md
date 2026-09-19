@@ -6,7 +6,7 @@
 
 当前入口为 Docker Nginx `:8080`，静态 React 页面通过 `/api` 访问 Flask/Gunicorn；独立 RQ worker 执行分析，MySQL、MongoDB、Redis 位于内部网络。依赖、测试和构建均在容器内完成。Flask 的 `create_app` 注册业务 API，调用 `flask_app/services/` 内的分析服务。`backend-api/` 保留 FastAPI 实现，不能把它的接口清单当成全部 Legacy Script Hub 能力。
 
-前端路由以 `frontend/src/app/App.tsx` 为准。主要业务导航仅保留“分析中心”和“任务与结果”；根路径进入分析中心。创建项目、选择项目及四类输入上传嵌入分析中心，项目详情作为必要的次级管理入口。BCR、PDF/PPT、统计工具及旧管理总览不再列入主业务入口。
+前端路由以 `frontend/src/app/App.tsx` 为准。保留数据管理与分析工作台切换、项目概览、项目管理、样本管理、工作台设置，以及分析分类和分析设置。仅“分析工具”分组收敛为“分析中心”“任务与结果”，不再显示 PDF 提取、PPT、统计比较、自定义指标与组合分析的独立工具导航；组合分析向导仍作为分析中心的执行页面保留。根路径进入项目概览，公开宣传主页仍隐藏。注册、账号页与会话隔离沿用当前实现。
 
 新容器默认启用真实登录注册；注册账号为普通用户，业务数据按账号隔离，管理员也不能在普通业务 API 中跨账号浏览。既有 `.env` 保持原样；旧 internal 配置仍为明确的匿名内部模式，升级时须按部署文档切换。上传版本及校验摘要保存在 ProjectAsset.metadata_json，正式任务沿用 AnalysisJob，结果文件沿用 processed_result 资产，无新增数据库表。
 
