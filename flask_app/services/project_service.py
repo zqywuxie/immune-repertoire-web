@@ -57,8 +57,7 @@ class ProjectService:
             raise ValidationError(message="Project name is required", details={'field': 'name'})
 
         existing_query = Project.query.filter(Project.name == project_name)
-        if not is_admin():
-            existing_query = existing_query.filter(Project.user_id == current_user_id())
+        existing_query = existing_query.filter(Project.user_id == current_user_id())
         existing = existing_query.first()
         if existing is not None:
             raise ValidationError(message="Project name already exists", details={'field': 'name', 'value': project_name})
@@ -82,8 +81,7 @@ class ProjectService:
             raise ValidationError(message="Project name is required", details={'field': 'name'})
         if name != project.name:
             existing_query = Project.query.filter(Project.name == name, Project.id != project.id)
-            if not is_admin():
-                existing_query = existing_query.filter(Project.user_id == current_user_id())
+            existing_query = existing_query.filter(Project.user_id == current_user_id())
             existing = existing_query.first()
             if existing is not None:
                 raise ValidationError(message="Project name already exists", details={'field': 'name', 'value': name})
@@ -104,8 +102,8 @@ class ProjectService:
             shutil.rmtree(project_dir, ignore_errors=True)
 
     def get_project_dir(self, project: Project) -> Path:
-        owner = str(project.user_id) if project.user_id else "legacy"
-        return self.projects_root / owner / project.id
+        from flask_app.services.project_storage_paths import project_data_dir
+        return project_data_dir(project, self.projects_root)
 
     def get_asset_type_dir(self, project: Project, asset_type: str) -> Path:
         return self.get_project_dir(project) / 'assets' / asset_type

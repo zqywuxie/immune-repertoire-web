@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 from flask_app.exceptions import ValidationError
 from flask_app.services.auto_heatmap_service import get_auto_heatmap_service
 from flask_app.services.db_alignment_service import DBAlignmentService
+from flask_app.services.project_storage_paths import script_output_parent
 from ._common import (
     _ALLOWED_MODULES,
     _COLUMN_HINTS,
@@ -100,8 +101,10 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
         sample_column = next((column for column in profile_columns
                               if str(column).strip().lower() in {"sample", "sample_id", "sample_name", "id"}), None)
         if sample_column:
-            profile_samples = _robust_read_csv(profile_file, usecols=[sample_column], dtype=str, keep_default_na=False)[sample_column]
-            sample_names.update(str(value).strip() for value in profile_samples if str(value).strip())
+            from flask_app.services.input_quality import inspect_input_quality
+            checked = inspect_input_quality([], str(profile_file), "", "")
+            profile_samples = checked["inputs"][0].get("samples", []) if checked["inputs"] else []
+            sample_names.update(profile_samples)
 
     if pep_paths and not pep_files:
         warnings.append("所选克隆序列目录中没有找到数据文件。")
@@ -430,7 +433,7 @@ def _run_db_alignment_task(
             }
         )
 
-        service = DBAlignmentService(output_parent=results_root / _RESULT_DIR)
+        service = DBAlignmentService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             samples=discovery["samples"],
             selected_chains=discovery["selected_chains"],

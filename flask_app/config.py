@@ -41,7 +41,9 @@ class Config:
     
     # File storage settings
     UPLOAD_FOLDER = BASE_DIR / 'data' / 'uploads'
-    RESULTS_FOLDER = BASE_DIR / 'data' / 'results'
+    RESULTS_FOLDER = Path(os.environ.get('RESULTS_DIR', str(BASE_DIR / 'data' / 'results')))
+    PROJECT_DATA_ROOT = os.environ.get('PROJECT_DATA_ROOT', '')
+    ANALYSIS_TIMEZONE = os.environ.get('ANALYSIS_TIMEZONE', 'Asia/Shanghai')
     PDF_EXTRACTION_FOLDER = BASE_DIR / 'data' / 'pdf_extractions'
     UPLOAD_MAX_MB = int(os.environ.get('UPLOAD_MAX_MB', '100'))
     if UPLOAD_MAX_MB <= 0:
@@ -65,7 +67,6 @@ class Config:
     HIDDEN_DIRECTORIES = ['.git', '__pycache__', 'node_modules', '.hypothesis', '$RECYCLE.BIN', 'System Volume Information']
     REQUIRE_LOGIN = os.environ.get('REQUIRE_LOGIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
     AUTH_REGISTER_ENABLED = os.environ.get('AUTH_REGISTER_ENABLED', 'true').lower() not in {'0', 'false', 'no', 'off'}
-    AUTH_FIRST_USER_ADMIN = os.environ.get('AUTH_FIRST_USER_ADMIN', 'true').lower() not in {'0', 'false', 'no', 'off'}
     FRONTEND_ORIGINS = [
         item.strip().rstrip('/')
         for item in os.environ.get('FRONTEND_ORIGINS', '').split(',')

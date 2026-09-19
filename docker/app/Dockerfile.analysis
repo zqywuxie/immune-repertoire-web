@@ -6,6 +6,7 @@ COPY flask_app/ flask_app/
 COPY analysis_workers/ analysis_workers/
 COPY scripts/ scripts/
 COPY docker/app/ docker/app/
+RUN mkdir -p /app/flask_app/data/user_uploads /app/flask_app/data/user_results
 RUN python docker/app/check_runtime_manifest.py
 RUN python docker/app/check_runtime.py --full
 EXPOSE 5000

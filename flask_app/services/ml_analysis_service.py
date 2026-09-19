@@ -126,9 +126,8 @@ class MLAnalysisService:
         work_df = work_df.drop_duplicates(subset=[sample_col], keep="first")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "ml_analysis")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "ml-analysis")
 
         if progress_callback:
             progress_callback(10, "ML analysis", "Preparing feature matrix")

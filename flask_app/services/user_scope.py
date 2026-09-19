@@ -28,10 +28,10 @@ def current_user_id() -> int | None:
 
 
 def scope_query(query, model):
-    """Limit a SQLAlchemy query to the current user unless current user is admin."""
+    """Limit a SQLAlchemy query to the current user including administrators."""
     if not is_authenticated() and not current_app.config.get("REQUIRE_LOGIN", True):
         return query
-    if is_admin() or not hasattr(model, "user_id"):
+    if not hasattr(model, "user_id"):
         return query
     user_id = current_user_id()
     if user_id is None:
@@ -50,11 +50,10 @@ def assert_owned(obj: Any, resource_name: str = "Resource") -> None:
     if obj is None:
         raise ValidationError(message=f"{resource_name} not found")
     if not is_authenticated() and (
-        current_app.config.get("TESTING", False)
-        or not current_app.config.get("REQUIRE_LOGIN", True)
+        not current_app.config.get("REQUIRE_LOGIN", True)
     ):
         return
-    if is_admin() or not hasattr(obj, "user_id"):
+    if not hasattr(obj, "user_id"):
         return
     owner_id = getattr(obj, "user_id", None)
     if owner_id is None:

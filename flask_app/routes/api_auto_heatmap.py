@@ -1105,6 +1105,8 @@ def generate_heatmap_report():
             relative_path='metadata.json'
         )
 
+        from flask_app.services.project_storage_paths import request_project, register_report
+        register_report(request_project(), "heatmap", run_result, report_url, archive_url)
         return jsonify({
             'success': True,
             'job_id': run_result.job_id,

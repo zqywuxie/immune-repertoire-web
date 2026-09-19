@@ -332,7 +332,7 @@ nano .env
 
 ## 应用文件所有者与数据根目录
 
-`APP_UID` / `APP_GID` 必须填写服务器 `id -u zhengqinyun` / `id -g zhengqinyun` 的实际结果；Linux 文件所有权由数字编号决定。初始化器在使用 `--user` 的容器中记录对应编号；已有配置不会重写。`APP_STORAGE_USER` 为目录布局所用用户名，不能替代 UID/GID。
+`APP_UID` / `APP_GID` 必须填写服务器 `id -u zhengqinyun` / `id -g zhengqinyun` 的实际结果；Linux 文件所有权由数字编号决定。初始化器在使用 `--user` 的容器中记录对应编号；已有配置不会重写。`APP_STORAGE_USER` 标识服务器文件所有者，不能替代 UID/GID；业务子目录使用应用账号用户名。
 
 `APP_DATA_DIR` 可设为宿主机绝对目录，省略时保留原有 app_data 卷。更改该变量不会自动搬迁旧卷，请先完成数据备份和恢复。已有文件权限迁移前停止 API 和工作进程，再运行权限初始化并启动：
 
@@ -342,7 +342,7 @@ docker compose --env-file .env -f compose.docker.yml --profile operations run --
 docker compose --env-file .env -f compose.docker.yml up -d --wait
 ```
 
-权限初始化只对应用数据和临时目录设置指定用户所有权，跳过符号链接，不修改数据库自身的数据卷用户。必须先构建包含最新权限初始化代码的应用镜像。独立上传/结果根目录与 user/time/analysis_type 规则仍在实施中。
+权限初始化只对应用数据和临时目录设置指定用户所有权，跳过符号链接，不修改数据库自身的数据卷用户。必须先构建包含最新权限初始化代码的应用镜像。独立上传/结果根目录及账号/项目/分析时间目录规则见本文多用户升级章节。
 
 
 ## Bioconductor 镜像代理返回 403
@@ -357,3 +357,77 @@ bash deploy.sh
 ```
 
 现在请按本文“分析基础镜像”步骤准备已安装依赖的环境；旧 `.env` 的 `BIOCONDUCTOR_IMAGE` 不再控制应用构建。需要指定原始基础来源时，通过构建 Dockerfile.runtime 的同名 build-arg 设置，镜像须保持兼容的 Bioconductor 3.20 / R 4.4 环境。此修改仅绕过该 Bioconductor 镜像的 Docker Hub 代理，其他镜像及软件仓库的网络访问仍以服务器实际连通性为准。
+
+
+## 多用户版本升级（2026-09-19）
+
+新部署默认启用登录注册，注册账号为普通用户。既有 `.env` 不会被生成器或部署脚本覆盖；升级前自行修改：
+
+```dotenv
+FLASK_CONFIG=container
+AUTH_REGISTER_ENABLED=true
+APP_UPLOAD_DIR=/colddata/SCigblast/platform/data
+APP_RESULTS_DIR=/colddata/SCigblast/platform/results
+```
+
+如果通过 HTTPS 访问，使用 `FLASK_CONFIG=production`，确保浏览器发送安全会话 Cookie。保留既有密钥、数据库口令及 APP_DATA_DIR，不能重新生成替换已有配置。
+
+Linux 上先运行 `id -u zhengqinyun` 和 `id -g zhengqinyun`，把真实编号填入 APP_UID、APP_GID。由该服务器账号创建上传与结果目录；应用登录账号只决定目录内部的逻辑归属，不改变 Linux 文件用户。
+
+新上传：`APP_UPLOAD_DIR/用户名/项目ID/assets/数据类型/文件`；新核心分析结果：`APP_RESULTS_DIR/用户名/项目ID/分析类型_年月日_时分秒__唯一标识/`。上传、结果和原应用数据使用独立挂载；原数据路径继续保留，历史资产按数据库记录读取，不自动搬动或改归属。
+
+首次切换到新存储后，如目录未归属设定 UID/GID，可在构建新应用镜像后显式运行：
+
+```bash
+docker compose --env-file .env -f compose.docker.yml build api
+docker compose --env-file .env -f compose.docker.yml --profile operations run --rm volume-init
+bash deploy.sh
+```
+
+权限初始化跳过符号链接，不处理 MySQL、MongoDB 的独立数据库卷。依赖不变时继续使用既有版本化分析运行镜像。
+
+历史 `user_id` 为空的项目不会自动分配给首个注册账号。启用认证前先通过数据库备份及只读归属清单确定映射；未确定归属的数据保持不可见。
+
+
+只读核对历史归属时，在数据库客户端执行以下查询，不要直接批量改写 user_id：
+
+```sql
+SELECT p.id, p.name, p.user_id, u.username
+FROM projects p LEFT JOIN users u ON u.id = p.user_id;
+SELECT id, project_id, user_id, module, status
+FROM analysis_jobs WHERE user_id IS NULL;
+```
+
+如果历史项目没有所属用户，应在明确项目与账号映射并完成备份后再迁移归属。当前升级不会猜测归属或删除历史目录。
+
+
+## 部署时自动创建管理员
+
+在服务器项目根目录 `.env` 配置：
+
+```dotenv
+BOOTSTRAP_ADMIN_ENABLED=true
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=请替换为至少6位的独立密码
+```
+
+`init-env.sh` 生成的新配置会包含随机管理员密码，不在终端打印。已有 `.env` 不被初始化脚本覆盖，升级时需自行补充以上四项。API 启动完成数据库初始化后创建管理员；重复部署不会重置密码、重新启用停用账号或把已有普通用户提升为管理员。用户名或邮箱冲突会使启动失败并显示不含密码的说明。首次成功后可设 `BOOTSTRAP_ADMIN_ENABLED=false`，管理员仍保留在数据库。
+
+本地现有 `.env` 已补齐缺失的四项，未改变其他密钥。该文件不提交 Git，因此服务器仍需自行配置。该账号与 APP_STORAGE_USER（Linux 文件所有者）独立；普通业务界面仍按自己的项目范围访问。
+
+
+## 并行分析与排队诊断
+
+`.env` 中设置 `WORKER_CONCURRENCY=2`，默认启动两个独立 worker 容器，每个同时执行一个队列任务。修改后执行 `docker compose --env-file .env -f compose.docker.yml up -d --wait worker`；正常部署脚本也会应用该配置。不要另加 `--scale worker=...` 覆盖配置，值应为正整数。WORKER_CPUS / WORKER_MEMORY_LIMIT 是每个 worker 容器的上限。
+
+worker 每次启动使用独立注册名称，避免异常退出留下的旧 Redis 注册阻止新进程启动；健康检查只检查本容器当前启动的 worker。任务页面区分等待名额、没有可用工作进程、队列暂停和 Redis 连接异常，不会将未开始的任务伪装为运行中。
+
+若仍排队，执行以下只读检查：
+
+```bash
+docker compose --env-file .env -f compose.docker.yml ps worker
+docker compose --env-file .env -f compose.docker.yml logs --tail=100 worker
+```
+
+已取消的任务不会自动重新执行，需要在任务页面重试。普通账号注册与部署管理员密码统一至少 6 位；已有密码不受影响。

@@ -112,10 +112,8 @@ class MaitNktService:
         datapoint_path : str
             Original file path shown in the viewer header.
         """
-        if not job_id:
-            job_id = f"mait_nkt_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.urandom(3).hex()}"
-        output_base = self._output_parent / _sanitize_name(job_id)
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self._output_parent, "mait-nkt")
 
         self._maybe_report(progress_callback, 5, "Loading reference", "Reading Alpha_Restrict.csv")
         ref_dict = self._load_reference()

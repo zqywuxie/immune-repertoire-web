@@ -20,6 +20,7 @@ from flask_app.services.mait_nkt_service import MaitNktService
 from flask_app.services.figure_style import save_publication_png
 from flask_app.services.path_access_service import PathAccessService
 from flask_app.services.path_config import RESULTS_DIR
+from flask_app.services.project_storage_paths import script_output_parent
 from ._common import (
     _ALLOWED_MODULES,
     _RESULT_DIR,
@@ -175,7 +176,7 @@ def _run_umap_task(
 
         _record_stage(task_id, 10, "UMAP analysis", f"Starting with {len(columns)} columns", {"module": module_name})
 
-        service = UmapService(output_parent=results_root / _RESULT_DIR)
+        service = UmapService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             datapoint_path=dp_path,
             classification_begin=classification_begin,
@@ -504,7 +505,7 @@ def _run_volcano_task(
 
         local_data_dir = data_dir
 
-        service = VolcanoService(output_parent=results_root / _RESULT_DIR)
+        service = VolcanoService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         if input_mode == "expression":
             report = service.generate_expression_report(
                 expression_path=expression_path,
@@ -704,7 +705,7 @@ def _run_go_kegg_enrichment_task(
 ) -> None:
     try:
         _record_stage(task_id, 4, "GO/KEGG", "读取前置差异表达结果" if deg_directory else "读取表达矩阵", {"module": module_name})
-        service = GoKeggEnrichmentService(output_parent=results_root / _RESULT_DIR)
+        service = GoKeggEnrichmentService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             expression_path=expression_path,
             deg_directory=deg_directory,
@@ -932,7 +933,7 @@ def _run_umapin_task(
 
         dp = data_path
 
-        service = UmapinService(output_parent=results_root / _RESULT_DIR)
+        service = UmapinService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             data_path=dp,
             param_begin=param_begin,
@@ -1260,7 +1261,7 @@ def _run_ml_analysis_task(
     try:
         _record_stage(task_id, 5, "机器学习分析", f"读取 Profile: {profile_path}", {"module": module_name})
 
-        service = MLAnalysisService(output_parent=results_root / _RESULT_DIR)
+        service = MLAnalysisService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             profile_path=profile_path,
             mode=mode,
@@ -1703,7 +1704,7 @@ def _run_mait_nkt_task(
         if group_order:
             group_order_list = [x.strip() for x in group_order.split(",") if x.strip()]
 
-        service = MaitNktService(output_parent=results_root / _RESULT_DIR)
+        service = MaitNktService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
 
         def _progress(percent, stage, detail):
             _record_stage(task_id, percent, stage, detail)

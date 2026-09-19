@@ -42,15 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!result.success) {
       throw new Error(result.message || "登录失败，请检查用户名和密码。");
     }
-    setUser(result.user || { username, role: "user" });
+    if (!result.user) throw new Error("登录响应缺少账号信息，请重试。");
+    setUser(result.user);
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await apiLogout();
-    } catch {
-      // Best-effort
-    }
+    await apiLogout();
     setUser(null);
   }, []);
 

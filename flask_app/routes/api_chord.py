@@ -134,6 +134,9 @@ def _run_chord_task(
             progress_callback=on_progress,
         )
 
+        from flask_app.services.project_storage_paths import request_project, register_report
+        register_report(request_project(), "chord", result,
+                        f"/api/chord/results/{result.job_id}/viewer.html", f"/api/chord/export-zip/{result.job_id}")
         task_history = (_get_task_state(task_id) or {}).get("history", [])
         completion_meta = {
             "phase": "completed",
@@ -162,6 +165,7 @@ def _run_chord_task(
             history=task_history[-60:],
             result={
                 "job_id": result.job_id,
+                "output_base": str(result.output_base),
                 "sample_count": result.metadata.get("sample_count", 0),
                 "output_count": result.metadata.get("total_outputs", 0),
                 "viewer_url": f"/api/chord/results/{result.job_id}/viewer.html",
@@ -191,6 +195,8 @@ def generate_chord():
     try:
         data = request.get_json() or {}
 
+        from flask_app.services.project_storage_paths import request_project
+        project = request_project()
         samples = data.get("samples") or []
         if not samples:
             raise ValidationError(message="请先扫描并提供样本列表。", details={"field": "samples"})
@@ -228,6 +234,7 @@ def generate_chord():
         _set_task_state(
             task_id,
             status="queued",
+            project_id=project.id if project else None,
             progress=0.0,
             stage="任务已创建",
             detail="任务已进入队列，等待开始。",
@@ -277,6 +284,17 @@ def generate_chord():
                 "message": f"生成 chord 结果时发生错误: {str(exc)}",
             }
         ), 500
+
+
+@chord_bp.before_request
+def check_task_ownership():
+    if not current_app.config.get("REQUIRE_LOGIN", True):
+        return None
+    task_id = (request.view_args or {}).get("task_id")
+    if task_id:
+        task = _get_task_state(task_id)
+        if not task or current_user_id() is None or task.get("user_id") != current_user_id():
+            return jsonify(success=False, message="任务不存在"), 404
 
 
 @chord_bp.route("/task/<task_id>", methods=["GET"])

@@ -34,7 +34,27 @@ def candidate_job_roots(
     """Yield compatible job roots for legacy and user-scoped result URLs."""
     if job_id in {'.', '..'} or '/' in job_id or '\\' in job_id:
         return
-    if current_app.config.get('REQUIRE_LOGIN', True) and getattr(current_user, 'is_authenticated', False) and not getattr(current_user, 'is_admin', False):
+    from flask import g, has_request_context
+    if has_request_context():
+        allocated = getattr(g, "analysis_result_roots", {}).get(job_id)
+        if allocated:
+            yield Path(allocated) / nested_dir if nested_dir else Path(allocated)
+    from flask_app.models.database import Project, ProjectAsset
+    from flask_app.services.user_scope import scope_query
+    assets = []
+    if "sqlalchemy" in current_app.extensions:
+        projects = scope_query(Project.query, Project).with_entities(Project.id)
+        assets = ProjectAsset.query.filter(ProjectAsset.project_id.in_(projects), ProjectAsset.asset_type == "processed_result").all()
+    for asset in assets:
+        metadata = asset.metadata_json or {}
+        if str(metadata.get("job_id") or "") != job_id:
+            continue
+        base = Path(metadata.get("output_base") or asset.storage_path).resolve()
+        if base.is_file(): base = base.parent
+        candidate = (base / nested_dir).resolve() if nested_dir and base.name != nested_dir else base
+        if candidate == base or base in candidate.parents:
+            yield candidate
+    if current_app.config.get('REQUIRE_LOGIN', True) and getattr(current_user, 'is_authenticated', False):
         base = scoped_results_root().resolve()
         candidate = (base / result_dir / job_id).resolve()
         if base not in candidate.parents:
@@ -60,7 +80,6 @@ def candidate_job_roots(
     allow_sibling_scan = (
         current_app.config.get("TESTING")
         or not current_app.config.get("REQUIRE_LOGIN", True)
-        or getattr(current_user, "is_admin", False)
     )
     search_roots = [configured_root] if allow_sibling_scan else []
 

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../../shared/hooks/useApi";
 import { useJobResult } from "../../shared/hooks/useJobResult";
 import { listProjects } from "../../shared/api/projects";
-import { listDataFiles, uploadDataFile, type UploadedFile } from "../../shared/api/files";
+import { listDataFiles, type UploadedFile } from "../../shared/api/files";
 import { getAnalysisScheme, listAnalysisSchemes, unifiedPayload } from "../../shared/api/unified";
 import { submitJob } from "../../shared/api/jobs";
 import { PageHeader } from "../../shared/components/PageHeader";
@@ -38,13 +38,6 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
     const hints = [field.field, ...(field.mapping_hints || [])].map(name => name.toLowerCase());
     return [field.field, mapping[field.field] ?? file?.columns.find(column => hints.includes(column.toLowerCase())) ?? ""];
   }));
-  async function upload(incoming?: File) {
-    if (!incoming || !project || locked) return;
-    setBusy(true); setError("");
-    try { selectFile(await uploadDataFile(incoming, project)); savedFiles.refetch(); }
-    catch (error) { setError(error instanceof Error ? error.message : "文件上传失败"); }
-    finally { setBusy(false); }
-  }
   async function run() {
     setError("");
     try {
@@ -70,10 +63,10 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
           <legend style={{ fontWeight: 600, marginBottom: 18 }}>1 · 选择数据</legend>
           <label className="field-label">项目<select className="select" value={project} onChange={event => { setProject(event.target.value); selectFile(null); if(sharedData?.projectId !== event.target.value) shareData({projectId:event.target.value,assetSetName:"",pepPaths:[],profilePath:"",transcriptomePath:""}); setQuery(previous=>{const next=new URLSearchParams(previous);next.set("project",event.target.value);next.delete("job");return next;},{replace:true}); }}><option value="">请选择项目</option>{projects.status === "ready" && projects.data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           {projects.status === "error" && <p role="alert">{projects.error}</p>}
-          <label className="field-label">上传数据文件<input type="file" accept=".csv,.tsv,.xlsx,.csv.gz" disabled={!project || locked} onChange={event => { const incoming=event.target.files?.[0]; event.target.value=""; void upload(incoming); }} /></label>
-          <label className="field-label">或选择本项目已上传文件<select className="select" disabled={!project || locked} value={file?.id || ""} onChange={event => selectFile(savedFiles.status === "ready" ? savedFiles.data.files.find(item => item.id === event.target.value) || null : null)}><option value="">请选择文件</option>{file && !(savedFiles.status === "ready" && savedFiles.data.files.some(item => item.id === file.id)) && <option value={file.id}>{file.name}</option>}{savedFiles.status === "ready" && savedFiles.data.files.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <p className="text-muted">复用本项目已校验的样本指标表。<Link to="/analysis/center">前往分析中心上传或更新数据</Link></p>
+          <label className="field-label">选择本项目已上传文件<select className="select" disabled={!project || locked} value={file?.id || ""} onChange={event => selectFile(savedFiles.status === "ready" ? savedFiles.data.files.find(item => item.id === event.target.value) || null : null)}><option value="">请选择文件</option>{file && !(savedFiles.status === "ready" && savedFiles.data.files.some(item => item.id === file.id)) && <option value={file.id}>{file.name}</option>}{savedFiles.status === "ready" && savedFiles.data.files.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {savedFiles.status === "error" && <p role="alert">文件列表读取失败：{savedFiles.error}</p>}
-          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>{file ? `${file.name} · ${file.row_count} 行 · ${file.columns.length} 列` : "文件会上传至平台，每次任务分析一份数据表。"}</p>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>{file ? `${file.name} · ${file.row_count} 行 · ${file.columns.length} 列` : "请先在分析中心上传并完成校验，每次任务分析一份数据表。"}</p>
           <h3>2 · 配置分析</h3>
           {!fixedScheme && <label className="field-label">分析方式<select className="select" value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="scheme">预设分析方案</option><option value="custom">自定义指标</option></select></label>}
           {mode === "scheme" ? <>

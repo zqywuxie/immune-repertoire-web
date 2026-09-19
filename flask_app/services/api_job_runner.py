@@ -71,10 +71,11 @@ def call_json_endpoint(module: str, payload: Dict[str, Any], user_id: int | None
         raise RuntimeError(f"Endpoint not available: {endpoint}")
 
     with app.test_request_context(spec["path"], method="POST", json=payload):
-        if user_id is not None:
-            user = User.query.get(user_id)
-            if user is not None:
-                login_user(user)
+        user = User.query.get(user_id) if user_id is not None else None
+        if app.config.get("REQUIRE_LOGIN", True) and (user is None or not user.is_active):
+            raise RuntimeError("任务所属账号不存在或已停用")
+        if user is not None:
+            login_user(user)
         return normalize_response(view_func())
 
 
@@ -153,6 +154,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
     job = load_job_context(context.job_id)
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
     user_id = job.get("user_id")
+    project_id = str(job.get("project_id") or payload.get("project_id") or payload.get("_project_id") or "")
     selected = [str(item) for item in payload.get("selected_modules") or ["heatmap", "treemap", "chord"]]
     samples = payload.get("samples") or []
     chains = payload.get("selected_chains") or []
@@ -205,6 +207,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                 "Building CDR3 Shared tables" if cdr3_export_request else "Preparing interactive heatmap report",
             )
             report_payload = {
+                "project_id": project_id,
                 "heatmap_result": heatmap_data,
                 "output_name": output_name,
                 "create_archive": True,
@@ -225,6 +228,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                 "label": label,
                 "status": "completed",
                 "job_id": report_data.get("job_id"),
+                "output_base": report_data.get("output_base"),
                 "viewer_url": report_data.get("report_url"),
                 "zip_url": report_data.get("archive_url"),
                 "metadata_url": report_data.get("metadata_url"),
@@ -250,6 +254,7 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
         module_name = "treemap" if key == "treemap" else "chord"
         context.update(start + step_span * 0.08, label, f"Submitting {label} child task")
         child = call_json_endpoint(f"{module_name}.generate", {
+            "project_id": project_id,
             "samples": samples,
             "selected_chains": chains,
             "field_mapping": field_mapping,
@@ -320,7 +325,8 @@ def run_combined_charts_job(context) -> Dict[str, Any]:
                 status="completed",
             )
         except Exception:
-            current_app.logger.warning("Failed to persist combined charts result", exc_info=True)
+            current_app.logger.exception("Failed to persist combined charts result")
+            raise
     context.update(99, "Finalizing", "Combined chart analysis completed")
     return result
 

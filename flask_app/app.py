@@ -74,28 +74,28 @@ def create_app(config_name=None):
     """
     Application factory function.
     Creates and configures the Flask application.
-    
+
     Args:
         config_name: Configuration name ('development', 'production', 'testing')
-    
+
     Returns:
         Configured Flask application instance
     """
     if config_name is None:
         config_name = os.environ.get('FLASK_CONFIG', 'default')
-    
+
     app = Flask(__name__)
-    
+
     # Set custom JSON encoder to handle numpy types and NaN values
     app.json_encoder = SafeJSONEncoder
-    
+
     # Load configuration
     app.config.from_object(config[config_name])
     config[config_name].init_app(app)
-    
+
     # Initialize extensions
     db.init_app(app)
-    
+
     # Initialize Flask-Login
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -105,15 +105,16 @@ def create_app(config_name=None):
     @login_manager.unauthorized_handler
     def unauthorized():
         if request.path.startswith('/api/'):
-            return jsonify({'error_code': 'AUTH_REQUIRED', 'message': 'Authentication required'}), 401
+            return jsonify({'error_code': 'AUTH_REQUIRED', 'message': '请先登录。'}), 401
         return redirect(url_for('auth.login', next=request.full_path if request.query_string else request.path))
-    
+
     @login_manager.user_loader
     def load_user(user_id):
         """Load user by ID for Flask-Login."""
         from flask_app.models.database import User
         try:
-            return User.query.get(int(user_id))
+            user = db.session.get(User, int(user_id))
+            return user if user and user.is_active else None
         except (TypeError, ValueError):
             return None
 
@@ -131,6 +132,18 @@ def create_app(config_name=None):
         return None
 
     @app.before_request
+    def reject_cross_site_mutations():
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"} or not request.path.startswith("/api/"):
+            return None
+        from urllib.parse import urlsplit
+        origin = request.headers.get("Origin", "").rstrip("/")
+        allowed = set(app.config.get("FRONTEND_ORIGINS") or [])
+        if origin and origin not in allowed and urlsplit(origin).netloc != request.host:
+            return jsonify(message="不允许跨站提交，请从平台页面操作。"), 403
+        if request.headers.get("Sec-Fetch-Site") == "cross-site" and origin not in allowed:
+            return jsonify(message="不允许跨站提交，请从平台页面操作。"), 403
+
+    @app.before_request
     def require_login_for_application():
         if request.method == 'OPTIONS' and request.path.startswith('/api/'):
             return '', 204
@@ -140,7 +153,7 @@ def create_app(config_name=None):
         # Let non-existent routes fall through to Flask's 404 handler
         if not endpoint:
             return None
-        if endpoint.startswith('static') or endpoint.startswith('auth.'):
+        if endpoint.startswith('static') or endpoint.startswith('auth.') or endpoint.startswith('api_auth.'):
             return None
         if endpoint in {'api.health_check', 'api.app_info', 'api.api_files.health_check', 'api.api_files.app_info'}:
             return None
@@ -183,9 +196,10 @@ def create_app(config_name=None):
         if not current_user.is_authenticated:
             if not app.config.get("REQUIRE_LOGIN", True):
                 return jsonify({"username": "内部工作台", "role": "guest", "auth_mode": "internal" if app.config.get("INTERNAL_MODE") else "none"})
-            return jsonify({"error_code": "AUTH_REQUIRED", "message": "Authentication required"}), 401
+            return jsonify({"error_code": "AUTH_REQUIRED", "message": "请先登录。"}), 401
         return jsonify({
-            "user_id": current_user.get_id(),
+            "user_id": int(current_user.get_id()),
+            "email": current_user.email,
             "username": getattr(current_user, "username", str(current_user.get_id())),
             "role": "admin" if getattr(current_user, "is_admin", False) else "user",
             "auth_mode": "session",
@@ -193,15 +207,17 @@ def create_app(config_name=None):
 
     # Register error handlers
     register_error_handlers(app)
-    
+
     # Register blueprints (routes)
     register_blueprints(app)
-    
+
     # Initialize database
     with app.app_context():
         db.create_all()
         from flask_app.services.schema_compatibility import ensure_schema_compatibility
         ensure_schema_compatibility()
+        from flask_app.services.admin_bootstrap import ensure_deployment_admin
+        ensure_deployment_admin()
 
     # Initialize persistent background job service
     from flask_app.services.background_job_service import init_background_job_service
@@ -210,19 +226,19 @@ def create_app(config_name=None):
     # Initialize analysis service
     from flask_app.services.analysis_service import init_analysis_service
     init_analysis_service(app)
-    
+
     # Initialize config service
     from flask_app.services.config_service import init_config_service
     init_config_service(app)
-    
+
     # Initialize parameter template service
     from flask_app.services.parameter_template_service import init_parameter_template_service
     init_parameter_template_service(app)
-    
+
     # Initialize annotation service
     from flask_app.services.annotation_service import init_annotation_service
     init_annotation_service(app)
-    
+
     # Initialize modular analysis system
     from flask_app.services.analysis.registry import init_analysis_registry
     init_analysis_registry()
@@ -250,33 +266,33 @@ def create_app(config_name=None):
 def register_error_handlers(app):
     """Register error handlers for the application. Requirements: 1.3, 13.4"""
     from flask_app.exceptions import AppException
-    
+
     @app.errorhandler(AppException)
     def handle_app_exception(error):
         """Handle custom application exceptions."""
         return jsonify(error.to_dict()), error.http_status
-    
+
     @app.errorhandler(400)
     def bad_request(error):
         return jsonify({
             'error_code': 'BAD_REQUEST',
             'message': str(error.description) if hasattr(error, 'description') else 'Bad request'
         }), 400
-    
+
     @app.errorhandler(404)
     def not_found(error):
         return jsonify({
             'error_code': 'NOT_FOUND',
             'message': 'Resource not found'
         }), 404
-    
+
     @app.errorhandler(413)
     def request_entity_too_large(error):
         return jsonify({
             'error_code': 'FILE_TOO_LARGE',
             'message': f"上传请求超过大小上限（{app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)} 兆字节），请减少文件大小或分批上传。"
         }), 413
-    
+
     @app.errorhandler(500)
     def internal_error(error):
         db.session.rollback()
@@ -301,6 +317,7 @@ def register_blueprints(app):
        See: ``docs/architecture/full-stack-refactor-execution-plan.md``
     """
     from flask_app.routes.auth import auth_bp
+    from flask_app.routes.api_auth import api_auth_bp
     from flask_app.routes.pages import pages_bp
     from flask_app.routes.api import register_api_routes
     from flask_app.routes.api_projects import project_api_bp
@@ -321,8 +338,9 @@ def register_blueprints(app):
         if hint:
             raise RuntimeError(hint) from exc
         raise
-    
+
     app.register_blueprint(auth_bp)
+    app.register_blueprint(api_auth_bp)
     app.register_blueprint(pages_bp)
     register_api_routes(app)
     app.register_blueprint(jobs_bp)
@@ -355,11 +373,11 @@ if __name__ == '__main__':
         host = app.config.get('HOST', '0.0.0.0')
         port = app.config.get('PORT', 5000)
         debug = app.config.get('DEBUG', False)
-        
+
         print(f"Starting {app.config['APP_NAME']} v{app.config['APP_VERSION']}")
         print(f"Server running at http://{host}:{port}")
         print(f"Debug mode: {debug}")
-        
+
         app.run(host=host, port=port, debug=debug)
     except Exception as e:
         # Requirements: 13.4 - Display clear error messages on startup errors

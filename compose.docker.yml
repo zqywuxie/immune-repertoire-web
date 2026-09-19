@@ -20,11 +20,14 @@ services:
     mem_limit: "${API_MEMORY_LIMIT:-2g}"
     pids_limit: 512
     environment: &app_environment
-      FLASK_CONFIG: ${FLASK_CONFIG:-internal}
+      FLASK_CONFIG: ${FLASK_CONFIG:-container}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       REQUIRE_LOGIN: "true"
-      AUTH_REGISTER_ENABLED: ${AUTH_REGISTER_ENABLED:-false}
-      AUTH_FIRST_USER_ADMIN: "true"
+      AUTH_REGISTER_ENABLED: ${AUTH_REGISTER_ENABLED:-true}
+      BOOTSTRAP_ADMIN_ENABLED: ${BOOTSTRAP_ADMIN_ENABLED:-false}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       MYSQL_DATABASE: immune_repertoire
@@ -36,6 +39,7 @@ services:
       MONGO_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD}
       MONGO_DB_NAME: immune_repertoire
       REDIS_URL: redis://redis:6379/0
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       JOB_QUEUE: redis
       ANALYSIS_QUEUE_MAINTENANCE_SECONDS: "${ANALYSIS_QUEUE_MAINTENANCE_SECONDS:-60}"
       ANALYSIS_TIMEOUT_SECONDS: "${ANALYSIS_TIMEOUT_SECONDS:-7200}"
@@ -45,9 +49,14 @@ services:
       NUMEXPR_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
       APP_STORAGE_USER: "${APP_STORAGE_USER:-zhengqinyun}"
       USER_DATA_ROOT: /app/flask_app/data/users
+      PROJECT_DATA_ROOT: /app/flask_app/data/user_uploads
+      RESULTS_DIR: /app/flask_app/data/user_results
+      ANALYSIS_TIMEZONE: Asia/Shanghai
       UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
     volumes:
       - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
+      - ${APP_UPLOAD_DIR:-app_uploads}:/app/flask_app/data/user_uploads
+      - ${APP_RESULTS_DIR:-app_results}:/app/flask_app/data/user_results
       - app_tmp:/app/tmp
     depends_on:
       mysql: {condition: service_healthy}
@@ -60,6 +69,8 @@ services:
       start_period: 90s
       retries: 5
   worker:
+    deploy:
+      replicas: ${WORKER_CONCURRENCY:-2}
     image: immune-platform-api:${ANALYSIS_FLAVOR:-full}
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
@@ -73,6 +84,8 @@ services:
     environment: *app_environment
     volumes:
       - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
+      - ${APP_UPLOAD_DIR:-app_uploads}:/app/flask_app/data/user_uploads
+      - ${APP_RESULTS_DIR:-app_results}:/app/flask_app/data/user_results
       - app_tmp:/app/tmp
     depends_on:
       api: {condition: service_healthy}
@@ -148,6 +161,8 @@ services:
     command: [python, docker/app/init_volume_permissions.py]
     volumes:
       - ${APP_DATA_DIR:-app_data}:/app/flask_app/data
+      - ${APP_UPLOAD_DIR:-app_uploads}:/app/flask_app/data/user_uploads
+      - ${APP_RESULTS_DIR:-app_results}:/app/flask_app/data/user_results
       - app_tmp:/app/tmp
   frontend-test:
     profiles: [test]
@@ -157,6 +172,8 @@ services:
       target: test
 volumes:
   app_data:
+  app_uploads:
+  app_results:
   app_tmp:
   mysql_data:
   mongo_data:

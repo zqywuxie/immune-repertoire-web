@@ -98,9 +98,8 @@ class TopCloneService:
             raise FileNotFoundError(f"Datapoint file not found: {datapoint_path}")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "topclone")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "topclone")
 
         if mode == "trace":
             return self._run_trace_mode(

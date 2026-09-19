@@ -78,9 +78,8 @@ class DBAlignmentService:
             raise ValidationError(message="DB alignment only supports TRA/TRB chains")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name)
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "db-alignment")
         alignment_dir = output_base / "alignment"
         alignment_dir.mkdir(parents=True, exist_ok=True)
         specify_ratio_dir = output_base / "specify_ratio"

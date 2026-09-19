@@ -34,8 +34,28 @@ analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
 def _get_owned_file(file_id: str) -> File:
     file_record = File.query.get(file_id)
     if not file_record:
+        from flask_app.models.database import ProjectAsset, Project
+        from flask_app.services.input_preparation import analysis_input_path
+        asset = db.session.get(ProjectAsset, file_id)
+        if asset and asset.asset_type in {"profile", "datapoint"}:
+            project = db.session.get(Project, asset.project_id)
+            assert_owned(project, "项目")
+            from flask_app.services.input_quality import validate_analysis_inputs
+            path = analysis_input_path(asset)
+            validate_analysis_inputs([{"asset_type": "profile", "path": str(path)}])
+            info = next(iter((asset.metadata_json or {}).get("validation", {}).get("summary", {}).get("inputs", [])), {})
+            file_record = File(id=asset.id, name=Path(path).name, original_name=asset.original_name,
+                storage_path=str(path), size=asset.size, mime_type=asset.mime_type,
+                columns=info.get("columns", []), row_count=info.get("row_count", 0),
+                project=project.id, user_id=project.user_id)
+            db.session.add(file_record)
+            db.session.commit()
+    if not file_record:
         raise AppFileNotFoundError(message=f"File not found: {file_id}", details={'file_id': file_id})
     assert_owned(file_record, "File")
+    project_id = (request.get_json(silent=True) or {}).get("project_id")
+    if project_id and str(file_record.project) != str(project_id):
+        raise ValidationError(message="输入文件不属于当前项目")
     return file_record
 
 

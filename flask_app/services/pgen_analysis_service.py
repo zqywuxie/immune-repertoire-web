@@ -178,9 +178,8 @@ class PgenAnalysisService:
             raise ValueError("No matching PEP files found for selected chains")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "pgen_analysis")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "pgen-analysis")
         detail_base = output_base / "Pgen"
         detail_base.mkdir(parents=True, exist_ok=True)
 

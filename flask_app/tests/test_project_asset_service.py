@@ -26,6 +26,7 @@ def app_context(tmp_path):
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
+        REQUIRE_LOGIN=False,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
     )

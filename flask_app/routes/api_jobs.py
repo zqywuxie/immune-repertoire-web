@@ -315,7 +315,7 @@ def _find_reusable_charts_result(cache_context: Dict[str, Any]) -> Optional[Dict
 
 
 def _can_access_job(job: Dict[str, Any]) -> bool:
-    return is_admin() or (not current_app.config.get("REQUIRE_LOGIN", True) and current_user_id() is None) or (current_user_id() is not None and job.get("user_id") == current_user_id())
+    return (not current_app.config.get("REQUIRE_LOGIN", True) and current_user_id() is None) or (current_user_id() is not None and job.get("user_id") == current_user_id())
 
 
 def _append_output(
@@ -665,6 +665,20 @@ def _delete_job_assets_and_paths(job: Dict[str, Any]) -> Dict[str, Any]:
     skipped_paths: List[str] = []
     errors: List[str] = []
     roots = _allowed_result_delete_roots()
+    # Cached and downstream results can retain paths from an earlier run.
+    # Do not remove shared files or their ownership records while referenced.
+    from flask_app.models.database import AnalysisJob
+    other_paths = []
+    for other in AnalysisJob.query.filter(AnalysisJob.id != job_id).all():
+        other_paths.extend(_collect_result_paths(other.result or {}))
+        other_paths.extend(_collect_result_paths(other.payload or {}))
+    protected = [Path(value).resolve() for value in other_paths]
+    def referenced(value):
+        candidate = Path(value).resolve()
+        return any(candidate == other or candidate in other.parents or other in candidate.parents for other in protected)
+    if any(referenced(value) for value in paths):
+        return {"deleted_assets": [], "deleted_paths": [], "skipped_paths": sorted(paths),
+                "errors": ["结果仍被其他任务引用，已保留文件和结果记录。"]}
     for raw_path in sorted(paths, key=len, reverse=True):
         path = Path(raw_path)
         if not path.exists():
@@ -768,6 +782,11 @@ def create_job():
             "supported_modules": sorted(ALLOWED_API_JOBS),
         }), 400
 
+    from flask_app.models.database import Project, db
+    from flask_app.services.user_scope import assert_owned
+    if project_id:
+        assert_owned(db.session.get(Project, project_id), "项目")
+        payload = {**payload, "project_id": project_id}
     service = get_background_job_service()
     user_id = current_user_id()
     if module == "charts.combined":
@@ -783,10 +802,14 @@ def create_job():
         if not _truthy(data.get("force_rerun")) and not _truthy(payload.get("force_rerun")):
             cached_result = _find_reusable_charts_result(cache_context)
             if cached_result:
+                reused_job = service.create_job(job_type="api_request", module=module,
+                    payload={**payload, **cache_context, "reused_from": cached_result.get("job_id")},
+                    user_id=user_id, project_id=project_id)
+                service.complete_job(reused_job["job_id"], cached_result, detail="已复用项目内的既有结果")
                 return jsonify({
                     "success": True,
-                    "job_id": cached_result.get("job_id"),
-                    "task_id": cached_result.get("job_id"),
+                    "job_id": reused_job["job_id"],
+                    "task_id": reused_job["job_id"],
                     "status": "completed",
                     "reused_result": True,
                     "analysis_signature": cache_context.get("analysis_signature", ""),
@@ -830,7 +853,7 @@ def list_jobs():
             project_id=request.args.get("project_id") or None,
             status=request.args.get("status") or None,
             user_id=current_user_id(),
-            include_admin_scope=is_admin(),
+            include_admin_scope=False,
             include_children=include_children,
             limit=request.args.get("limit", default=100, type=int) or 100,
         )

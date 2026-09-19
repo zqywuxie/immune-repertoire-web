@@ -1132,9 +1132,8 @@ class TreemapReportService:
             "joined_seq": None,
         }
 
-        job_id = self._allocate_job_id(output_name)
-        output_base = self.results_root / self._RESULT_DIR / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_report_dir
+        job_id, output_base = allocate_report_dir(self.results_root / self._RESULT_DIR, "treemap")
 
         emit(2.0, "初始化任务", "正在整理样本和链选择。", {"phase": "init"})
 

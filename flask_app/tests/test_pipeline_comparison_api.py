@@ -24,14 +24,15 @@ def _import_validation_error():
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     """
     Local test client fixture that avoids repository-level DB fixtures in conftest.
     """
     api_auto_heatmap = _import_api_module()
     app = Flask(__name__)
     app.config['TESTING'] = True
-    app.config['RESULTS_FOLDER'] = str(Path.cwd() / 'data' / 'results')
+    app.config['REQUIRE_LOGIN'] = False
+    app.config['RESULTS_FOLDER'] = str(tmp_path / 'results')
     app.register_blueprint(api_auto_heatmap.auto_heatmap_bp)
 
     with app.test_client() as test_client:

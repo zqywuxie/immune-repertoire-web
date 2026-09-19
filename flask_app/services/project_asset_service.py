@@ -4,7 +4,9 @@ Project asset storage service.
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
+from flask_app.services.input_validation_cache import snapshot
 import shutil
 import uuid
 from datetime import datetime
@@ -49,8 +51,8 @@ class ProjectAssetService:
         self.projects_root.mkdir(parents=True, exist_ok=True)
 
     def get_project_dir(self, project: Project) -> Path:
-        owner = str(project.user_id) if project.user_id else "legacy"
-        return self.projects_root / owner / project.id
+        from flask_app.services.project_storage_paths import project_data_dir
+        return project_data_dir(project, self.projects_root)
 
     def get_asset_dir(self, project: Project, asset_type: str) -> Path:
         return self.get_project_dir(project) / 'assets' / asset_type
@@ -136,6 +138,9 @@ class ProjectAssetService:
                     **dict(metadata or {}),
                     'relative_path': target_path.relative_to(asset_dir).as_posix(),
                     'storage_uri': self._storage_uri_for_path(target_path),
+                    'content_version': hashlib.sha256(raw_bytes).hexdigest(),
+                    'upload_snapshot': snapshot(target_path),
+                    'validation': {'status': 'pending'},
                 }
                 if asset_type == 'processed_result':
                     asset_metadata['kind'] = 'analysis_result'
@@ -163,6 +168,8 @@ class ProjectAssetService:
         if asset_type == 'sample_summary' and sample_summary_df is not None:
             get_sample_registry_service().import_sample_summary_dataframe(project, sample_summary_df)
 
+        from flask_app.services.input_validation_cache import schedule_uploaded_validation
+        schedule_uploaded_validation(created_assets)
         return created_assets
 
     def delete_asset(self, asset: ProjectAsset) -> None:
@@ -243,28 +250,26 @@ class ProjectAssetService:
             'metadata': result_metadata,
         }
 
-        existing = None
-        if analysis_signature:
-            candidates = ProjectAsset.query.filter(
-                ProjectAsset.project_id == project.id,
-                ProjectAsset.asset_type == 'processed_result',
-            ).all()
-            for candidate in candidates:
-                candidate_meta = candidate.metadata_json or {}
-                if str(candidate_meta.get('analysis_signature') or '').strip() == analysis_signature:
-                    existing = candidate
-                    break
-
-        if existing is None:
-            existing = ProjectAsset.query.filter(
-                ProjectAsset.project_id == project.id,
-                ProjectAsset.asset_type == 'processed_result',
-                ProjectAsset.storage_path == chosen_storage,
-            ).first()
+        chosen_path = Path(chosen_storage).resolve()
+        if not chosen_path.exists():
+            raise ValidationError(message="分析输出文件不存在，无法登记结果")
+        from flask_app.services.path_access_service import PathAccessService
+        PathAccessService.validate_read_path(chosen_path)
+        result_files = []
+        for file in ([chosen_path] if chosen_path.is_file() else chosen_path.rglob("*")):
+            if file.is_file() and not file.is_symlink():
+                result_files.append({"name": file.name if chosen_path.is_file() else file.relative_to(chosen_path).as_posix(), "size": file.stat().st_size})
+        if not result_files:
+            raise ValidationError(message="分析输出目录为空，无法登记结果")
+        metadata_json["result_files"] = result_files
+        result_size = sum(item["size"] for item in result_files)
+        candidates = ProjectAsset.query.filter_by(project_id=project.id, asset_type="processed_result").all()
+        existing = next((item for item in candidates if job_id and (item.metadata_json or {}).get("job_id") == job_id), None)
 
         if existing:
             existing.original_name = f"{analysis_type}_{job_id or analysis_signature[:12] or uuid.uuid4().hex[:8]}"
             existing.storage_path = chosen_storage
+            existing.size = result_size
             existing.mime_type = 'text/html' if str(report_path).lower().endswith('.html') else 'application/octet-stream'
             existing.metadata_json = {**(existing.metadata_json or {}), **metadata_json}
             existing.uploaded_at = datetime.utcnow()
@@ -277,7 +282,7 @@ class ProjectAssetService:
             original_name=f"{analysis_type}_{job_id or analysis_signature[:12] or uuid.uuid4().hex[:8]}",
             storage_path=chosen_storage,
             mime_type='text/html' if str(report_path).lower().endswith('.html') else 'application/octet-stream',
-            size=0,
+            size=result_size,
             metadata_json=metadata_json,
         )
         db.session.add(asset)

@@ -30,7 +30,7 @@ def _load_umap_dependencies():
         import umap
     except ImportError as exc:  # pragma: no cover - depends on deployment environment
         raise RuntimeError(
-            "UMAP dependencies are missing. Please install scikit-learn and umap-learn from flask_app/requirements.txt."
+            "容器缺少 UMAP 依赖，请重建分析运行镜像并重新部署。"
         ) from exc
     return StandardScaler, umap
 
@@ -119,9 +119,8 @@ class UmapService:
             raise ValueError("No numeric parameter columns were found in the selected UMAP parameter range.")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "umap")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "umap")
 
         viable_class_columns, warnings = self._preflight_class_columns(df, class_columns)
         if viable_class_columns:
@@ -162,7 +161,7 @@ class UmapService:
             )
 
         if progress_callback:
-            progress_callback(100, "UMAP completed", no_result_message or f"{len(png_paths)} UMAP plot(s)")
+            progress_callback(100, "UMAP 分析完成", no_result_message or f"已生成 {len(png_paths)} 张 UMAP 图")
 
         metadata = {
             "job_id": job_id,
@@ -218,13 +217,13 @@ class UmapService:
         for ci, class_col in enumerate(class_columns):
             class_types = self._class_types_for_column(df, class_col)
             if len(class_types) < 2:
-                warnings.append(f"Skipped {class_col}: fewer than two groups.")
+                warnings.append(f"已跳过 {class_col}：有效分组不足两个。")
                 continue
             if progress_callback:
                 progress_callback(
                     5 + int(ci / max(total, 1) * 80),
-                    "UMAP analysis",
-                    f"Processing {class_col}",
+                    "UMAP 分析",
+                    f"正在分析分组字段：{class_col}",
                     {"class_col": class_col},
                 )
 
@@ -240,7 +239,7 @@ class UmapService:
                 class_col, class_types, p_value_all, pvalue_threshold
             )
             if not all_dict:
-                warnings.append(f"Skipped {class_col}: no parameter combinations matched the reference p-value rule.")
+                warnings.append(f"已跳过 {class_col}：没有特征组合通过所选 p 值筛选。")
                 continue
 
             min_cat = min(
@@ -249,7 +248,9 @@ class UmapService:
             local_nn = min(n_neighbors, min_cat) if min_cat < n_neighbors else n_neighbors
             local_nn = max(2, local_nn)
 
-            for type_tuple, params in all_dict.items():
+            for combination_index, (type_tuple, params) in enumerate(all_dict.items()):
+                def phase_progress(fraction):
+                    return 5 + 80 * (ci + (combination_index + fraction) / len(all_dict)) / max(total, 1)
                 type_list = list(type_tuple)
                 if not params:
                     continue
@@ -259,15 +260,17 @@ class UmapService:
                     df[df[class_col] == t] for t in type_list
                 ])
                 if use_df.shape[0] < 3:
-                    warnings.append(f"Skipped {class_col} / {', '.join(map(str, type_list))}: fewer than three samples.")
+                    warnings.append(f"已跳过 {class_col} / {', '.join(map(str, type_list))}：样本不足 3 个。")
                     continue
 
                 bio_data = use_df[params].values
                 if reducer_deps is None:
                     if progress_callback:
-                        progress_callback(30, "UMAP projection", "Loading UMAP runtime", {"phase": "load_umap"})
+                        progress_callback(phase_progress(0.05), "UMAP 降维", "正在加载运行环境，首次初始化可能较慢", {"phase": "load_umap"})
                     reducer_deps = _load_umap_dependencies()
                 StandardScaler, umap_module = reducer_deps
+                if progress_callback:
+                    progress_callback(phase_progress(0.1), "UMAP 降维", "运行环境已加载，正在标准化特征", {"phase": "scale"})
                 scaled = StandardScaler().fit_transform(bio_data)
                 local_subset_nn = min(local_nn, max(2, use_df.shape[0] - 1))
                 reducer = umap_module.UMAP(
@@ -275,8 +278,14 @@ class UmapService:
                     min_dist=min_dist,
                     n_epochs=50,
                     random_state=42,
+                    init="random" if len(use_df) == 3 else "spectral",
+                    n_jobs=1,
                 )
+                if progress_callback:
+                    progress_callback(phase_progress(0.2), "UMAP 降维", f"正在计算 {len(use_df)} 个样本、{len(params)} 个特征；首次运行需编译计算内核", {"phase": "fit_umap"})
                 embedding = reducer.fit_transform(scaled)
+                if progress_callback:
+                    progress_callback(phase_progress(0.8), "UMAP 绘图", "降维完成，正在生成结果图表", {"phase": "plot"})
                 if plot_deps is None:
                     plot_deps = _load_plot_dependencies()
                 plt, category_palette, save_publication_png, soften_axes = plot_deps
@@ -361,11 +370,11 @@ class UmapService:
         warnings: List[str] = []
         for class_col in class_columns:
             if class_col not in df.columns:
-                warnings.append(f"Skipped {class_col}: column not found.")
+                warnings.append(f"已跳过 {class_col}：分组列不存在。")
                 continue
             values = UmapService._class_types_for_column(df, class_col)
             if len(values) < 2:
-                warnings.append(f"Skipped {class_col}: fewer than two groups.")
+                warnings.append(f"已跳过 {class_col}：有效分组不足两个。")
                 continue
             viable.append(class_col)
         return viable, warnings

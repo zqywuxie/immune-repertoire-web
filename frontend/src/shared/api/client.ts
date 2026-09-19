@@ -25,6 +25,7 @@ interface CacheEntry<T> {
 }
 
 const cache = new Map<string, CacheEntry<unknown>>();
+let cacheGeneration = 0;
 const pendingRequests = new Map<string, Promise<unknown>>();
 
 const CACHE_TTL = 30_000;       // 30 seconds fresh
@@ -104,11 +105,12 @@ export class ApiClient {
   }
 
   private async fetchAndCache<T>(fullPath: string, cacheKey: string, maxRetries: number): Promise<T> {
+    const generation = cacheGeneration;
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const data = await this.request<T>(fullPath);
-        setCache(cacheKey, data);
+        if (generation === cacheGeneration) setCache(cacheKey, data);
         return data;
       } catch (err) {
         lastError = err;
@@ -123,10 +125,10 @@ export class ApiClient {
     throw lastError;
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
+  async post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
     return this.request<T>(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body || {})
     });
   }
@@ -166,6 +168,7 @@ export class ApiClient {
 
   /** Invalidate all cached GET responses, e.g. after a mutation. */
   invalidateCache(): void {
+    cacheGeneration++;
     cache.clear();
     pendingRequests.clear();
   }

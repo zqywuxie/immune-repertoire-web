@@ -234,6 +234,7 @@ def test_project_primary_pep_path_uses_registered_asset(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -274,6 +275,7 @@ def test_collect_project_assets_uses_sort_buffer_fallback(api_module, tmp_path, 
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -813,6 +815,7 @@ def test_inspect_data_selection_uses_project_profile_asset(api_module, tmp_path)
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -903,6 +906,7 @@ def test_empty_legacy_datapoint_does_not_override_valid_profile(api_module, tmp_
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -955,6 +959,7 @@ def test_project_asset_path_is_rebased_after_workspace_move(api_module, tmp_path
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -998,6 +1003,7 @@ def test_project_profile_asset_skips_empty_registered_file(api_module, tmp_path)
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1048,6 +1054,7 @@ def test_project_profile_asset_rejects_only_empty_registered_file(api_module, tm
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1105,6 +1112,7 @@ def test_project_transcriptome_asset_drives_go_kegg_and_deg_inspect(api_module, 
     }).to_csv(aligned, index=False)
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1162,6 +1170,7 @@ def test_cached_usage_resolver_prefers_usage_cate_asset(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1219,6 +1228,7 @@ def test_mait_nkt_inspect_auto_resolves_project_pep_tra(api_module, tmp_path):
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1290,6 +1300,7 @@ def test_cached_usage_resolver_reads_mongodb_documents(api_module, tmp_path, mon
     from flask_app.services import mongo_service
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1343,6 +1354,7 @@ def test_cache_pep_usage_assets_writes_mongodb_usage_and_usage_cate(api_module, 
     from flask_app.services.project_asset_service import get_project_asset_service
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1396,6 +1408,7 @@ def test_cache_pep_usage_assets_writes_mongodb_usage_and_usage_cate(api_module, 
 
 def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, monkeypatch):
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
 
     output_base = tmp_path / "results" / "script_hub" / "pep_job_context"
@@ -1458,6 +1471,7 @@ def test_volcano_and_umapin_inspect_use_project_cached_usage(api_module, tmp_pat
     from flask_app.models.database import Project, ProjectAsset, db
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1517,6 +1531,7 @@ def script_job_app(api_module):
     # Keep task writes and request reads in the same isolated database context.
     from flask_app.models.database import db
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
     db.init_app(app)
     app.register_blueprint(api_module.script_hub_bp)
@@ -1603,6 +1618,7 @@ def test_script_hub_jobs_cancel_updates_task_state(api_module, script_job_app):
 def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monkeypatch):
     tasks_results = import_module("flask_app.routes.api_script_hub.tasks_results")
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
@@ -1659,6 +1675,7 @@ def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
     api_jobs = import_module("flask_app.routes.api_jobs")
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_jobs.jobs_bp)
 
@@ -1683,6 +1700,7 @@ def test_background_cancelled_job_cannot_be_overwritten(tmp_path):
     from flask_app.services.background_job_service import get_background_job_service
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1711,6 +1729,7 @@ def test_script_hub_record_stage_obeys_generic_job_cancel(api_module):
     from flask_app.services.background_job_service import get_background_job_service
 
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(
         TESTING=True,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
@@ -1807,7 +1826,7 @@ def test_boxplot_service_viewer():
             output_name="test_boxplot",
         )
 
-        assert report.job_id.startswith("test_boxplot")
+        assert report.job_id.startswith("boxplot_")
         assert report.viewer_path.exists()
         assert report.viewer_path.name == "viewer.html"
 
@@ -1874,6 +1893,7 @@ def test_volcano_service_runs_expression_matrix():
 
 def test_go_kegg_inspect_expression_matrix_route(api_module, tmp_path):
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
@@ -1991,6 +2011,7 @@ def test_pgen_public_distribution_generates_png_and_stats(tmp_path):
 
 def test_pgen_inspect_returns_distribution_category_candidates(api_module, tmp_path):
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 
@@ -2117,6 +2138,7 @@ def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
 
 def test_script_hub_result_route_finds_user_scoped_viewer(api_module, tmp_path):
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False, RESULTS_FOLDER=str(tmp_path / "results"))
     app.register_blueprint(api_module.script_hub_bp)
 
@@ -2163,6 +2185,7 @@ def test_mait_nkt_service_matches_profile_sample_alias(monkeypatch, tmp_path):
 
 def test_mait_nkt_run_reuses_resolved_pep_tra_path(api_module, monkeypatch, tmp_path):
     app = Flask(__name__)
+    app.config["REQUIRE_LOGIN"] = False
     app.config.update(TESTING=True, REQUIRE_LOGIN=False)
     app.register_blueprint(api_module.script_hub_bp)
 

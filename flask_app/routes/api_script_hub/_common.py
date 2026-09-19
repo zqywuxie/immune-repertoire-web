@@ -1483,6 +1483,9 @@ def _try_reuse_script_result(cache_context: Dict[str, Any], module_name: str) ->
     if not result:
         return None
     task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+    if "sqlalchemy" in current_app.extensions:
+        from flask_app.services.project_storage_paths import register_reused_result
+        result = register_reused_result(project_id, module_name, task_id, result)
     history = [_history_entry(100.0, "Completed", "Reused existing project analysis result", {
         "phase": "completed",
         "module": module_name,
@@ -1590,7 +1593,8 @@ def _persist_script_result(
                     metadata=metadata_for_asset,
                 )
         except Exception:
-            logger.warning("Failed to sync script result asset for project %s", project_id, exc_info=True)
+            logger.exception("Failed to sync script result asset for project %s", project_id)
+            raise
         return result_id
 
     if app_context_app is not None:
@@ -1631,6 +1635,10 @@ def _complete_script_task(
     )
     if result_id:
         result["result_id"] = result_id
+    output = Path(str(result.get("output_base") or ""))
+    if result.get("output_base") and output.is_dir():
+        result["result_files"] = [{"name": path.relative_to(output).as_posix(), "size": path.stat().st_size}
+                                  for path in output.rglob("*") if path.is_file() and not path.is_symlink()]
     completed_meta = {"phase": "completed", "module": module_name, **(meta or {})}
     _set_task_state(
         task_id,

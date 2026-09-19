@@ -74,9 +74,8 @@ class VolcanoService:
             raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id()
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "volcano")
 
         csv_files = self._prepare_csv_files(data_path, output_base)
         if not csv_files:

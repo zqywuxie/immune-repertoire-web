@@ -34,11 +34,8 @@ def require_current_user(
 ) -> ApiPrincipal:
     expected = settings.auth_token.strip()
     if not expected:
-        return ApiPrincipal(
-            authenticated=False,
-            subject="migration-anonymous",
-            auth_mode="disabled",
-        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="独立接口尚未配置访问凭据")
 
     supplied = (x_api_key or "").strip() or _bearer_token(authorization)
     if supplied != expected:

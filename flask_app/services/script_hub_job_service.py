@@ -89,6 +89,7 @@ class ScriptHubJobService:
         project_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 100,
+        user_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         try:
             stored_jobs = get_background_job_service().list_jobs(
@@ -96,6 +97,7 @@ class ScriptHubJobService:
                 project_id=project_id,
                 status=status,
                 limit=limit,
+                user_id=user_id,
             )
         except Exception:
             stored_jobs = []
@@ -103,6 +105,8 @@ class ScriptHubJobService:
             stored_ids = {job.get("job_id") or job.get("id") for job in stored_jobs}
             jobs = stored_jobs + [deepcopy(job) for key, job in self._jobs.items() if key not in stored_ids]
 
+        if user_id is not None:
+            jobs = [job for job in jobs if job.get("user_id") == user_id]
         if module:
             jobs = [job for job in jobs if job.get("module") == module or (job.get("meta") or {}).get("module") == module]
         if project_id:

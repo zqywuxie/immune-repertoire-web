@@ -141,8 +141,10 @@ def execute_script(job_id):
             with app.test_request_context('/api/script-hub/worker'):
                 if job.get('user_id'):
                     owner=db.session.get(User,job['user_id'])
-                    if owner is None:raise ValueError('任务所属用户不存在')
+                    if owner is None or not owner.is_active:raise ValueError('任务所属用户不存在或已停用')
                     login_user(owner)
+                from flask import g
+                g.analysis_project_id = job.get('project_id')
                 from flask_app.services.analysis_artifacts import revalidate_job_upstream
                 revalidate_job_upstream(job)
                 from flask_app.services.input_preparation import revalidate_prepared_sources

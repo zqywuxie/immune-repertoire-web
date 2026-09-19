@@ -87,6 +87,7 @@ export function JobRow({
         <ProgressBar value={Number(job.progress || 0)} />
         <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "4px" }}>
           {job.stage || job.detail || job.status}
+          {job.status === "queued" && job.detail && job.detail !== job.stage && <div>{job.detail}</div>}
         </div>
       </div>
 

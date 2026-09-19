@@ -1,21 +1,25 @@
-import { useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { LogIn, AlertCircle } from "lucide-react";
 import { useAuth } from "../../shared/context/AuthContext";
+
+import { getAuthOptions } from "../../shared/api/auth";
 
 export function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login, isAuthenticated, loading: checkingAuth } = useAuth();
 
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  useEffect(() => { getAuthOptions().then(options => setRegistrationEnabled(options.registration_enabled)).catch(() => {}); }, []);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const requested = searchParams.get("redirect") || "/management";
+  const requested = searchParams.get("redirect") || "/analysis/center";
   const redirect = requested.startsWith("/") && !requested.startsWith("//") && !requested.includes("\\") && !/^\/(login|register|auth)(\/|\?|$)/.test(requested)
-    ? requested : "/management";
+    ? requested : "/analysis/center";
   if (checkingAuth) return <div role="status">正在进入工作台…</div>;
   if (isAuthenticated) return <Navigate to={redirect} replace />;
 
@@ -154,7 +158,7 @@ export function Login() {
             color: "var(--text-tertiary)",
           }}
         >
-          内部分析工作台 · 请使用已有账号登录
+          {registrationEnabled ? <Link to="/register">还没有账号？创建账号</Link> : "请使用已有账号登录"}
         </p>
       </div>
     </div>

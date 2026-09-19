@@ -215,6 +215,11 @@ class BackgroundJobService:
             return job.to_dict()
 
     def complete_job(self, job_id: str, result: Optional[Dict[str, Any]] = None, detail: str = "Task completed") -> Dict[str, Any]:
+        with self._ctx():
+            job = db.session.get(AnalysisJob, job_id)
+            if job and job.status not in TERMINAL_STATUSES:
+                from flask_app.services.generic_result_storage import persist_generic_result
+                result = persist_generic_result(job, result or {})
         return self.upsert_job(job_id, {
             "status": "completed",
             "progress": 100.0,
@@ -295,6 +300,8 @@ class BackgroundJobService:
             from flask_app.services.persistent_queue import reconcile_terminal_queue_job
             reconcile_terminal_queue_job(job)
             data = job.to_dict()
+            from flask_app.services.queue_status import annotate_waiting_jobs
+            annotate_waiting_jobs([data])
             if not include_payload:
                 data.pop("payload", None)
             return data
@@ -342,7 +349,8 @@ class BackgroundJobService:
                     job for job in jobs
                     if not job.get("hidden_from_default_list") and not job.get("parent_job_id")
                 ]
-            return jobs[:requested_limit]
+            from flask_app.services.queue_status import annotate_waiting_jobs
+            return annotate_waiting_jobs(jobs[:requested_limit])
 
     def delete_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():

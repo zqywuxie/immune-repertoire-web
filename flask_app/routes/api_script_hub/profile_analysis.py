@@ -11,6 +11,7 @@ from flask_app.services.boxplot_service import BoxPlotService
 from flask_app.services.pep_analysis_service import PepAnalysisService
 from flask_app.services.pgen_analysis_service import PgenAnalysisService
 from flask_app.services.topclone_service import TopCloneService
+from flask_app.services.project_storage_paths import script_output_parent
 from ._common import (
     _ALLOWED_MODULES,
     _RESULT_DIR,
@@ -70,7 +71,7 @@ def _run_topclone_task(
 
         local_pep = pep_data_path
         local_dp = datapoint_path
-        service = TopCloneService(output_parent=results_root / _RESULT_DIR)
+        service = TopCloneService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             pep_data_path=local_pep,
             datapoint_path=local_dp,
@@ -706,7 +707,7 @@ def _run_pgen_analysis_task(
     try:
         module_name = "pgen-analysis"
         _record_stage(task_id, 5, "Pgen analysis", f"Preparing {pep_data_dir}", {"module": module_name})
-        service = PgenAnalysisService(output_parent=results_root / _RESULT_DIR)
+        service = PgenAnalysisService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             pep_data_dir=pep_data_dir,
             profile_path=profile_path,
@@ -953,7 +954,7 @@ def _run_pep_analysis_task(
         local_profile = profile_path
         _record_stage(task_id, 8, "Pep Analysis", f"Profile: {profile_path}, Groups: {group_fields}, Chains: {selected_chains}", {"module": "pep-analysis"})
 
-        service = PepAnalysisService(output_parent=results_root / _RESULT_DIR)
+        service = PepAnalysisService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             pep_data_dir=local_pep_dir,
             profile_path=local_profile,

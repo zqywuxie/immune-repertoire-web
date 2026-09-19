@@ -69,9 +69,8 @@ class GoKeggEnrichmentService:
             raise RuntimeError("Rscript is not available. Install R and Bioconductor packages: clusterProfiler, org.Hs.eg.db, enrichplot, DOSE.")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "go_kegg_enrichment")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "go-kegg-enrichment")
 
         if deg_directory:
             from flask_app.services.path_access_service import PathAccessService

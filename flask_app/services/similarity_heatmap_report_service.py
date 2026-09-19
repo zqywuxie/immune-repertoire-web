@@ -910,8 +910,8 @@ class SimilarityHeatmapReportService:
         embed_images = self._normalize_bool(embed_images, False)
         context = context if isinstance(context, dict) else {}
 
-        job_id = self._allocate_job_id(output_name)
-        run_root = self.results_root / self._RESULT_DIR / job_id
+        from flask_app.services.project_storage_paths import allocate_report_dir
+        job_id, run_root = allocate_report_dir(self.results_root / self._RESULT_DIR, "heatmap")
         output_base = run_root / "shared_analysis"
         output_base.mkdir(parents=True, exist_ok=True)
 

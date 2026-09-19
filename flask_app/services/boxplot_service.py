@@ -136,9 +136,8 @@ class BoxPlotService:
             class_columns = []
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "boxplot")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "boxplot")
 
         # Parse group_order: supports JSON dict per-field or simple comma-separated
         parsed_order = None

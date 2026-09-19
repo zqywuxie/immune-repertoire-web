@@ -1,12 +1,15 @@
 # 当前架构与维护入口
 
-更新：2026-09-12。本文描述当前代码；历史目标和未完成提案见[归档](../archive/README.md)。
+更新：2026-09-19。本文描述当前代码；历史目标和未完成提案见[归档](../archive/README.md)。
 
 ## 实际运行结构
 
 当前入口为 Docker Nginx `:8080`，静态 React 页面通过 `/api` 访问 Flask/Gunicorn；独立 RQ worker 执行分析，MySQL、MongoDB、Redis 位于内部网络。依赖、测试和构建均在容器内完成。Flask 的 `create_app` 注册业务 API，调用 `flask_app/services/` 内的分析服务。`backend-api/` 保留 FastAPI 实现，不能把它的接口清单当成全部 Legacy Script Hub 能力。
 
-前端路由以 `frontend/src/app/App.tsx` 为准，包括 `/management/projects`、`/analysis`、`/analysis/script-hub`、任务监控、统计及 PDF/PPT 工具。当前为内部使用：根路径 `/` 转入 `/management`；当前内部容器模式无需登录，原认证部署模式保留登录要求，公开宣传主页已从路由隐藏。`/analysis/center` 提供七类分析导航，`/analysis/tools/:toolId` 为独立工具入口；原 `/analysis` 和组合分析向导继续可用。中文 `/guide` 提供合成 CSV 模板。独立工具复用现有配置、数据检查和执行契约，图表与差异分析预设固定对应模式。
+前端路由以 `frontend/src/app/App.tsx` 为准。主要业务导航仅保留“分析中心”和“任务与结果”；根路径进入分析中心。创建项目、选择项目及四类输入上传嵌入分析中心，项目详情作为必要的次级管理入口。BCR、PDF/PPT、统计工具及旧管理总览不再列入主业务入口。
+
+新容器默认启用真实登录注册；注册账号为普通用户，业务数据按账号隔离，管理员也不能在普通业务 API 中跨账号浏览。既有 `.env` 保持原样；旧 internal 配置仍为明确的匿名内部模式，升级时须按部署文档切换。上传版本及校验摘要保存在 ProjectAsset.metadata_json，正式任务沿用 AnalysisJob，结果文件沿用 processed_result 资产，无新增数据库表。
+
 
 ## 两类任务接口
 
@@ -17,7 +20,7 @@
 
 ## 数据与维护
 
-项目数据由项目资产服务注册，metadata 的 `asset_set` 标识数据集。向导的检查与任务提交必须传递相同数据集。当前业务文件保存在 Docker app_data 卷；原 Windows 外置目录继续保留，迁移记录见[Docker 部署说明](../docker-deployment.md)。
+项目数据由项目资产服务注册，metadata 的 `asset_set` 标识数据集。向导的检查与任务提交必须传递相同数据集。新上传和结果分别保存在 app_uploads、app_results 卷或配置的宿主机目录，原应用数据保留 app_data 卷；原 Windows 外置目录继续保留，迁移记录见[Docker 部署说明](../docker-deployment.md)。
 
 仅清理确定可重建的 `__pycache__`、`.pytest_cache` 和工具缓存。数据库、项目资产、PDF 提取和结果文件属于业务数据。缓存清理不跟随任何目录联接。
 

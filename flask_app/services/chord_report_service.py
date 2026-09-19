@@ -1075,9 +1075,8 @@ class ChordReportService:
     ) -> ChordReportResult:
         count_mode = "rows"
 
-        job_id = self._allocate_job_id(output_name)
-        output_base = self.results_root / self._RESULT_DIR / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_report_dir
+        job_id, output_base = allocate_report_dir(self.results_root / self._RESULT_DIR, "chord")
         artifact_root = output_base / "chord_diagram"
         artifact_root.mkdir(parents=True, exist_ok=True)
 

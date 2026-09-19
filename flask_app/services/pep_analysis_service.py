@@ -247,9 +247,8 @@ class PepAnalysisService:
             raise ValueError("No supported chains selected")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id(output_name or "pep_analysis")
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "pep-analysis")
 
         group_index = {field: index for index, field in enumerate(group_fields)}
         group_span = 63.0 / max(len(group_fields), 1)

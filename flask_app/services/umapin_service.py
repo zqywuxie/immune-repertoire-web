@@ -76,9 +76,8 @@ class UmapinService:
             raise FileNotFoundError(f"Data path not found: {data_path}")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
-        job_id = self._allocate_job_id()
-        output_base = self.output_parent / job_id
-        output_base.mkdir(parents=True, exist_ok=True)
+        from flask_app.services.project_storage_paths import allocate_result_dir
+        job_id, output_base = allocate_result_dir(self.output_parent, "umapin")
 
         source_path, df = self._load_or_concat_usage(dp, output_base)
 
@@ -107,6 +106,10 @@ class UmapinService:
         # Extract data
         X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
         categories = df[category_col].values
+        if len(df) < 3:
+            raise ValueError("UMAP 降维至少需要 3 个样本，请检查所选输入。")
+        if not np.isfinite(X).all():
+            raise ValueError("UMAP 输入包含无穷值，请检查特征列。")
 
         if progress_callback:
             progress_callback(25, "UMAPin", "运行 UMAP 降维")
@@ -117,12 +120,17 @@ class UmapinService:
 
         # UMAP
         try:
-            import umap
+            if progress_callback:
+                progress_callback(25, "UMAP 降维", "正在加载运行环境，首次初始化可能较慢")
+            from flask_app.services.umap_service import _load_umap_dependencies
+            _, umap = _load_umap_dependencies()
             local_neighbors = min(max(2, n_neighbors), max(2, len(df) - 1))
-            reducer = umap.UMAP(n_neighbors=local_neighbors, min_dist=min_dist, n_epochs=n_epochs, random_state=8)
+            reducer = umap.UMAP(n_neighbors=local_neighbors, min_dist=min_dist, n_epochs=n_epochs, random_state=8, init="random" if len(df) == 3 else "spectral", n_jobs=1)
+            if progress_callback:
+                progress_callback(40, "UMAP 降维", f"正在计算 {len(df)} 个样本；首次运行需编译计算内核")
             embedding = reducer.fit_transform(X_scaled)
         except ImportError:
-            raise ImportError("umap-learn package is required. Install with: pip install umap-learn")
+            raise ImportError("容器缺少 UMAP 依赖，请重建分析运行镜像并重新部署。")
 
         if progress_callback:
             progress_callback(70, "UMAPin", "绘制 UMAP 散点图")

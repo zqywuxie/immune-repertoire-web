@@ -59,9 +59,7 @@ bp = Blueprint("script_hub_tasks", __name__)
 
 @bp.before_request
 def check_task_owner():
-    if not current_app.config.get('REQUIRE_LOGIN', True) or is_admin():
-        return None
-    if current_app.config.get('TESTING') and current_user_id() is None:
+    if not current_app.config.get('REQUIRE_LOGIN', True):
         return None
     arguments = request.view_args or {}
     task_id = arguments.get('task_id') or arguments.get('job_id')
@@ -104,8 +102,9 @@ def list_script_hub_jobs():
         project_id=project_id,
         status=status,
         limit=limit,
+        user_id=current_user_id() if current_app.config.get("REQUIRE_LOGIN", True) else None,
     )
-    if current_app.config.get('REQUIRE_LOGIN', True) and not is_admin():
+    if current_app.config.get('REQUIRE_LOGIN', True):
         jobs = [job for job in jobs if current_user_id() is not None and job.get('user_id') == current_user_id()]
     return jsonify({"success": True, "jobs": _sanitize_nan(jobs)})
 

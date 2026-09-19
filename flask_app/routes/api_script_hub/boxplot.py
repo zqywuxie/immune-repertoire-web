@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from flask_app.exceptions import ValidationError
 from flask_app.services.boxplot_service import BoxPlotService
+from flask_app.services.project_storage_paths import script_output_parent
 from ._common import (
     _ALLOWED_MODULES,
     _RESULT_DIR,
@@ -139,7 +140,7 @@ def _run_boxplot_task(
 
         _record_stage(task_id, 10, f"{module_name.title()} analysis", f"Starting with {len(columns)} columns", {"module": module_name})
 
-        service = BoxPlotService(output_parent=results_root / _RESULT_DIR)
+        service = BoxPlotService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             datapoint_path=dp_path,
             classification_begin=classification_begin,

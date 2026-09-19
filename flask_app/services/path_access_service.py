@@ -32,11 +32,13 @@ class PathAccessService:
         roots: list[str] = []
 
         if getattr(user, "is_authenticated", False):
+            from flask_app.services.project_storage_paths import user_segment, bounded_path
+            project_root = current_app.config.get("PROJECT_DATA_ROOT")
+            if project_root:
+                roots.append(str(bounded_path(project_root, user_segment(user))))
             if getattr(user, "home_path", None):
                 roots.append(str(user.home_path))
             roots.extend(getattr(user, "get_allowed_paths", lambda: [])())
-            if getattr(user, "is_admin", False):
-                roots.extend(current_app.config.get("ALLOWED_BASE_PATHS", []))
         elif not current_app.config.get("REQUIRE_LOGIN", True):
             roots.extend(current_app.config.get("ALLOWED_BASE_PATHS", []))
 
@@ -189,8 +191,6 @@ class PathAccessService:
             return
         user = user or current_user
         if not getattr(user, 'is_authenticated', False):
-            if current_app.config.get('TESTING'):
-                return
             raise ValidationError(message='请先登录')
         if any(resolved == base or base in resolved.parents for base in cls.allowed_roots_for_user(user)):
             return
@@ -201,7 +201,8 @@ class PathAccessService:
         projects = Project.query.filter_by(user_id=user_id).all()
         projects_root = Path(current_app.root_path) / 'data' / 'projects'
         for project in projects:
-            base = (projects_root / str(project.id)).resolve()
+            from flask_app.services.project_storage_paths import project_data_dir
+            base = project_data_dir(project, projects_root).resolve()
             if resolved == base or base in resolved.parents:
                 return
         if not write:
@@ -211,7 +212,12 @@ class PathAccessService:
                 paths.extend(item.storage_path for item in ProjectAsset.query.filter(ProjectAsset.project_id.in_(project_ids)).all())
             if any(Path(path).resolve() == resolved for path in paths if path):
                 return
-            results = (Path(current_app.config.get('RESULTS_FOLDER', Path(current_app.root_path) / 'data' / 'results')) / str(user_id)).resolve()
+            from flask_app.services.project_storage_paths import user_segment
+            results_base = Path(current_app.config.get('RESULTS_FOLDER', Path(current_app.root_path) / 'data' / 'results'))
+            modern_results = (results_base / user_segment(user)).resolve()
+            if resolved == modern_results or modern_results in resolved.parents:
+                return
+            results = (results_base / str(user_id)).resolve()
             if resolved == results or results in resolved.parents:
                 return
         raise ValidationError(message='无权访问此文件或目录')

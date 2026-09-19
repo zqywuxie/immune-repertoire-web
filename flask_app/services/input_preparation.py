@@ -45,8 +45,11 @@ def prepare_table(asset, options, projects_root):
     canonical = 'Gene' if kind == 'transcriptome' else 'sample'
     if canonical in columns and identifier != canonical:
         raise ValidationError(message='目标标准列名已存在，请核对编号列。')
-    destination = (Path(projects_root) / str(asset.project_id) / 'prepared_inputs' / (uuid4().hex + '.csv')).resolve()
-    if not destination.is_relative_to(Path(projects_root).resolve()):
+    from flask_app.models.database import Project
+    from flask_app.services.project_storage_paths import project_data_dir
+    project_root = project_data_dir(db.session.get(Project, asset.project_id), projects_root)
+    destination = (project_root / 'prepared_inputs' / (uuid4().hex + '.csv')).resolve()
+    if not destination.is_relative_to(project_root):
         raise ValidationError(message='项目输入目录无效。')
     destination.parent.mkdir(parents=True,exist_ok=True)
     try:
@@ -59,6 +62,12 @@ def prepare_table(asset, options, projects_root):
         prepared = ProjectAsset(project_id=asset.project_id,asset_type='prepared_input',original_name=destination.name,
             storage_path=str(destination),size=stat.st_size,metadata_json={'source_asset_id':asset.id,'source_kind':kind,
             'sheet_name':schema['selected_sheet'],'identifier_column':identifier})
+        import hashlib
+        from flask_app.services.input_validation_cache import snapshot
+        digest = hashlib.sha256()
+        with destination.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""): digest.update(block)
+        prepared.metadata_json = {**prepared.metadata_json, "content_version": digest.hexdigest(), "upload_snapshot": snapshot(destination)}
         db.session.add(prepared);db.session.flush()
         mapping={'prepared_asset_id':prepared.id,'source_size':before.st_size,'source_mtime_ns':before.st_mtime_ns,
                  'prepared_size':stat.st_size,'prepared_mtime_ns':stat.st_mtime_ns,

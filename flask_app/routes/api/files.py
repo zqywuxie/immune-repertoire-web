@@ -22,6 +22,21 @@ from ._common import _get_owned_file
 
 bp = Blueprint("api_files", __name__)
 
+
+def _upload_root():
+    from flask_app.models.database import Project
+    from flask_app.services.user_scope import assert_owned
+    from flask_app.services.project_storage_paths import project_data_dir
+    project_id = request.form.get("project", "")
+    project = db.session.get(Project, project_id) if project_id else None
+    if current_app.config.get("REQUIRE_LOGIN", True):
+        assert_owned(project, "项目")
+    root = Path(current_app.config["UPLOAD_FOLDER"])
+    if project:
+        assert_owned(project, "项目")
+        return project_data_dir(project, root) / "assets" / "legacy_tables"
+    return root / str(current_user_id()) if current_user_id() is not None else root
+
 @bp.route('/health')
 def health_check():
     """Health check endpoint."""
@@ -106,9 +121,7 @@ def upload_file():
     file_id = str(uuid.uuid4())
     ext = FileParserService.get_extension(filename)
     storage_filename = f"{file_id}{ext}"
-    upload_root = Path(current_app.config['UPLOAD_FOLDER'])
-    if current_user_id() is not None:
-        upload_root = upload_root / str(current_user_id())
+    upload_root = _upload_root()
     upload_root.mkdir(parents=True, exist_ok=True)
     storage_path = upload_root / storage_filename
     
@@ -246,9 +259,7 @@ def upload_multiple_files():
         file_id = str(uuid.uuid4())
         ext = FileParserService.get_extension(filename)
         storage_filename = f"{file_id}{ext}"
-        upload_root = Path(current_app.config['UPLOAD_FOLDER'])
-        if current_user_id() is not None:
-            upload_root = upload_root / str(current_user_id())
+        upload_root = _upload_root()
         upload_root.mkdir(parents=True, exist_ok=True)
         storage_path = upload_root / storage_filename
         
@@ -277,6 +288,7 @@ def upload_multiple_files():
                 storage_path=str(storage_path),
                 uploaded_at=datetime.utcnow(),
                 user_id=current_user_id(),
+                project=request.form.get("project") or "default",
             )
             db.session.add(file_record)
             db.session.commit()
@@ -354,6 +366,23 @@ def list_files():
     
     files = query.order_by(File.uploaded_at.desc()).all()
     
+    asset_files = []
+    if project:
+        from flask_app.models.database import Project, ProjectAsset
+        from flask_app.services.user_scope import assert_owned
+        record = db.session.get(Project, project)
+        if current_app.config.get("REQUIRE_LOGIN", True):
+            assert_owned(record, "项目")
+        if record:
+            existing = {item.id for item in files}
+            for asset in ProjectAsset.query.filter(ProjectAsset.project_id == project, ProjectAsset.asset_type.in_(["profile", "datapoint"])).all():
+                if asset.id in existing: continue
+                validation = (asset.metadata_json or {}).get("validation", {})
+                if validation.get("status") != "valid": continue
+                inputs = validation.get("summary", {}).get("inputs", [])
+                info = next((item for item in inputs if item.get("kind") == "profile"), {})
+                asset_files.append({"id": asset.id, "name": asset.original_name, "size": asset.size,
+                    "columns": info.get("columns", []), "row_count": info.get("row_count", info.get("sample_count", 0)), "project": project})
     return jsonify({
         'files': [
             {
@@ -367,8 +396,8 @@ def list_files():
                 'project': f.project or 'default'
             }
             for f in files
-        ],
-        'total': len(files)
+        ] + asset_files,
+        'total': len(files) + len(asset_files)
     })
 
 
@@ -468,7 +497,9 @@ def delete_file(file_id):
     
     # Delete file from disk
     storage_path = Path(file_record.storage_path)
-    if storage_path.exists():
+    from flask_app.models.database import ProjectAsset
+    shared_asset = db.session.get(ProjectAsset, file_id)
+    if storage_path.exists() and shared_asset is None:
         try:
             storage_path.unlink()
         except Exception as e:
