@@ -53,9 +53,9 @@ describe("独立分析工具",()=>{
  });
  it("刷新带任务地址时打开历史结果",()=>{wizard("profile","/analysis/tools/profile?project=p1&job=job-1");expect(screen.getByText("历史任务：job-1")).toBeInTheDocument();});
  it("分析中心支持搜索，并停用缺少环境的工具",async()=>{
-  render(<MemoryRouter><AnalysisCenter/></MemoryRouter>);await screen.findAllByText("打开分析");
+  render(<MemoryRouter><AnalysisCenter/></MemoryRouter>);await screen.findAllByText("准备分析");
   const unavailable=screen.getByText("克隆生成概率").closest("article")!;expect(unavailable.querySelector("a")).toBeNull();expect(unavailable).toHaveTextContent("运行环境未启用");
-  fireEvent.change(screen.getByRole("searchbox"),{target:{value:"SHM"}});expect(screen.getByRole("status")).toHaveTextContent("0 项");expect(screen.queryByRole("link",{name:"打开分析"})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("searchbox"),{target:{value:"SHM"}});expect(screen.getByRole("status")).toHaveTextContent("0 项");expect(screen.queryByRole("link",{name:"准备分析"})).not.toBeInTheDocument();
  });
  it("未登录时保留工具和任务地址，跳转登录",()=>{
   render(<MemoryRouter initialEntries={["/analysis/tools/profile?project=p1&job=job-1"]}><Routes><Route path="/analysis/tools/profile" element={<ProtectedRoute allowUnauthenticated={false}><p>内部分析</p></ProtectedRoute>}/><Route path="/login" element={<Location/>}/></Routes></MemoryRouter>);

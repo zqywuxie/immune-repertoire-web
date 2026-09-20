@@ -34,6 +34,12 @@ compose=(docker compose --env-file .env -f compose.docker.yml)
 "${compose[@]}" config --quiet
 printf '正在复用分析基础镜像构建业务代码和前端；依赖变化时请先更新基础镜像。\n'
 "${compose[@]}" build api web
+# Check immediately before replacing services; first deployments have no API.
+running_api="$("${compose[@]}" ps --status running -q api)"
+if [[ -n "$running_api" ]]; then
+  printf '正在检查活动任务；更新期间请暂停提交新分析…\n'
+  "${compose[@]}" exec -T api python - < docker/app/check_active_jobs.py
+fi
 printf '正在按 APP_UID/APP_GID 初始化应用数据目录权限…\n'
 "${compose[@]}" --profile operations run --rm --no-deps volume-init
 printf '正在启动服务并等待健康检查…\n'

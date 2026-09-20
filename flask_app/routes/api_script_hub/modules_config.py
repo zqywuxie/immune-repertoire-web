@@ -603,7 +603,7 @@ def inspect_data_selection():
         data = request.get_json() or {}
         project_id = str(data.get("project_id") or "").strip()
         asset_set = str(data.get("asset_set") or "").strip()
-        project_assets = (_collect_project_script_hub_assets(project_id, asset_set)
+        project_assets = (_collect_project_script_hub_assets(project_id, asset_set, selections=data)
                           if asset_set else _collect_project_script_hub_assets(project_id))
         if project_id:
             pep_paths = project_assets["pep_paths"]
@@ -626,7 +626,7 @@ def inspect_data_selection():
             discovery["registered_profile_paths"] = registered_profiles[:20]
         if registered_transcriptomes:
             discovery["registered_transcriptome_paths"] = registered_transcriptomes[:20]
-            discovery["transcriptome_path"] = project_assets.get("transcriptome_path") or registered_transcriptomes[0]
+            discovery["transcriptome_path"] = project_assets.get("transcriptome_path") or ""
         if invalid_profiles and not profile_path:
             discovery["warnings"].append(
                 "项目已注册 Profile 资产无效或为空，请在项目资产页删除后重新注册有效的 Profile 文件。"

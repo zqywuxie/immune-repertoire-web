@@ -70,9 +70,11 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   const fixedModule=tool?.module;
   const initialModules=fixedModule ? [fixedModule] : [];
   const [searchParams,setSearchParams] = useSearchParams();
+  const [alignmentReviewed, setAlignmentReviewed] = useState(false);
   const linkedArtifact = searchParams.get("upstream_artifact") || "";
   const linkedConfig = linkedArtifact ? {
     upstream_artifact_id: linkedArtifact,
+    ...(fixedModule === "go-kegg-enrichment" ? {input_mode: "deg"} : {}),
     ...(fixedModule === "ml-analysis" ? {mode: "vj"} : {}),
     ...(fixedModule === "mait-nkt" ? {tra_source: "pep_analysis"} : {}),
   } : {};
@@ -280,6 +282,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
         pepPaths: wizard.pepPaths,
         transcriptomePath: wizard.transcriptomePath,
         deconvolutionPath: wizard.deconvolutionPath,
+        artifactModules: Object.entries(wizard.moduleConfigs).filter(([,config]) => Boolean(config.upstream_artifact_id)).map(([key]) => key),
         chains: wizard.inspection.chainLabels,
         sampleNames: wizard.inspection.sampleNames,
         profileFields: wizard.inspection.profileFields,
@@ -292,15 +295,17 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
 
   const presetInputReady = !tool?.preset?.input_mode || (tool.preset.input_mode === "expression" ? !!wizard.transcriptomePath : wizard.pepPaths.length > 0);
 
+  const alignmentMismatch = Boolean(wizard.inspection?.inputQuality?.alignments?.some(item => item.missing_count || item.extra_count));
+  useEffect(() => { setAlignmentReviewed(false); }, [wizard.inspection]);
   /* ── Validation ── */
   const canProceed = () => {
     const s = wizard.stage;
     if (s === 1)
       return (
         wizard.projectId &&
-        (wizard.pepPaths.length > 0 || !!wizard.profilePath || !!wizard.transcriptomePath || !!wizard.deconvolutionPath)
+        (wizard.pepPaths.length > 0 || !!wizard.profilePath || !!wizard.transcriptomePath || !!wizard.deconvolutionPath || !!linkedArtifact)
       );
-    if (s === 2) return !!wizard.inspection && !wizard.inspection.inputQuality?.errors.length && presetInputReady && hasAnySelectableModule(availableModules, sourceContext);
+    if (s === 2) return (!alignmentMismatch || alignmentReviewed) && !!wizard.inspection && !wizard.inspection.inputQuality?.errors.length && presetInputReady && hasAnySelectableModule(availableModules, sourceContext);
     if (s === 3) {
       return presetInputReady && wizard.selectedModules.length > 0 && wizard.selectedModules.every((key) => {
         const selected = availableModules.find((module) => module.key === key);
@@ -315,6 +320,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   const stageGateMessage = (() => {
     if (wizard.stage !== 2 || !wizard.inspection) return "";
     if (wizard.inspection.inputQuality?.errors.length) return "请先修正上方输入问题，再重新检查数据。";
+    if (alignmentMismatch && !alignmentReviewed) return "请核对上方样本匹配情况，并确认已了解各输入的样本范围。";
     if (presetInputReady && hasAnySelectableModule(availableModules, sourceContext)) return "";
     return tool ? `当前数据尚不满足「${tool.title}」的输入要求，或运行环境未启用。所需输入：${tool.input}。` : "当前数据集尚不满足任何分析模块的输入要求，请返回补充 PEP、Profile 或转录组数据。";
   })();
@@ -378,7 +384,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
           />
         )}
 
-        {wizard.stage === 2 && (
+        {wizard.stage === 2 && (<>
           <Stage2SourceInspection
             projectId={wizard.projectId}
             assetSet={wizard.assetSetName}
@@ -390,7 +396,8 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
             inspectionError={inspectionError}
             onInspect={handleInspect}
           />
-        )}
+          {alignmentMismatch && <label style={{display:"flex",gap:10,padding:16,background:"var(--bg-inset)",borderRadius:10}}><input type="checkbox" checked={alignmentReviewed} onChange={event => setAlignmentReviewed(event.target.checked)} />我已核对样本匹配情况，了解各模块将按其要求使用对应样本；本操作不自动合并或删除样本。</label>}
+          </>)}
 
         {wizard.stage === 3 && (
           <Stage3ModuleConfig
@@ -420,6 +427,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
               profile_path: wizard.profilePath,
               transcriptome_path: wizard.transcriptomePath,
               deconvolution_path: wizard.deconvolutionPath,
+              sample_alignment_reviewed: alignmentReviewed,
             }}
             moduleConfigs={wizard.moduleConfigs}
             jobIds={wizard.jobIds}

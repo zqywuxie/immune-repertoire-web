@@ -9,6 +9,7 @@ import re
 from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
+from sqlalchemy import or_
 
 from flask_app.exceptions import ValidationError
 from flask_app.models.database import Project, SampleRecord, db
@@ -42,6 +43,7 @@ class SampleRegistryService:
         project_id: str = "",
         sample_id: str = "",
         sample_name: str = "",
+        search: str = "",
         project_name: str = "",
         institution: str = "",
         sequence_id: str = "",
@@ -57,6 +59,11 @@ class SampleRegistryService:
         if not is_admin() and current_user_id() is not None:
             query = query.filter(Project.user_id == current_user_id())
 
+        if search.strip():
+            term = search.strip()
+            query = query.filter(or_(SampleRecord.sample_id.icontains(term, autoescape=True),
+                                     SampleRecord.sample_name.icontains(term, autoescape=True),
+                                     Project.name.icontains(term, autoescape=True)))
         if project_id:
             query = query.filter(SampleRecord.project_id == project_id)
         if sample_id:
@@ -194,6 +201,7 @@ class SampleRegistryService:
     ) -> Dict[str, List[str]]:
         allowed_fields = {
             'project_name',
+            'sample_id',
             'institution',
             'spices',
             'chain_flag',
@@ -219,6 +227,7 @@ class SampleRegistryService:
 
         field_map = {
             'project_name': _project_names,
+            'sample_id': lambda: _collect(row[0] for row in base_query.with_entities(SampleRecord.sample_id).distinct().all()),
             'institution': lambda: _collect(row[0] for row in base_query.with_entities(SampleRecord.institution).distinct().all()),
             'spices': lambda: _collect(row[0] for row in base_query.with_entities(SampleRecord.spices).distinct().all()),
             'chain_flag': lambda: _collect(row[0] for row in base_query.with_entities(SampleRecord.chain_flag).distinct().all()),

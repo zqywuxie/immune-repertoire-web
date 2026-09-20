@@ -1,3 +1,5 @@
+import { ProjectDatasetSummary } from "./ProjectDatasetSummary";
+import { useAnalysisData } from "../analysis/AnalysisDataContext";
 import { FolderOpen, Plus, Upload, ChevronUp, CheckCircle2 } from "lucide-react";
 import { Select } from "../../shared/components/Select";
 import "./AnalysisProjectPanel.css";
@@ -12,17 +14,19 @@ import { AssetUpload } from "../assets/AssetUpload";
 import type { ProjectCreate, ProjectSummary } from "../../shared/types/domain";
 
 export function AnalysisProjectPanel() {
+  const {data:sharedData,setData} = useAnalysisData();
   const projects = useApi(listProjects, []);
   const [query, setQuery] = useSearchParams();
   const [creating, setCreating] = useState(false);
   const [editingData, setEditingData] = useState(false);
   const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState("");
-  const projectId = query.get("project") || "";
+  const projectId = query.get("project") || sharedData?.projectId || "";
   const items = projects.status === "ready" ? projects.data.projects : [];
   const selected = items.find(item => item.id === projectId);
   function select(id: string) {
     setEditingData(false); setMessage("");
+    setData({projectId:id,assetSetName:"",pepPaths:[],profilePath:"",transcriptomePath:"",deconvolutionPath:""});
     setQuery(previous => { const next = new URLSearchParams(previous); next.delete("asset_set"); if (id) next.set("project", id); else next.delete("project"); return next; });
   }
   async function create(data: ProjectCreate) {
@@ -46,8 +50,9 @@ export function AnalysisProjectPanel() {
       </div>}
     <div className="project-intake-summary">{selected ? <><CheckCircle2 size={15}/><span>当前分析将关联至 <strong>{selected.name}</strong></span></> : <><FolderOpen size={15}/><span>还没有项目？新建项目后即可上传数据并开始分析。</span></>}</div>
     {message && <p className="project-intake-success" role="status">{message}</p>}
-    {selected && <InputValidationStatus key={selected.id} projectId={selected.id} revision={revision}/>}
-    {editingData && selected && <AssetUpload key={selected.id} projectId={selected.id} onSuccess={() => { apiClient.invalidatePath("/api/projects"); projects.refetch(); setMessage("数据已保存，可以选择下方分析。"); setRevision(value => value + 1); }}/>} 
+    {selected && <ProjectDatasetSummary key={`dataset-${selected.id}`} projectId={selected.id} revision={revision} />}
+    {selected && <InputValidationStatus key={`validation-${selected.id}`} projectId={selected.id} revision={revision}/>}
+    {editingData && selected && <AssetUpload key={`upload-${selected.id}`} projectId={selected.id} onSuccess={() => { apiClient.invalidatePath("/api/projects"); projects.refetch(); setMessage("数据已保存，可以选择下方分析。"); setRevision(value => value + 1); }}/>}
     <ProjectForm open={creating} onClose={() => setCreating(false)} onSubmit={create}/>
   </section>;
 }

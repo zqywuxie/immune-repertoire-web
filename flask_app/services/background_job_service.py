@@ -352,6 +352,45 @@ class BackgroundJobService:
             from flask_app.services.queue_status import annotate_waiting_jobs
             return annotate_waiting_jobs(jobs[:requested_limit])
 
+    def list_jobs_page(self, *, project_id=None, user_id=None, module=None,
+                       status=None, search="", asset_set="", offset=0, limit=50,
+                       include_children=False):
+        """Filter before paging, so historical tasks remain searchable."""
+        from sqlalchemy import func, or_
+        with self._ctx():
+            query = AnalysisJob.query
+            if user_id is not None:
+                query = query.filter(AnalysisJob.user_id == user_id)
+            if project_id:
+                query = query.filter(AnalysisJob.project_id == str(project_id))
+            if not include_children:
+                parent = AnalysisJob.payload["parent_job_id"].as_string()
+                query = query.filter(or_(parent.is_(None), parent == ""),
+                    func.coalesce(AnalysisJob.payload["hidden_from_default_list"].as_boolean(), False) == False)
+            modules = sorted(value for (value,) in query.with_entities(AnalysisJob.module).distinct().all() if value)
+            if module:
+                query = query.filter(AnalysisJob.module == module)
+            if asset_set:
+                query = query.filter(AnalysisJob.payload["asset_set"].as_string() == asset_set)
+            if search.strip():
+                term = search.strip()
+                query = query.filter(or_(AnalysisJob.id.icontains(term, autoescape=True),
+                    AnalysisJob.module.icontains(term, autoescape=True),
+                    AnalysisJob.payload["_task_name"].as_string().icontains(term, autoescape=True),
+                    AnalysisJob.payload["task_name"].as_string().icontains(term, autoescape=True),
+                    AnalysisJob.payload["output_name"].as_string().icontains(term, autoescape=True)))
+            counts = dict(query.with_entities(AnalysisJob.status, func.count(AnalysisJob.id)).group_by(AnalysisJob.status).all())
+            if status:
+                statuses = [item for item in status.split(",") if item]
+                query = query.filter(AnalysisJob.status.in_(statuses))
+            total = query.count()
+            offset, limit = max(0, int(offset)), max(1, min(int(limit), 100))
+            rows = query.order_by(AnalysisJob.created_at.desc(), AnalysisJob.id.desc()).offset(offset).limit(limit).all()
+            from flask_app.services.queue_status import annotate_waiting_jobs
+            return {"jobs": annotate_waiting_jobs([row.to_dict() for row in rows]),
+                    "total": total, "offset": offset, "limit": limit,
+                    "has_more": offset + len(rows) < total, "counts": counts, "modules": modules}
+
     def delete_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
             job = db.session.get(AnalysisJob, job_id)

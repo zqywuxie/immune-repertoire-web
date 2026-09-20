@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Select } from "../../shared/components/Select";
 import { Sheet } from "../../shared/components/Sheet";
 import type { ProjectCreate } from "../../shared/types/domain";
 
@@ -48,8 +49,10 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
     }
   };
 
+  const dirty = name !== (initial?.name || "") || institution !== (initial?.institution || "") || cooperationLevel !== (initial?.cooperation_level || "") || description !== (initial?.description || "") || status !== (initial?.status || "active");
+  const requestClose = () => { if (!saving && (!dirty || window.confirm("项目内容尚未保存，确定放弃修改？"))) onClose(); };
   return (
-    <Sheet open={open} onClose={onClose} title={title}>
+    <Sheet open={open} onClose={requestClose} title={title}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
         <Field label="名称 *">
           <input
@@ -62,6 +65,7 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
           />
         </Field>
 
+        <details open={Boolean(initial)} className="project-form-details"><summary>更多项目信息（可选）</summary><div style={{display:"grid", gap:16, paddingTop:16}}>
         <Field label="所属机构">
           <input
             type="text"
@@ -73,21 +77,11 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
         </Field>
 
         <Field label="合作类型">
-          <select value={cooperationLevel} onChange={(e) => setCooperationLevel(e.target.value)} style={inputSelectStyle}>
-            <option value="">未设置</option>
-            <option value="internal">内部</option>
-            <option value="public">公开</option>
-            <option value="collaboration">合作</option>
-            <option value="restricted">受限</option>
-          </select>
+          <Select ariaLabel="合作类型" value={cooperationLevel} onChange={setCooperationLevel} disabled={saving} options={[{value:"",label:"未设置"},{value:"internal",label:"内部"},{value:"public",label:"公开"},{value:"collaboration",label:"合作"},{value:"restricted",label:"受限"}]} />
         </Field>
 
         <Field label="状态">
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputSelectStyle}>
-            <option value="active">进行中</option>
-            <option value="paused">已暂停</option>
-            <option value="archived">已归档</option>
-          </select>
+          <Select ariaLabel="项目状态" value={status} onChange={setStatus} disabled={saving} options={[{value:"active",label:"进行中"},{value:"paused",label:"已暂停"},{value:"archived",label:"已归档"}]} />
         </Field>
 
         <Field label="说明">
@@ -100,12 +94,13 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
           />
         </Field>
 
+        </div></details>
         {error && (
           <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--danger)" }}>{error}</p>
         )}
 
         <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end" }}>
-          <button type="button" onClick={onClose} disabled={saving} style={secondaryBtnStyle}>
+          <button type="button" onClick={requestClose} disabled={saving} style={secondaryBtnStyle}>
             取消
           </button>
           <button type="button" onClick={handleSave} disabled={saving || !name.trim()} style={primaryBtnStyle}>
@@ -127,7 +122,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const inputStyle: React.CSSProperties = {
-  minHeight: "38px", padding: "7px 10px", borderRadius: "var(--radius-control)",
+  minHeight: "44px", padding: "10px 12px", borderRadius: "var(--radius-control)",
   border: "1px solid var(--separator)", background: "var(--bg-elevated)",
   color: "var(--text-primary)", fontSize: "0.85rem",
 };

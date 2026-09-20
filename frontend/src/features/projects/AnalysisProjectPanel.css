@@ -19,3 +19,15 @@
 .project-intake-summary svg { color:var(--accent); flex-shrink:0; }
 .project-intake-success { padding:10px 14px; border-radius:8px; background:color-mix(in srgb,var(--success) 9%,transparent); color:var(--success); font-size:.85rem; }
 @media(max-width:600px) { .project-intake { padding:18px; } .project-intake-step { display:none; } .project-intake-heading { align-items:flex-start; } .project-intake-picker { flex-basis:100%; } .project-intake-button { flex:1 1 auto; padding-inline:12px; } }
+
+.project-dataset-summary { margin-top:20px; display:grid; gap:16px; }
+.project-dataset-selector { display:grid; grid-template-columns:150px minmax(0,1fr); align-items:center; gap:16px; font-size:.8rem; color:var(--text-secondary); }
+.project-input-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr)); gap:12px; }
+.project-input-card { min-width:0; padding:16px; border:1px solid var(--separator); border-radius:12px; background:var(--bg-root); display:grid; align-content:start; gap:10px; }
+.project-input-card h3 { margin:0 0 6px; font-size:.84rem; }
+.project-input-card span,.project-input-card small { font-size:.72rem; color:var(--text-secondary); }
+.project-input-card p { margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.8rem; }
+.project-input-card.is-invalid { border-color:var(--danger); }
+.project-input-card.is-invalid span { color:var(--danger); }
+.project-form-details summary { cursor:pointer; padding:12px 0; color:var(--text-secondary); font-size:.85rem; }
+@media(max-width:600px) { .project-dataset-selector {grid-template-columns:1fr;gap:8px;} }

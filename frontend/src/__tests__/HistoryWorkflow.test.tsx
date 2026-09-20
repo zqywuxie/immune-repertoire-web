@@ -16,13 +16,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 
 describe("analysis history", () => {
-  it("opens a result through the real job list and filters without refetching", async () => {
+  it("opens a result and sends search to the history API", async () => {
     renderHistory(<Stage6History projectId="p1" onSelectResult={vi.fn()} />);
     fireEvent.click(await screen.findByText('任务A'));
     expect(await screen.findByRole('link', { name: '打开交互报告' })).toHaveAttribute('href', '/任务A.html');
+    vi.mocked(listJobs).mockResolvedValue({success:true,jobs:[job('任务B')],total:1} as never);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '任务B' } });
-    expect(screen.getByRole('status')).toHaveTextContent('显示 1 / 2 项任务');
-    expect(listJobs).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('共 1 项任务'));
+    expect(listJobs).toHaveBeenLastCalledWith(expect.objectContaining({search:'任务B',offset:0}));
   });
   it("ignores an earlier result after another job is selected", async () => {
     let resolveOld!: (value: unknown) => void;
@@ -43,7 +44,7 @@ describe("analysis history", () => {
     await screen.findByText('任务B');
     await act(async () => { resolveOld({ success: true, jobs: [job('旧项目任务')] }); });
     expect(screen.queryByText('旧项目任务')).not.toBeInTheDocument();
-    expect(listJobs).toHaveBeenLastCalledWith({ projectId: 'p2', limit: 50 });
+    expect(listJobs).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 'p2', limit: 50, offset:0 }));
   });
   it("retries failed results and starts a new analysis from the empty history", async () => {
     const onSelect = vi.fn();

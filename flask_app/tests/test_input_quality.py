@@ -1,3 +1,4 @@
+import pytest
 from flask_app.tests.test_profile_workflow import profile_app
 from flask_app.services.input_quality import inspect_input_quality
 
@@ -54,6 +55,8 @@ def test_inspection_uses_registered_dataset_not_client_paths(profile_app, tmp_pa
         db.session.add(ProjectAsset(project_id=project.id,asset_type='profile',original_name=path.name,storage_path=str(path),size=path.stat().st_size,metadata_json={'asset_set':name}))
     db.session.commit()
     response=profile_app.test_client().post('/api/script-hub/data-selection/inspect',json={'project_id':project.id,'asset_set':'Set2','profile_path':str(tmp_path/'Set1.csv')})
+    assert response.status_code==400,response.json
+    response=profile_app.test_client().post('/api/script-hub/data-selection/inspect',json={'project_id':project.id,'asset_set':'Set2','profile_path':str(tmp_path/'Set2.csv')})
     assert response.status_code==200,response.json
     assert response.json['input_quality']['errors']==[]
     assert response.json['input_quality']['inputs'][0]['sample_count']==2
@@ -150,6 +153,9 @@ def test_table_schema_endpoint_resolves_registered_dataset(profile_app, tmp_path
     client=profile_app.test_client()
     payload={'project_id':project.id,'asset_set':'Set2','kind':'profile','profile_path':'/unregistered.csv'}
     response=client.post('/api/script-hub/data-selection/table-schema',json=payload)
+    assert response.status_code==400,response.json
+    payload['profile_path']=str(path)
+    response=client.post('/api/script-hub/data-selection/table-schema',json=payload)
     assert response.status_code==200,response.json
     assert response.json['preview_rows']==[['0007','甲']]
     payload['asset_set']='Missing'
@@ -214,3 +220,28 @@ def test_reset_mapping_preserves_files_but_invalidates_queued_input(profile_app,
     from pathlib import Path
     assert Path(prepared).exists()
     with pytest.raises(ValidationError,match='映射已改变'):revalidate_prepared_sources({'payload':lineage})
+
+
+def test_multiple_registered_profiles_require_explicit_version(profile_app, tmp_path):
+    from flask_app.models.database import Project, ProjectAsset, db
+    from flask_app.routes.api_script_hub._common import _profile_path_from_request
+    from flask_app.exceptions import ValidationError
+    project=Project(name='多个版本');db.session.add(project);db.session.flush()
+    for i in range(2):
+        path=tmp_path/f'version{i}.csv';path.write_text(f'sample,value\nS1,{i}\n')
+        db.session.add(ProjectAsset(project_id=project.id,asset_type='profile',storage_path=str(path),original_name=path.name,size=path.stat().st_size,metadata_json={'asset_set':'batch'}))
+    db.session.commit()
+    payload={'project_id':project.id,'asset_set':'batch'}
+    with pytest.raises(ValidationError,match='多份'):
+        _profile_path_from_request(payload,'profile_path')
+    payload['profile_path']=str(tmp_path/'version1.csv')
+    assert _profile_path_from_request(payload,'profile_path') == str(tmp_path/'version1.csv')
+
+
+def test_joint_inputs_without_common_samples_are_rejected(profile_app,tmp_path):
+    from flask_app.services.input_quality import validate_analysis_inputs
+    from flask_app.exceptions import ValidationError
+    profile=tmp_path/'profile.csv';profile.write_text('sample,value\nA,1\n')
+    expression=tmp_path/'expression.csv';expression.write_text('gene,B\nG1,2\n')
+    with pytest.raises(ValidationError,match='没有匹配'):
+        validate_analysis_inputs([{'asset_type':'profile','path':str(profile)},{'asset_type':'transcriptome','path':str(expression)}])

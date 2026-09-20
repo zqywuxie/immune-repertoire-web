@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, useId, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
 interface SelectOption<T = string> {
@@ -28,6 +28,13 @@ export function Select<T extends string = string>({
   style,
 }: Props<T>) {
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const menuId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const close = () => { setOpen(false); trigger.current?.focus(); };
+  useEffect(() => { if (open) optionRefs.current[active]?.focus(); }, [open, active]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const ref = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.value === value);
 
@@ -40,15 +47,29 @@ export function Select<T extends string = string>({
   }, []);
 
   return (
-    <div ref={ref} className={className} style={{ position: "relative", ...style }}>
+    <div ref={ref} className={className} style={{ position: "relative", ...style }} onBlur={event => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false);
+    }} onKeyDown={event => {
+      if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(); }
+      if (open && options.length && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        setActive(index => event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+      }
+    }}>
       <button
         type="button"
         aria-label={ariaLabel}
         aria-expanded={open}
-        aria-haspopup="true"
-        onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}
+        ref={trigger}
+        aria-haspopup="listbox"
+        aria-controls={open ? menuId : undefined}
+        onKeyDown={event => {
+          if (!open && options.length && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault(); event.stopPropagation(); setActive(Math.max(0, options.findIndex(option => option.value === value))); setOpen(true);
+          }
+        }}
         disabled={disabled}
-        onClick={() => !disabled && setOpen(!open)}
+        onClick={() => { if (!disabled) { setActive(Math.max(0, options.findIndex(option => option.value === value))); setOpen(!open); } }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -80,7 +101,7 @@ export function Select<T extends string = string>({
       </button>
 
       {open && (
-        <div
+        <div id={menuId} role="listbox" aria-label={ariaLabel || "选项"}
           style={{
             position: "absolute",
             top: "100%",
@@ -97,13 +118,17 @@ export function Select<T extends string = string>({
             animation: "fade-in 0.15s ease-out",
           }}
         >
-          {options.map((opt) => (
+          {!options.length && <p style={{padding:12, color:"var(--text-secondary)"}}>暂无可选项</p>}
+          {options.map((opt, index) => (
             <button
               key={String(opt.value)}
+              ref={node => { optionRefs.current[index] = node; }}
+              role="option" aria-selected={opt.value === value} tabIndex={active === index ? 0 : -1}
+              onFocus={() => setActive(index)}
               type="button"
               onClick={() => {
                 onChange(opt.value);
-                setOpen(false);
+                close();
               }}
               style={{
                 display: "block",

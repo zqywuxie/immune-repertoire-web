@@ -68,7 +68,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
                 : "var(--text-secondary)",
           }}
         >
-          {project.status}
+          {({ active: "进行中", paused: "已暂停", archived: "已归档" } as Record<string, string>)[project.status] || "未设置"}
         </span>
       </div>
 

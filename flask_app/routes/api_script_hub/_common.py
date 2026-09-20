@@ -458,7 +458,7 @@ def _is_project_transcriptome_asset(asset: Any) -> bool:
     return asset_type == "transcriptome"
 
 
-def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Optional[str] = None) -> Dict[str, Any]:
+def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Optional[str] = None, selections: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not str(project_id or "").strip():
         return {
             "pep_paths": [],
@@ -492,6 +492,7 @@ def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Opt
     profile_paths: List[str] = []
     transcriptome_paths: List[str] = []
     deconvolution_paths: List[str] = []
+    aliases = {}
     for asset in assets:
         if asset_set:
             metadata = getattr(asset, "metadata_json", None) or {}
@@ -506,6 +507,7 @@ def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Opt
         )
         if not storage_path:
             continue
+        aliases[str(Path(asset.storage_path).resolve())] = storage_path
         asset_type = str(getattr(asset, "asset_type", "") or "").strip().lower()
         if asset_type == "pep":
             pep_paths.append(storage_path)
@@ -521,16 +523,35 @@ def _collect_project_script_hub_assets(project_id: Optional[str], asset_set: Opt
     readable_transcriptomes = [path for path in transcriptome_paths if _is_readable_table_asset(path)]
     invalid_transcriptomes = [path for path in transcriptome_paths if path not in readable_transcriptomes]
     readable_deconvolutions = [path for path in deconvolution_paths if _is_readable_table_asset(path)]
+    def selected_path(kind, paths):
+        choices = list(dict.fromkeys(paths))
+        requested = str((selections or {}).get(kind + "_path") or "").strip()
+        if requested:
+            canonical = aliases.get(str(Path(requested).resolve()), str(Path(requested).resolve()))
+            matches = [path for path in choices if str(Path(path).resolve()) == str(Path(canonical).resolve())]
+            if not matches:
+                raise ValidationError(message="所选输入不属于当前项目的数据集，请重新选择文件。", details={"field": kind + "_path"})
+            return matches[0]
+        return choices[0] if len(choices) == 1 else ""
+
+    if (selections or {}).get("pep_paths"):
+        requested_pep = selections["pep_paths"]
+        if not isinstance(requested_pep, list):
+            raise ValidationError(message="克隆序列表选择格式不正确。")
+        resolved = [aliases.get(str(Path(str(value)).resolve()), str(Path(str(value)).resolve())) for value in requested_pep]
+        if any(str(Path(value).resolve()) not in {str(Path(path).resolve()) for path in pep_paths} for value in resolved):
+            raise ValidationError(message="所选克隆序列表不属于当前数据集。")
+        pep_paths = list(dict.fromkeys(resolved))
     return {
         "deconvolution_paths": list(dict.fromkeys(deconvolution_paths)),
-        "deconvolution_path": (readable_deconvolutions or [""])[0],
+        "deconvolution_path": selected_path("deconvolution", readable_deconvolutions),
         "invalid_deconvolution_paths": [path for path in deconvolution_paths if path not in readable_deconvolutions],
         "pep_paths": list(dict.fromkeys(pep_paths)),
         "profile_paths": list(dict.fromkeys(profile_paths)),
-        "profile_path": (readable_profiles or [""])[0],
+        "profile_path": selected_path("profile", readable_profiles),
         "invalid_profile_paths": invalid_profiles,
         "transcriptome_paths": list(dict.fromkeys(transcriptome_paths)),
-        "transcriptome_path": (readable_transcriptomes or [""])[0],
+        "transcriptome_path": selected_path("transcriptome", readable_transcriptomes),
         "invalid_transcriptome_paths": invalid_transcriptomes,
     }
 
@@ -802,13 +823,7 @@ def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict
     project_id = str(data.get("project_id") or "").strip()
     if project_id:
         asset_set = str(data.get("asset_set") or "").strip()
-        project_assets = (_collect_project_script_hub_assets(project_id, asset_set)
-                          if asset_set else _collect_project_script_hub_assets(project_id))
-        profile_paths = project_assets.get("profile_paths") or []
-        return {
-            **project_assets,
-            "profile_path": project_assets.get("profile_path") or (profile_paths[0] if profile_paths else ""),
-        }
+        return _collect_project_script_hub_assets(project_id, asset_set or None, selections=data)
 
     raw_paths = data.get("pep_paths") if isinstance(data.get("pep_paths"), list) else []
     pep_paths = [str(item).strip() for item in raw_paths if str(item or "").strip()]
@@ -834,14 +849,22 @@ def _request_registered_assets(data: Dict[str, Any], *profile_keys: str) -> Dict
 
 
 def _profile_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
-    value = _request_registered_assets(data, *keys)["profile_path"] or ""
+    assets = _request_registered_assets(data, *keys)
+    value = assets["profile_path"] or ""
+    if not value and assets.get("invalid_profile_paths") and not (set(assets.get("profile_paths", [])) - set(assets["invalid_profile_paths"])):
+        raise ValidationError(message="样本指标表为空或没有可读取的列，请重新上传有效文件。")
+    if not value and len(assets.get("profile_paths", [])) > 1:
+        raise ValidationError(message="当前数据集有多份样本指标表，请明确选择本次使用的文件。")
     return str(PathAccessService.validate_read_path(value)) if value else None
 
 
 def _transcriptome_path_from_request(data: Dict[str, Any], *keys: str) -> Optional[str]:
     project_id = str(data.get("project_id") or "").strip()
     if project_id:
-        value = _request_registered_assets(data).get("transcriptome_path") or ""
+        assets = _request_registered_assets(data)
+        value = assets.get("transcriptome_path") or ""
+        if not value and len(assets.get("transcriptome_paths", [])) > 1:
+            raise ValidationError(message="当前数据集有多份转录组表，请明确选择本次使用的文件。")
         # A project request must not silently use another dataset or client path.
         return str(PathAccessService.validate_read_path(value)) if value else None
     for key in keys:
@@ -1050,13 +1073,17 @@ def _build_script_cache_context(
     config_json: Dict[str, Any],
 ) -> Dict[str, Any]:
     from flask_app.services.input_quality import validate_analysis_inputs
-    validate_analysis_inputs(input_paths)
+    input_quality = validate_analysis_inputs(input_paths)
     project_id = str(project_id or "").strip()
     if not project_id:
         return {"project_id": "", "analysis_signature": "", "input_assets": input_paths, "config_json": config_json}
     from flask import has_request_context
     from flask_app.services.analysis_artifacts import capture_input_lineage
     data = (request.get_json(silent=True) or {}) if has_request_context() else {}
+    if input_quality.get('alignments'):
+        config_json = {**config_json, 'input_alignment': {
+            'reference': input_quality['reference_kind'], 'alignments': input_quality['alignments'],
+            'reviewed': data.get('sample_alignment_reviewed') is True}}
     lineage = capture_input_lineage(project_id, input_paths, str(data.get('asset_set') or ''))
     input_assets = []
     for item in input_paths:

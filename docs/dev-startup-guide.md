@@ -5,9 +5,9 @@
 ## 配置与部署分开执行
 
 ```bash
-bash init-env.sh  # 只生成 .env，已有配置不覆盖
+bash init-env.sh  # 拉取远端代码，然后初始化 .env；已有配置不覆盖
 nano .env         # 修改 APP_DATA_DIR、HTTP_PORT、APP_UID、APP_GID
-bash deploy.sh    # 拉取代码，再读取配置构建部署
+bash deploy.sh    # 读取已编辑的配置，构建并部署当前代码，不拉取 Git
 ```
 
 `deploy.sh` 不生成、迁移或修改 `.env`。没有配置时会退出并提示初始化。

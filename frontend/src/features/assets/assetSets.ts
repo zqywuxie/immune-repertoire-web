@@ -69,6 +69,12 @@ export function buildAssetSets(assets: ProjectAsset[]): AssetSet[] {
     }
   }
 
+  for (const group of groups.values()) {
+    for (const [key, types] of [["profilePath", ["profile", "datapoint"]], ["transcriptomePath", ["transcriptome", "expression"]], ["deconvolutionPath", ["deconvolution", "cibersort"]]] as const) {
+      const paths = new Set(group.assets.filter(asset => (types as readonly string[]).includes(asset.asset_type)).map(assetPath));
+      if (paths.size > 1) group[key] = "";
+    }
+  }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 

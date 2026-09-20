@@ -12,8 +12,8 @@ it('loads server settings, reports a failed save, and retries the real endpoint'
   const save=vi.spyOn(apiClient,'post').mockRejectedValueOnce(new Error('保存服务不可用')).mockResolvedValue({success:true,config:{default_figure_size:[6,4],default_font_size:12,default_dpi:300}});
   render(<MemoryRouter initialEntries={['/analysis/settings']}><Settings/></MemoryRouter>);
   const dpi=await screen.findByLabelText('导出分辨率（DPI）');
-  await vi.waitFor(()=>expect(dpi).toHaveValue('150'));
-  fireEvent.change(dpi,{target:{value:'300'}});
+  await vi.waitFor(()=>expect(dpi).toHaveTextContent('150'));
+  fireEvent.click(dpi); fireEvent.click(screen.getByRole('option',{name:/300/}));
   fireEvent.click(screen.getByRole('button',{name:'保存设置'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('保存服务不可用');
   expect(screen.queryByText('设置已保存到当前账户')).not.toBeInTheDocument();

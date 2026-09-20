@@ -5,6 +5,7 @@ import {
   listSamples,
   updateSample,
   exportSamplesUrl,
+  getSampleFieldOptions,
 } from "../../shared/api/samples";
 import type { SampleRecord, SampleUpdatePayload, ListSamplesParams } from "../../shared/api/samples";
 import { PageHeader } from "../../shared/components/PageHeader";
@@ -19,22 +20,15 @@ export function SampleRegistry() {
   const [editSample, setEditSample] = useState<SampleRecord | null>(null);
   const [searchText, setSearchText] = useState("");
 
-  const samples = useApi(() => listSamples(filters), [filters]);
+  const samples = useApi(() => listSamples({ ...filters, q: searchText }), [filters, searchText]);
+  const options = useApi(() => getSampleFieldOptions("", ""), []);
+  const fieldOptions = options.status === "ready" ? options.data.fields : {};
 
   const sampleList = samples.status === "ready" ? samples.data.samples : [];
   const loading = samples.status === "loading";
   const error = samples.status === "error" ? samples.error : null;
 
-  const filteredSamples = searchText
-    ? sampleList.filter((s) => {
-        const q = searchText.toLowerCase();
-        return (
-          (s.sample_id || "").toLowerCase().includes(q) ||
-          (s.sample_name || "").toLowerCase().includes(q) ||
-          (s.project_name || "").toLowerCase().includes(q)
-        );
-      })
-    : sampleList;
+  const filteredSamples = sampleList;
 
   const handleFilterChange = (key: keyof ListSamplesParams, value: string) => {
     setFilters((prev) => {
@@ -54,7 +48,7 @@ export function SampleRegistry() {
   };
 
   const handleExport = () => {
-    window.open(exportSamplesUrl(filters), "_blank");
+    window.open(exportSamplesUrl({ ...filters, q: searchText }), "_blank");
   };
 
   const handleSaveSample = useCallback(
@@ -103,6 +97,7 @@ export function SampleRegistry() {
 
       {/* Filter toolbar */}
       <FilterToolbar
+        fieldOptions={fieldOptions}
         filters={filters}
         searchText={searchText}
         onFilterChange={handleFilterChange}
@@ -135,6 +130,7 @@ export function SampleRegistry() {
 /* ── Filter Toolbar ─────────────────────────────────────────────────── */
 
 function FilterToolbar({
+  fieldOptions,
   filters,
   searchText,
   onFilterChange,
@@ -142,6 +138,7 @@ function FilterToolbar({
   onClear,
   hasActiveFilters,
 }: {
+  fieldOptions: Record<string, string[]>;
   filters: ListSamplesParams;
   searchText: string;
   onFilterChange: (key: keyof ListSamplesParams, value: string) => void;
@@ -203,6 +200,7 @@ function FilterToolbar({
           onChange={(v) => onFilterChange("project_name", v)}
         >
           <option value="">全部项目</option>
+          {(fieldOptions.project_name || []).map(value => <option key={value} value={value}>{value}</option>)}
         </FilterSelect>
 
         <FilterSelect
@@ -211,6 +209,7 @@ function FilterToolbar({
           onChange={(v) => onFilterChange("sample_id", v)}
         >
           <option value="">全部编号</option>
+          {(fieldOptions.sample_id || []).map(value => <option key={value} value={value}>{value}</option>)}
         </FilterSelect>
 
         <FilterSelect
@@ -235,7 +234,7 @@ function FilterToolbar({
         >
           <option value="">全选</option>
           <option value="yes">健康</option>
-          <option value="no">服务异常</option>
+          <option value="no">非健康</option>
         </FilterSelect>
 
         <FilterSelect
@@ -707,7 +706,7 @@ function SampleEditSheet({
           <select value={isHealthy} onChange={(e) => setIsHealthy(e.target.value)} style={editSelectStyle}>
             <option value="">未设置</option>
             <option value="yes">健康</option>
-            <option value="no">服务异常</option>
+            <option value="no">非健康</option>
           </select>
         </Field>
 

@@ -26,7 +26,7 @@ export interface SampleListResponse {
 }
 
 export interface SampleFieldOptionsResponse {
-  fields: Array<{ value: string; label?: string }>;
+  fields: Record<string, string[]>;
 }
 
 export interface SampleUpdatePayload {
@@ -44,6 +44,7 @@ export interface SampleUpdatePayload {
 }
 
 export interface ListSamplesParams {
+  q?: string;
   project_id?: string;
   sample_id?: string;
   sample_name?: string;

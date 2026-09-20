@@ -1,3 +1,5 @@
+import { Select } from "../../shared/components/Select";
+import { analysisLabel } from "../../shared/utils/analysisLabels";
 import { useSearchParams } from "react-router-dom";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
@@ -26,13 +28,30 @@ export function JobMonitor() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedRef = useRef<string | null>(null);
   const resultVersion = useRef(0);
+  const pendingResults = useRef(new Map<string, Promise<JobResultsResponse>>());
   const [readError, setReadError] = useState("");
   useEffect(() => () => { selectedRef.current = null; resultVersion.current += 1; }, []);
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterModule, setFilterModule] = useState("");
-  const [filterProjectId, setFilterProjectId] = useState("");
-  const [filterAssetSet, setFilterAssetSet] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  const filterStatus = searchParams.get("status") || "";
+  const filterModule = searchParams.get("module") || "";
+  const filterProjectId = searchParams.get("project") || "";
+  const filterAssetSet = searchParams.get("asset_set") || "";
+  const searchTerm = searchParams.get("q") || "";
+  const offset = Math.max(0, Number(searchParams.get("offset")) || 0);
+  const updateFilter = (key: string, value: string) => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (value) next.set(key, value); else next.delete(key);
+    next.delete("offset");
+    if (key === "project") next.delete("asset_set");
+    return next;
+  }, { replace: true });
+  const setFilterStatus = (value: string) => updateFilter("status", value);
+  const setFilterModule = (value: string) => updateFilter("module", value);
+  const setFilterProjectId = (value: string) => updateFilter("project", value);
+  const setFilterAssetSet = (value: string) => updateFilter("asset_set", value);
+  const setSearchTerm = (value: string) => updateFilter("q", value);
+  const changePage = (value: number) => setSearchParams(previous => {
+    const next = new URLSearchParams(previous); next.set("offset", String(value)); return next;
+  });
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
@@ -56,9 +75,9 @@ export function JobMonitor() {
   const jobsState = usePolling(
     () => {
       void refreshTick;
-      return listJobs({ projectId: filterProjectId || undefined, limit: 100 });
+      return listJobs({ projectId: filterProjectId || undefined, status: filterStatus, module: filterModule, assetSet: filterAssetSet, search: searchTerm, offset, limit: 50 });
     },
-    autoRefresh ? 3000 : null, [filterProjectId, refreshTick]
+    autoRefresh ? 3000 : null, [filterProjectId, filterStatus, filterModule, filterAssetSet, searchTerm, offset, refreshTick]
   );
   const jobs = jobsState.data?.jobs || [];
   const jobsLoading = jobsState.loading;
@@ -78,7 +97,6 @@ export function JobMonitor() {
 
   const [assetSets, setAssetSets] = useState<string[]>([]);
   useEffect(() => {
-    setFilterAssetSet("");
     if (!filterProjectId) {
       setAssetSets([]);
       return;
@@ -88,25 +106,9 @@ export function JobMonitor() {
       .catch(() => setAssetSets([]));
   }, [filterProjectId]);
 
-  // Filter jobs
-  const filteredJobs = useMemo(() => {
-    return jobs.filter((j) => {
-      const statusMatch = !filterStatus || j.status === filterStatus;
-      const moduleMatch = !filterModule || (j.module || "").toLowerCase().includes(filterModule.toLowerCase());
-      const setMatch = !filterAssetSet || String((j.payload || {}).asset_set || "").toLowerCase() === filterAssetSet.toLowerCase();
-      const searchMatch = !searchTerm || (j.job_id || j.id || "").toLowerCase().includes(searchTerm.toLowerCase());
-      return statusMatch && moduleMatch && setMatch && searchMatch;
-    });
-  }, [jobs, filterStatus, filterModule, filterAssetSet, searchTerm]);
-
-  // Stats
-  const stats = useMemo(() => {
-    const counts = { running: 0, completed: 0, failed: 0, cancelled: 0 };
-    for (const j of jobs) {
-      if (j.status in counts) counts[j.status as keyof typeof counts]++;
-    }
-    return counts;
-  }, [jobs]);
+  const filteredJobs = jobs;
+  const stats = { running: 0, completed: 0, failed: 0, cancelled: 0, ...jobsState.data?.counts };
+  const moduleOptions = [...new Map([...modules, ...(jobsState.data?.modules || []).map(key => ({key, label: analysisLabel(key)}))].map(item => [item.key, item])).values()];
 
   const selectedJobs = useMemo(
     () => filteredJobs.filter((job) => selectedJobIds.has(job.job_id || job.id)),
@@ -123,10 +125,18 @@ export function JobMonitor() {
     setReadError("");
     setDetailState((current) => ({ result: current.result, loading: true }));
     try {
-      const data = await getJobResults(jobId);
+      let request = pendingResults.current.get(jobId);
+      if (!request) {
+        request = getJobResults(jobId);
+        pendingResults.current.set(jobId, request);
+      }
+      let data: JobResultsResponse;
+      try { data = await request; }
+      finally { if (pendingResults.current.get(jobId) === request) pendingResults.current.delete(jobId); }
       if (selectedRef.current !== jobId || version !== resultVersion.current) return;
       setDetailState({ result: data, loading: false });
       setJobDetailState({ job: data.job, loading: false });
+      lastResultFetchKeyRef.current = `${jobId}:${data.job.status}:${data.job.updated_at || data.job.completed_at || data.job.progress}`;
     } catch (reason) {
       if (selectedRef.current !== jobId || version !== resultVersion.current) return;
       setReadError(reason instanceof Error ? reason.message : "结果读取失败");
@@ -139,7 +149,7 @@ export function JobMonitor() {
     selectedRef.current = jobId;
     resultVersion.current += 1;
     setReadError("");
-    setSearchParams({ job: jobId }, { replace: true });
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("job", jobId); return next; }, { replace: true });
     setSelectedJobId(jobId);
     lastResultFetchKeyRef.current = "";
     setJobDetailState({ job: null, loading: true });
@@ -204,7 +214,7 @@ export function JobMonitor() {
     if (selectedJobId && deletedIds.includes(selectedJobId)) {
       selectedRef.current = null;
       resultVersion.current += 1;
-      setSearchParams({}, { replace: true });
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("job"); return next; }, { replace: true });
       setSelectedJobId(null);
       setJobDetailState({ job: null, loading: false });
       setDetailState({ result: null, loading: false });
@@ -240,7 +250,7 @@ export function JobMonitor() {
     const skipped = selectedJobs.length - terminalSelectedJobs.length;
     const suffix = deleteResults ? " 及关联结果文件" : "";
     const message = [
-      `Delete ${terminalSelectedJobs.length} 个已选任务${suffix}?`,
+      `删除 ${terminalSelectedJobs.length} 个已选任务${suffix}?`,
       skipped > 0 ? `${skipped} 个运行中或等待中的任务将被跳过。` : "",
     ].filter(Boolean).join("\n");
     if (!confirm(message)) return;
@@ -251,7 +261,7 @@ export function JobMonitor() {
       const deletedIds = response.results.filter((item) => item.success).map((item) => item.job_id);
       clearDeletedState(deletedIds);
       const failed = response.results.length - deletedIds.length;
-      addToast(failed ? `Deleted ${deletedIds.length}; ${failed} failed.` : `Deleted ${deletedIds.length} job(s).`, failed ? "warning" : "success");
+      addToast(failed ? `已删除 ${deletedIds.length} 项，${failed} 项失败。` : `已删除 ${deletedIds.length} 项任务。`, failed ? "warning" : "success");
     } catch (err) {
       addToast(err instanceof Error ? err.message : "删除所选任务失败。", "error");
     } finally {
@@ -261,7 +271,7 @@ export function JobMonitor() {
 
   // Refresh detail when live job event arrives
   useEffect(() => {
-    if (!selectedJobId || !liveJob.event) return;
+    if (!selectedJobId || !liveJob.event || (liveJob.event.job.job_id || liveJob.event.job.id) !== selectedJobId) return;
     const event = liveJob.event;
     setJobDetailState((prev) => {
       if (!prev.job) return prev;
@@ -271,7 +281,9 @@ export function JobMonitor() {
       return { job: event.job, loading: false };
     });
     if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
-      lastResultFetchKeyRef.current = `${selectedJobId}:${event.status}:${event.job.updated_at || event.job.completed_at || ""}`;
+      const key = `${selectedJobId}:${event.status}:${event.job.updated_at || event.job.completed_at || event.job.progress}`;
+      if (lastResultFetchKeyRef.current === key) return;
+      lastResultFetchKeyRef.current = key;
       void fetchJobResults(selectedJobId);
       return;
     }
@@ -356,62 +368,23 @@ export function JobMonitor() {
           <Filter size={16} style={{ color: "var(--text-tertiary)" }} />
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
             项目：
-            <select
-              value={filterProjectId}
-              onChange={(e) => setFilterProjectId(e.target.value)}
-              style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem", minWidth: "150px" }}
-            >
-              <option value="">全部</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <Select ariaLabel="筛选项目" value={filterProjectId} onChange={setFilterProjectId} style={{minWidth:150}} options={[{value:"",label:"全部"},...projects.map(p=>({value:p.id,label:p.name}))]} />
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
             数据集：
-            <select
-              value={filterAssetSet}
-              onChange={(e) => setFilterAssetSet(e.target.value)}
-              disabled={!filterProjectId}
-              style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem", minWidth: "120px" }}
-            >
-              <option value="">全部</option>
-              {assetSets.map((set) => (
-                <option key={set} value={set}>{set}</option>
-              ))}
-            </select>
+            <Select ariaLabel="筛选数据集" value={filterAssetSet} onChange={setFilterAssetSet} disabled={!filterProjectId} style={{minWidth:120}} options={[{value:"",label:"全部"},...assetSets.map(value=>({value,label:value}))]} />
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
             状态：
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem" }}
-            >
-              <option value="">全部</option>
-              <option value="queued">等待中</option>
-              <option value="running">运行中</option>
-              <option value="completed">已完成</option>
-              <option value="failed">失败</option>
-              <option value="cancelled">已取消</option>
-            </select>
+            <Select ariaLabel="筛选状态" value={filterStatus} onChange={setFilterStatus} style={{minWidth:110}} options={[{value:"",label:"全部"},{value:"queued",label:"等待中"},{value:"running",label:"运行中"},{value:"completed",label:"已完成"},{value:"failed",label:"失败"},{value:"cancelled",label:"已取消"},{value:"interrupted",label:"已中断"}]} />
           </label>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
             模块：
-            <select
-              value={filterModule}
-              onChange={(e) => setFilterModule(e.target.value)}
-              style={{ ...selectStyle, minHeight: "32px", fontSize: "0.8rem" }}
-            >
-              <option value="">全部</option>
-              {modules.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
+            <Select ariaLabel="筛选模块" value={filterModule} onChange={setFilterModule} style={{minWidth:150}} options={[{value:"",label:"全部"},...moduleOptions.map(m=>({value:m.key,label:m.label}))]} />
           </label>
           <div style={{ flex: 1, minWidth: "200px" }}>
             <SearchBar
-              placeholder="搜索任务编号…"
+              placeholder="搜索任务名称或编号…"
               value={searchTerm}
               onChange={setSearchTerm}
               onClear={() => setSearchTerm("")}
@@ -419,11 +392,7 @@ export function JobMonitor() {
           </div>
           <button
             onClick={() => {
-              setFilterStatus("");
-              setFilterModule("");
-              setFilterProjectId("");
-              setFilterAssetSet("");
-              setSearchTerm("");
+              setSearchParams(selectedJobId ? {job: selectedJobId} : {});
               setSelectedJobIds(new Set());
             }}
             style={{
@@ -441,6 +410,11 @@ export function JobMonitor() {
         </div>
       </Card>
 
+      <nav aria-label="任务分页" style={{display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
+        <span role="status">共 {jobsState.data?.total ?? jobs.length} 项任务 · 第 {Math.floor(offset / 50) + 1} 页</span>
+        <button className="btn btn-secondary" disabled={offset === 0 || jobsLoading} onClick={() => changePage(Math.max(0, offset - 50))}>上一页</button>
+        <button className="btn btn-secondary" disabled={!jobsState.data?.has_more || jobsLoading} onClick={() => changePage(offset + 50)}>下一页</button>
+      </nav>
       {/* Two-panel layout */}
       <div
         style={{
@@ -577,10 +551,14 @@ export function JobMonitor() {
               {jobDetailState.job && (
                 <JobDetailPanel
                   job={jobDetailState.job}
+                  result={detailState.result}
+                  resultLoading={detailState.loading}
+                  resultError={readError}
+                  onRetry={() => selectedJobId && void fetchJobResults(selectedJobId)}
                   loading={jobDetailState.loading}
                   onClose={() => {
                     selectedRef.current = null;
-            setSearchParams({}, { replace: true });
+            setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("job"); return next; }, { replace: true });
             setSelectedJobId(null);
                     setJobDetailState({ job: null, loading: false });
                     setDetailState({ result: null, loading: false });
@@ -602,13 +580,6 @@ const labelStyle: React.CSSProperties = {
   color: "var(--text-secondary)",
 };
 
-const selectStyle: React.CSSProperties = {
-  padding: "5px 8px",
-  borderRadius: "var(--radius-control)",
-  border: "1px solid var(--separator)",
-  background: "var(--bg-elevated)",
-  color: "var(--text-primary)",
-};
 
 const smallButtonStyle: React.CSSProperties = {
   padding: "6px 12px",

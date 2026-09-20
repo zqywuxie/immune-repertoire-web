@@ -71,6 +71,7 @@ export type ScriptHubSourceContext = {
   pepPaths?: string[];
   transcriptomePath?: string;
   deconvolutionPath?: string;
+  artifactModules?: string[];
   sampleNames: string[];
   chains: string[];
   profileFields: string[];

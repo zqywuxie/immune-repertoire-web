@@ -28,6 +28,7 @@ def test_existing_data_becomes_writable_without_touching_link_targets(tmp_path, 
     original=(outside/'preserved').stat()
     monkeypatch.setattr(permissions,'ROOTS',(root,))
     assert permissions.initialize_volumes()==2
+    assert permissions.initialize_volumes()==0
     assert file.read_text()=='sample,value\n001,2\n'
     assert file.stat().st_uid==uid
     assert (outside/'preserved').stat().st_uid==original.st_uid

@@ -7,6 +7,7 @@ export type SourceAvailabilityContext = {
   profilePath?: string;
   transcriptomePath?: string;
   deconvolutionPath?: string;
+  artifactModules?: string[];
 };
 
 type RequirementRule = {
@@ -59,6 +60,7 @@ export function getModuleAvailability(
     return { selectable: false, reason: module.unavailable_reason || "此模块当前不可用。", missing: [] as RequiredAsset[] };
   }
 
+  if (sourceContext?.artifactModules?.includes(module.key)) return {selectable:true,reason:"",missing:[] as RequiredAsset[]};
   const rule = MODULE_REQUIREMENTS[module.key];
   if (!rule) {
     return { selectable: true, reason: "", missing: [] as RequiredAsset[] };

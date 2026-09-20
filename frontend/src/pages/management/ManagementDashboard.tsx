@@ -27,7 +27,7 @@ export function ManagementDashboard() {
   const stats = {
     projects: projectList.length,
     results: projectList.reduce((sum, p) => sum + Number(p.result_count || 0), 0),
-    activeJobs: jobList.filter((j) => j.status === "running" || j.status === "queued").length,
+    activeJobs: jobs.status === "ready" ? (jobs.data.counts?.running || 0) + (jobs.data.counts?.queued || 0) : 0,
   };
 
   const quickActions = [
@@ -86,7 +86,7 @@ export function ManagementDashboard() {
           <>
             <MetricCard icon={Boxes} label="项目数" value={stats.projects} color="var(--accent)" />
             <MetricCard icon={FlaskConical} label="结果数" value={stats.results} color="var(--success)" />
-            <MetricCard icon={Activity} label="进行中的任务" value={stats.activeJobs} color="var(--warning)" />
+            {loadingJobs ? <Skeleton height="100px" /> : jobsError ? <Card>任务统计暂时无法读取</Card> : <MetricCard icon={Activity} label="进行中的任务" value={stats.activeJobs} color="var(--warning)" />}
           </>
         )}
       </div>

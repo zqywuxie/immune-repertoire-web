@@ -848,16 +848,18 @@ def list_jobs():
     try:
         service = get_background_job_service()
         include_children = _truthy(request.args.get("include_children"))
-        jobs = service.list_jobs(
+        page = service.list_jobs_page(
             module=request.args.get("module") or None,
             project_id=request.args.get("project_id") or None,
             status=request.args.get("status") or None,
             user_id=current_user_id(),
-            include_admin_scope=False,
             include_children=include_children,
-            limit=request.args.get("limit", default=100, type=int) or 100,
+            search=request.args.get("q", ""),
+            asset_set=request.args.get("asset_set", ""),
+            offset=request.args.get("offset", default=0, type=int) or 0,
+            limit=request.args.get("limit", default=50, type=int) or 50,
         )
-        return jsonify({"success": True, "jobs": jobs})
+        return jsonify({"success": True, **page})
     except Exception as exc:
         current_app.logger.error("Failed to list background jobs: %s", exc, exc_info=True)
         return _json_error(

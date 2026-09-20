@@ -1,3 +1,4 @@
+import { apiClient } from "../shared/api/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ContinueAnalysis } from "../features/results/ContinueAnalysis";
@@ -38,4 +39,14 @@ describe("结果继续分析", () => {
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
+});
+
+it("差异结果只能使用本任务可用产物进入富集", async () => {
+  const get=vi.spyOn(apiClient,"get").mockResolvedValue({candidates:[{id:"deg-source:deg",job_id:"deg-source",status:"available"},{id:"other:deg",job_id:"other",status:"available"}]});
+  render(<ContinueAnalysis result={{...result,job:{...result.job,id:"deg-source",module:"volcano"}}}/>);
+  const link=await screen.findByRole("link",{name:"GO / KEGG 富集"});
+  const url=new URL(link.getAttribute("href")!,"http://localhost");
+  expect(url.searchParams.get("upstream_artifact")).toBe("deg-source:deg");
+  expect(url.searchParams.get("asset_set")).toBe("第二批");
+  get.mockRestore();
 });

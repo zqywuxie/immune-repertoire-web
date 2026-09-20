@@ -1097,7 +1097,7 @@ def test_project_profile_asset_rejects_only_empty_registered_file(api_module, tm
     assert summary_payload["warnings"]
     assert response.status_code == 400
     assert payload["success"] is False
-    assert "empty or has no columns" in payload["message"]
+    assert "为空或没有可读取的列" in payload["message"]
 
 
 def test_project_transcriptome_asset_drives_go_kegg_and_deg_inspect(api_module, tmp_path):
@@ -1680,7 +1680,7 @@ def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
     app.register_blueprint(api_jobs.jobs_bp)
 
     class BrokenJobService:
-        def list_jobs(self, **kwargs):
+        def list_jobs_page(self, **kwargs):
             raise RuntimeError("analysis_jobs table missing")
 
     monkeypatch.setattr(api_jobs, "get_background_job_service", lambda: BrokenJobService())

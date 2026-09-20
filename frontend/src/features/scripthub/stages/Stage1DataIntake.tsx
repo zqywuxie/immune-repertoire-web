@@ -228,7 +228,7 @@ export function Stage1DataIntake({
               }}>
                 {showBrowser ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <FolderTree size={14} />
-                {showBrowser ? "Hide" : "浏览全部文件"} （手动指定）
+                {showBrowser ? "收起文件浏览" : "浏览全部文件"} （手动指定）
               </button>
               {showBrowser && (
                 <div style={{ marginTop: "var(--spacing-sm)", border: "1px solid var(--separator)", borderRadius: "var(--radius-control)", maxHeight: "300px", overflow: "auto" }}>
@@ -251,6 +251,16 @@ export function Stage1DataIntake({
         </section>
       )}
 
+      {selectedSetName && <section aria-label="选择输入版本" style={{display:"grid",gap:16}}>
+        {([{key:"profilePath",title:"样本指标表",types:["profile","datapoint"],value:profilePath},
+           {key:"transcriptomePath",title:"转录组",types:["transcriptome","expression"],value:transcriptomePath},
+           {key:"deconvolutionPath",title:"免疫细胞浸润",types:["deconvolution","cibersort"],value:deconvolutionPath}] as const).map(field => {
+          const candidates = (dataSets.find(set => set.name === selectedSetName)?.assets || []).filter(asset => (field.types as readonly string[]).includes(asset.asset_type));
+          if (candidates.length < 2) return null;
+          return <div key={field.key}><p>{field.title}有多份文件，请选择本次分析版本。</p><Select ariaLabel={`${field.title}版本`} value={field.value} options={candidates.map(asset => ({value:assetPath(asset), label:`${asset.original_name} · ${asset.uploaded_at?.replace("T"," ").slice(0,16) || asset.id}`}))}
+            onChange={value => onUpdate({projectId:selectedProjectId, assetSetName:selectedSetName, pepPaths, profilePath, transcriptomePath, deconvolutionPath, [field.key]:value})} /></div>;
+        })}
+      </section>}
       {/* Baskets */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: "var(--spacing-lg)" }}>
         {/* PEP */}
@@ -344,7 +354,7 @@ export function Stage1DataIntake({
 
       {/* Confirm */}
       <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "var(--spacing-md)", borderTop: "1px solid var(--separator)" }}>
-        <button onClick={() => onUpdate({ projectId: selectedProjectId, assetSetName: selectedSetName, pepPaths, profilePath, transcriptomePath, deconvolutionPath })} style={{
+        <button disabled={!selectedAny} onClick={() => onUpdate({ projectId: selectedProjectId, assetSetName: selectedSetName, pepPaths, profilePath, transcriptomePath, deconvolutionPath })} style={{
           display: "inline-flex", alignItems: "center", gap: "var(--spacing-sm)", padding: "10px 24px",
           borderRadius: "var(--radius-control)", border: "none", fontWeight: 500, fontSize: "0.9rem",
           background: selectedAny ? "var(--success)" : "var(--bg-inset)",

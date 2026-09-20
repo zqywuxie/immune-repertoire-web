@@ -1,54 +1,39 @@
 import { statusLabels } from "../../shared/components/StatusBadge";
 import { analysisLabel } from "../../shared/utils/analysisLabels";
-import { useMemo, useState, useEffect, useRef } from "react";
-import { Activity, FileJson2, X, Package, Download, ExternalLink } from "lucide-react";
-import { getJobResults, type JobResultsResponse } from "../../shared/api/jobs";
-import { useJobEvents } from "../../shared/hooks/useJobEvents";
+import { useMemo, useState, useEffect } from "react";
+import { Activity, FileJson2, X, Package } from "lucide-react";
+import { type JobResultsResponse } from "../../shared/api/jobs";
+import { useJobResult } from "../../shared/hooks/useJobResult";
+import { JobResultPanel } from "./JobResultPanel";
 import { ProgressBar } from "../../shared/components/ProgressBar";
 import { StatusBadge } from "../../shared/components/StatusBadge";
-import { Skeleton } from "../../shared/components/Skeleton";
+
 import type { JobSummary } from "../../shared/types/domain";
 
 type Props = {
   job: JobSummary;
   loading?: boolean;
   onClose: () => void;
+  result?: JobResultsResponse | null;
+  resultLoading?: boolean;
+  resultError?: string;
+  onRetry?: () => void;
 };
 
-export function JobDetailPanel({ job, loading = false, onClose }: Props) {
-  const [activeTab, setActiveTab] = useState<"config" | "progress" | "results">("results");
+export function JobDetailPanel(props: Props) {
+  return props.result === undefined ? <StandaloneDetail {...props} /> : <DetailContent key={props.job.job_id || props.job.id} {...props} />;
+}
+function StandaloneDetail(props: Props) {
+  const state = useJobResult(props.job.job_id || props.job.id);
+  return <DetailContent key={props.job.job_id || props.job.id} {...props} result={state.result} resultLoading={!state.result && !state.error} resultError={state.error} onRetry={state.retry} />;
+}
+function DetailContent({ job, loading = false, onClose, result, resultLoading = false, resultError = "", onRetry }: Props) {
+  const [activeTab, setActiveTab] = useState<"config" | "progress" | "results">(job.status === "completed" ? "results" : "progress");
   const jobId = job.job_id || job.id;
-  const liveJob = useJobEvents(jobId);
-  const fetchedRef = useRef<string | null>(null);
-
-  // Results state
-  const [resultsState, setResultsState] = useState<{ result: JobResultsResponse | null; loading: boolean; error: string }>({ result: null, loading: false, error: "" });
-
-  useEffect(() => {
-    if (!jobId || fetchedRef.current === jobId) return;
-    fetchedRef.current = jobId;
-    setResultsState({ result: null, loading: true, error: "" });
-    getJobResults(jobId)
-      .then((r) => setResultsState({ result: r, loading: false, error: "" }))
-      .catch((err) => setResultsState({ result: null, loading: false, error: err.message || "读取结果失败" }));
-  }, [jobId]);
-
-  // Refresh on SSE event
-  useEffect(() => {
-    if (!liveJob.event || !jobId) return;
-    if (liveJob.event.status === "completed") {
-      getJobResults(jobId)
-        .then((r) => setResultsState({ result: r, loading: false, error: "" }))
-        .catch(() => {});
-    }
-  }, [liveJob.event, jobId]);
-
+  useEffect(() => { if (job.status === "completed") setActiveTab("results"); }, [job.status]);
   const moduleConfig = useMemo(() => extractModuleConfig(job), [job]);
   const progressHistory = useMemo(() => extractProgressHistory(job), [job]);
   const hasConfig = Object.keys(moduleConfig).length > 0;
-  const resultOutputs = resultsState.result?.outputs || [];
-  const viewerOutput = useMemo(() => preferredViewerOutput(resultOutputs), [resultOutputs]);
-  const zipOutputs = useMemo(() => resultOutputs.filter(isArchiveOutput), [resultOutputs]);
 
   return (
     <section
@@ -269,110 +254,10 @@ export function JobDetailPanel({ job, loading = false, onClose }: Props) {
           </div>
         )}
 
-        {activeTab === "results" && (
-          <div style={{ display: "grid", gap: "var(--spacing-lg)" }}>
-            <div style={sectionLabelStyle}>任务输出</div>
-
-            {resultsState.loading ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
-                <Skeleton height="120px" /><Skeleton height="80px" />
-              </div>
-            ) : resultsState.error ? (
-              <div style={{ padding: "var(--spacing-lg)", borderRadius: "var(--radius-control)", background: "rgba(255,59,48,0.06)", color: "var(--danger)", fontSize: "0.85rem" }}>
-                {resultsState.error}
-              </div>
-            ) : resultsState.result ? (
-              <>
-                <div
-                  style={{
-                    display: "grid",
-                    gap: "var(--spacing-md)",
-                    padding: "var(--spacing-lg)",
-                    borderRadius: "var(--radius-control)",
-                    background: "var(--bg-root)",
-                    border: "1px solid var(--separator)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                        {analysisLabel(resultsState.result.job.module || job.module)}
-                      </div>
-                      <div style={{ color: "var(--text-secondary)", fontSize: "0.78rem", marginTop: "3px" }}>
-                        {resultOutputs.length} 输出 可供查看，请打开报告查看图表和数据。
-                      </div>
-                    </div>
-                    <StatusBadge status={resultsState.result.status} />
-                  </div>
-
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
-                    <a
-                      href={viewerOutput?.url || "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-disabled={!viewerOutput}
-                      style={{
-                        ...primaryLinkButtonStyle,
-                        opacity: viewerOutput ? 1 : 0.5,
-                        pointerEvents: viewerOutput ? "auto" : "none",
-                      }}
-                    >
-                      <ExternalLink size={15} />
-                      查看报告
-                    </a>
-                    {zipOutputs.length > 0 ? (
-                      zipOutputs.map((output, index) => (
-                        <a
-                          key={`${output.url}-${index}`}
-                          href={(output as { download_url?: string | null }).download_url || output.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          download
-                          style={secondaryLinkButtonStyle}
-                          title={output.label || "下载 ZIP"}
-                        >
-                          <Download size={15} />
-                          {output.label || `下载压缩包 ${index + 1}`}
-                        </a>
-                      ))
-                    ) : (
-                      resultOutputs.slice(0, 4).map((output, index) => (
-                        <a
-                          key={`${output.url}-${index}`}
-                          href={(output as { download_url?: string | null }).download_url || output.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          download
-                          style={secondaryLinkButtonStyle}
-                          title={output.label || "下载输出文件"}
-                        >
-                          <Download size={15} />
-                          {output.label || `Download ${index + 1}`}
-                        </a>
-                      ))
-                    )}
-                  </div>
-                </div>
-                {resultsState.result.assets && resultsState.result.assets.length > 0 && (
-                  <div>
-                    <div style={sectionLabelStyle}>已登记数据（{resultsState.result.assets.length})</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
-                      {resultsState.result.assets.map((a: any) => (
-                        <a key={a.id} href={`/api/assets/${a.id}/download`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 12px", borderRadius: "var(--radius-pill)", border: "1px solid var(--separator)", fontSize: "0.78rem", color: "var(--accent)", textDecoration: "none" }}>
-                          <Download size={12} /> {a.original_name || a.id}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ padding: "var(--spacing-lg)", borderRadius: "var(--radius-control)", background: "var(--bg-root)", color: "var(--text-tertiary)", fontSize: "0.82rem", textAlign: "center" }}>
-                {job.status === "running" || job.status === "queued" ? "等待任务完成…" : "暂无结果。"}
-              </div>
-            )}
-          </div>
-        )}
+        {activeTab === "results" && <div>
+          {resultError && <div role="alert"><p>{resultError}</p><button className="btn btn-secondary" onClick={onRetry}>重新读取结果</button></div>}
+          <JobResultPanel result={result || null} loading={resultLoading} embedded />
+        </div>}
 
       </div>
     </section>
@@ -528,23 +413,6 @@ function recordValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function preferredViewerOutput(outputs: JobResultsResponse["outputs"]) {
-  const withUrl = outputs.filter((output) => String(output.url || "").trim());
-  return (
-    withUrl.find((output) => String(output.kind || "").toLowerCase() === "html") ||
-    withUrl.find((output) => /viewer|report/i.test(String(output.label || output.url || ""))) ||
-    withUrl.find((output) => !isArchiveOutput(output)) ||
-    withUrl[0] ||
-    null
-  );
-}
-
-function isArchiveOutput(output: JobResultsResponse["outputs"][number]) {
-  const kind = String(output.kind || "").toLowerCase();
-  const url = String(output.url || "").toLowerCase();
-  return kind === "zip" || url.includes(".zip") || /zip|archive|bundle/i.test(String(output.label || ""));
-}
-
 const tabListStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr 1fr",
@@ -560,35 +428,4 @@ const sectionLabelStyle: React.CSSProperties = {
   color: "var(--text-secondary)",
   fontWeight: 700,
   marginBottom: "var(--spacing-sm)",
-};
-
-const primaryLinkButtonStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  padding: "9px 14px",
-  borderRadius: "var(--radius-control)",
-  background: "var(--accent)",
-  color: "#fff",
-  textDecoration: "none",
-  fontSize: "0.82rem",
-  fontWeight: 650,
-};
-
-const secondaryLinkButtonStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  padding: "9px 14px",
-  borderRadius: "var(--radius-control)",
-  border: "1px solid var(--separator)",
-  background: "var(--bg-elevated)",
-  color: "var(--text-primary)",
-  textDecoration: "none",
-  fontSize: "0.82rem",
-  fontWeight: 600,
-  maxWidth: "220px",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
 };

@@ -1,3 +1,4 @@
+import { Select } from "../shared/components/Select";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Save, RotateCcw } from "lucide-react";
@@ -48,7 +49,7 @@ function WorkspaceSettings({ workspace }: { workspace: string }) {
           <label>图宽（英寸）<input className="input" type="number" required min={2} max={24} step={0.5} value={config.default_figure_size[0]} onChange={event => change({ default_figure_size: [Number(event.target.value), config.default_figure_size[1]] })} /></label>
           <label>图高（英寸）<input className="input" type="number" required min={2} max={24} step={0.5} value={config.default_figure_size[1]} onChange={event => change({ default_figure_size: [config.default_figure_size[0], Number(event.target.value)] })} /></label>
           <label>基础字号（pt）<input className="input" type="number" required min={6} max={36} value={config.default_font_size} onChange={event => change({ default_font_size: Number(event.target.value) })} /></label>
-          <label>导出分辨率（DPI）<select className="select" value={config.default_dpi} onChange={event => change({ default_dpi: Number(event.target.value) })}>{[72,150,300,600].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label>导出分辨率（DPI）<Select ariaLabel="导出分辨率" value={String(config.default_dpi)} disabled={loading || saving} onChange={value => change({default_dpi:Number(value)})} options={[72,150,300,600].map(value => ({value:String(value),label:`${value} DPI`}))} /></label>
         </fieldset>
         <p style={{ color: 'var(--text-secondary)' }}>PNG 图像；名义尺寸约 {Math.round(config.default_figure_size[0] * config.default_dpi)} × {Math.round(config.default_figure_size[1] * config.default_dpi)} 像素，实际边界随图表内容调整。</p>
       </Card>

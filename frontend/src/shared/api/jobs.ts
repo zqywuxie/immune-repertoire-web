@@ -4,6 +4,10 @@ import type { JobModule, JobOutput, JobSummary, ProjectAsset } from "../types/do
 export interface JobListResponse {
   success: boolean;
   jobs: JobSummary[];
+  total?: number;
+  has_more?: boolean;
+  counts?: Record<string, number>;
+  modules?: string[];
 }
 
 export interface JobDetailResponse {
@@ -64,11 +68,11 @@ export interface BulkDeleteJobsResponse {
   results: Array<DeleteJobResponse & { job_id: string; error?: string }>;
 }
 
-export function listJobs(params: { projectId?: string; status?: string; limit?: number } = {}) {
+export function listJobs(params: { projectId?: string; status?: string; limit?: number; offset?: number; module?: string; search?: string; assetSet?: string } = {}) {
   return apiClient.get<JobListResponse>("/api/jobs", {
     project_id: params.projectId,
     status: params.status,
-    limit: params.limit
+    limit: params.limit, offset: params.offset, module: params.module, q: params.search, asset_set: params.assetSet
   }, { skipCache: true });
 }
 

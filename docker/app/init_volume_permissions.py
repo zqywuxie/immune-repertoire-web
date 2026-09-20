@@ -24,10 +24,16 @@ def initialize_volumes():
                     continue
                 if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
                     continue
-                os.chown(path, APP_UID, APP_GID, follow_symlinks=False)
+                ownership_changed = (info.st_uid, info.st_gid) != (APP_UID, APP_GID)
+                if ownership_changed:
+                    os.chown(path, APP_UID, APP_GID, follow_symlinks=False)
                 owner_bits = stat.S_IRUSR | stat.S_IWUSR | (stat.S_IXUSR if path.is_dir() else 0)
-                os.chmod(path, stat.S_IMODE(info.st_mode) | owner_bits, follow_symlinks=False)
-                changed += 1
+                mode = stat.S_IMODE(info.st_mode) | owner_bits
+                mode_changed = mode != stat.S_IMODE(info.st_mode)
+                if mode_changed:
+                    os.chmod(path, mode, follow_symlinks=False)
+                if ownership_changed or mode_changed:
+                    changed += 1
     return changed
 
 

@@ -1,3 +1,4 @@
+import { getModuleAvailability } from "../../features/scripthub/moduleRequirements";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Search } from "lucide-react";
@@ -11,13 +12,15 @@ import { AnalysisProjectPanel } from "../../features/projects/AnalysisProjectPan
 
 export function AnalysisCenter() {
   const [query,setQuery]=useSearchParams();
-  const [search,setSearch]=useState("");
+  const search=query.get("q") || "";
+  const setSearch=(value:string)=>setQuery(previous=>{const next=new URLSearchParams(previous);if(value)next.set("q",value);else next.delete("q");return next;},{replace:true});
   const {data}=useAnalysisData();
   const modules=useApi(listScriptHubModules,[]);
   const schemes=useApi(listAnalysisSchemes,[]);
   const category=query.get("category") || "all";
   const project=query.get("project") || data?.projectId;
-  const suffix=project ? `?project=${encodeURIComponent(project)}` : "";
+  const dataset=query.get("asset_set") || (data && data.projectId === project ? data.assetSetName : "");
+  const suffix=project ? `?${new URLSearchParams({project,...(dataset ? {asset_set:dataset} : {})})}` : "";
   const visible=analysisTools.filter(tool=>(category === "all" || tool.category === category) && `${tool.title} ${tool.description} ${tool.input}`.toLowerCase().includes(search.trim().toLowerCase()));
   return <div className="analysis-center">
     <header className="analysis-center-heading"><div><p className="analysis-eyebrow">免疫组库 · 分析工作台</p><h1>分析中心</h1><p>从科研问题出发，选择一项分析。已选项目与数据可在工具间继续使用。</p></div><div className="analysis-center-actions"><Link className="btn btn-secondary" to={`/analysis/script-hub${suffix}`}>组合分析</Link><Link className="btn btn-secondary" to="/analysis/script-hub/jobs">任务与结果 <ArrowUpRight size={15}/></Link></div></header>
@@ -30,8 +33,12 @@ export function AnalysisCenter() {
       const found=tool.module ? modules.status === "ready" && modules.data.modules.find(item=>item.key===tool.module) : schemes.status === "ready" && schemes.data.schemes.find(item=>item.id===tool.scheme);
       const unavailable=!!found && "status" in found && found.status === "unavailable";
       const disabled=state !== "ready" || !found || unavailable;
-      const status=state === "error" ? "状态读取失败" : state !== "ready" ? "正在检查环境" : !found ? "当前未配置" : unavailable ? "运行环境未启用" : "打开分析";
-      return <article className="analysis-tool" key={tool.id}><h3>{tool.title}</h3><p>{tool.description}</p><dl><div><dt>输入</dt><dd>{tool.input}</dd></div><div><dt>输出</dt><dd>{tool.output}</dd></div></dl>{disabled ? <span className="analysis-tool-state">{status}</span> : <Link to={`${toolPath(tool)}${suffix}`}>{status}<ArrowUpRight size={17}/></Link>}</article>;
+      const context = data && data.projectId === project && data.assetSetName === dataset ? data : undefined;
+      const reuse = ["volcano", "umapin", "ml-analysis", "go-kegg-enrichment", "mait-nkt"].includes(tool.module || "");
+      const readiness = tool.module ? getModuleAvailability(found as any, context) : {selectable:!!context?.profilePath,reason:"需要样本指标表"};
+      const hint = !project ? "请选择项目与数据集" : !context ? "请选择本次分析的数据集" : readiness.selectable ? "输入已选择，配置时检查" : reuse ? "配置时选择输入或已有前置结果" : readiness.reason;
+      const status=state === "error" ? "状态读取失败" : state !== "ready" ? "正在检查环境" : !found ? "当前未配置" : unavailable ? "运行环境未启用" : readiness.selectable ? "配置分析" : "准备分析";
+      return <article className="analysis-tool" key={tool.id}><h3>{tool.title}</h3><p>{tool.description}</p><dl><div><dt>输入</dt><dd>{tool.input}</dd></div><div><dt>输出</dt><dd>{tool.output}</dd></div></dl><p className="analysis-tool-readiness">{hint}</p>{disabled ? <span className="analysis-tool-state">{status}</span> : <Link to={`${toolPath(tool)}${suffix}`}>{status}<ArrowUpRight size={17}/></Link>}</article>;
     })}</div></section> : null;})}
     {!visible.length && <p className="analysis-no-results">没有匹配的工具，请更换关键词或分析分类。</p>}
   </div>;

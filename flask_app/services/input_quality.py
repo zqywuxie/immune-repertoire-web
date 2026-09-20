@@ -90,17 +90,24 @@ def validate_analysis_inputs(input_assets):
     """Validate only original tables consumed by this analysis, never derived outputs."""
     from flask_app.exceptions import ValidationError
     aliases = {'datapoint': 'profile', 'expression': 'transcriptome', 'cibersort': 'deconvolution'}
+    selected = {"pep": [], "profile": "", "transcriptome": "", "deconvolution": ""}
     for asset in input_assets or []:
         kind = aliases.get(asset.get('asset_type'), asset.get('asset_type'))
         path = asset.get('path')
         if not path or kind not in {'pep', 'profile', 'transcriptome', 'deconvolution'}:
             continue
+        if kind == "pep": selected[kind].append(path)
+        else: selected[kind] = path
         arguments = {'profile': '', 'transcriptome': '', 'deconvolution': ''}
         if kind != "pep": arguments[kind] = path
         quality = inspect_input_quality([path] if kind == "pep" else [], arguments['profile'], arguments['transcriptome'], arguments['deconvolution'])
         if quality['errors']:
             raise ValidationError(message='输入数据检查未通过：' + '；'.join(quality['errors']),
                                   details={'input_quality': quality})
+    quality = inspect_input_quality(selected['pep'], selected['profile'], selected['transcriptome'], selected['deconvolution'])
+    if any(item['matched_count'] == 0 and item['missing_count'] and item['extra_count'] for item in quality['alignments']):
+        raise ValidationError(message='联合输入之间没有匹配的样本，请核对样本编号或列映射。', details={'input_quality': quality})
+    return quality
 
 
 def inspect_numeric_content(path, sample_column=None):
