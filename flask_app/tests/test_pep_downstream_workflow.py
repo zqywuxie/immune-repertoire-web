@@ -20,7 +20,7 @@ def test_real_pep_output_reused_by_umapin_and_downloaded(tmp_path, monkeypatch):
     app.register_blueprint(script_hub_bp)
     pep = tmp_path / "pep"
     pep.mkdir()
-    samples = [f"S{i}" for i in range(8)]
+    samples = [f"{i:03d}" for i in range(8)]
     profile = tmp_path / "profile.csv"
     pd.DataFrame({"sample": samples, "group": ["A"]*4+["B"]*4}).to_csv(profile,index=False)
     for i, sample in enumerate(samples):
@@ -53,6 +53,7 @@ def test_real_pep_output_reused_by_umapin_and_downloaded(tmp_path, monkeypatch):
             assert inspection.status_code==200,inspection.json
             table=pd.read_csv(data["data_path"])
             assert set(table["Category"])=={"A","B"} and len(table)==8
+            assert set(table["sample"]) == {f"{sample}__TRB.csv" for sample in samples}
             features=list(table.columns[2:])
             # Copy-weighted V/J frequencies retain their numerical definition.
             np.testing.assert_allclose(table[features].sum(axis=1),np.ones(8),atol=1e-8)

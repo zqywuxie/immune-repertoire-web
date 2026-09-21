@@ -123,10 +123,9 @@ def _pep_sample_name_from_path(path: Path, chain: str) -> str:
 
 
 def _sample_match_key(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    text = re.sub(r"\.(csv|tsv|txt|gz|xlsx?)$", "", text)
-    text = re.sub(r"(__|-|_)?(tra|trb|trg|trd|igh|igk|igl)$", "", text)
-    return re.sub(r"[^a-z0-9]+", "", text)
+    # File suffixes are parsed before this point; sample IDs are identifiers,
+    # not case-insensitive search terms. Preserve punctuation and Unicode.
+    return "" if value is None else str(value).strip()
 
 
 def _is_table_file(path: Path) -> bool:
@@ -223,8 +222,15 @@ class PepAnalysisService:
         if not profile_file.exists():
             raise FileNotFoundError(f"Profile file not found: {profile_path}")
 
-        profile_df = _try_read_csv(profile_file, low_memory=False)
-        profile_df.fillna(0, inplace=True)
+        profile_header = _try_read_csv(profile_file, nrows=0)
+        if not len(profile_header.columns):
+            raise ValueError("样本指标表不能为空")
+        sample_column = profile_header.columns[0]
+        profile_df = _try_read_csv(profile_file, low_memory=False, dtype={sample_column: str})
+        if profile_df[sample_column].isna().any() or profile_df[sample_column].str.strip().eq("").any():
+            raise ValueError("样本指标表存在空样本编号")
+        if profile_df[sample_column].duplicated().any():
+            raise ValueError("样本指标表存在重复样本编号，请先明确批次与样本对应关系")
         selected_sample_keys = {
             _sample_match_key(sample)
             for sample in (selected_samples or [])
@@ -1188,8 +1194,8 @@ class PepAnalysisService:
 
         cate_values: Dict[str, str] = {}
         for pep_name in source_columns[1:]:
-            parts = pep_name.split("__")
-            samplename = "__".join(parts[:-1]) if len(parts) > 1 else pep_name
+            pep_path = Path(pep_name)
+            samplename = _pep_sample_name_from_path(pep_path, _infer_chain_from_path(pep_path))
             if samplename in group_map:
                 val = group_map[samplename]
                 category = str(val) if pd.notna(val) else "nan"
@@ -1229,7 +1235,7 @@ class PepAnalysisService:
         }
 
         sample_names = df[index_col].astype(str).map(
-            lambda name: "__".join(name.split("__")[:-1]) if "__" in name else name
+            lambda name: _pep_sample_name_from_path(Path(name), _infer_chain_from_path(Path(name)))
         )
         categories = sample_names.map(group_map)
         clean_cate = categories.map(lambda value: str(value) if pd.notna(value) else "nan")
