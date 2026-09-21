@@ -10,30 +10,37 @@ if APP_UID <= 0 or APP_GID <= 0:
     raise ValueError("应用文件必须归属非 root 用户，请设置正确的 APP_UID 和 APP_GID")
 
 
+def repair_permissions(path, info):
+    ownership_changed = (info.st_uid, info.st_gid) != (APP_UID, APP_GID)
+    if ownership_changed:
+        os.chown(path, APP_UID, APP_GID, follow_symlinks=False)
+    owner_bits = stat.S_IRUSR | stat.S_IWUSR
+    if stat.S_ISDIR(info.st_mode):
+        owner_bits |= stat.S_IXUSR
+    mode = stat.S_IMODE(info.st_mode) | owner_bits
+    mode_changed = mode != stat.S_IMODE(info.st_mode)
+    if mode_changed:
+        os.chmod(path, mode, follow_symlinks=False)
+    return int(ownership_changed or mode_changed)
+
+
 def initialize_volumes():
     changed = 0
     for root in ROOTS:
         if root.is_symlink() or root.resolve() != root.absolute():
             raise ValueError(f"数据卷根目录不能是符号链接：{root}")
         root.mkdir(parents=True, exist_ok=True)
-        for directory, dirs, files in os.walk(root, followlinks=False):
-            dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
-            for path in [Path(directory), *(Path(directory) / name for name in files)]:
-                info = path.lstat()
-                if stat.S_ISLNK(info.st_mode):
-                    continue
-                if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
-                    continue
-                ownership_changed = (info.st_uid, info.st_gid) != (APP_UID, APP_GID)
-                if ownership_changed:
-                    os.chown(path, APP_UID, APP_GID, follow_symlinks=False)
-                owner_bits = stat.S_IRUSR | stat.S_IWUSR | (stat.S_IXUSR if path.is_dir() else 0)
-                mode = stat.S_IMODE(info.st_mode) | owner_bits
-                mode_changed = mode != stat.S_IMODE(info.st_mode)
-                if mode_changed:
-                    os.chmod(path, mode, follow_symlinks=False)
-                if ownership_changed or mode_changed:
-                    changed += 1
+        pending = [root]
+        while pending:
+            directory = pending.pop()
+            changed += repair_permissions(directory, directory.lstat())
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        pending.append(Path(entry.path))
+                    elif stat.S_ISREG(info.st_mode):
+                        changed += repair_permissions(entry.path, info)
     return changed
 
 

@@ -52,3 +52,33 @@ def test_linked_volume_root_is_rejected(tmp_path,monkeypatch):
     monkeypatch.setattr(permissions,'ROOTS',(link,))
     with pytest.raises(ValueError,match='符号链接'):
         permissions.initialize_volumes()
+
+
+def test_later_imports_are_repaired_and_special_files_ignored(tmp_path, monkeypatch):
+    root = tmp_path / 'data'
+    root.mkdir()
+    monkeypatch.setattr(permissions, 'ROOTS', (root,))
+    permissions.initialize_volumes()
+    imported = root / 'later.csv'
+    imported.write_text('new import')
+    imported.chmod(0o400)
+    pipe = root / 'runtime.pipe'
+    os.mkfifo(pipe)
+    pipe_before = pipe.stat()
+    assert permissions.initialize_volumes() == 1
+    assert imported.stat().st_uid == permissions.APP_UID
+    assert imported.stat().st_mode & 0o600 == 0o600
+    assert pipe.stat().st_uid == pipe_before.st_uid
+    assert pipe.stat().st_mode == pipe_before.st_mode
+    assert permissions.initialize_volumes() == 0
+
+
+def test_directory_scan_errors_are_not_silently_ignored(tmp_path, monkeypatch):
+    root = tmp_path / 'data'
+    root.mkdir()
+    monkeypatch.setattr(permissions, 'ROOTS', (root,))
+    def fail_scan(path):
+        raise PermissionError('scan failed')
+    monkeypatch.setattr(permissions.os, 'scandir', fail_scan)
+    with pytest.raises(PermissionError, match='scan failed'):
+        permissions.initialize_volumes()
