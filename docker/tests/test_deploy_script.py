@@ -18,7 +18,7 @@ if [[ $(basename "$0") == git ]]; then
  pull) [[ $CHECK_CASE != pull_failed ]] || exit 1;;
  esac
 else
- if [[ " $* " == *" ps --status running -q api "* && $CHECK_CASE == active_jobs ]]; then echo api-container; fi
+ if [[ " $* " == *" ps --status running -q api "* && $CHECK_CASE != missing && $CHECK_CASE != legacy ]]; then echo api-container; fi
  if [[ " $* " == *" exec -T api python - "* && $CHECK_CASE == active_jobs ]]; then exit 1; fi
  if [[ " $* " == *" build "* && $CHECK_CASE == build_failed ]]; then exit 1; fi
  if [[ " $* " == *" volume-init "* && $CHECK_CASE == permissions_failed ]]; then exit 1; fi
@@ -36,6 +36,10 @@ exit 0
   build=[i for i,line in enumerate(lines) if ' build api web' in line]
   up=[i for i,line in enumerate(lines) if ' up -d --wait ' in line]
   assert not pull, lines
+  maintenance=[i for i,line in enumerate(lines) if 'deployment_maintenance enable' in line]
+  released=[i for i,line in enumerate(lines) if 'deployment_maintenance disable' in line]
+  if maintenance:
+   assert released and released[-1] > maintenance[0], lines
   if case=='success':
    assert result.returncode==0,result.stderr
    permissions=next(i for i,line in enumerate(lines) if line.endswith("volume-init"))

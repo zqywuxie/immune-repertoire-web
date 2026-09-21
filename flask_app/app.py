@@ -93,6 +93,9 @@ def create_app(config_name=None):
     app.config.from_object(config[config_name])
     config[config_name].init_app(app)
 
+    from flask_app.services.deployment_maintenance import register_maintenance
+    register_maintenance(app)
+
     # Initialize extensions
     db.init_app(app)
 

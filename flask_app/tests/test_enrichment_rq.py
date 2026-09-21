@@ -46,6 +46,9 @@ def test_expression_to_enrichment_real_rq(tmp_path, monkeypatch):
             print(get_background_job_service().get_job(response.json['job_id']))
         assert response.status_code==202,response.json
         parent_id=response.json['job_id']
+        from flask_app.services.deployment_maintenance import set_maintenance
+        app.config['MAINTENANCE_DIRECTORY']=str(tmp_path/'maintenance')
+        set_maintenance(tmp_path/'maintenance', 'integration', True)
         db.session.remove();db.engine.dispose()
         try:
             Worker([queue],connection=connection,work_horse_killed_handler=persistent_queue.record_killed).work(burst=True,logging_level='WARNING')
@@ -64,7 +67,7 @@ def test_expression_to_enrichment_real_rq(tmp_path, monkeypatch):
             copies=list((output/'DEG').rglob('DEG_A_vs_B.csv'))
             assert originals and copies and originals[0].read_bytes()==copies[0].read_bytes()
             response=app.test_client().get(downstream['result']['zip_url'])
-            assert response.status_code==200
+            assert response.status_code==200, (response.json, downstream['result']['zip_url'], str(output), [(a.asset_type,(a.metadata_json or {}).get('job_id'),a.storage_path) for a in ProjectAsset.query.all()], downstream['payload'].get('analysis_signature'))
             response.close()
         finally:
             for task_id in queue.finished_job_registry.get_job_ids()+queue.failed_job_registry.get_job_ids():

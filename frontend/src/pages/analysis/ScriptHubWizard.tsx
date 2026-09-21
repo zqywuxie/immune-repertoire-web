@@ -108,12 +108,12 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   }, []);
 
   const handleNext = useCallback(() => {
-    setWizard((prev) => ({ ...prev, stage: Math.min(5, prev.stage + 1) }));
-  }, []);
+    setWizard((prev) => ({ ...prev, stage: fixedModule && prev.stage === 1 ? 3 : Math.min(5, prev.stage + 1) }));
+  }, [fixedModule]);
 
   const handleBack = useCallback(() => {
-    setWizard((prev) => ({ ...prev, stage: Math.max(1, prev.stage - 1) }));
-  }, []);
+    setWizard((prev) => ({ ...prev, stage: fixedModule && prev.stage === 3 ? 1 : Math.max(1, prev.stage - 1) }));
+  }, [fixedModule]);
 
   /* ── Stage callbacks ── */
   const handleDataUpdate = useCallback(
@@ -193,10 +193,10 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
         : undefined;
 
       if (profilePreviewResult.status === "rejected") {
-        previewWarnings.push(`Profile 预览失败： ${profilePreviewResult.reason instanceof Error ? profilePreviewResult.reason.message : "无法读取数据表"}`);
+        previewWarnings.push(`样本指标表预览失败： ${profilePreviewResult.reason instanceof Error ? profilePreviewResult.reason.message : "无法读取数据表"}`);
       }
       if (pepPreviewResult.status === "rejected") {
-        previewWarnings.push(`PEP 预览失败： ${pepPreviewResult.reason instanceof Error ? pepPreviewResult.reason.message : "无法读取数据表"}`);
+        previewWarnings.push(`克隆序列表预览失败： ${pepPreviewResult.reason instanceof Error ? pepPreviewResult.reason.message : "无法读取数据表"}`);
       }
 
       const inspection: InspectionResult = {
@@ -300,12 +300,12 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   /* ── Validation ── */
   const canProceed = () => {
     const s = wizard.stage;
-    if (s === 1)
+    if (s === 1 && !fixedModule)
       return (
         wizard.projectId &&
         (wizard.pepPaths.length > 0 || !!wizard.profilePath || !!wizard.transcriptomePath || !!wizard.deconvolutionPath || !!linkedArtifact)
       );
-    if (s === 2) return (!alignmentMismatch || alignmentReviewed) && !!wizard.inspection && !wizard.inspection.inputQuality?.errors.length && presetInputReady && hasAnySelectableModule(availableModules, sourceContext);
+    if (s === 2 || (fixedModule && s === 1)) return (!alignmentMismatch || alignmentReviewed) && !!wizard.inspection && !wizard.inspection.inputQuality?.errors.length && presetInputReady && hasAnySelectableModule(availableModules, sourceContext);
     if (s === 3) {
       return presetInputReady && wizard.selectedModules.length > 0 && wizard.selectedModules.every((key) => {
         const selected = availableModules.find((module) => module.key === key);
@@ -318,7 +318,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   };
 
   const stageGateMessage = (() => {
-    if (wizard.stage !== 2 || !wizard.inspection) return "";
+    if ((wizard.stage !== 2 && !(fixedModule && wizard.stage === 1)) || !wizard.inspection) return "";
     if (wizard.inspection.inputQuality?.errors.length) return "请先修正上方输入问题，再重新检查数据。";
     if (alignmentMismatch && !alignmentReviewed) return "请核对上方样本匹配情况，并确认已了解各输入的样本范围。";
     if (presetInputReady && hasAnySelectableModule(availableModules, sourceContext)) return "";
@@ -326,10 +326,12 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
   })();
 
   /* ── Build stepper steps ── */
-  const stepperSteps: StepDef[] = WIZARD_STEPS.map((label,index) => ({ label:tool && index===2 ? "配置参数与分组" : label }));
+  const stepperSteps: StepDef[] = (fixedModule ? ["确认数据", "配置分析", "运行与结果"] : WIZARD_STEPS).map(label => ({label}));
+  const displayedStep = fixedModule ? wizard.stage <= 2 ? 0 : wizard.stage === 3 ? 1 : 2 : wizard.stage - 1;
+  const resultsReady = !running && wizard.jobIds.length > 0 && wizard.jobIds.every(id => Boolean(wizard.resultsByJobId[id]));
 
   const isFirstStage = wizard.stage === 1;
-  const isLastStage = wizard.stage === 5;
+  const isLastStage = wizard.stage === 5 || Boolean(fixedModule && wizard.stage === 4);
 
   return (
     <div
@@ -368,7 +370,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
       <div hidden={showHistory} style={{ display: showHistory ? "none" : "grid", gridTemplateColumns: "minmax(0, 1fr)", minWidth: 0, gap: "var(--spacing-2xl)" }}>
       {modulesState.status === "error" && <p role="alert">分析目录读取失败：{modulesState.error}<button className="btn btn-secondary" onClick={modulesState.refetch}>重新读取</button></p>}
       {/* Stepper */}
-      <Stepper steps={stepperSteps} currentStep={wizard.stage - 1} />
+      <Stepper steps={stepperSteps} currentStep={displayedStep} />
 
       {/* Stage Content */}
       <div style={{ minHeight: "400px", minWidth: 0 }}>
@@ -384,7 +386,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
           />
         )}
 
-        {wizard.stage === 2 && (<>
+        {(wizard.stage === 2 || (fixedModule && wizard.stage === 1 && wizard.projectId && (wizard.pepPaths.length > 0 || wizard.profilePath || wizard.transcriptomePath || wizard.deconvolutionPath || linkedArtifact))) && (<>
           <Stage2SourceInspection
             projectId={wizard.projectId}
             assetSet={wizard.assetSetName}
@@ -437,7 +439,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
           />
         )}
 
-        {wizard.stage === 5 && (
+        {(wizard.stage === 5 || (fixedModule && wizard.stage === 4 && resultsReady)) && (
           <Stage5Results
             batchStatuses={batchStatuses}
             expectedCount={wizard.selectedModules.length}
@@ -474,7 +476,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
       >
         <button
           onClick={handleBack}
-          disabled={isFirstStage || running}
+          disabled={isFirstStage || running || (wizard.stage === 4 && wizard.jobIds.length > 0)}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -517,7 +519,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
           </button>
         )}
 
-        {isLastStage && (
+        {isLastStage && (!fixedModule || resultsReady) && (
           <button
             onClick={handleReset}
             style={{

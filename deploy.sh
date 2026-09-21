@@ -31,13 +31,36 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 compose=(docker compose --env-file .env -f compose.docker.yml)
+maintenance_active=false
+maintenance_token="deploy-$$-$RANDOM"
+release_maintenance() {
+  local status=$?
+  if [[ $maintenance_active == true ]]; then
+    if ! "${compose[@]}" exec -T api python -m flask_app.services.deployment_maintenance disable --token "$maintenance_token"; then
+      if ! "${compose[@]}" run --rm --no-deps api python -m flask_app.services.deployment_maintenance disable --token "$maintenance_token"; then
+        printf '维护状态解除失败，请恢复服务后执行：docker compose --env-file .env -f compose.docker.yml exec -T api python -m flask_app.services.deployment_maintenance disable --token %s\n' "$maintenance_token" >&2
+        status=1
+      fi
+    fi
+  fi
+  exit "$status"
+}
+trap release_maintenance EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 "${compose[@]}" config --quiet
 printf '正在复用分析基础镜像构建业务代码和前端；依赖变化时请先更新基础镜像。\n'
 "${compose[@]}" build api web
 # Check immediately before replacing services; first deployments have no API.
 running_api="$("${compose[@]}" ps --status running -q api)"
 if [[ -n "$running_api" ]]; then
-  printf '正在检查活动任务；更新期间请暂停提交新分析…\n'
+  if "${compose[@]}" exec -T api test -f /app/flask_app/services/deployment_maintenance.py; then
+    "${compose[@]}" exec -T api python -m flask_app.services.deployment_maintenance enable --token "$maintenance_token"
+    maintenance_active=true
+  else
+    printf '当前运行版本尚不支持自动维护，请在本次升级期间暂停提交新分析。\n'
+  fi
+  printf '正在检查活动任务；尚有任务时退出部署并恢复提交…\n'
   "${compose[@]}" exec -T api python - < docker/app/check_active_jobs.py
 fi
 printf '正在按 APP_UID/APP_GID 初始化应用数据目录权限…\n'
@@ -45,4 +68,8 @@ printf '正在按 APP_UID/APP_GID 初始化应用数据目录权限…\n'
 printf '正在启动服务并等待健康检查…\n'
 "${compose[@]}" up -d --wait --wait-timeout 300
 "${compose[@]}" ps
+if [[ $maintenance_active == true ]]; then
+  "${compose[@]}" exec -T api python -m flask_app.services.deployment_maintenance disable --token "$maintenance_token"
+  maintenance_active=false
+fi
 printf '部署完成，提交：%s\n默认入口：http://127.0.0.1:8080；实际地址以 .env 为准。\n' "$(git rev-parse --short HEAD)"

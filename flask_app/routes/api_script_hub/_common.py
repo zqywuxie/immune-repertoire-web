@@ -118,7 +118,11 @@ def _set_task_state(task_id: str, **updates: Any) -> None:
 def _get_task_state(task_id: str) -> Dict[str, Any] | None:
     import os
     if os.environ.get('JOB_QUEUE', '').lower() == 'redis':
-        return get_script_hub_job_service().get_job(task_id)
+        job = get_script_hub_job_service().get_job(task_id)
+        if job is None:
+            return None
+        payload = job.get("payload") or {}
+        return {**job, **{key: payload[key] for key in ("analysis_signature", "input_assets", "config_json") if key in payload}}
     with _script_task_lock:
         task = _script_tasks.get(task_id)
         return dict(task) if task else None

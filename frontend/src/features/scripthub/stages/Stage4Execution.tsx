@@ -54,7 +54,7 @@ export function Stage4Execution({
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [taskName, setTaskName] = useState(`批量分析_${Date.now()}`);
+  const [taskName, setTaskName] = useState(`${modules.length === 1 ? analysisLabel(modules[0]) : "组合分析"}_${new Date().toLocaleDateString("sv-SE")}`);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [jobProgress, setJobProgress] = useState<Record<string, number>>({});
   const [jobStatus, setJobStatus] = useState<Record<string, string>>({});
@@ -247,7 +247,7 @@ export function Stage4Execution({
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       {/* Header */}
       <div>
-        <h2 style={{ margin: 0 }}>第四步：运行分析</h2>
+        <h2 style={{ margin: 0 }}>运行分析</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
           确认分组和指标后开始运行。完成后可查看报告和下载数据。
         </p>
@@ -300,10 +300,13 @@ export function Stage4Execution({
         </div>
       </Card>
 
-      {selectedModules.some(canBind) && <Card>
+      {selectedModules.length > 1 && <Card>
         <h4>分析结果来源</h4>
         <p style={{color: "var(--text-secondary)", fontSize: 13}}>使用本批次结果时，前序分析成功后自动继续；前序失败则停止对应的下游分析。</p>
-        <p aria-label="实际执行顺序" style={{fontSize: 13}}>执行顺序：{executionModules.map(analysisLabel).join(" → ")}</p>
+        <ol aria-label="分析依赖关系" style={{display:"grid",gap:12,paddingLeft:24}}>{executionModules.map(module => {
+          const source = useBatchResult[module] ? sourceFor(module) : undefined;
+          return <li key={module}><strong>{analysisLabel(module)}</strong><p style={{fontSize:13,color:"var(--text-secondary)",margin:"4px 0"}}>{source ? `等待${analysisLabel(source)}完成 → 使用其输出；前序失败时停止此项` : payloadFor(module).upstream_artifact_id ? "复用已选择的历史分析结果" : "使用本项配置的输入，无本批次前置依赖"}</p></li>;
+        })}</ol>
         {selectedModules.map(module => canBind(module) && <label key={module} style={{display: "grid", gap: 6, marginTop: 12}}>
           {analysisLabel(module)} · 输入来源
           <select className="input" disabled={submitting || isRunning || hasJobs} value={useBatchResult[module] ? "batch" : "existing"} onChange={event => setUseBatchResult(previous => ({...previous, [module]: event.target.value === "batch"}))}>

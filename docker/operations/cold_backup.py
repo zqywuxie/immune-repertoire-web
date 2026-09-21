@@ -38,8 +38,8 @@ def backup(root, config, archive):
             with tarfile.open(fileobj=stream, mode="w:gz", compresslevel=1, dereference=False) as bundle:
                 for name in VOLUMES:
                     bundle.add(root / name, arcname="volumes/" + name, filter=backup_member)
-                bundle.add(config, arcname="config/.env.docker")
-                metadata = json.dumps({"format": 1, "created_at": datetime.now(timezone.utc).isoformat(), "volumes": list(VOLUMES), "requires_stopped_services": True}, ensure_ascii=False).encode("utf-8")
+                bundle.add(config, arcname="config/.env")
+                metadata = json.dumps({"format": 2, "created_at": datetime.now(timezone.utc).isoformat(), "volumes": list(VOLUMES), "requires_stopped_services": True}, ensure_ascii=False).encode("utf-8")
                 info=tarfile.TarInfo("manifest.json"); info.size=len(metadata); info.mode=0o600
                 bundle.addfile(info, io.BytesIO(metadata))
         # Read every member to catch truncated compression streams before exposing the backup.
@@ -67,6 +67,10 @@ def restore(root, config_dir, archive):
         manifest=bundle.extractfile("manifest.json")
         if manifest is None or json.load(manifest).get("volumes") != list(VOLUMES):
             raise ValueError("备份清单不完整")
+        config_members = [member.name for member in members if member.name in {"config/.env", "config/.env.docker"}]
+        if len(config_members) != 1:
+            raise ValueError("备份必须包含唯一的部署配置")
+        config_member = config_members[0]
         seen=set()
         for member in members:
             path=Path(member.name)
@@ -74,7 +78,7 @@ def restore(root, config_dir, archive):
                 raise ValueError("备份包含非法或重复路径")
             seen.add(member.name)
             if member.name == "manifest.json": continue
-            if member.name == "config/.env.docker":
+            if member.name == config_member:
                 if not member.isfile(): raise ValueError("配置备份必须为普通文件")
                 continue
             if len(path.parts)<2 or path.parts[0]!="volumes" or path.parts[1] not in VOLUMES:
@@ -87,7 +91,7 @@ def restore(root, config_dir, archive):
                 if link.is_absolute() or len(link.parts)<2 or link.parts[0]!='volumes': raise ValueError("非法硬链接")
                 candidate.linkname=link.relative_to('volumes').as_posix()
             tarfile.data_filter(candidate, str(root))
-        if 'config/.env.docker' not in seen or any('volumes/'+name not in seen for name in VOLUMES):
+        if config_member not in seen or any('volumes/'+name not in seen for name in VOLUMES):
             raise ValueError("备份缺少数据卷或部署配置")
         for member in members:
             if not member.name.startswith('volumes/'): continue
@@ -98,9 +102,9 @@ def restore(root, config_dir, archive):
             if safe is not None:
                 safe.uid=member.uid;safe.gid=member.gid;safe.uname='';safe.gname=''
                 bundle.extract(safe, path=root, filter=lambda entry, destination: entry)
-        target=config_dir/'.env.docker'
+        target=config_dir/'.env'
         descriptor=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-        with os.fdopen(descriptor,'wb') as output, bundle.extractfile('config/.env.docker') as source:
+        with os.fdopen(descriptor,'wb') as output, bundle.extractfile(config_member) as source:
             while chunk:=source.read(1024*1024): output.write(chunk)
 
 
@@ -109,6 +113,6 @@ if __name__ == '__main__':
     parser.add_argument('action',choices=['backup','restore'])
     parser.add_argument('--archive',required=True,type=Path)
     args=parser.parse_args()
-    if args.action=='backup': backup(Path('/volumes'),Path('/config/.env.docker'),args.archive)
+    if args.action=='backup': backup(Path('/volumes'),Path('/config/.env'),args.archive)
     else: restore(Path('/volumes'),Path('/config'),args.archive)
     print('备份已验证' if args.action=='backup' else '数据卷和配置已恢复；请完成服务启动验证')

@@ -215,7 +215,7 @@ Compose 对应用和工作进程设置资源上限，均可在 `.env.docker` 调
 
 ### Linux 全量冷备份与恢复
 
-工具 `docker/operations/cold_backup.py` 备份五个数据卷和 `.env.docker`，保留文件所有权。
+工具 `docker/operations/cold_backup.py` 备份五个数据卷和 `.env`，保留文件所有权。
 备份包含数据库凭据，应存放在受限目录。工具检查归档可读性，不代替数据库启动恢复验收。
 执行前停止接收新任务，等待队列和运行任务清空，再停止全部服务；工具自身不会停止服务。
 以下命令在仓库根目录执行，适用于默认项目名 `immune-platform`、默认完整镜像和 Linux Bash。
@@ -227,14 +227,14 @@ rtk proxy mkdir -p -m 700 backups
 rtk docker compose --env-file .env -f compose.docker.yml stop
 rtk docker run --rm --network none --user 0:0 \
   --mount type=bind,src="$PWD/docker/operations",dst=/operations,readonly \
-  --mount type=bind,src="$PWD/.env.docker",dst=/config/.env.docker,readonly \
+  --mount type=bind,src="$PWD/.env",dst=/config/.env,readonly \
   --mount type=bind,src="$PWD/backups",dst=/backups \
   --mount type=volume,src=immune-platform_app_data,dst=/volumes/app_data,readonly \
   --mount type=volume,src=immune-platform_app_tmp,dst=/volumes/app_tmp,readonly \
   --mount type=volume,src=immune-platform_mysql_data,dst=/volumes/mysql_data,readonly \
   --mount type=volume,src=immune-platform_mongo_data,dst=/volumes/mongo_data,readonly \
   --mount type=volume,src=immune-platform_redis_data,dst=/volumes/redis_data,readonly \
-  immune-platform-api:full python /operations/cold_backup.py backup --archive /backups/platform.tar.gz
+  immune-platform-api:latest python /operations/cold_backup.py backup --archive /backups/platform.tar.gz
 rtk docker compose --env-file .env -f compose.docker.yml up -d --no-build --wait
 ```
 
@@ -254,23 +254,22 @@ rtk docker run --rm --network none --user 0:0 \
   --mount type=volume,src=immune-restore_mysql_data,dst=/volumes/mysql_data \
   --mount type=volume,src=immune-restore_mongo_data,dst=/volumes/mongo_data \
   --mount type=volume,src=immune-restore_redis_data,dst=/volumes/redis_data \
-  immune-platform-api:full python /operations/cold_backup.py restore --archive /backups/platform.tar.gz
+  immune-platform-api:latest python /operations/cold_backup.py restore --archive /backups/platform.tar.gz
 ```
 
 工具拒绝非空目标卷、非空配置目录、越界归档路径和越界链接。归档解包成功后，
 先将恢复配置中的 HTTP_PORT 改为未占用端口，再用 `-p immune-restore`、
-`--env-file restore-config/.env.docker` 启动同一 Compose，避免与原服务冲突。
+`--env-file restore-config/.env` 启动同一 Compose，避免与原服务冲突。
 验收必须包括数据库健康、项目与资产完整性、历史文件下载及一次小型分析。
 已使用隔离 Linux 容器完成 MySQL 8.0、MongoDB 7.0、Redis 7 的合成数据冷备份与恢复：
 停库后备份五卷，恢复到空卷，再启动三个数据库并读回原记录，同时检查应用文件和配置。
 MySQL 的 mysql.sock 运行时符号链接不进入备份，由数据库启动时重建。
-回归编排脚本为 `docker/tests/test-cold-restore.ps1`，宿主机只管理 Docker，不安装分析运行环境。
-这项验证未覆盖恢复后的平台登录/内部入口、实际项目资产关系及完整分析任务，仍需应用级恢复验收。
+2026-09-21 补充了应用级恢复演练：正常停止 MySQL 后备份并恢复数据，使用非 root 应用用户读回项目、任务并下载登记的结果文件。此次补充演练未覆盖完整分析重跑及 MongoDB、Redis 的应用级恢复。
 
 
 ### 上传请求大小
 
-`.env.docker` 的 `UPLOAD_MAX_MB` 为正整数，单位为兆字节（1024² 字节），默认 100。
+`.env` 的 `UPLOAD_MAX_MB` 为正整数，单位为兆字节（1024² 字节），默认 100。
 Nginx 与 Flask 共用该配置；修改后重新创建 web、api 和 worker 容器。
 例如设置 `UPLOAD_MAX_MB=1024` 允许最大 1 GiB 的整个请求，包含所有文件和表单开销，
 不是每个文件分别享有此额度。前置代理如有自己的限制，也需要同步设置。
@@ -452,3 +451,11 @@ bash deploy.sh
 `init-env.sh` 拉取远端代码并保留已有 `.env`；编辑配置后再运行 `deploy.sh`。部署脚本在构建完成、替换服务前查询正在运行的 API 数据库；有等待或运行任务时退出。请在任务中心等待完成或取消，并在更新窗口暂停提交新任务。检查失败也会停止更新，避免把数据库连接异常当作空队列。此检查不是全站提交锁，更新窗口仍需协调使用者。
 
 权限初始化仍检查所有应用目录，但仅对所有权或权限不符合配置的文件执行修改，已有正确权限的文件保持不变。数据库卷不在该初始化范围。
+
+## 自动维护与更新（2026-09-21）
+
+支持维护模式的运行版本会在检查活动任务前暂停新的 POST、PUT、PATCH、DELETE 请求，并等待已受理的写请求结束。GET 读取仍可用；后台任务继续执行。有活动任务时部署退出并解除本次维护，任务完成后重新运行部署即可。部署成功或失败都尝试解除本次维护；解除失败会打印包含本次令牌的恢复命令。
+
+首次从不含维护模块的旧版本升级时仍需人工暂停提交；脚本会明确提示。后续更新自动保护该窗口。维护文件位于应用数据卷，不要在维护期间重启清理卷或人工删除锁文件。意外终止部署进程后，需按日志中的本次令牌解除维护。
+
+备份工具现在保存 `.env`，兼容读取旧备份中的 `.env.docker` 并恢复为 `.env`。冷备份仍要求停止所有写入服务；维护模式不能替代数据库正常停机。

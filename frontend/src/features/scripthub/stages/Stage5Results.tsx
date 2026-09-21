@@ -69,7 +69,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset, expectedCount =
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
         <div>
-          <h2 style={{ margin: 0 }}>第五步：查看结果</h2>
+          <h2 style={{ margin: 0 }}>分析结果</h2>
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
             等待分析结果…
           </p>
@@ -111,7 +111,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset, expectedCount =
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       {/* Header */}
       <div>
-        <h2 style={{ margin: 0 }}>第五步：查看结果</h2>
+        <h2 style={{ margin: 0 }}>分析结果</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
           查看分析报告，按需下载图像、统计表或完整结果包。
         </p>

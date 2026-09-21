@@ -135,7 +135,7 @@ export function Stage1DataIntake({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       <div>
-        <h2 style={{ margin: 0 }}>第一步：选择或上传数据</h2>
+        <h2 style={{ margin: 0 }}>选择或上传数据</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
           先选择项目，再选择本次分析所需的数据。已有数据可直接选用，不必填写服务器路径。
         </p>

@@ -136,7 +136,11 @@ def execute_script(job_id):
         tasks = getattr(state_module, '_' + prefix + '_tasks')
         kwargs=decode(call['kwargs'])
         if call.get('with_app_context'):kwargs['app_context_app']=app
-        with task_lock:tasks[job_id]=job
+        # Legacy completion reads these fields at the task top level. SQL stores
+        # them in payload; restore only this metadata, never user status/owner.
+        context_keys = ("analysis_signature", "input_assets", "config_json")
+        saved_context = {key: job.get("payload", {}).get(key) for key in context_keys if key in (job.get("payload") or {})}
+        with task_lock:tasks[job_id]={**job, **saved_context}
         try:
             with app.test_request_context('/api/script-hub/worker'):
                 if job.get('user_id'):

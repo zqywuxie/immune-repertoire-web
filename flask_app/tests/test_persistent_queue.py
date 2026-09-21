@@ -195,3 +195,29 @@ def test_poll_does_not_infer_failure_from_unavailable_redis(application, monkeyp
     monkeypatch.setattr(persistent_queue, 'redis_queue', Mock(side_effect=ConnectionError('offline')))
     service.upsert_job(parent['job_id'], {'queue_backend':'redis','rq_job_id':'rq-test'})
     assert service.get_job(parent['job_id'])['status'] == 'queued'
+
+
+def test_worker_restores_result_registration_context(application, monkeypatch):
+    monkeypatch.setenv('JOB_QUEUE','redis')
+    from importlib import import_module
+    from flask_app.models.database import Project
+    from flask_app.routes.api_script_hub import _common, profile_analysis
+    from flask_app.services.persistent_queue import execute_script
+    monkeypatch.setattr(import_module('flask_app.app'), 'app', application)
+    db.session.add(Project(id='worker-project',name='结果登记回归'));db.session.commit()
+    saved = Mock(return_value='registered-result')
+    monkeypatch.setattr(_common, '_persist_script_result', saved)
+    def compute(task_id, **kwargs):
+        _common._complete_script_task(task_id,module_name='topclone',detail='完成',result={'job_id':'report-id'},history=[])
+    monkeypatch.setattr(profile_analysis, '_run_topclone_task', compute)
+    service=get_background_job_service()
+    context={'analysis_signature':'saved-signature','input_assets':[{'path':'/input.csv'}], 'config_json':{'group_field':'group'}}
+    job=service.create_job(job_type='script_hub',module='topclone',project_id='worker-project',payload={**context,
+        'status':'completed','user_id':999,
+        'script_call':{'function':'flask_app.routes.api_script_hub.profile_analysis:_run_topclone_task','kwargs':{},'with_app_context':False}})
+    execute_script(job['job_id'])
+    saved.assert_called_once()
+    for key,value in context.items(): assert saved.call_args.kwargs[key]==value
+    result=service.get_job(job['job_id'])
+    assert result['result']['result_id']=='registered-result'
+    assert result['user_id'] is None
