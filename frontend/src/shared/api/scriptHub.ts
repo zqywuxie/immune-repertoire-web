@@ -150,6 +150,7 @@ export interface ScriptHubTaskStatusResponse {
 }
 
 const SCRIPT_HUB_LEGACY_MODULES = new Set([
+  "immune-infiltration",
   "db-alignment",
   "boxplot",
   "profile",
@@ -165,6 +166,7 @@ const SCRIPT_HUB_LEGACY_MODULES = new Set([
 ]);
 
 const MODULE_OUTPUT_KINDS: Record<string, string[]> = {
+  "immune-infiltration": ["html","png","csv","zip"],
   "db-alignment": ["html", "json", "zip"],
   profile: ["html", "png", "csv", "zip"],
   boxplot: ["html", "png", "csv", "zip"],
@@ -180,6 +182,7 @@ const MODULE_OUTPUT_KINDS: Record<string, string[]> = {
 };
 
 const MODULE_UI_ENTRIES: Record<string, string> = {
+  "immune-infiltration": "ScriptHubInfiltrationConfig",
   "db-alignment": "ScriptHubDbAlignmentConfig",
   profile: "ScriptHubProfileConfig",
   boxplot: "ScriptHubProfileConfig",
@@ -464,18 +467,18 @@ function scriptHubResultOutputs(result: Record<string, unknown>): JobOutput[] {
   };
 
   add("html", result.viewer_url || result.report_url, "交互报告");
-  add("json", result.metadata_url, "Metadata");
+  add("json", result.metadata_url, "分析信息");
   add("zip", result.zip_url, "结果文件包");
   addStructuredItems(result.viewer_items);
-  if (!structuredUrls.size) addMany("png", result.png_urls, "Figure");
+  if (!structuredUrls.size) addMany("png", result.png_urls, "图表");
   else if (Array.isArray(result.png_urls)) {
     result.png_urls.forEach((url, index) => {
       if (typeof url === "string" && url.trim() && !structuredUrls.has(url)) {
-        add("png", url, `Figure ${index + 1}`);
+        add("png", url, `图表 ${index + 1}`);
       }
     });
   }
-  addMany("csv", result.csv_urls, "CSV");
+  addMany("csv", result.csv_urls, "数据表");
   addMany("csv", result.shared_matrix_urls, "共享矩阵");
   addMany("csv", result.usage_urls, "基因使用数据表");
   addMany("csv", result.detail_urls, "明细表");

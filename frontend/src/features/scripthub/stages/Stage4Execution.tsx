@@ -444,6 +444,7 @@ export function Stage4Execution({
 }
 
 function validatePayload(module: string, payload: Record<string, unknown>, usesBatchResult = false) {
+  if (module === "immune-infiltration" && (!payload.group_field || payload.infiltration_checked !== true)) throw new Error("请返回配置页，核对免疫浸润分析范围。");
   if (module === "profile" && (!payload.param_begin || !payload.param_over)) {
     throw new Error("请返回上一步，选择要比较的指标范围。");
   }

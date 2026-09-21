@@ -12,5 +12,5 @@ for name in ['flask', 'pandas', 'numpy', 'scipy', 'sklearn', 'umap', 'pptx', 'fi
 if args.full:
     from sonnia.processing import Processing
     from sonnia.sonnia import SoNNia
-    subprocess.run(['Rscript', '-e', 'stopifnot(all(vapply(c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE"),requireNamespace,logical(1),quietly=TRUE)))'], check=True)
+    subprocess.run(['Rscript', '-e', 'stopifnot(all(vapply(c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE","data.table","ggplot2","patchwork","jsonlite"),requireNamespace,logical(1),quietly=TRUE)))'], check=True)
     print('SoNNia and R/Bioconductor: OK')

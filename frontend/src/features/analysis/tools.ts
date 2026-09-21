@@ -12,6 +12,7 @@ export type AnalysisTool = {
   module?: string; scheme?: string; preset?: Record<string, unknown>;
 };
 export const analysisTools: AnalysisTool[] = [
+  {id:"infiltration",category:"transcriptome",title:"免疫浸润组成与比较",description:"查看细胞组成及组间分数差异，导出原始数值和校正统计。",input:"免疫浸润结果与样本指标表",output:"组成图 · 箱线图 · 统计表",module:"immune-infiltration"},
   { id:"reads", category:"overview", title:"测序读段与链组成", description:"比较各样本 TCR / IG 链的 读段数量与占比。", input:"样本指标表", output:"条形图 · 数据表", scheme:"sequencing_reads_chart" },
   { id:"profile", category:"overview", title:"组库指标与分组比较", description:"选择样本指标，查看组间分布与统计比较。", input:"样本指标表", output:"箱线图 · 统计表", module:"profile" },
   { id:"topclone", category:"clones", title:"优势克隆分析", description:"按 前若干位、链及分组比较优势克隆。", input:"克隆序列表与样本指标表", output:"克隆图表 · 明细", module:"topclone" },

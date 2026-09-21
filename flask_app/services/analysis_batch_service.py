@@ -7,7 +7,7 @@ from flask_app.models.database import db, User
 from flask_app.services.background_job_service import get_background_job_service, TERMINAL_STATUSES
 
 batch_child_context = ContextVar("batch_child_context", default=None)
-SUPPORTED_MODULES = {"profile", "pep-analysis", "topclone", "pgen-analysis", "db-alignment", "boxplot", "umap", "umapin", "volcano", "go-kegg-enrichment", "ml-analysis", "mait-nkt", "charts"}
+SUPPORTED_MODULES = {"immune-infiltration", "profile", "pep-analysis", "topclone", "pgen-analysis", "db-alignment", "boxplot", "umap", "umapin", "volcano", "go-kegg-enrichment", "ml-analysis", "mait-nkt", "charts"}
 
 
 def validate_batch(data):

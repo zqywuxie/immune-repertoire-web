@@ -12,7 +12,7 @@ def _build_script_hub_bp():
 
     Returns a new Blueprint each call, safe for repeated app creation (e.g. tests).
     """
-    from . import cache, modules_config, boxplot, profile_analysis, enrichment, tasks_results
+    from . import cache, modules_config, boxplot, profile_analysis, enrichment, tasks_results, infiltration
 
     bp = Blueprint("script_hub", __name__, url_prefix="/api/script-hub")
     @bp.before_request
@@ -49,6 +49,7 @@ def _build_script_hub_bp():
             check(request.get_json(silent=True) or {})
         except ValidationError as error:
             return jsonify(success=False, message=error.message), 400
+    bp.register_blueprint(infiltration.bp)
     bp.register_blueprint(cache.bp)
     bp.register_blueprint(modules_config.bp)
     bp.register_blueprint(boxplot.bp)

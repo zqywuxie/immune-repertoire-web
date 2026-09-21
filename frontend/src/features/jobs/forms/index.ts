@@ -31,6 +31,8 @@ export { UmapinConfig as ScriptHubUmapinConfig } from "../../scripthub/modules/U
 export { MlAnalysisConfig as ScriptHubMlAnalysisConfig } from "../../scripthub/modules/MlAnalysisConfig";
 export { MaitNktConfig as ScriptHubMaitNktConfig } from "../../scripthub/modules/MaitNktConfig";
 
+import { InfiltrationConfig as ScriptHubInfiltrationConfig } from "../../scripthub/modules/InfiltrationConfig";
+
 import type { GroupSpec } from "../../../shared/api/groupSpecs";
 import type { ComponentType } from "react";
 import type { TablePreview } from "../../scripthub/stages/Stage2SourceInspection";
@@ -85,6 +87,7 @@ export type ModuleFormComponent = ComponentType<ModuleFormProps>;
 
 /** Map from manifest ``ui_entry`` to the React component that renders it. */
 export const FORM_REGISTRY: Record<string, ModuleFormComponent> = {
+  ScriptHubInfiltrationConfig,
   ChartsCombinedForm,
   SimpleForm,
   MultiSelectForm,

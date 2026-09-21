@@ -507,6 +507,7 @@ def list_modules():
         {
             "success": True,
             "modules": [
+                {"key":"immune-infiltration","label":"免疫浸润组成与比较","status":"available","description":"按样本指标表匹配分组，生成细胞组成图及组间比较统计。"},
                 {
                     "key": "db-alignment",
                     "label": "数据库比对",
@@ -585,10 +586,12 @@ def list_modules():
 
 
     import importlib.util
-    from flask_app.services.module_runtime import enrichment_runtime_ready
+    from flask_app.services.module_runtime import enrichment_runtime_ready, infiltration_runtime_ready
     payload = response.get_json()
     required = {'pgen-analysis': ('sonnia', 'Pgen 运行环境未配置，请联系管理员启用 SoNNia 模型。'), 'umap': ('umap', 'UMAP 运行环境未配置。'), 'umapin': ('umap', 'UMAP 运行环境未配置。')}
     for module in payload['modules']:
+        if module['key'] == 'immune-infiltration' and not infiltration_runtime_ready():
+            module.update(status='unavailable', unavailable_reason='免疫浸润绘图运行环境未就绪，请检查分析基础镜像。')
         dependency = required.get(module['key'])
         if dependency and importlib.util.find_spec(dependency[0]) is None:
             module.update(status='unavailable', unavailable_reason=dependency[1])

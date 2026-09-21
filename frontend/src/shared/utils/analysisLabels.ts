@@ -1,4 +1,5 @@
 export const analysisLabels: Record<string,string> = {
+  "immune-infiltration":"免疫浸润组成与比较",
   "profile": "组库指标与分组比较",
   "boxplot": "分组箱线图",
   "pep-analysis": "克隆共享分析",

@@ -113,7 +113,9 @@ def list_script_hub_jobs():
 def create_script_hub_job():
     data = request.get_json() or {}
     module_name = str(data.get("module") or "").strip().lower()
+    from .infiltration import run_infiltration
     dispatch = {
+        'immune-infiltration': run_infiltration,
         "db-alignment": run_db_alignment,
         "boxplot": run_boxplot,
         "profile": run_profile,

@@ -14,3 +14,14 @@ def enrichment_runtime_ready():
         return subprocess.run([executable,'-e',script],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15,**options).returncode==0
     except (OSError,subprocess.TimeoutExpired):
         return False
+
+
+@lru_cache(maxsize=1)
+def infiltration_runtime_ready():
+    executable=shutil.which('Rscript')
+    if not executable: return False
+    script="p <- c('data.table','ggplot2','patchwork','jsonlite'); quit(status=if(all(vapply(p,requireNamespace,logical(1),quietly=TRUE))) 0 else 1)"
+    try:
+        return subprocess.run([executable,'-e',script],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15).returncode==0
+    except (OSError,subprocess.TimeoutExpired):
+        return False

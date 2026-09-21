@@ -1,6 +1,6 @@
 import type { JobModule } from "../../shared/types/domain";
 
-export type RequiredAsset = "pep" | "profile" | "transcriptome";
+export type RequiredAsset = "pep" | "profile" | "transcriptome" | "deconvolution";
 
 export type SourceAvailabilityContext = {
   pepPaths?: string[];
@@ -16,12 +16,14 @@ type RequirementRule = {
 };
 
 const ASSET_LABELS: Record<RequiredAsset, string> = {
+  deconvolution: "免疫浸润结果",
   pep: "克隆序列表",
   profile: "样本指标表",
   transcriptome: "转录组",
 };
 
 const MODULE_REQUIREMENTS: Record<string, RequirementRule> = {
+  "immune-infiltration": {all:["profile","deconvolution"]},
   "db-alignment": { all: ["pep", "profile"] },
   profile: { all: ["profile"] },
   boxplot: { all: ["profile"] },
@@ -69,6 +71,7 @@ export function getModuleAvailability(
   const available = new Set<RequiredAsset>();
   if ((sourceContext?.pepPaths || []).length > 0) available.add("pep");
   if (sourceContext?.profilePath) available.add("profile");
+  if (sourceContext?.deconvolutionPath) available.add("deconvolution");
   if (sourceContext?.transcriptomePath) available.add("transcriptome");
 
   const missingAll = (rule.all || []).filter((item) => !available.has(item));

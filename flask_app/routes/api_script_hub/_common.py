@@ -50,7 +50,7 @@ _script_task_lock = threading.Lock()
 _script_tasks: Dict[str, Dict[str, Any]] = {}
 
 _RESULT_DIR = "script_hub"
-_ALLOWED_MODULES = {"db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "go-kegg-enrichment", "umapin", "ml-analysis", "mait-nkt"}
+_ALLOWED_MODULES = {"immune-infiltration", "db-alignment", "boxplot", "profile", "topclone", "pep-analysis", "pgen-analysis", "umap", "volcano", "go-kegg-enrichment", "umapin", "ml-analysis", "mait-nkt"}
 _COLUMN_HINTS = {
     "cdr3_column": ["cdr3(pep)", "cdr3_pep", "cdr3aa", "cdr3_aa", "cdr3", "aminoacid", "sequence"],
     "copy_column": ["copy", "copies", "count", "reads", "umis", "umi", "frequency"],
@@ -1130,6 +1130,18 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
     """Mirror run-endpoint cache inputs without creating a task."""
     project_id = str(data.get("project_id") or "").strip() or None
 
+    if module_name == "immune-infiltration":
+        from .infiltration import request_inputs
+        from flask_app.services.infiltration_service import inspect_inputs
+        profile, deconvolution = request_inputs(data)
+        group = data.get("group_field") or ""
+        if not group:
+            raise ValidationError(message="请选择分组字段。")
+        checked = inspect_inputs(profile, deconvolution, group, data.get("cell_columns"))
+        return _build_script_cache_context(project_id=project_id, module_name=module_name,
+            input_paths=[{"asset_type":"profile","path":profile},{"asset_type":"deconvolution","path":deconvolution}],
+            config_json={"group_field":group,"cell_columns":data.get("cell_columns") or checked[0]["cell_columns"]})
+
     if module_name == "db-alignment":
         pep_paths = _pep_paths_from_request(data)
         base_path = _primary_pep_path_from_request(data, "base_path")
@@ -1715,10 +1727,10 @@ def _build_and_save_viewer(output_base, result, metadata, *, title, subtitle, dl
     viewer_path = output_base / "viewer.html"
     _write_unified_viewer(
         viewer_path=viewer_path, title=title, subtitle=subtitle,
-        image_groups=[{"label": "Images", "items": img_items}],
+        image_groups=[{"label": "图表", "items": img_items}],
         download_sections=dl_sections,
-        stats=[{"label": "Images", "value": str(len(img_items))},
-               {"label": "CSV Files", "value": str(sum(len(ds["links"]) for ds in dl_sections))}],
+        stats=[{"label": "图表", "value": str(len(img_items))},
+               {"label": "数据文件", "value": str(sum(len(ds["links"]) for ds in dl_sections))}],
         metadata=metadata)
     job_id_str = str(output_base.name)
     result["viewer_url"] = f"/api/script-hub/results/{job_id_str}/viewer.html"
@@ -2591,6 +2603,8 @@ def _write_unified_viewer(
                 all_categories.append(cat)
     default_category = all_categories[0] if all_categories else ""
 
+    show_significance = metadata.get("show_significance_filter", True)
+    significance_control = '<button class="sig-toggle" id="sigToggle">仅显示显著结果</button>' if show_significance else ''
     cards = []
     for group in image_groups:
         for item in group.get("items", []):
@@ -2600,17 +2614,17 @@ def _write_unified_viewer(
             category = _html.escape(raw_category)
             is_sig = item.get("sig", False)
             badge_class = "is-sig" if is_sig else "is-ns"
-            badge_text = "Significant" if is_sig else "NS"
+            badge_text = "显著" if is_sig else "不显著"
             cards.append(
                 '<article class="plot-card' + (" is-hidden" if raw_category != default_category else "") + '" data-category="' + category + '" data-sig="'
                 + ("1" if is_sig else "0") + '">'
                 '<div class="plot-head"><div><strong>' + title_text + '</strong><span>' + category + '</span></div>'
-                '<em class="' + badge_class + '">' + badge_text + '</em></div>'
+                + ('<em class="' + badge_class + '">' + badge_text + '</em>' if show_significance else '') + '</div>'
                 '<a href="' + src + '" target="_blank" rel="noopener">'
                 '<img src="' + src + '" alt="' + title_text + '" loading="lazy"></a></article>'
             )
 
-    cards_html = "".join(cards) if cards else '<div class="empty-txt">No output available.</div>'
+    cards_html = "".join(cards) if cards else '<div class="empty-txt">暂无结果。</div>'
 
     category_select_html = "".join(
         '<option value="' + _html.escape(c) + '"' + (" selected" if c == default_category else "") + ">"
@@ -2618,7 +2632,7 @@ def _write_unified_viewer(
         for c in all_categories
     )
     if not category_select_html:
-        category_select_html = '<option value="">(no categories)</option>'
+        category_select_html = '<option value="">暂无分类</option>'
 
     stats_html = "".join(
         '<div class="stat-item"><strong>' + _html.escape(s["label"]) + '</strong><span>' + _html.escape(s["value"]) + '</span></div>'
@@ -2682,15 +2696,15 @@ def _write_unified_viewer(
 </head>
 <body>
 <div class="page">
-  <a class="back-link" href="javascript:history.back()">&#8592; Back</a>
+  <a class="back-link" href="javascript:history.back()">&#8592; 返回</a>
   <div class="header">
     <h1>""" + _html.escape(title) + """</h1>
     <div class="meta">""" + _html.escape(subtitle) + """</div>
     <div class="stats">""" + stats_html + """</div>
   </div>
   <div class="toolbar">
-    <button class="sig-toggle" id="sigToggle">Show significant only</button>
-    <label class="category-filter" for="categorySelect">Image category
+    """ + significance_control + """
+    <label class="category-filter" for="categorySelect">图表分类
       <select id="categorySelect">""" + category_select_html + """</select>
     </label>
   </div>
@@ -2714,7 +2728,7 @@ def _write_unified_viewer(
   if (sigToggle) sigToggle.addEventListener('click', function() {
     sigOnly = !sigOnly;
     sigToggle.classList.toggle('is-active', sigOnly);
-    sigToggle.textContent = sigOnly ? 'Showing significant only' : 'Show significant only';
+    sigToggle.textContent = sigOnly ? '正在显示显著结果' : '仅显示显著结果';
     applyFilters();
   });
   if (categorySelect) categorySelect.addEventListener('change', function() {

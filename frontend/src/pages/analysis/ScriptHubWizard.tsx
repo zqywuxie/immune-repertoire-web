@@ -309,7 +309,7 @@ export function ScriptHubWizard({tool}:{tool?:AnalysisTool} = {}) {
     if (s === 3) {
       return presetInputReady && wizard.selectedModules.length > 0 && wizard.selectedModules.every((key) => {
         const selected = availableModules.find((module) => module.key === key);
-        return isModuleSelectable(selected, sourceContext);
+        return isModuleSelectable(selected, sourceContext) && (key !== "immune-infiltration" || wizard.moduleConfigs[key]?.infiltration_checked === true);
       });
     }
     if (s === 4) return !running && wizard.jobIds.length > 0 && wizard.jobIds.every((id) => Boolean(wizard.resultsByJobId[id]));
