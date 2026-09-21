@@ -5,6 +5,8 @@ from pathlib import Path
 from flask_app.services.path_access_service import PathAccessService
 
 LABELS = {"pep": "克隆序列表", "profile": "样本指标表", "transcriptome": "转录组数据", "deconvolution": "免疫浸润结果"}
+DECONVOLUTION_GROUP_COLUMNS = {"group", "category", "分组"}
+DECONVOLUTION_QUALITY_COLUMNS = {"p-value", "p.value", "p_value", "correlation", "rmse", "absolute score (sig.score)"}
 SAMPLE_COLUMNS = {"sample", "sample_id", "sample_name", "样本", "样本编号", "mixture"}
 GENE_COLUMNS = {"gene", "gene_id", "gene_name", "geneid", "symbol", "ensembl", "基因", "基因编号"}
 
@@ -55,7 +57,20 @@ def _inspect_input_quality(pep_paths, profile_path, transcriptome_path, deconvol
                 if report['missing_fields']:
                     warnings.append(f"{LABELS[kind]}的部分字段有空值，选择分组和指标时请核对。")
             if kind in {'transcriptome', 'deconvolution'}:
-                numeric = inspect_numeric_content(path, report['sample_column'] if kind == 'deconvolution' else None)
+                excluded_columns = []
+                if kind == 'deconvolution':
+                    excluded_columns = [str(field) for field in columns if str(field).strip().casefold() in DECONVOLUTION_GROUP_COLUMNS]
+                    quality_columns = [str(field) for field in columns if str(field).strip().casefold() in DECONVOLUTION_QUALITY_COLUMNS]
+                    cell_columns = [str(field) for field in columns if field != report['sample_column'] and str(field) not in excluded_columns + quality_columns]
+                    report.update(cell_columns=cell_columns, group_columns=excluded_columns, quality_columns=quality_columns)
+                    if not cell_columns:
+                        report['status'] = 'invalid'
+                        errors.append("免疫浸润结果未包含细胞数值列；分组和质量指标不能作为细胞结果。")
+                    if excluded_columns:
+                        warnings.append("免疫浸润结果的分组列按文字保留，不参与细胞数值检查：" + "、".join(excluded_columns) + "。")
+                    if quality_columns:
+                        warnings.append("免疫浸润结果中的质量指标单独识别，不作为细胞列：" + "、".join(quality_columns) + "。")
+                numeric = inspect_numeric_content(path, report['sample_column'] if kind == 'deconvolution' else None, excluded_columns=excluded_columns)
                 report['numeric_content'] = numeric
                 if numeric['invalid_count'] or not numeric['row_count'] or not numeric['column_count']:
                     report['status'] = 'invalid'
@@ -110,7 +125,7 @@ def validate_analysis_inputs(input_assets):
     return quality
 
 
-def inspect_numeric_content(path, sample_column=None):
+def inspect_numeric_content(path, sample_column=None, excluded_columns=()):
     """Scan numeric cells without materializing a complete expression matrix."""
     import csv
     import math
@@ -119,7 +134,8 @@ def inspect_numeric_content(path, sample_column=None):
     def scan(rows):
         header = next(rows, ())
         indexes = [index for index, column in enumerate(header)
-                   if (index != 0 if sample_column is None else str(column).strip() != sample_column.strip())]
+                   if (index != 0 if sample_column is None else str(column).strip() != sample_column.strip())
+                   and str(column) not in excluded_columns]
         result = {'row_count': 0, 'column_count': len(indexes), 'invalid_count': 0, 'examples': []}
         for row_number, row in enumerate(rows, start=2):
             if not row: continue

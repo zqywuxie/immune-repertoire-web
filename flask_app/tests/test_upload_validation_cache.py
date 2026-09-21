@@ -80,3 +80,18 @@ def test_queued_validation_does_not_start_a_second_scan(context):
         result = cached_validation(asset.storage_path, "profile", scan)
         assert result["inputs"][0]["status"] == "pending"
         scan.assert_not_called()
+
+
+def test_old_infiltration_validation_is_rechecked_after_upgrade(context):
+    from flask_app.services.input_validation_cache import VALIDATOR_VERSION
+    service, project = context
+    asset = upload(service, project, 'deconvolution', b'Mixture,P-value,Correlation,RMSE\n001,0.1,0.9,0.2\n', 'quality-only.csv')
+    cached = asset.metadata_json['validation']
+    asset.metadata_json = {**asset.metadata_json, 'validation': {
+        **cached, 'status':'valid', 'key':{**cached['key'], 'validator':2},
+        'summary':{'inputs':[], 'errors':[], 'warnings':[], 'alignments':[]}}}
+    db.session.commit()
+    report = inspect_input_quality([], '', '', asset.storage_path)
+    assert report['errors']
+    assert asset.metadata_json['validation']['status'] == 'invalid'
+    assert asset.metadata_json['validation']['key']['validator'] == VALIDATOR_VERSION

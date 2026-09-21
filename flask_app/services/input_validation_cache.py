@@ -8,7 +8,7 @@ from flask import has_app_context, current_app
 from flask_app.models.database import ProjectAsset, Project, db
 from flask_app.services.user_scope import assert_owned
 
-VALIDATOR_VERSION = 2
+VALIDATOR_VERSION = 3
 KINDS = {"pep", "profile", "datapoint", "transcriptome", "deconvolution", "cibersort"}
 
 def snapshot(path):

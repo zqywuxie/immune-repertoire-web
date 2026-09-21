@@ -245,3 +245,65 @@ def test_joint_inputs_without_common_samples_are_rejected(profile_app,tmp_path):
     expression=tmp_path/'expression.csv';expression.write_text('gene,B\nG1,2\n')
     with pytest.raises(ValidationError,match='没有匹配'):
         validate_analysis_inputs([{'asset_type':'profile','path':str(profile)},{'asset_type':'transcriptome','path':str(expression)}])
+
+
+def test_infiltration_groups_are_text_and_quality_columns_are_not_cells(profile_app, tmp_path):
+    path = tmp_path/'infiltration.csv'
+    content = 'Mixture,Group,T cells,B cells,P-value,Correlation,RMSE\n001,治疗前,0.2,0.8,0.01,0.9,0.2\n002,治疗后,0.4,0.6,0.03,0.8,0.3\n'
+    path.write_text(content, encoding='utf-8')
+    result = inspect_input_quality([], '', '', str(path))
+    assert not result['errors']
+    report = result['inputs'][0]
+    assert report['samples'] == ['001','002']
+    assert report['cell_columns'] == ['T cells','B cells']
+    assert report['group_columns'] == ['Group']
+    assert report['quality_columns'] == ['P-value','Correlation','RMSE']
+    assert report['numeric_content']['invalid_count'] == 0
+    assert path.read_text(encoding='utf-8') == content
+
+
+def test_infiltration_quality_only_is_not_a_cell_matrix(profile_app, tmp_path):
+    path = tmp_path/'quality.csv'
+    path.write_text('Mixture,category,P-value,Correlation,RMSE\n001,A,0.1,0.9,0.2\n',encoding='utf-8')
+    result = inspect_input_quality([], '', '', str(path))
+    assert result['inputs'][0]['status'] == 'invalid'
+    assert any('未包含细胞数值列' in message for message in result['errors'])
+
+
+def test_infiltration_unknown_text_and_bad_numeric_are_not_silently_dropped(profile_app, tmp_path):
+    path = tmp_path/'bad.csv'
+    path.write_text('Mixture,分组,T cells,备注,P-value\n001,甲,NaN,未知字段,错误\n',encoding='utf-8')
+    result = inspect_input_quality([], '', '', str(path))
+    assert result['inputs'][0]['numeric_content']['invalid_count'] == 3
+    assert result['errors']
+
+
+def test_infiltration_workbook_keeps_group_text(profile_app, tmp_path):
+    from openpyxl import Workbook
+    path = tmp_path/'infiltration.xlsx'
+    book = Workbook()
+    book.active.append(['sample','分组','T cells','B cells','RMSE'])
+    book.active.append(['001','甲',0.2,0.8,0.1])
+    book.active.append(['002','乙',0.3,0.7,0.2])
+    book.save(path)
+    report = inspect_input_quality([], '', '', str(path))
+    assert not report['errors']
+    assert report['inputs'][0]['cell_columns'] == ['T cells','B cells']
+    assert report['inputs'][0]['samples'] == ['001','002']
+
+
+def test_infiltration_cell_columns_match_original_r_helper(profile_app, tmp_path):
+    import os
+    import json
+    import subprocess
+    from pathlib import Path
+    reference = os.environ.get('REFERENCE_PIPELINE')
+    if not reference:
+        pytest.skip('需要只读挂载原始 pipeline 并设置 REFERENCE_PIPELINE')
+    path = tmp_path/'infiltration.csv'
+    path.write_text('Mixture,Group,T cells,B cells,P-value,Correlation,RMSE\nS1,A,0.2,0.8,0.01,0.9,0.2\nS2,B,0.3,0.7,0.02,0.8,0.3\n',encoding='utf-8')
+    command = 'args <- commandArgs(TRUE); source(args[1]); x <- read_table(args[2]); cat(jsonlite::toJSON(resolve_columns(x, NULL, exclude=c("Mixture","Group","P-value","Correlation","RMSE"))))'
+    result = subprocess.run(['Rscript','-e',command,str(Path(reference)/'07.immuneInfiltration'/'plot_deconv_helpers.R'),str(path)],check=True,capture_output=True,text=True)
+    report = inspect_input_quality([], '', '', str(path))
+    assert not report['errors']
+    assert report['inputs'][0]['cell_columns'] == json.loads(result.stdout)
