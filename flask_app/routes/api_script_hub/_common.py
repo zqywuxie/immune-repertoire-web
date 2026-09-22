@@ -1132,15 +1132,16 @@ def _cache_context_from_script_request(data: Dict[str, Any], module_name: str) -
 
     if module_name == "immune-infiltration":
         from .infiltration import request_inputs
-        from flask_app.services.infiltration_service import inspect_inputs
+        from flask_app.services.infiltration_service import inspect_inputs, validate_score_type
         profile, deconvolution = request_inputs(data)
         group = data.get("group_field") or ""
         if not group:
             raise ValidationError(message="请选择分组字段。")
+        score_type = validate_score_type(data.get("score_type"))
         checked = inspect_inputs(profile, deconvolution, group, data.get("cell_columns"))
         return _build_script_cache_context(project_id=project_id, module_name=module_name,
             input_paths=[{"asset_type":"profile","path":profile},{"asset_type":"deconvolution","path":deconvolution}],
-            config_json={"group_field":group,"cell_columns":data.get("cell_columns") or checked[0]["cell_columns"]})
+            config_json={"group_field":group,"cell_columns":data.get("cell_columns") or checked[0]["cell_columns"],"score_type":score_type})
 
     if module_name == "db-alignment":
         pep_paths = _pep_paths_from_request(data)

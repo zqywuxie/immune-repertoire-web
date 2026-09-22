@@ -28,6 +28,8 @@ def inspect_infiltration():
     try:
         data=request.get_json(silent=True) or {}
         profile,deconvolution=request_inputs(data)
+        if data.get('group_field') or data.get('score_type') is not None:
+            infiltration_service.validate_score_type(data.get('score_type'))
         result=infiltration_service.inspect_inputs(profile,deconvolution,data.get('group_field') or '',data.get('cell_columns'))
         return jsonify(success=True,**(result[0] if isinstance(result,tuple) else result))
     except ValidationError as error:
@@ -42,16 +44,17 @@ def run_infiltration():
         group=data.get('group_field')
         if not isinstance(group,str) or not group:
             raise ValidationError(message='请选择分组字段。')
+        score_type=infiltration_service.validate_score_type(data.get('score_type'))
         checked=infiltration_service.inspect_inputs(profile,deconvolution,group,data.get('cell_columns'))
         cells=data.get('cell_columns') or checked[0]['cell_columns']
         context=shared._build_script_cache_context(project_id=data['project_id'],module_name=MODULE,
             input_paths=[{'asset_type':'profile','path':profile},{'asset_type':'deconvolution','path':deconvolution}],
-            config_json={'group_field':group,'cell_columns':cells})
+            config_json={'group_field':group,'cell_columns':cells,'score_type':score_type})
         task_id='script_task_'+uuid.uuid4().hex[:12]
         shared._set_task_state(task_id,status='queued',progress=0,stage='等待执行',detail='免疫浸润分析已提交',meta={'module':MODULE},history=[],**context)
         try:
             shared._script_executor.submit(_run_infiltration_task,task_id,profile_path=profile,deconvolution_path=deconvolution,
-                group_field=group,cell_columns=cells,results_root=shared._resolve_results_root(),app_context_app=current_app._get_current_object())
+                group_field=group,cell_columns=cells,score_type=score_type,results_root=shared._resolve_results_root(),app_context_app=current_app._get_current_object())
         except Exception:
             shared._set_task_state(task_id,status='failed',stage='提交失败',detail='任务未能进入执行队列，请稍后重试。')
             raise
@@ -60,7 +63,7 @@ def run_infiltration():
         return jsonify(success=False,message=error.message),400
 
 
-def _run_infiltration_task(task_id,*,profile_path,deconvolution_path,group_field,cell_columns,results_root,app_context_app):
+def _run_infiltration_task(task_id,*,profile_path,deconvolution_path,group_field,cell_columns,results_root,app_context_app,score_type=None):
     # The local executor, unlike RQ, does not supply an application context.
     with ExitStack() as stack:
         if not has_app_context():
@@ -81,7 +84,7 @@ def _run_infiltration_task(task_id,*,profile_path,deconvolution_path,group_field
             parent=script_output_parent(task_id,Path(results_root)/shared._RESULT_DIR,app_context_app)
             job_id,output,metadata=infiltration_service.generate_report(profile_path,deconvolution_path,group_field,cell_columns,parent,
                 lambda value,stage,detail:shared._record_stage(task_id,value,stage,detail,{'module':MODULE}),
-                lambda:shared._script_task_cancel_requested(task_id))
+                lambda:shared._script_task_cancel_requested(task_id),score_type=score_type)
             result={'module':MODULE,'job_id':job_id,'output_base':str(output),'metadata':metadata,
                 'png_urls':[f'/api/script-hub/results/{job_id}/{path.relative_to(output).as_posix()}' for path in output.rglob('*.png')],
                 'csv_urls':[f'/api/script-hub/results/{job_id}/{path.relative_to(output).as_posix()}' for path in output.rglob('*.csv')]}

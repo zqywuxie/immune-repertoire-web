@@ -12,6 +12,7 @@ def test_infiltration_batch_rq(tmp_path,monkeypatch):
     monkeypatch.setattr(TestingConfig,'SQLALCHEMY_DATABASE_URI',f'sqlite:///{tmp_path / "batch.db"}')
     monkeypatch.setattr(TestingConfig,'REQUIRE_LOGIN',False)
     monkeypatch.setattr(TestingConfig,'RESULTS_FOLDER',tmp_path/'results')
+    monkeypatch.setenv('FLASK_CONFIG','testing')
     monkeypatch.setenv('JOB_QUEUE','redis')
     module=importlib.import_module('flask_app.app');app=module.create_app('testing');monkeypatch.setattr(module,'app',app)
     monkeypatch.setattr('flask_app.services.mongo_service.save_result',lambda **kwargs:'synthetic-result')
@@ -26,7 +27,7 @@ def test_infiltration_batch_rq(tmp_path,monkeypatch):
         for kind,path in [('profile',profile),('deconvolution',deconv)]:
             db.session.add(ProjectAsset(project_id=project.id,asset_type=kind,storage_path=str(path),original_name=path.name,size=path.stat().st_size,metadata_json={'asset_set':'test'}))
         db.session.commit()
-        result=app.test_client().post('/api/script-hub/batches',json={'project_id':project.id,'asset_set':'test','items':[{'module':'immune-infiltration','payload':{'group_field':'group','cell_columns':['T cells','B cells']}}]})
+        result=app.test_client().post('/api/script-hub/batches',json={'project_id':project.id,'asset_set':'test','items':[{'module':'immune-infiltration','payload':{'group_field':'group','cell_columns':['T cells','B cells'],'score_type':'absolute'}}]})
         assert result.status_code==202,result.json
         parent_id=result.json['job_id'];db.session.remove();db.engine.dispose()
         try:
@@ -36,6 +37,7 @@ def test_infiltration_batch_rq(tmp_path,monkeypatch):
             child=get_background_job_service().get_job(parent['payload']['items'][0]['job_id'])
             assert child['status']=='completed',child
             assert child['result']['result_id']=='synthetic-result'
+            assert child['result']['metadata']['score_type']=='absolute'
             response=app.test_client().get(child['result']['zip_url'])
             assert response.status_code==200 and len(response.data)>100
         finally:

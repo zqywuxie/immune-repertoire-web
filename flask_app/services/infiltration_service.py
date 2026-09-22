@@ -7,6 +7,15 @@ import uuid
 from flask_app.exceptions import ValidationError
 from flask_app.services.input_quality import inspect_input_quality, SAMPLE_COLUMNS
 
+SCORE_TYPES = {'relative': '相对比例', 'absolute': '绝对分数', 'other': '其他原始估计分数'}
+
+
+def validate_score_type(value):
+    if not isinstance(value, str) or value not in SCORE_TYPES:
+        raise ValidationError(message='请根据输入文件的生成方式，选择相对比例、绝对分数或其他原始估计分数。')
+    return value
+
+
 SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts' / 'infiltration' / '07.immuneInfiltration'
 
 
@@ -57,8 +66,11 @@ def inspect_inputs(profile_path, deconvolution_path, group_field='', cell_column
     return result, prepared, metadata
 
 
-def generate_report(profile_path, deconvolution_path, group_field, cell_columns, output_parent, progress, cancelled):
+def generate_report(profile_path, deconvolution_path, group_field, cell_columns, output_parent, progress, cancelled, score_type=None):
+    if score_type is not None:
+        validate_score_type(score_type)
     summary, prepared, metadata = inspect_inputs(profile_path,deconvolution_path,group_field,cell_columns)
+    summary.update(score_type=score_type or 'unspecified', score_type_label=SCORE_TYPES.get(score_type, '历史任务未标注'))
     job_id='infiltration_'+uuid.uuid4().hex[:12]
     output=Path(output_parent)/job_id
     output.mkdir(parents=True)
@@ -95,6 +107,6 @@ def generate_report(profile_path, deconvolution_path, group_field, cell_columns,
                     try: process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         process.kill();process.wait()
-    summary.update(method='组成图：全局最小值平移后按行归一化；组间比较：原始数值、双侧 Wilcoxon 检验及全体比较 BH 校正。', group_field=group_field)
+    summary.update(method='输入类型：'+summary['score_type_label']+'；组成图：全局最小值平移后按行归一化；组间比较：原始数值、双侧 Wilcoxon 检验及全体比较 BH 校正。', group_field=group_field)
     (output/'analysis_summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
     return job_id,output,summary

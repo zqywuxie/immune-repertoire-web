@@ -1,5 +1,4 @@
 from pathlib import Path
-from unittest.mock import Mock
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,16 +20,29 @@ def test_real_api_execution_registers_results_and_downloads(profile_app,tmp_path
     from flask_app.routes.api_script_hub import _common as shared
     profile,deconv=inputs(tmp_path)
     project=Project(name='合成浸润验收');db.session.add(project);db.session.flush()
-    for kind,path in [('profile',profile),('deconvolution',deconv)]:
+    decoy=tmp_path/'absolute.csv'
+    frame=pd.read_csv(deconv,dtype={'Mixture':str})
+    frame['T cells']=100
+    frame['B cells']=200
+    frame.to_csv(decoy,index=False)
+    for kind,path in [('deconvolution',decoy),('profile',profile),('deconvolution',deconv)]:
         db.session.add(ProjectAsset(project_id=project.id,asset_type=kind,storage_path=str(path),original_name=path.name,size=path.stat().st_size,metadata_json={'asset_set':'test'}))
     db.session.commit()
     # Execute the same worker synchronously; only external Mongo is isolated.
     monkeypatch.setattr(shared._script_executor,'submit',lambda fn,task,**kwargs:fn(task,**kwargs))
     monkeypatch.setattr('flask_app.services.mongo_service.save_result',lambda **kwargs:'synthetic-result')
-    data={'project_id':project.id,'asset_set':'test','group_field':'group','cell_columns':['T cells','B cells']}
+    data={'project_id':project.id,'asset_set':'test','group_field':'group','cell_columns':['T cells','B cells'],'score_type':'relative','deconvolution_path':str(deconv)}
     client=profile_app.test_client()
     assert client.post('/api/script-hub/immune-infiltration/inspect',json=data).json['group_counts']=={'A':4,'B':4}
     assert client.post('/api/script-hub/immune-infiltration/inspect',json={**data,'asset_set':'missing'}).status_code==400
+    ambiguous={key:value for key,value in data.items() if key!='deconvolution_path'}
+    assert client.post('/api/script-hub/immune-infiltration/inspect',json=ambiguous).status_code==400
+    foreign=tmp_path/'unregistered.csv'
+    foreign.write_bytes(deconv.read_bytes())
+    assert client.post('/api/script-hub/immune-infiltration/inspect',json={**data,'deconvolution_path':str(foreign)}).status_code==400
+    for invalid in [None,'auto',{},['relative']]:
+        rejected=client.post('/api/script-hub/immune-infiltration/run',json={**data,'score_type':invalid})
+        assert rejected.status_code==400,rejected.json
     response=client.post('/api/script-hub/immune-infiltration/run',json=data)
     assert response.status_code==200,response.json
     task=shared._get_task_state(response.json['task_id'])
@@ -40,6 +52,8 @@ def test_real_api_execution_registers_results_and_downloads(profile_app,tmp_path
     assert len(result['png_urls'])>=2
     viewer=client.get(result['viewer_url']).get_data(as_text=True)
     assert '数据与统计表' in viewer
+    assert '输入类型：相对比例' in viewer
+    assert result['metadata']['score_type']=='relative'
     assert 'id="sigToggle"' not in viewer
     for url in result['csv_urls']:
         assert url in viewer
