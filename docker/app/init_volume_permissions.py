@@ -46,6 +46,21 @@ def initialize_volumes():
         while pending:
             directory = pending.pop()
             changed += repair_permissions(directory, directory.lstat())
+            # Docker populates empty named volumes from the image on container
+            # creation, including the image directory's UID/GID. Keep an empty
+            # initialized mount nonempty so a later API/worker creation cannot
+            # overwrite the ownership configured by APP_UID/APP_GID.
+            if os.path.ismount(directory):
+                marker = directory / ".volume-permissions-initialized"
+                try:
+                    descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    try:
+                        os.fchown(descriptor, APP_UID, APP_GID)
+                    finally:
+                        os.close(descriptor)
             with os.scandir(directory) as entries:
                 for entry in entries:
                     info = entry.stat(follow_symlinks=False)

@@ -99,3 +99,18 @@ def test_relative_container_root_is_rejected(monkeypatch):
     monkeypatch.setenv("PROJECT_DATA_ROOT", "relative/uploads")
     with pytest.raises(ValueError, match="容器内绝对路径"):
         permissions.configured_roots()
+
+
+def test_empty_mount_keeps_ownership_when_docker_populates_later(tmp_path, monkeypatch):
+    root = tmp_path / "empty-volume"
+    root.mkdir()
+    monkeypatch.setattr(permissions, "ROOTS", (root,))
+    monkeypatch.setattr(permissions.os.path, "ismount", lambda path: Path(path) == root)
+    permissions.initialize_volumes()
+    # Docker's empty-volume copy is skipped once the initializer leaves a file.
+    assert list(root.iterdir()) == [root / ".volume-permissions-initialized"]
+    marker = root / ".volume-permissions-initialized"
+    assert marker.stat().st_uid == permissions.APP_UID
+    assert marker.stat().st_gid == permissions.APP_GID
+    assert marker.stat().st_mode & 0o777 == 0o600
+    assert permissions.initialize_volumes() == 0
