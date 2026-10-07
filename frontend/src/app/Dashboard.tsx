@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Boxes, FlaskConical, Activity, Clock, ArrowRight, Database, Zap, Plus, FolderOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../shared/hooks/useApi";
-import { listProjects } from "../shared/api/projects";
+import { apiClient } from "../shared/api/client";
+import { listProjects, getProjectStatistics } from "../shared/api/projects";
 import { listJobs } from "../shared/api/jobs";
 import { MetricCard } from "../shared/components/MetricCard";
 import { PageHeader } from "../shared/components/PageHeader";
@@ -12,30 +13,26 @@ import { StatusBadge } from "../shared/components/StatusBadge";
 import { Card } from "../shared/components/Card";
 import { Skeleton } from "../shared/components/Skeleton";
 import { EmptyState } from "../shared/components/EmptyState";
+import { Pagination } from "../shared/components/Pagination";
 import { SearchBar } from "../shared/components/SearchBar";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const projects = useApi(() => listProjects(), []);
   const jobs = useApi(() => listJobs({ limit: 10 }), []);
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [searchName, setSearchName] = useState("");
   const [searchInstitution, setSearchInstitution] = useState("");
+  const [page, setPage] = useState(1);
+  const projects = useApi(() => listProjects({ page, pageSize: 6, name: searchName, institution: searchInstitution, sort: "updated_desc" }), [page, searchName, searchInstitution]);
+  const statistics = useApi(() => getProjectStatistics(), []);
 
   const projectList = projects.status === "ready" ? projects.data.projects : [];
   const jobList = jobs.status === "ready" ? jobs.data.jobs : [];
 
-  const filteredProjects = useMemo(() => {
-    if (!searchName && !searchInstitution) return projectList;
-    return projectList.filter((p) => {
-      const nameMatch = !searchName || p.name.toLowerCase().includes(searchName.toLowerCase());
-      const instMatch = !searchInstitution || (p.institution || "").toLowerCase().includes(searchInstitution.toLowerCase());
-      return nameMatch && instMatch;
-    });
-  }, [projectList, searchName, searchInstitution]);
+  const filteredProjects = projectList;
 
   const loadingProjects = projects.status === "loading";
   const loadingJobs = jobs.status === "loading";
@@ -43,9 +40,9 @@ export function Dashboard() {
   const jobsError = jobs.status === "error" ? jobs.error : null;
 
   const stats = {
-    projects: projectList.length,
-    results: projectList.reduce((sum, p) => sum + Number(p.result_count || 0), 0),
-    activeJobs: jobList.filter((j) => j.status === "running" || j.status === "queued").length,
+    projects: statistics.status === "ready" ? statistics.data.project_count : 0,
+    results: statistics.status === "ready" ? statistics.data.result_count : 0,
+    activeJobs: jobs.status === "ready" ? (jobs.data.counts?.running || 0) + (jobs.data.counts?.queued || 0) : 0,
   };
 
   const quickActions = [
@@ -64,7 +61,7 @@ export function Dashboard() {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || e.message || "创建项目失败"); });
       return r.json();
     });
-    projects.refetch();
+    apiClient.invalidatePath("/api/projects"); statistics.refetch(); projects.refetch();
   };
 
   const latestActivity = jobList.slice(0, 5);
@@ -79,13 +76,13 @@ export function Dashboard() {
 
       {/* Metric cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--spacing-lg)" }}>
-        {loadingProjects ? (
+        {statistics.status === "loading" || statistics.status === "idle" ? (
           <>
             <Skeleton height="100px" />
             <Skeleton height="100px" />
             <Skeleton height="100px" />
           </>
-        ) : (
+        ) : statistics.status === "error" ? <Card><p role="alert">项目统计暂时无法读取：{statistics.error}</p><button className="btn btn-secondary" onClick={statistics.refetch}>重新读取统计</button></Card> : (
           <>
             <MetricCard icon={Boxes} label="项目" value={stats.projects} color="var(--accent)" />
             <MetricCard icon={FlaskConical} label="结果" value={stats.results} color="var(--success)" />
@@ -117,8 +114,8 @@ export function Dashboard() {
               <SearchBar
                 placeholder="按名称搜索…"
                 value={searchName}
-                onChange={setSearchName}
-                onClear={() => setSearchName("")}
+                onChange={value => { setSearchName(value); setPage(1); }}
+                onClear={() => { setSearchName(""); setPage(1); }}
               />
               <button onClick={() => setShowNewProject(true)} style={{
                 display: "inline-flex", alignItems: "center", gap: "4px",
@@ -136,6 +133,7 @@ export function Dashboard() {
           ) : (
             <ProjectList projects={filteredProjects} loading={loadingProjects} />
           )}
+          {projects.status === "ready" && <Pagination pagination={projects.data.pagination} onPageChange={setPage} />}
         </div>
 
         <div>

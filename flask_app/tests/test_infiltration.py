@@ -1,4 +1,8 @@
 from pathlib import Path
+import json
+import os
+import shutil
+import subprocess
 import numpy as np
 import pandas as pd
 import pytest
@@ -82,3 +86,97 @@ def test_missing_sample_and_insufficient_groups_rejected(profile_app,tmp_path):
     profile,deconv=inputs(tmp_path)
     frame=pd.read_csv(profile,dtype=str);frame['group']='A';frame.to_csv(profile,index=False)
     with pytest.raises(ValidationError,match='两个分组'):inspect_inputs(str(profile),str(deconv),'group')
+
+
+@pytest.mark.skipif(
+    not os.environ.get('REFERENCE_PIPELINE') or not shutil.which('Rscript'),
+    reason='需要只读挂载的原始 pipeline 与容器内 R 环境',
+)
+def test_group_comparison_matches_original_pipeline(profile_app, tmp_path):
+    from flask_app.services.infiltration_service import generate_report
+
+    reference = Path(os.environ['REFERENCE_PIPELINE']) / '07.immuneInfiltration' / '03.plot_deconv_group_comparison.R'
+    if not reference.is_file():
+        pytest.skip('未找到原始 07 组间比较脚本')
+
+    groups = ['基线', '治疗A', '治疗B']
+    ids = [f'{group}-样本-{index:02d}' for group in groups for index in range(4)]
+    labels = [group for group in groups for _ in range(4)]
+    profile = tmp_path / 'datapoint.csv'
+    pd.DataFrame({'sample': ids, 'group': labels}).to_csv(profile, index=False)
+    values = {
+        'T cells': [0.03, 0.04, 0.05, 0.07, 0.21, 0.24, 0.28, 0.3, 0.12, 0.16, 0.17, 0.2],
+        'B cells': [0.22, 0.22, 0.24, 0.25, 0.1, 0.12, 0.14, 0.16, 0.3, 0.31, 0.31, 0.36],
+        'NK cells': [0.1, 0.1, 0.11, 0.13, 0.13, 0.13, 0.14, 0.15, 0.19, 0.2, 0.23, 0.24],
+    }
+    deconvolution = tmp_path / 'cibersort.csv'
+    pd.DataFrame({'Mixture': ids, **values}).to_csv(deconvolution, index=False)
+    cells = list(values)
+
+    with profile_app.app_context():
+        report = generate_report(
+            str(profile), str(deconvolution), 'group', cells,
+            tmp_path / 'platform', lambda *_args: None, lambda: False,
+            score_type='relative',
+        )
+    platform_stats = pd.read_csv(next(report[1].rglob('panel_B_pairwise_stats.csv')))
+
+    reference_output = tmp_path / 'reference-output'
+    config_path = tmp_path / 'analysis.json'
+    config_path.write_text(json.dumps({
+        'paths': {
+            'datapoint_input': str(profile),
+            'deconvolution': str(deconvolution),
+            'output_root': str(reference_output),
+        },
+        'datapoint': {
+            'sample_column': 'sample',
+            'group_column': 'group',
+            'group_order': groups,
+        },
+        'immune_infiltration': {
+            'sample_column': 'sample',
+            'group_column': 'category',
+            'cell_columns': cells,
+            'comparisons': [],
+        },
+    }), encoding='utf-8')
+    composition_script = Path(os.environ['REFERENCE_PIPELINE']) / '07.immuneInfiltration' / '02.plot_deconv_composition.R'
+    reference_composition_output = reference_output / '02.composition'
+    composition = subprocess.run([
+        shutil.which('Rscript'), str(composition_script),
+        f'--config={config_path}', f'--input={deconvolution}',
+        f'--output={reference_composition_output}', f'--cell-cols={",".join(cells)}',
+        '--dpi=100',
+    ], cwd=tmp_path, capture_output=True, text=True, timeout=180)
+    assert composition.returncode == 0, composition.stdout + composition.stderr
+    platform_matrix = pd.read_csv(next(report[1].rglob('panel_A_shift_normalized_matrix.csv'))).set_index('sample').sort_index()
+    reference_matrix = pd.read_csv(reference_composition_output / 'panel_A_shift_normalized_matrix.csv').set_index('sample').sort_index()
+    assert platform_matrix[['group']].astype(str).equals(reference_matrix[['group']].astype(str))
+    numeric_columns = [
+        *[f'raw_{cell}' for cell in cells],
+        *[f'fraction_{cell}' for cell in cells],
+        'raw_min', 'global_shift_min', 'positive_epsilon', 'shifted_sum', 'closure_sum',
+    ]
+    for column in numeric_columns:
+        np.testing.assert_allclose(platform_matrix[column], reference_matrix[column], rtol=1e-12, atol=1e-12)
+
+    completed = subprocess.run([
+        shutil.which('Rscript'), str(reference),
+        f'--config={config_path}', f'--input={deconvolution}',
+        f'--output={reference_output}', f'--cell-cols={",".join(cells)}',
+        '--split-cell=none', '--dpi=100',
+    ], cwd=tmp_path, capture_output=True, text=True, timeout=180)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    reference_stats = pd.read_csv(reference_output / 'panel_B_pairwise_stats.csv')
+
+    key = ['CellType', 'Group1', 'Group2', 'Comparison', 'display', 'label']
+    platform_stats = platform_stats.sort_values(key[:4]).reset_index(drop=True)
+    reference_stats = reference_stats.sort_values(key[:4]).reset_index(drop=True)
+    assert platform_stats[key].astype(str).equals(reference_stats[key].astype(str))
+    for column in ['p_value', 'q_value']:
+        np.testing.assert_allclose(
+            pd.to_numeric(platform_stats[column], errors='coerce'),
+            pd.to_numeric(reference_stats[column], errors='coerce'),
+            rtol=1e-12, atol=1e-12, equal_nan=True,
+        )

@@ -1,10 +1,12 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { projectCatalogNavigationState } from "./catalogNavigation";
 import { Card } from "../../shared/components/Card";
 import type { ProjectSummary } from "../../shared/types/domain";
 import type { ProjectAssetStatus } from "../../shared/api/projects";
 
 export function ProjectCard({ project }: { project: ProjectSummary }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const assetCount = Object.values(project.asset_counts || {}).reduce(
     (s, c) => s + c,
     0
@@ -13,13 +15,13 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
   const statusItems = [
     { label: "样本指标表", active: Boolean(assetStatus.has_profile || assetStatus.has_datapoint) },
     { label: "克隆序列表", active: Boolean(assetStatus.has_pep) },
-    { label: "样本", active: Boolean(assetStatus.has_sample_summary) },
-    { label: "分组", active: Boolean(assetStatus.has_group_spec) },
+    { label: "转录组", active: Boolean(assetStatus.has_transcriptome) },
+    { label: "免疫细胞浸润", active: Boolean(assetStatus.has_deconvolution) },
     { label: "结果", active: Boolean(assetStatus.has_results) },
   ];
 
   return (
-    <Card onClick={() => navigate(`/management/projects/${project.id}`)}>
+    <Card onClick={() => navigate(`/management/projects/${project.id}`, {state: projectCatalogNavigationState(location)})}>
       <div
         style={{
           display: "flex",
@@ -128,9 +130,9 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
         </div>
         <div>
           <strong style={{ color: "var(--text-primary)" }}>
-            {project.sample_count || 0}
+            {project.input_sample_count || 0}
           </strong>{" "}
-          个样本
+          个输入样本条目
         </div>
         <div>
           <strong style={{ color: "var(--text-primary)" }}>

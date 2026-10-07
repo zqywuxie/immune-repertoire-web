@@ -484,13 +484,5 @@ def validate_parameters():
 
 @bp.route('/storage', methods=['GET'])
 def storage_usage():
-    from sqlalchemy import func
-    from flask_app.models.database import db, File, Project, ProjectAsset
-    from flask_app.services.user_scope import scope_query
-    projects = scope_query(Project.query, Project)
-    project_ids = projects.with_entities(Project.id).subquery()
-    file_query = scope_query(File.query, File)
-    assets = ProjectAsset.query.filter(ProjectAsset.project_id.in_(db.select(project_ids.c.id)))
-    return jsonify(success=True, files=file_query.count(), assets=assets.count(),
-                   file_bytes=file_query.with_entities(func.coalesce(func.sum(File.size), 0)).scalar(),
-                   asset_bytes=assets.with_entities(func.coalesce(func.sum(ProjectAsset.size), 0)).scalar())
+    from flask_app.services.storage_statistics import storage_statistics
+    return jsonify(storage_statistics())

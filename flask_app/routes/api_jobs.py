@@ -15,6 +15,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import unquote, urlsplit
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from sqlalchemy import text
@@ -359,30 +360,30 @@ def _collect_result_outputs(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     _append_output(
         outputs,
         seen,
-        label="Viewer",
+        label="交互报告",
         url=result.get("viewer_url", ""),
         kind="html",
         module=module_label,
-        category="Viewer",
+        category="交互报告",
     )
     _append_output(
         outputs,
         seen,
-        label="Bundle",
+        label="结果文件包",
         url=result.get("zip_url", ""),
         kind="zip",
         module=module_label,
-        category="Archive",
+        category="压缩包",
         download_url=result.get("zip_url", ""),
     )
     _append_output(
         outputs,
         seen,
-        label="Metadata",
+        label="分析信息",
         url=result.get("metadata_url", ""),
         kind="json",
         module=module_label,
-        category="Metadata",
+        category="分析信息",
     )
     for item in chart_results:
         if not isinstance(item, dict):
@@ -391,30 +392,30 @@ def _collect_result_outputs(result: Dict[str, Any]) -> List[Dict[str, Any]]:
         _append_output(
             outputs,
             seen,
-            label=f"{module} viewer",
+            label=f"{module} 交互报告",
             url=item.get("viewer_url", ""),
             kind="html",
             module=module,
-            category="Viewer",
+            category="交互报告",
         )
         _append_output(
             outputs,
             seen,
-            label=f"{module} bundle",
+            label=f"{module} 结果文件包",
             url=item.get("zip_url", ""),
             kind="zip",
             module=module,
-            category="Archive",
+            category="压缩包",
             download_url=item.get("zip_url", ""),
         )
         _append_output(
             outputs,
             seen,
-            label=f"{module} metadata",
+            label=f"{module} 分析信息",
             url=item.get("metadata_url", ""),
             kind="json",
             module=module,
-            category="Metadata",
+            category="分析信息",
         )
     for item in result.get("files") or []:
         if not isinstance(item, dict):
@@ -442,9 +443,9 @@ def _collect_result_outputs(result: Dict[str, Any]) -> List[Dict[str, Any]]:
         ("proportion_urls", "比例数据表"),
     ):
         _append_url_list(outputs, seen, result, key=table_key, module=module_label, category=table_label, kind="csv")
-    _append_url_list(outputs, seen, result, key="png_urls", module=module_label, category="Plots", kind="image")
-    _append_url_list(outputs, seen, result, key="plot_urls", module=module_label, category="Plots", kind="image")
-    _append_url_list(outputs, seen, result, key="plot_heatmap_urls", module=module_label, category="Heatmaps", kind="image")
+    _append_url_list(outputs, seen, result, key="png_urls", module=module_label, category="图表", kind="image")
+    _append_url_list(outputs, seen, result, key="plot_urls", module=module_label, category="图表", kind="image")
+    _append_url_list(outputs, seen, result, key="plot_heatmap_urls", module=module_label, category="热力图", kind="image")
     return outputs
 
 
@@ -480,10 +481,11 @@ def _append_url_list(
     for index, url in enumerate(values, start=1):
         if not isinstance(url, str):
             continue
+        filename = Path(unquote(urlsplit(url).path)).name
         _append_output(
             outputs,
             seen,
-            label=f"{category} {index}",
+            label=filename or f"{category} {index}",
             url=url,
             kind=kind,
             module=module,
@@ -523,14 +525,14 @@ def _kind_from_url(url: str) -> str:
 def _default_output_category(kind: str) -> str:
     kind = str(kind or "").lower()
     if kind == "zip":
-        return "Archive"
+        return "压缩包"
     if kind == "html":
-        return "Viewer"
+        return "交互报告"
     if kind in {"png", "image"}:
-        return "Plots"
+        return "图表"
     if kind == "json":
-        return "Metadata"
-    return kind.upper() if kind else "File"
+        return "分析信息"
+    return {"csv": "数据表", "tsv": "数据表", "xlsx": "电子表格", "pdf": "文档"}.get(kind, "结果文件")
 
 
 def _job_result_assets(job: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -598,7 +600,7 @@ def _allowed_result_delete_roots() -> List[Path]:
     base_dir = Path(current_app.config.get("BASE_DIR", Path(__file__).resolve().parents[1])).resolve()
     roots = [
         Path(current_app.config.get("RESULTS_FOLDER", base_dir / "data" / "results")),
-        base_dir / "data" / "projects",
+        Path(current_app.config.get("PROJECT_DATA_ROOT") or base_dir / "data" / "projects"),
     ]
     return [root.resolve() for root in roots]
 
@@ -627,6 +629,7 @@ def _collect_result_paths(value: Any) -> List[str]:
         "viewer_path",
         "file_path",
         "path",
+        "allocated_output_dirs",
     }
 
     def walk(item: Any, key_hint: str = "") -> None:
@@ -653,6 +656,7 @@ def _delete_job_assets_and_paths(job: Dict[str, Any]) -> Dict[str, Any]:
     job_id = str(job.get("job_id") or job.get("id") or "").strip()
     assets = _strict_job_result_assets(job)
     paths = set(_collect_result_paths(job.get("result") if isinstance(job.get("result"), dict) else {}))
+    paths.update((job.get("payload") or {}).get("allocated_output_dirs") or [])
     for asset in assets:
         if asset.storage_path:
             paths.add(str(asset.storage_path))
@@ -672,6 +676,10 @@ def _delete_job_assets_and_paths(job: Dict[str, Any]) -> Dict[str, Any]:
     for other in AnalysisJob.query.filter(AnalysisJob.id != job_id).all():
         other_paths.extend(_collect_result_paths(other.result or {}))
         other_paths.extend(_collect_result_paths(other.payload or {}))
+    own_asset_ids = {asset.id for asset in assets}
+    for other in ProjectAsset.query.all():
+        if other.id not in own_asset_ids:
+            other_paths.extend([other.storage_path, *_collect_result_paths(other.metadata_json or {})])
     protected = [Path(value).resolve() for value in other_paths]
     def referenced(value):
         candidate = Path(value).resolve()
@@ -1019,7 +1027,7 @@ def retry_job(job_id):
         from flask_app.services.analysis_batch_service import validate_batch
         from flask_app.exceptions import ValidationError
         try:
-            payload = {"items": validate_batch(payload), "asset_set": payload.get("asset_set", ""), "task_name": payload.get("task_name", "批次分析")}
+            payload = {"items": validate_batch(payload, preserve_group_snapshots=True), "asset_set": payload.get("asset_set", ""), "task_name": payload.get("task_name", "批次分析")}
         except ValidationError as error:
             return _json_error("MISSING_RETRY_PARAMETERS", error.message, 409)
     if not script and not is_batch and module not in ALLOWED_API_JOBS:
@@ -1085,6 +1093,14 @@ def download_result_archive():
     from flask_app.services.result_archive import ArchiveError, build_archive
     try:
         payload = request.get_json(silent=True)
+        if payload is None and request.form.get("items"):
+            source = request.headers.get("Origin") or request.headers.get("Referer")
+            if not source or urlsplit(source).netloc.lower() != request.host.lower():
+                raise ArchiveError("下载请求来源无法验证。", 403)
+            try:
+                payload = {"items": json.loads(request.form["items"])}
+            except (TypeError, ValueError):
+                raise ArchiveError("结果文件选择格式不正确。")
         if not isinstance(payload, dict):
             raise ArchiveError("请选择需要下载的结果文件。")
         archive = build_archive(payload.get("items"))

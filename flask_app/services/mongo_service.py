@@ -103,6 +103,15 @@ def delete_project_rawdata(project_id: str) -> int:
     return result.deleted_count
 
 
+def delete_project_records(project_id: str) -> Dict[str, int]:
+    """Delete Mongo records owned by a project while leaving referenced external files untouched."""
+    return {
+        'rawdata': rawdata_col().delete_many({'project_id': project_id}).deleted_count,
+        'results': results_col().delete_many({'project_id': project_id}).deleted_count,
+        'analysis_cache': cache_col().delete_many({'project_id': project_id}).deleted_count,
+    }
+
+
 # ── results helpers ──────────────────────────────────────────────
 
 def _json_default(value: Any) -> str:
@@ -209,13 +218,26 @@ def save_result(
         return str(result.inserted_id)
 
 
-def get_project_results(project_id: str, analysis_type: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_project_results(project_id: str, analysis_type: Optional[str] = None, *, projection=None, identifiers=None) -> List[Dict[str, Any]]:
     """Retrieve result documents for a project, optionally filtered by analysis_type."""
     ensure_result_indexes()
     query: Dict[str, Any] = {'project_id': project_id}
     if analysis_type:
-        query['analysis_type'] = analysis_type
-    return list(results_col().find(query).sort('created_at', -1))
+        query['$or'] = [{'analysis_type': analysis_type},
+                        {'analysis_type': {'$in': ['', None]}, 'metadata_json.analysis_type': analysis_type}]
+    if identifiers is not None:
+        if not identifiers:
+            return []
+        query['_id'] = {'$in': list(identifiers)}
+    return list(results_col().find(query, projection).sort('created_at', -1))
+
+
+def get_projects_results(project_ids: List[str], *, projection=None) -> List[Dict[str, Any]]:
+    """Read identities for an already authorized set of projects in one query."""
+    if not project_ids:
+        return []
+    ensure_result_indexes()
+    return list(results_col().find({'project_id': {'$in': project_ids}}, projection))
 
 
 # ── cache helpers ────────────────────────────────────────────────

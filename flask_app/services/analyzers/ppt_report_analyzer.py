@@ -14,6 +14,7 @@ import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 
 from .base_analyzer import BaseAnalyzer, ValidationResult
 
@@ -227,7 +228,7 @@ class PPTReportGenerator(BaseAnalyzer):
         charts = []
         
         try:
-            plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+            configure_chinese_font()
             plt.rcParams["axes.unicode_minus"] = False
             
             labels = [label for _, label in self.DEPTH_FIELDS]

@@ -82,3 +82,20 @@ def test_directory_scan_errors_are_not_silently_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr(permissions.os, 'scandir', fail_scan)
     with pytest.raises(PermissionError, match='scan failed'):
         permissions.initialize_volumes()
+
+
+def test_independent_container_roots_are_included_without_duplicates(monkeypatch):
+    monkeypatch.setenv("PROJECT_DATA_ROOT", "/storage/上传 数据")
+    monkeypatch.setenv("RESULTS_DIR", "/storage/分析 结果")
+    monkeypatch.setenv("USER_DATA_ROOT", "/app/flask_app/data")
+    monkeypatch.delenv("UPLOAD_FOLDER", raising=False)
+    assert permissions.configured_roots() == (
+        Path("/app/flask_app/data"), Path("/app/tmp"),
+        Path("/storage/上传 数据"), Path("/storage/分析 结果"),
+    )
+
+
+def test_relative_container_root_is_rejected(monkeypatch):
+    monkeypatch.setenv("PROJECT_DATA_ROOT", "relative/uploads")
+    with pytest.raises(ValueError, match="容器内绝对路径"):
+        permissions.configured_roots()

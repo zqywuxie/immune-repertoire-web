@@ -1,21 +1,45 @@
-import { useState } from "react";
+import { assetPath } from "../../features/assets/assetSets";
+import { AnalysisSelectionNotice } from "../../features/analysis/AnalysisSelectionNotice";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../../shared/hooks/useApi";
 import { useJobResult } from "../../shared/hooks/useJobResult";
-import { listProjects } from "../../shared/api/projects";
-import { listDataFiles, type UploadedFile } from "../../shared/api/files";
+import { ProjectPicker } from "../../features/projects/ProjectPicker";
+import { getAnalysisInputFile, listDataFiles, type UploadedFile } from "../../shared/api/files";
 import { getAnalysisScheme, listAnalysisSchemes, unifiedPayload } from "../../shared/api/unified";
 import { submitJob } from "../../shared/api/jobs";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { ResultViewer } from "../../features/results/ResultViewer";
 
 import { useAnalysisData } from "../../features/analysis/AnalysisDataContext";
+import { InputAssetNotice, inputAssetKind, inputAssetReturnPath, useInputAssetIntent } from "../../features/analysis/InputAssetIntent";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string,unknown> : {};
 export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:string;title?:string;description?:string} = {}) {
   const [query, setQuery] = useSearchParams();
-  const {data:sharedData,setData:shareData}=useAnalysisData();
+  const {data:sharedData,setData:shareData,selectionState="ready"}=useAnalysisData();
   const [project, setProject] = useState(query.get("project") || sharedData?.projectId || "");
+  const dataset=query.has("asset_set")?query.get("asset_set") || "":sharedData?.projectId===project?sharedData.assetSetName:"";
+  const requestedId=query.get("input_asset") || "";
+  const intent=useInputAssetIntent(project,dataset,requestedId);
+  const requestedAsset=intent.status==="ready"?intent.data:null;
+  const continuing=query.get("reuse_inputs")==="1" && sharedData?.projectId===project && sharedData.assetSetName===dataset;
+  const restoringSelection=continuing && selectionState!=="ready";
+  const selectedProfile=continuing && sharedData?.selectionExplicit ? sharedData.inputAssets?.find(asset=>inputAssetKind(asset)==="profile" && assetPath(asset)===sharedData.profilePath) : undefined;
+  useEffect(()=>{
+    if(restoringSelection || !selectedProfile || (requestedId && (!requestedAsset || inputAssetKind(requestedAsset)==="profile")))return;
+    setQuery(previous=>{const next=new URLSearchParams(previous);next.set("input_asset",selectedProfile.id);return next;},{replace:true});
+  },[restoringSelection,selectedProfile?.id,requestedId,requestedAsset,setQuery]);
+  const requestedFile=useApi(async()=>{
+    if(!requestedAsset || restoringSelection)return null;
+    if(inputAssetKind(requestedAsset)!=="profile"){
+      if(selectedProfile)return null;
+      throw new Error("该工具需要样本指标表，请选择本次使用的指标表版本。");
+    }
+    return getAnalysisInputFile(project,requestedAsset.id,dataset);
+  },[project,dataset,requestedAsset?.id,restoringSelection,selectedProfile?.id]);
+  const appliedIntent=useRef("");
+  const inputPending=restoringSelection || Boolean(requestedId && (intent.status!=="ready" || !requestedAsset || requestedFile.status!=="ready" || !requestedFile.data));
   const [file, setFile] = useState<UploadedFile | null>(null);
   const [mode, setMode] = useState<"scheme" | "custom">("scheme");
   const [schemeId, setSchemeId] = useState(fixedScheme || "");
@@ -25,14 +49,24 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
   const [baseline, setBaseline] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const projects = useApi(listProjects, []);
   const schemes = useApi(listAnalysisSchemes, []);
   const detail = useApi(() => schemeId ? getAnalysisScheme(schemeId) : Promise.resolve(null), [schemeId]);
-  const savedFiles = useApi(() => project ? listDataFiles(project) : Promise.resolve({ files: [] }), [project]);
+  const savedFiles = useApi(() => project ? listDataFiles(project,dataset) : Promise.resolve({ files: [] }), [project,dataset]);
   const scheme = detail.status === "ready" && detail.data?.id === schemeId ? detail.data : null;
   const task = useJobResult(query.get("job"));
   const locked = busy || !!task.jobId && !task.error && !["completed","failed","cancelled","interrupted"].includes(task.status);
   function selectFile(next: UploadedFile | null) { setFile(next); setMapping({}); setFields([]); setSample(""); setBaseline(""); setError(""); }
+  useEffect(()=>{
+    if(!requestedId){appliedIntent.current="";return;}
+    if(requestedAsset && requestedFile.status==="ready" && requestedFile.data && appliedIntent.current!==requestedFile.data.id){
+      appliedIntent.current=requestedFile.data.id;selectFile(requestedFile.data);
+      const same=sharedData?.projectId===project && sharedData.assetSetName===dataset;
+      const path=assetPath(requestedAsset);
+      if(!same || sharedData?.profilePath!==path || !sharedData.inputAssets?.some(asset=>asset.id===requestedAsset.id)){
+        shareData({...(same && sharedData?sharedData:{projectId:project,assetSetName:dataset,pepPaths:[],transcriptomePath:"",deconvolutionPath:""}),profilePath:path,inputAssets:[...(same?sharedData?.inputAssets || []:[]),requestedAsset],selectionExplicit:true});
+      }
+    }
+  },[requestedId,requestedAsset,requestedFile.status,requestedFile.status==="ready"?requestedFile.data:null,sharedData,shareData,project,dataset]);
   const schemeFields = [...(scheme?.required_fields || []), ...(scheme?.optional_fields || [])];
   const effectiveMapping = Object.fromEntries(schemeFields.map(field => {
     const hints = [field.field, ...(field.mapping_hints || [])].map(name => name.toLowerCase());
@@ -44,9 +78,9 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
       if (!project) throw new Error("请选择项目。");
       const request = unifiedPayload(file, mode, scheme, effectiveMapping, fields, sample, baseline.trim());
       setBusy(true);
-      const submitted = await submitJob({ ...request, projectId: project });
+      const submitted = await submitJob({ ...request, payload:{...request.payload,asset_set:dataset}, projectId: project });
       if (!submitted.success || !submitted.job_id) throw new Error("任务提交失败，请重试。");
-      setQuery({ job: submitted.job_id, project });
+      setQuery(previous=>{const next=new URLSearchParams(previous);next.set("job",submitted.job_id!);next.set("project",project);return next;});
     } catch (error) { setError(error instanceof Error ? error.message : "分析提交失败"); }
     finally { setBusy(false); }
   }
@@ -57,14 +91,18 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
   const charts = Array.isArray(result.charts) ? result.charts : [];
   return <>
     <PageHeader title={title || "自定义指标与方案"} subtitle={description || "选择真实数据与分析方案，核对字段后执行；也可自行选择指标进行分析。"} />
+    {requestedId && <InputAssetNotice asset={requestedAsset} loading={intent.status==="loading" || intent.status==="idle" || requestedFile.status==="loading"} error={intent.status==="error"?intent.error:requestedFile.status==="error"?requestedFile.error:null} returnPath={inputAssetReturnPath(project,requestedAsset,query.get("return_to") || "")} onRetry={()=>{intent.refetch();requestedFile.refetch();}} onClear={()=>{if(continuing && sharedData)shareData({...sharedData,profilePath:"",selectionExplicit:true});setQuery(previous=>{const next=new URLSearchParams(previous);next.delete("input_asset");return next;});selectFile(null);}}/>}
+    {continuing && <AnalysisSelectionNotice projectId={project} dataset={dataset} onClear={()=>{
+      shareData({projectId:project,assetSetName:dataset,pepPaths:[],profilePath:"",transcriptomePath:"",inputAssets:[],selectionExplicit:false});
+      setQuery(previous=>{const next=new URLSearchParams(previous);next.delete("input_asset");return next;});selectFile(null);
+    }}/>}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,380px),1fr))", gap: 24, alignItems: "start" }}>
       <section style={{ padding: 24, background: "var(--bg-elevated)", border: "1px solid var(--separator)", borderRadius: 10 }}>
         <fieldset disabled={locked} style={{ border: 0, minWidth: 0, display: "grid", gap: 18 }}>
           <legend style={{ fontWeight: 600, marginBottom: 18 }}>1 · 选择数据</legend>
-          <label className="field-label">项目<select className="select" value={project} onChange={event => { setProject(event.target.value); selectFile(null); if(sharedData?.projectId !== event.target.value) shareData({projectId:event.target.value,assetSetName:"",pepPaths:[],profilePath:"",transcriptomePath:""}); setQuery(previous=>{const next=new URLSearchParams(previous);next.set("project",event.target.value);next.delete("job");return next;},{replace:true}); }}><option value="">请选择项目</option>{projects.status === "ready" && projects.data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          {projects.status === "error" && <p role="alert">{projects.error}</p>}
+          <ProjectPicker value={project} disabled={locked} onChange={value => { setProject(value); selectFile(null); if(sharedData?.projectId !== value) shareData({projectId:value,assetSetName:"",pepPaths:[],profilePath:"",transcriptomePath:""}); setQuery(previous=>{const next=new URLSearchParams(previous);next.set("project",value);next.delete("job");next.delete("asset_set");next.delete("input_asset");next.delete("return_to");return next;},{replace:true}); }} />
           <p className="text-muted">复用本项目已校验的样本指标表。<Link to="/analysis/center">前往分析中心上传或更新数据</Link></p>
-          <label className="field-label">选择本项目已上传文件<select className="select" disabled={!project || locked} value={file?.id || ""} onChange={event => selectFile(savedFiles.status === "ready" ? savedFiles.data.files.find(item => item.id === event.target.value) || null : null)}><option value="">请选择文件</option>{file && !(savedFiles.status === "ready" && savedFiles.data.files.some(item => item.id === file.id)) && <option value={file.id}>{file.name}</option>}{savedFiles.status === "ready" && savedFiles.data.files.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field-label">选择本项目已上传文件<select className="select" disabled={!project || locked} value={file?.id || ""} onChange={event => {const next=savedFiles.status === "ready" ? savedFiles.data.files.find(item=>item.id===event.target.value) || null : null;selectFile(null);setQuery(previous=>{const query=new URLSearchParams(previous);if(next?.asset_id)query.set("input_asset",next.asset_id);else query.delete("input_asset");return query;});if(next && !next.asset_id)selectFile(next);}}><option value="">请选择文件</option>{file && !(savedFiles.status === "ready" && savedFiles.data.files.some(item => item.id === file.id)) && <option value={file.id}>{file.name}</option>}{savedFiles.status === "ready" && savedFiles.data.files.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {savedFiles.status === "error" && <p role="alert">文件列表读取失败：{savedFiles.error}</p>}
           <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>{file ? `${file.name} · ${file.row_count} 行 · ${file.columns.length} 列` : "请先在分析中心上传并完成校验，每次任务分析一份数据表。"}</p>
           <h3>2 · 配置分析</h3>
@@ -79,7 +117,7 @@ export function UnifiedAnalysis({fixedScheme,title,description}:{fixedScheme?:st
             <fieldset style={{ border: "1px solid var(--separator)", borderRadius: 6, padding: 12 }}><legend>选择指标列</legend><div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>{file?.columns.filter(column => column !== sample).map(column => <label key={column} style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={fields.includes(column)} onChange={event => setFields(previous => event.target.checked ? [...previous,column] : previous.filter(field => field !== column))} />{column}</label>)}</div></fieldset>
           </>}
           <label className="field-label">基准样本（可选）<input className="input" value={baseline} onChange={event => setBaseline(event.target.value)} placeholder="填写数据中的完整样本名称" /></label>
-          <button className="btn btn-primary" onClick={run} disabled={!project || !file || locked || mode === "scheme" && !scheme}>开始分析</button>
+          <button className="btn btn-primary" onClick={run} disabled={!project || !file || locked || inputPending || mode === "scheme" && !scheme}>开始分析</button>
         </fieldset>
         {busy && <p role="status">正在上传或提交，请稍候…</p>}{error && <p role="alert" style={{ color: "var(--danger)", marginTop: 16 }}>{error}</p>}
       </section>

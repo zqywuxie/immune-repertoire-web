@@ -17,12 +17,16 @@ export function Pagination({
   }
 
   const { page, total, total_pages } = pagination;
-  const pages = Array.from({ length: Math.max(total_pages, 1) }, (_, i) => i + 1);
+  const last = Math.max(total_pages, 1);
+  const numbers = [...new Set([1, last, ...Array.from({ length: 5 }, (_, index) => page + index - 2).filter(value => value >= 1 && value <= last)])].sort((a, b) => a - b);
+  const pages: (number | string)[] = [];
+  numbers.forEach((value, index) => { if (index && value - numbers[index - 1] > 1) pages.push(`gap-${value}`); pages.push(value); });
 
   return (
     <div
       style={{
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
         gap: "var(--spacing-md)",
@@ -33,11 +37,11 @@ export function Pagination({
       <span>
         共 {total} 项 · 第 {page} / {Math.max(total_pages, 1)} 页
       </span>
-      <div style={{ display: "flex", gap: "var(--spacing-xs)" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)" }}>
         <PageBtn disabled={page <= 1} onClick={() => onPageChange(page - 1)} ariaLabel="上一页">
           ←
         </PageBtn>
-        {pages.map((p) => (
+        {pages.map((p) => typeof p === "string" ? <span key={p} aria-hidden="true" style={{ padding: "8px 3px" }}>…</span> : (
           <PageBtn
             key={p}
             active={p === page}

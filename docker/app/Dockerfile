@@ -1,6 +1,7 @@
 FROM python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib
 WORKDIR /app
+ENV NUMBA_CACHE_DIR=/app/tmp/numba
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk libgomp1 default-jre-headless libreoffice-impress && rm -rf /var/lib/apt/lists/*
 COPY flask_app/requirements.txt flask_app/requirements.txt
 COPY docker/app/requirements.txt docker/app/requirements.txt
@@ -8,6 +9,7 @@ RUN pip install --no-cache-dir -r docker/app/requirements.txt
 COPY flask_app/ flask_app/
 COPY analysis_workers/ analysis_workers/
 COPY scripts/ scripts/
+COPY docs/api/module-manifest.yaml docs/api/module-manifest.yaml
 COPY docker/app/ docker/app/
 RUN useradd --uid 10001 --user-group --create-home --shell /usr/sbin/nologin immune \
     && mkdir -p /app/flask_app/data /app/tmp \

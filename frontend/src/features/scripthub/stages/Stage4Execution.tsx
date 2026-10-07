@@ -1,5 +1,9 @@
+import { validateAnalysisPayload } from "../configurationValidation";
 import { batchResultSource, orderBatchDependencies } from "../batchDependencies";
 import { isTerminalJobStatus } from "../../jobs/BatchStatus";
+import { BatchExecutionProgress, batchItemStatus, type BatchItem } from "../../jobs/BatchExecutionProgress";
+import type { JobSummary } from "../../../shared/types/domain";
+import { preferLatestJobSnapshot } from "../../../shared/utils/jobState";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Play,
@@ -20,7 +24,7 @@ import {
   submitLegacyScriptHubJob,
   submitAnalysisBatch,
 } from "../../../shared/api/scriptHub";
-import { analysisLabel } from "../../../shared/utils/analysisLabels";
+import { analysisLabel, jobTextLabel } from "../../../shared/utils/analysisLabels";
 import { StatusBadge, statusLabels } from "../../../shared/components/StatusBadge";
 import { ProgressBar } from "../../../shared/components/ProgressBar";
 import { Card } from "../../../shared/components/Card";
@@ -54,12 +58,19 @@ export function Stage4Execution({
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
+  const [lastReadAt, setLastReadAt] = useState("");
   const [taskName, setTaskName] = useState(`${modules.length === 1 ? analysisLabel(modules[0]) : "组合分析"}_${new Date().toLocaleDateString("sv-SE")}`);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [jobProgress, setJobProgress] = useState<Record<string, number>>({});
   const [jobStatus, setJobStatus] = useState<Record<string, string>>({});
   const [jobStage, setJobStage] = useState<Record<string, string>>({});
   const [jobModules, setJobModules] = useState<Record<string, string>>({});
+  const [batchPlan, setBatchPlan] = useState<BatchItem[]>([]);
+  const [batchJobs, setBatchJobs] = useState<Record<string, JobSummary>>({});
+  const [batchReadErrors, setBatchReadErrors] = useState<Record<string, string>>({});
+  const batchSnapshots = useRef<Record<string, JobSummary>>({});
+  const batchResults = useRef<Record<string, JobResultsResponse>>({});
   const lastLogBySource = useRef(new Map<string, string>());
   const [logsOpen, setLogsOpen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -82,6 +93,56 @@ export function Stage4Execution({
     setLogLines((prev) => [...prev.slice(-199), `[${timestamp}] ${line}`]);
   }, []);
 
+  // Retry reads of the existing task; submission is never part of reconnection.
+  const readTaskState = async <T,>(read: () => Promise<T>): Promise<T | undefined> => {
+    while (mounted.current) {
+      try {
+        const snapshot = await read();
+        if (!mounted.current) return;
+        setConnectionNotice(null);
+        setLastReadAt(new Date().toLocaleTimeString("zh-CN", {hour12: false}));
+        return snapshot;
+      } catch (reason) {
+        if (!mounted.current) return;
+        const status = (reason as {status?: number})?.status;
+        if (status && status < 500 && status !== 408 && status !== 429) {
+          setConnectionNotice(null);
+          throw reason;
+        }
+        setConnectionNotice("任务状态连接暂时中断，正在重新读取；服务端继续执行。");
+        addLogLine("状态连接中断，等待重连。", "connection");
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
+  };
+
+  const readBatchChild = async (child: BatchItem) => {
+    const id = child.job_id;
+    if (!id || !mounted.current || batchResults.current[id]) return;
+    const remember = (job: JobSummary) => {
+      batchSnapshots.current[id] = preferLatestJobSnapshot(batchSnapshots.current[id] || null, job);
+      setBatchJobs({...batchSnapshots.current});
+    };
+    try {
+      const response = await getJob(id);
+      if (!mounted.current) return;
+      remember(response.job);
+      if (isTerminalJobStatus(response.job.status)) {
+        const result = await getJobResults(id);
+        if (!mounted.current) return;
+        remember(result.job);
+        batchResults.current[id] = result;
+        onComplete({...batchResults.current});
+      }
+      setBatchReadErrors(previous => {
+        const next = {...previous}; delete next[id]; return next;
+      });
+    } catch {
+      if (!mounted.current) return;
+      setBatchReadErrors(previous => ({...previous, [id]: "此项状态或结果暂时读取失败，保留最近记录。服务端任务不受影响。"}));
+    }
+  };
+
   const handleRunAnalysis = async () => {
     if (!selectedModules.length) {
       setError("尚未选择分析模块。");
@@ -90,12 +151,19 @@ export function Stage4Execution({
     setSubmitting(true);
     onRunningChange?.(true);
     setError(null);
+    setConnectionNotice(null);
+    setLastReadAt("");
     setLogLines([]);
     lastLogBySource.current.clear();
     setJobProgress({});
     setJobStatus({});
     setJobStage({});
     setJobModules({});
+    setBatchPlan([]);
+    setBatchJobs({});
+    setBatchReadErrors({});
+    batchSnapshots.current = {};
+    batchResults.current = {};
     addLogLine(`开始批量分析： ${selectedModules.map(analysisLabel).join("、")}`);
     addLogLine(`项目：${projectId}`);
     addLogLine(`任务名称： ${taskName}`);
@@ -110,41 +178,36 @@ export function Stage4Execution({
             payload.input_mode = "deg";
             for (const key of ["upstream_artifact_id", "source_job_id", "upstream_input", "expression_path", "transcriptome_path", "deg_directory"]) delete payload[key];
           }
-          validatePayload(module, payload, bind);
+          validateAnalysisPayload(module, payload, bind);
           return {module, payload, ...(bind ? {upstream_from: sourceIndex, depends_on: [sourceIndex]} : {})};
         });
         const response = await submitAnalysisBatch(projectId, String(baseConfig.asset_set || ""), taskName, items);
+        if (!mounted.current) return;
+        setBatchPlan(items.map(item => ({...item, status: "queued"})));
         onBatchCreated?.(response.job_id);
         addLogLine("完整分析计划已交给服务端，离开页面不影响后续任务执行。");
-        const collected: Record<string, JobResultsResponse> = {};
         while (mounted.current) {
-          try {
-            const snapshot = await getJob(response.job_id);
-            if (!mounted.current) return;
-            const parent = snapshot.job as unknown as {status: string; payload?: {items?: Array<{job_id: string; module: string; status: string; error?: string}>}};
-            const children = parent.payload?.items || [];
-            onBatchStatuses?.(children.map(child => child.status));
-            const ids = children.map(child => child.job_id).filter(Boolean);
-            onJobsCreated(ids);
-            for (const child of children) {
-              if (!child.job_id) continue;
-              setJobModules(previous => ({...previous, [child.job_id]: child.module}));
-              setJobStatus(previous => ({...previous, [child.job_id]: child.status}));
-              addLogLine(`[${analysisLabel(child.module)}] ${statusLabels[child.status] || "等待确认"}${child.error ? `：${child.error}` : ""}`, child.job_id);
-              if (isTerminalJobStatus(child.status) && !collected[child.job_id]) collected[child.job_id] = await getJobResults(child.job_id);
-            }
-            onComplete({...collected});
-            setError(null);
-            if (isTerminalJobStatus(parent.status)) {
-              const errors = children.filter(child => child.status !== "completed").map(child => `${analysisLabel(child.module)}：${child.error || statusLabels[child.status] || "未完成"}`);
-              if (errors.length) setError(errors.join("；"));
-              addLogLine("批次执行已结束，已生成的结果可继续查看。");
-              break;
-            }
-          } catch (reason) {
-            if (!mounted.current) return;
-            setError("任务状态连接暂时中断，正在重新读取；服务端继续执行。");
-            addLogLine("状态连接中断，等待重连。", "connection");
+          const snapshot = await readTaskState(() => getJob(response.job_id));
+          if (!snapshot || !mounted.current) return;
+          const parent = snapshot.job as unknown as {status: string; payload?: {items?: BatchItem[]}};
+          const children = parent.payload?.items || [];
+          setBatchPlan(children);
+          onJobsCreated(children.map(child => child.job_id).filter((id): id is string => Boolean(id)));
+          await Promise.all(children.map(readBatchChild));
+          if (!mounted.current) return;
+          const statuses = children.map(child => batchItemStatus(child, batchSnapshots.current[child.job_id || ""]));
+          onBatchStatuses?.(statuses);
+          children.forEach((child, index) => {
+            const job = batchSnapshots.current[child.job_id || ""];
+            addLogLine("[" + analysisLabel(child.module) + "] " + (statusLabels[statuses[index]] || "等待确认")
+              + (job?.stage ? " · " + jobTextLabel(job.stage) : "")
+              + (child.error ? "：" + child.error : ""), child.job_id || "batch-item-" + index);
+          });
+          if (isTerminalJobStatus(parent.status)) {
+            const errors = children.filter(child => child.status !== "completed").map(child => analysisLabel(child.module) + "：" + (child.error || statusLabels[child.status] || "未完成"));
+            if (errors.length) setError(errors.join("；"));
+            addLogLine("批次执行已结束，已生成的结果可继续查看。");
+            break;
           }
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
@@ -159,7 +222,7 @@ export function Stage4Execution({
           ...(moduleConfigs[module] || {}),
           _task_name: selectedModules.length === 1 ? taskName : `${taskName}_${index + 1}_${module}`,
         };
-        validatePayload(module, payload);
+        validateAnalysisPayload(module, payload);
 
         addLogLine(`[${index + 1}/${selectedModules.length}] 正在提交 ${analysisLabel(module)}`);
 
@@ -175,6 +238,7 @@ export function Stage4Execution({
               forceRerun: false,
             });
 
+        if (!mounted.current) return;
         const submittedJobId = result.job_id;
         createdJobIds.push(submittedJobId);
         setJobModules((prev) => ({ ...prev, [submittedJobId]: module }));
@@ -190,29 +254,34 @@ export function Stage4Execution({
           ? await pollLegacyTask(result.task_id || submittedJobId, module, submittedJobId)
           : await pollModernJob(submittedJobId, module);
 
+        if (!moduleResults || !mounted.current) return;
         completedResults[submittedJobId] = moduleResults;
         onComplete({ ...completedResults });
       }
       addLogLine(`本次任务已结束：${Object.values(completedResults).filter(result => result.status === "completed").length}/${createdJobIds.length} 项成功，其余状态请查看任务记录。`);
     } catch (err) {
+      if (!mounted.current) return;
       const msg = err instanceof Error ? err.message : "提交失败";
       addLogLine(`[错误] ${msg}`);
       setError(msg);
     } finally {
-      setSubmitting(false);
-      onRunningChange?.(false);
+      if (mounted.current) {
+        setSubmitting(false);
+        onRunningChange?.(false);
+      }
     }
   };
 
   const pollLegacyTask = async (taskId: string, module: string, jobId: string) => {
     addLogLine(`[${analysisLabel(module)}] 正在读取分析任务： ${taskId}`);
-    for (;;) {
-      const task = await getLegacyScriptHubTask(taskId);
+    while (mounted.current) {
+      const task = await readTaskState(() => getLegacyScriptHubTask(taskId));
+      if (!task) return;
       const progress = Number(task.progress || 0);
       setJobProgress((prev) => ({ ...prev, [jobId]: progress }));
       setJobStatus((prev) => ({ ...prev, [jobId]: task.status }));
-      setJobStage((prev) => ({ ...prev, [jobId]: task.stage || task.detail || "" }));
-      addLogLine(`[${analysisLabel(module)}] ${statusLabels[task.status] || "处理中"} ${Math.round(progress)}% ${task.stage || task.detail || ""}`.trim(), jobId);
+      setJobStage((prev) => ({ ...prev, [jobId]: jobTextLabel(task.stage || task.detail || "") }));
+      addLogLine(`[${analysisLabel(module)}] ${statusLabels[task.status] || "处理中"} ${Math.round(progress)}% ${jobTextLabel(task.stage || task.detail || "")}`.trim(), jobId);
 
       if (isTerminalJobStatus(task.status)) {
         return legacyScriptHubTaskToResults(task);
@@ -223,24 +292,25 @@ export function Stage4Execution({
 
   const pollModernJob = async (jobId: string, module: string) => {
     addLogLine(`[${analysisLabel(module)}] 正在读取任务： ${jobId}`);
-    for (;;) {
-      const jobResponse = await getJob(jobId);
+    while (mounted.current) {
+      const jobResponse = await readTaskState(() => getJob(jobId));
+      if (!jobResponse) return;
       const status = jobResponse.job.status;
       setJobProgress((prev) => ({ ...prev, [jobId]: Number(jobResponse.job.progress || 0) }));
       setJobStatus((prev) => ({ ...prev, [jobId]: status }));
-      setJobStage((prev) => ({ ...prev, [jobId]: jobResponse.job.stage || jobResponse.job.detail || "" }));
-      addLogLine(`[${analysisLabel(module)}] ${statusLabels[status] || "处理中"} ${Math.round(Number(jobResponse.job.progress || 0))}% ${jobResponse.job.stage || jobResponse.job.detail || ""}`.trim(), jobId);
+      setJobStage((prev) => ({ ...prev, [jobId]: jobTextLabel(jobResponse.job.stage || jobResponse.job.detail || "") }));
+      addLogLine(`[${analysisLabel(module)}] ${statusLabels[status] || "处理中"} ${Math.round(Number(jobResponse.job.progress || 0))}% ${jobTextLabel(jobResponse.job.stage || jobResponse.job.detail || "")}`.trim(), jobId);
 
       if (isTerminalJobStatus(status)) {
         addLogLine(`[${analysisLabel(module)}] 最终状态： ${statusLabels[status] || "未知状态"}。正在读取结果。`);
-        return getJobResults(jobId);
+        return readTaskState(() => getJobResults(jobId));
       }
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   };
 
 
-  const hasJobs = jobIds.length > 0;
+  const hasJobs = jobIds.length > 0 || batchPlan.length > 0;
   const isRunning = submitting || Object.values(jobStatus).some((status) => status === "queued" || status === "running");
 
   return (
@@ -252,6 +322,16 @@ export function Stage4Execution({
           确认分组和指标后开始运行。完成后可查看报告和下载数据。
         </p>
       </div>
+
+      {connectionNotice && <div role="status" aria-label="任务状态连接" style={{
+        padding: "var(--spacing-md) var(--spacing-lg)", border: "1px solid var(--separator)",
+        borderRadius: "var(--radius-control)", background: "var(--bg-elevated)", overflowWrap: "anywhere",
+      }}>
+        <strong>{connectionNotice}</strong>
+        <p style={{margin: "6px 0 0", color: "var(--text-secondary)", fontSize: "0.85rem"}}>
+          {lastReadAt ? "最后读取时间：" + lastReadAt : "尚未取得任务状态。"} 保留最近进度，恢复后继续查看同一任务。
+        </p>
+      </div>}
 
       {/* Error banner */}
       {error && (
@@ -376,6 +456,7 @@ export function Stage4Execution({
       {hasJobs && (
         <>
           {/* Status bar */}
+          {batchPlan.length > 0 ? <BatchExecutionProgress items={batchPlan} jobs={batchJobs} readErrors={batchReadErrors} onRetry={item => { void readBatchChild(item); }}/> :
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
             {jobIds.map((jobId) => {
               const status = jobStatus[jobId] || "queued";
@@ -409,12 +490,12 @@ export function Stage4Execution({
                         }}
                       />
                       <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                        {analysisLabel(jobModules[jobId] || "分析任务")} · 任务 {jobId.slice(0, 8)}
+                        {analysisLabel(jobModules[jobId] || "分析任务")} · 任务 {jobId.slice(-8)}
                       </span>
                       <StatusBadge status={status} />
                     </div>
                     {isRunning && (
-                      <a href="/analysis/script-hub/jobs" target="_blank" rel="noreferrer" style={cancelBtnStyle}>
+                      <a href={"/analysis/script-hub/jobs?job=" + encodeURIComponent(jobId)} target="_blank" rel="noreferrer" style={taskLinkStyle}>
                         查看任务
                       </a>
                     )}
@@ -430,7 +511,7 @@ export function Stage4Execution({
                 </Card>
               );
             })}
-          </div>
+          </div>}
 
           <details open={logsOpen} onToggle={event => setLogsOpen(event.currentTarget.open)} style={{border: "1px solid var(--separator)", borderRadius: "var(--radius-panel)", padding: "var(--spacing-md)", background: "var(--bg-elevated)"}}>
             <summary>执行日志（最近 {logLines.length} 条变化）</summary>
@@ -441,140 +522,6 @@ export function Stage4Execution({
       )}
     </div>
   );
-}
-
-function validatePayload(module: string, payload: Record<string, unknown>, usesBatchResult = false) {
-  if (module === "immune-infiltration" && (!payload.group_field || !["relative","absolute","other"].includes(String(payload.score_type)) || payload.infiltration_checked !== true)) throw new Error("请返回配置页，核对免疫浸润分析范围。");
-  if (module === "profile" && (!payload.param_begin || !payload.param_over)) {
-    throw new Error("请返回上一步，选择要比较的指标范围。");
-  }
-  if (Array.isArray(payload.selected_samples) && !payload.selected_samples.filter(Boolean).length) {
-    throw new Error(`[${analysisLabel(module)}] 请至少选择一个样本，或点击“全部样本”。`);
-  }
-  const groupError = validateGroupFields(module, payload);
-  if (groupError) throw new Error(`[${analysisLabel(module)}] ${groupError}`);
-  const groupValueError = validateGroupValues(module, payload);
-  if (groupValueError) throw new Error(`[${analysisLabel(module)}] ${groupValueError}`);
-  const groupedSampleError = validateGroupedSamples(module, payload);
-  if (groupedSampleError) throw new Error(`[${analysisLabel(module)}] ${groupedSampleError}`);
-  const cacheError = usesBatchResult ? "" : validateCacheInputs(module, payload);
-  if (cacheError) throw new Error(`[${analysisLabel(module)}] ${cacheError}`);
-  if (module === "charts") {
-    const selectedSamples = Array.isArray(payload.samples) ? payload.samples.filter(Boolean) : [];
-    const selectedChains = Array.isArray(payload.selected_chains) ? payload.selected_chains.filter(Boolean) : [];
-    if (!selectedSamples.length) {
-      throw new Error("请至少选择一个用于绘图的样本。");
-    }
-    if (!selectedChains.length) {
-      throw new Error("请至少选择一个用于绘图的链类型。");
-    }
-  }
-}
-
-function validateGroupFields(module: string, payload: Record<string, unknown>) {
-  const groupRequirements: Record<string, string[]> = {
-    "db-alignment": ["categories"],
-    profile: ["grouptype_fields", "grouping_begin"],
-    "pep-analysis": ["group_fields", "grouptype_fields"],
-    "pgen-analysis": ["distribution_category_col", "group_field"],
-    topclone: ["group_field"],
-    umap: ["group_field", "classification_begin"],
-    umapin: ["category_col"],
-    "ml-analysis": ["label_col"],
-    "mait-nkt": ["group_field"],
-  };
-  const keys = groupRequirements[module] || [];
-  if (!keys.length) return "";
-  const hasGroupField = keys.some((key) => {
-    const value = payload[key];
-    if (Array.isArray(value)) return value.some((item) => String(item || "").trim());
-    return String(value || "").trim();
-  });
-  return hasGroupField ? "" : "请选择分组字段";
-}
-
-function validateGroupValues(module: string, payload: Record<string, unknown>) {
-  const modulesRequiringGroupValues = new Set([
-    "db-alignment",
-    "profile",
-    "pep-analysis",
-    "pgen-analysis",
-    "topclone",
-    "umap",
-    "ml-analysis",
-    "mait-nkt",
-  ]);
-  if (!modulesRequiringGroupValues.has(module)) return "";
-  const valueMap = payload.selected_group_values;
-  if (!valueMap || typeof valueMap !== "object" || Array.isArray(valueMap)) {
-    return "请选择分组值";
-  }
-  const hasValue = Object.values(valueMap as Record<string, unknown>).some((item) =>
-    Array.isArray(item) && item.some((value) => String(value || "").trim()),
-  );
-  return hasValue ? "" : "请选择分组值";
-}
-
-function validateGroupedSamples(module: string, payload: Record<string, unknown>) {
-  const modulesRequiringGroupSamples = new Set([
-    "db-alignment",
-    "profile",
-    "pep-analysis",
-    "pgen-analysis",
-    "topclone",
-    "umap",
-    "ml-analysis",
-    "mait-nkt",
-  ]);
-  if (!modulesRequiringGroupSamples.has(module)) return "";
-  const valueMap = payload.selected_samples_by_group;
-  if (!valueMap || typeof valueMap !== "object" || Array.isArray(valueMap)) {
-    return "请在每个分组中选择样本";
-  }
-  const selectedGroups = payload.selected_group_values;
-  if (!selectedGroups || typeof selectedGroups !== "object" || Array.isArray(selectedGroups)) {
-    return "请在每个分组中选择样本";
-  }
-  for (const [field, values] of Object.entries(selectedGroups as Record<string, unknown>)) {
-    if (!Array.isArray(values)) continue;
-    const groups = (valueMap as Record<string, unknown>)[field];
-    if (!groups || typeof groups !== "object" || Array.isArray(groups)) {
-      return `请为 ${field} 选择样本`;
-    }
-    for (const groupValue of values) {
-      const key = String(groupValue || "").trim();
-      if (!key) continue;
-      const samples = (groups as Record<string, unknown>)[key];
-      if (!Array.isArray(samples) || !samples.some((sample) => String(sample || "").trim())) {
-        return `请为 ${field} = ${key} 选择样本`;
-      }
-    }
-  }
-  return "";
-}
-
-function validateCacheInputs(module: string, payload: Record<string, unknown>) {
-  const hasArtifact = Boolean(String(payload.upstream_artifact_id || "").trim());
-  if (module === "go-kegg-enrichment" && payload.input_mode === "deg" && !hasArtifact) return "请选择来源差异表达结果";
-  if (module === "volcano" && String(payload.input_mode || "") === "usage" && !hasArtifact && !String(payload.data_dir || "").trim()) {
-    return "请选择克隆 V/J 基因使用缓存";
-  }
-  if (module === "umapin" && !hasArtifact && !String(payload.data_path || "").trim()) {
-    return "请选择克隆特征降维缓存";
-  }
-  if (module === "mait-nkt") {
-    const source = String(payload.tra_source || "upload");
-    if (source === "pep_analysis" && !hasArtifact && !String(payload.tra_path || payload.source_job_id || "").trim()) {
-      return "请选择受体 α 链缓存";
-    }
-    if (source === "upload" && !String(payload.tra_path || "").trim()) {
-      return "请选择受体 α 链数据文件";
-    }
-    if (payload.mait_nkt_inspect_ok === false) {
-      return "特征检查失败，请先选择有效的受体 α 链数据来源";
-    }
-  }
-  return "";
 }
 
 /* ── Summary Chip ── */
@@ -632,15 +579,15 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const cancelBtnStyle: React.CSSProperties = {
+const taskLinkStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "6px",
   padding: "8px 16px",
   borderRadius: "var(--radius-control)",
-  border: "1px solid var(--danger)",
+  border: "1px solid var(--separator)",
   background: "transparent",
-  color: "var(--danger)",
+  color: "var(--accent)",
   fontWeight: 500,
   fontSize: "0.82rem",
   cursor: "pointer",

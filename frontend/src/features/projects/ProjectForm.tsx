@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { Select } from "../../shared/components/Select";
+import { UnsavedChangesGuard } from "../../shared/components/UnsavedChangesGuard";
 import { Sheet } from "../../shared/components/Sheet";
 import type { ProjectCreate } from "../../shared/types/domain";
 
@@ -9,9 +10,10 @@ type Props = {
   onSubmit: (data: ProjectCreate) => Promise<void>;
   initial?: Partial<ProjectCreate>;
   title?: string;
+  onDraftChange?: (dirty: boolean) => void;
 };
 
-export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建项目" }: Props) {
+export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建项目", onDraftChange }: Props) {
   const [name, setName] = useState(initial?.name || "");
   const [institution, setInstitution] = useState(initial?.institution || "");
   const [cooperationLevel, setCooperationLevel] = useState(initial?.cooperation_level || "");
@@ -50,8 +52,12 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
   };
 
   const dirty = name !== (initial?.name || "") || institution !== (initial?.institution || "") || cooperationLevel !== (initial?.cooperation_level || "") || description !== (initial?.description || "") || status !== (initial?.status || "active");
+  useLayoutEffect(() => { onDraftChange?.(open && (dirty || saving)); }, [open, dirty, saving, onDraftChange]);
+  useEffect(() => () => onDraftChange?.(false), [onDraftChange]);
   const requestClose = () => { if (!saving && (!dirty || window.confirm("项目内容尚未保存，确定放弃修改？"))) onClose(); };
   return (
+    <>
+    {!onDraftChange && <UnsavedChangesGuard when={open && (dirty || saving)} />}
     <Sheet open={open} onClose={requestClose} title={title}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
         <Field label="名称 *">
@@ -109,6 +115,7 @@ export function ProjectForm({ open, onClose, onSubmit, initial, title = "新建�
         </div>
       </div>
     </Sheet>
+    </>
   );
 }
 

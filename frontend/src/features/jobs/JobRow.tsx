@@ -1,5 +1,7 @@
-import { analysisLabel } from "../../shared/utils/analysisLabels";
-import { StatusBadge } from "../../shared/components/StatusBadge";
+import "./JobRow.css";
+import { taskName } from "./jobConfiguration";
+import { analysisLabel, jobTextLabel } from "../../shared/utils/analysisLabels";
+import { StatusBadge, statusLabels } from "../../shared/components/StatusBadge";
 import { ProgressBar } from "../../shared/components/ProgressBar";
 import { cancelJob, retryJob } from "../../shared/api/jobs";
 import { Eye, Trash2 } from "lucide-react";
@@ -13,6 +15,7 @@ type Props = {
   onToggleSelected?: (job: JobSummary) => void;
   onDelete?: (job: JobSummary) => void;
   onJobChanged?: () => void;
+  onRetried?: (jobId: string) => void;
 };
 
 export function JobRow({
@@ -22,21 +25,28 @@ export function JobRow({
   onToggleSelected,
   onDelete,
   onJobChanged,
+  onRetried,
 }: Props) {
   const [cancelling, setCancelling] = useState(false);
+  const [cancelAccepted, setCancelAccepted] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [retriedJobId, setRetriedJobId] = useState("");
   const [cancelError, setCancelError] = useState("");
   const jobId = job.job_id || job.id;
+  const moduleLabel = analysisLabel(job.module || job.job_type);
+  const name = taskName(job) || moduleLabel;
   const isRunning = job.status === "running" || job.status === "queued";
+  const cancelPending = isRunning && Boolean(job.cancel_requested || cancelAccepted);
   const isTerminal = ["completed", "failed", "cancelled", "interrupted"].includes(job.status);
   const clickable = Boolean(onOpenDetails);
 
   const handleCancel = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (cancelling || !confirm(`确定取消任务 ${analysisLabel(job.module) || jobId}？`)) return;
+    if (cancelling || cancelPending || !confirm(`确定取消任务 ${analysisLabel(job.module) || jobId}？`)) return;
     setCancelling(true); setCancelError("");
     try {
       await cancelJob(jobId);
+      setCancelAccepted(true);
       onJobChanged?.();
     } catch (reason) {
       setCancelError(reason instanceof Error ? reason.message : "取消失败，请重试");
@@ -45,6 +55,8 @@ export function JobRow({
 
   return (
     <div
+      data-job-status={job.status}
+      className={`job-row${onToggleSelected ? " job-row--selectable" : ""}`}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={() => onOpenDetails?.(job)}
@@ -56,9 +68,7 @@ export function JobRow({
         }
       }}
       style={{
-        display: "flex",
         alignItems: "center",
-        gap: "var(--spacing-md)",
         padding: "var(--spacing-md) var(--spacing-lg)",
         background: "var(--bg-elevated)",
         borderRadius: "var(--radius-panel)",
@@ -70,6 +80,7 @@ export function JobRow({
     >
       {onToggleSelected && (
         <input
+          className="job-row__select"
           type="checkbox"
           checked={selected}
           aria-label={`选择任务 ${jobId}`}
@@ -78,20 +89,23 @@ export function JobRow({
           style={{ width: "16px", height: "16px", flexShrink: 0, cursor: "pointer" }}
         />
       )}
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)", marginBottom: "6px" }}>
-          <strong style={{ fontSize: "0.9rem" }}>{analysisLabel(job.module || job.job_type)}</strong>
+      <div className="job-row__summary" style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)", flexWrap: "wrap", marginBottom: "6px" }}>
+          <strong className="job-row__title" style={{ fontSize: "0.9rem" }}>{name}</strong>
           <StatusBadge status={job.status} />
         </div>
+        <p className="job-row__identity">{name !== moduleLabel && <span>{moduleLabel} · </span>}{jobId}</p>
         {cancelError && <p role="alert" style={{ color: "var(--danger)" }}>{cancelError}</p>}
+        {retriedJobId && <p role="status">已创建新任务，原记录保留。<a href={"/analysis/script-hub/jobs?job=" + encodeURIComponent(retriedJobId)} onClick={event => event.stopPropagation()}>查看重试任务</a></p>}
         <ProgressBar value={Number(job.progress || 0)} />
         <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "4px" }}>
-          {job.stage || job.detail || job.status}
-          {job.status === "queued" && job.detail && job.detail !== job.stage && <div>{job.detail}</div>}
+          {jobTextLabel(job.stage || job.detail) || statusLabels[job.status]}
+          {cancelPending && <div role="status">等待计算停止后可重试或删除任务。</div>}
+          {job.status === "queued" && job.detail && job.detail !== job.stage && <div>{jobTextLabel(job.detail)}</div>}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: "var(--spacing-xs)", flexShrink: 0 }}>
+      <div className="job-row__actions" style={{ display: "flex", gap: "var(--spacing-xs)", flexShrink: 0 }}>
         {onOpenDetails && (
           <button
             onClick={(event) => {
@@ -113,7 +127,7 @@ export function JobRow({
         {isRunning && (
           <button
             onClick={handleCancel}
-            disabled={cancelling}
+            disabled={cancelling || cancelPending}
             style={{
               padding: "6px 14px", borderRadius: "var(--radius-control)",
               border: "1px solid var(--danger)", background: "transparent",
@@ -121,7 +135,7 @@ export function JobRow({
               whiteSpace: "nowrap", cursor: "pointer",
             }}
           >
-            {cancelling ? "正在取消…" : "取消任务"}
+            {cancelling || cancelPending ? "正在取消…" : "取消任务"}
           </button>
         )}
         {["failed", "cancelled", "interrupted"].includes(job.status) && (
@@ -130,8 +144,10 @@ export function JobRow({
             if (retrying) return;
             setRetrying(true); setCancelError("");
             try {
-              await retryJob(jobId);
+              const response = await retryJob(jobId);
+              setRetriedJobId(response.job_id);
               onJobChanged?.();
+              onRetried?.(response.job_id);
             } catch (error) {
               setCancelError(error instanceof Error ? error.message : "重试提交失败");
             } finally { setRetrying(false); }

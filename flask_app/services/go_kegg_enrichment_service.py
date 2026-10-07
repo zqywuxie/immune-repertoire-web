@@ -20,6 +20,10 @@ from typing import Any, Dict, List, Optional, Sequence
 from flask_app.services.volcano_service import VolcanoService
 
 
+GO_GSEA_EXPORT_POLICY = "full_before_display_filter_and_simplification"
+GO_ORA_EXPORT_POLICY = "full_before_rawP_or_FDR_display_filter"
+
+
 @dataclass
 class GoKeggEnrichmentReport:
     job_id: str
@@ -50,12 +54,14 @@ class GoKeggEnrichmentService:
         differential_metadata: Optional[Dict[str, Any]] = None,
         group_prefix: str = "tpm_",
         comparisons: Optional[Sequence[Sequence[str]]] = None,
+        selected_expression_groups=None,
+        selected_expression_samples=None,
         pvalue_threshold: float = 0.05,
         logfc_cutoff: float = 1.0,
         enrich_pvalue_cutoff: float = 0.05,
-        p_adjust_method: str = "none",
-        show_category: int = 20,
-        simplify_go: bool = True,
+        p_adjust_method: str = "BH",
+        show_category: int = 10,
+        simplify_go: bool = False,
         do_gsea: bool = True,
         output_name: Optional[str] = None,
         progress_callback=None,
@@ -89,6 +95,7 @@ class GoKeggEnrichmentService:
                 expression_path=str(expression_file),
                 group_prefix=group_prefix,
                 comparisons=comparisons,
+                selected_expression_groups=selected_expression_groups, selected_expression_samples=selected_expression_samples,
                 pvalue_threshold=pvalue_threshold,
                 logfc_cutoff=logfc_cutoff,
                 output_base=output_base,
@@ -116,8 +123,8 @@ class GoKeggEnrichmentService:
             str(output_base / "DEG"),
             str(enrichment_dir),
             str(enrich_pvalue_cutoff),
-            str(p_adjust_method or "none"),
-            str(int(show_category or 20)),
+            str(p_adjust_method or "BH"),
+            str(int(show_category or 10)),
             "TRUE" if simplify_go else "FALSE",
             "TRUE" if do_gsea else "FALSE",
         ]
@@ -136,9 +143,19 @@ class GoKeggEnrichmentService:
             encoding="utf-8",
         )
         if completed.returncode != 0:
+            error_report = enrichment_dir / "analysis_errors.txt"
+            if error_report.is_file():
+                failure_detail = error_report.read_text(encoding="utf-8", errors="replace").strip()
+            else:
+                failure_detail = "\n".join(completed.stderr.strip().splitlines()[-12:])
+            if "None of the keys entered are valid keys for 'SYMBOL'" in completed.stderr:
+                failure_detail = "差异表达结果中没有可映射的人类基因符号。当前富集使用人类注释，请检查 gene_symbol 列是否为标准基因符号（例如 TP53、CD3D）；其他编号需先转换。"
+            elif "Too few background genes mapped to ENTREZID" in completed.stderr:
+                failure_detail = "可映射的人类背景基因不足 10 个，无法执行富集。请检查基因符号，并使用完整差异表达结果作为背景。"
             raise RuntimeError(
-                "GO/KEGG enrichment failed. See go_kegg_enrichment.log. "
-                + (completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "")
+                "GO/KEGG 富集计算失败。"
+                + (f"\n{failure_detail}" if failure_detail else "")
+                + f"\n详细日志：{log_path}"
             )
 
         png_paths = [str(path) for path in sorted(output_base.rglob("*.png"))]
@@ -151,12 +168,30 @@ class GoKeggEnrichmentService:
             **source_metadata,
             "job_id": job_id,
             "module": "go-kegg-enrichment",
+            "output_name": output_name or "基因功能与通路富集",
+            "show_significance_filter": False,
+            "analysis_notes": [
+                "复用差异表达结果，沿用来源比较、实际样本范围与筛选标记。" if deg_directory else "按所选表达样本计算差异，再执行功能与通路富集。",
+                "差异基因按完整来源表的 significant 标记纳入，分别分析升高、降低和合并集合。",
+                f"GO 使用 BP（生物过程）本体；富集校正方法为 {p_adjust_method}，展示阈值为 {enrich_pvalue_cutoff}。",
+                "结果表保留完整条目，展示条目数与冗余条目合并仅作用于图表。",
+                "已启用 GSEA，按完整差异表的 t 统计量排序。" if do_gsea else "本次未运行 GSEA。",
+            ],
             "generated_at": datetime.now().isoformat(),
             "enrich_pvalue_cutoff": enrich_pvalue_cutoff,
             "p_adjust_method": p_adjust_method,
+            "go_ontologies": ["BP"],
+            "ora_directions": ["Up", "Down", "Both"],
+            "ora_export_policy": "complete_clusterProfiler_results_before_display_filter",
             "show_category": show_category,
             "simplify_go": simplify_go,
             "do_gsea": do_gsea,
+            "full_go_gsea_tables": [
+                path.relative_to(output_base).as_posix()
+                for path in sorted(enrichment_dir.rglob("GSEA_GO_*_full.csv"))
+            ],
+            "go_gsea_export_policy": GO_GSEA_EXPORT_POLICY,
+            "go_ora_export_policy": GO_ORA_EXPORT_POLICY,
             "output_counts": {
                 "png": len(png_paths),
                 "pdf": 0,
@@ -186,8 +221,8 @@ class GoKeggEnrichmentService:
         )
 
     @staticmethod
-    def _copy_deg_inputs(source_root: Path, destination: Path, *, do_gsea: bool) -> List[str]:
-        """Snapshot full differential tables; never recompute their significance flags."""
+    def inspect_differential_input(source_root: Path, *, do_gsea: bool) -> List[Path]:
+        """Validate full DEG input headers without copying or recalculating results."""
         import pandas as pd
         if not source_root.is_dir():
             raise ValueError("请选择差异表达结果目录。")
@@ -196,13 +231,18 @@ class GoKeggEnrichmentService:
         if not files:
             raise ValueError("所选结果没有完整差异表达表，不能仅使用显著基因子集。")
         required = {'gene_symbol', 'significant'} | ({'t'} if do_gsea else set())
-        copied = []
         for path in files:
             if not path.resolve().is_relative_to(source_root.resolve()):
                 raise ValueError("差异表达文件不在来源结果目录内。")
-            columns = set(pd.read_csv(path, nrows=0).columns)
-            if not required.issubset(columns):
+            if not required.issubset(set(pd.read_csv(path, nrows=0).columns)):
                 raise ValueError("差异表达表缺少基因、筛选标记或所需排序统计量，请检查来源分析。")
+        return files
+
+    @staticmethod
+    def _copy_deg_inputs(source_root: Path, destination: Path, *, do_gsea: bool) -> List[str]:
+        """Snapshot full differential tables; never recompute their significance flags."""
+        copied = []
+        for path in GoKeggEnrichmentService.inspect_differential_input(source_root, do_gsea=do_gsea):
             relative = path.relative_to(source_root)
             target = destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -222,7 +262,7 @@ args <- commandArgs(trailingOnly = TRUE)
 deg_root <- args[[1]]
 output_dir <- args[[2]]
 pvalue_cutoff_enrich <- as.numeric(args[[3]])
-pAdjustMethod_enrich <- args[[4]]
+            pAdjustMethod_enrich <- args[[4]]
 showCategory_num <- as.integer(args[[5]])
 simplify_go <- args[[6]] == "TRUE"
 do_gsea <- args[[7]] == "TRUE"
@@ -264,6 +304,25 @@ write_result <- function(res, path) {
   write.csv(dat, path, row.names = FALSE)
   TRUE
 }
+run_go_ora_full <- function(entrez_genes, background_genes, ontology, adjust_method) {
+  enrichGO(
+    gene = entrez_genes, universe = background_genes, OrgDb = org.Hs.eg.db,
+    ont = ontology, pAdjustMethod = adjust_method,
+    pvalueCutoff = 1, qvalueCutoff = 1, readable = TRUE
+  )
+}
+# Export before display filtering or GO simplification so fixed downstream
+# pathways retain their original NES and probability estimates.
+export_full_gsea <- function(res, path, cutoff) {
+  if (is.null(res)) return(res)
+  write_result(res, path)
+  dat <- res@result
+  keep <- !is.na(dat$pvalue) & !is.na(dat$p.adjust) &
+    dat$pvalue <= cutoff & dat$p.adjust <= cutoff
+  res@result <- dat[keep, , drop=FALSE]
+  res@params$pvalueCutoff <- cutoff
+  res
+}
 save_basic_plots <- function(res, out_dir, label) {
   dat <- as.data.frame(res)
   if (is.null(res) || nrow(dat) < 2) return()
@@ -278,7 +337,11 @@ save_basic_plots <- function(res, out_dir, label) {
 save_gsea_plots <- function(res, out_dir, label) {
   dat <- as.data.frame(res)
   if (is.null(res) || nrow(dat) < 2) return()
-  save_basic_plots(res, out_dir, label)
+  nshow <- min(showCategory_num, nrow(dat))
+  p1 <- dotplot(res, showCategory = nshow, font.size = 10) +
+    ggtitle(label) + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  ggsave(file.path(out_dir, paste0("dotplot_", safe_name(label), ".png")), p1,
+         width = 10, height = max(6, nshow * 0.32), dpi = 300, bg = "white")
   n_gsea <- min(5, nrow(dat))
   for (i in seq_len(n_gsea)) {
     tryCatch({
@@ -309,34 +372,43 @@ record_analysis_error <- function(label, error) {
   message(text)
   NULL
 }
-go_onts <- c("BP", "CC", "MF")
+        # Match 06.Transcriptome/02.GO_enrichment.R, whose current scope is BP.
+        go_onts <- c("BP")
 for (deg_file in deg_files) {
   deg <- read.csv(deg_file, check.names = FALSE)
   comp_name <- sub("^DEG_", "", tools::file_path_sans_ext(basename(deg_file)))
   message("Processing ", comp_name)
-  for (direction in c("Up", "Down")) {
-    genes <- unique(deg$gene_symbol[deg$significant == direction])
+    for (direction in c("Up", "Down", "Both")) {
+    selected_directions <- if (identical(direction, "Both")) c("Up", "Down") else direction
+    genes <- deg$gene_symbol[deg$significant %in% selected_directions]
     if (length(genes) < 5) {
       message("Skip ", comp_name, " ", direction, ": less than 5 significant genes")
       next
     }
     id_map <- suppressMessages(bitr(genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db, drop = TRUE))
-    entrez <- unique(id_map$ENTREZID)
+    entrez <- id_map$ENTREZID
     if (length(entrez) < 5) next
     for (ont in go_onts) {
       go_res <- tryCatch({
-        res <- enrichGO(gene = entrez, universe = bg_entrez, OrgDb = org.Hs.eg.db,
-                        ont = ont, pAdjustMethod = pAdjustMethod_enrich,
-                        pvalueCutoff = pvalue_cutoff_enrich, readable = TRUE)
-        if (!is.null(res) && nrow(as.data.frame(res)) > 0 && simplify_go) {
-          res <- tryCatch(clusterProfiler::simplify(res, cutoff = 0.7, by = "pvalue", select_fun = min),
-                          error = function(e) res)
-        }
-        res
+        run_go_ora_full(entrez, bg_entrez, ont, pAdjustMethod_enrich)
       }, error = function(e) record_analysis_error("GO", e))
       out_dir <- make_dir(output_go, ont, comp_name, "ORA", direction)
-      if (write_result(go_res, file.path(out_dir, paste0(comp_name, "_", direction, "_GO_", ont, ".csv")))) {
-        save_basic_plots(go_res, out_dir, paste0(comp_name, "_", direction, "_GO_", ont))
+      full_path <- file.path(out_dir, paste0(comp_name, "_", direction, "_GO_", ont, ".csv"))
+      if (write_result(go_res, full_path)) {
+        plot_data <- as.data.frame(go_res)
+        for (stat_column in c("pvalue", "p.adjust")) {
+          plot_res <- go_res
+          keep <- !is.na(plot_data[[stat_column]]) & plot_data[[stat_column]] <= pvalue_cutoff_enrich
+          plot_res@result <- plot_data[keep, , drop = FALSE]
+          if (nrow(plot_res@result) > 0 && simplify_go) {
+            plot_res <- tryCatch(
+              clusterProfiler::simplify(plot_res, cutoff = 0.7, by = "pvalue", select_fun = min),
+              error = function(e) plot_res
+            )
+          }
+          stat_tag <- if (identical(stat_column, "p.adjust")) "FDR" else "rawP"
+          save_basic_plots(plot_res, out_dir, paste0(comp_name, "_", direction, "_GO_", ont, "_", stat_tag))
+        }
       }
     }
     kegg_res <- tryCatch({
@@ -364,7 +436,10 @@ for (deg_file in deg_files) {
         gse_go <- tryCatch({
           res <- gseGO(geneList = ranked, ont = ont, OrgDb = org.Hs.eg.db,
                        pAdjustMethod = pAdjustMethod_enrich,
-                       pvalueCutoff = pvalue_cutoff_enrich, seed = TRUE)
+                       pvalueCutoff = 1, seed = 20240101, nPermSimple = 100000)
+          res <- export_full_gsea(res,
+            file.path(make_dir(output_go, ont, comp_name, "GSEA"),
+                      paste0("GSEA_GO_", ont, "_full.csv")), pvalue_cutoff_enrich)
           if (!is.null(res) && nrow(as.data.frame(res)) > 0 && simplify_go) {
             res <- tryCatch(clusterProfiler::simplify(res, cutoff = 0.7, by = "pvalue", select_fun = min),
                             error = function(e) res)
@@ -379,7 +454,8 @@ for (deg_file in deg_files) {
       gse_kegg <- tryCatch({
         gseKEGG(geneList = ranked, organism = "hsa",
                 pAdjustMethod = pAdjustMethod_enrich,
-                pvalueCutoff = pvalue_cutoff_enrich, seed = TRUE)
+                pvalueCutoff = pvalue_cutoff_enrich,
+                seed = 20240101, nPermSimple = 100000)
       }, error = function(e) record_analysis_error("GSEA KEGG", e))
       out_dir <- make_dir(output_kegg, comp_name, "GSEA")
       if (write_result(gse_kegg, file.path(out_dir, "GSEA_KEGG.csv"))) {

@@ -11,7 +11,7 @@ services:
       context: .
       dockerfile: ${APP_DOCKERFILE:-docker/app/Dockerfile.analysis}
       args:
-        ANALYSIS_RUNTIME_IMAGE: ${ANALYSIS_RUNTIME_IMAGE:-immune-analysis-runtime:3.20-v1}
+        ANALYSIS_RUNTIME_IMAGE: ${ANALYSIS_RUNTIME_IMAGE:-immune-analysis-runtime:3.20-ml}
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
     restart: unless-stopped
@@ -43,6 +43,7 @@ services:
       JOB_QUEUE: redis
       ANALYSIS_QUEUE_MAINTENANCE_SECONDS: "${ANALYSIS_QUEUE_MAINTENANCE_SECONDS:-60}"
       ANALYSIS_TIMEOUT_SECONDS: "${ANALYSIS_TIMEOUT_SECONDS:-7200}"
+      ANALYSIS_TIMEOUTS_JSON: "${ANALYSIS_TIMEOUTS_JSON:-}"
       OMP_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
       OPENBLAS_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"
       MKL_NUM_THREADS: "${ANALYSIS_NUM_THREADS:-1}"

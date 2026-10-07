@@ -18,13 +18,13 @@ describe("富集来源", () => {
   ]});
   render(<Harness/>);
   await screen.findByRole("option",{name:/甲 与 乙/});
-  expect(apiClient.get).toHaveBeenCalledWith("/api/script-hub/go-kegg-enrichment/sources",{project_id:"p",asset_set:"Set1"},{skipCache:true});
+  expect(apiClient.get).toHaveBeenCalledWith("/api/script-hub/go-kegg-enrichment/sources",{project_id:"p",asset_set:"Set1"},{skipCache:true,deduplicate:false});
   expect(apiClient.post).not.toHaveBeenCalled();
   expect(screen.queryByText("表达差异比较")).toBeNull();
   expect(screen.getByRole("option",{name:/来源文件已删除/})).toBeDisabled();
   fireEvent.change(screen.getByLabelText("来源差异表达结果"),{target:{value:"source:deg"}});
   expect(JSON.parse(screen.getByTestId("config").textContent!).upstream_artifact_id).toBe("source:deg");
-  expect(screen.getByText(/上游 p 值阈值：0.01/)).toBeInTheDocument();
+  expect(screen.getByText(/来源筛选：沿用来源筛选标记；阈值：0.01；对数倍数变化阈值：2/)).toBeInTheDocument();
   vi.mocked(apiClient.post).mockResolvedValue({success:true,groups:[],comparisons:[]});
   fireEvent.change(screen.getByLabelText("输入方式"),{target:{value:"expression"}});
   await waitFor(()=>expect(screen.getByText("表达差异比较")).toBeInTheDocument());

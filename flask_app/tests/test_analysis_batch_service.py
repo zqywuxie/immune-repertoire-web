@@ -164,11 +164,29 @@ def test_batch_upstream_binding_uses_only_current_child(monkeypatch):
     plan[0].update(status='completed', job_id='current')
     parent = {'project_id': 'p', 'payload': {'asset_set': 'Set2', 'items': plan}}
     monkeypatch.setattr(analysis_artifacts, 'scoped_pep_candidates', lambda *args: [
-        {'id': 'old-output', 'job_id': 'old', 'status': 'available'},
-        {'id': 'current-output', 'job_id': 'current', 'status': 'available'},
+        {'id': 'old-output', 'job_id': 'old', 'status': 'available', 'path': '/old/group/usage_cate/usage/1VJusage'},
+        {'id': 'current-output', 'job_id': 'current', 'status': 'available', 'path': '/current/group/usage_cate/usage/1VJusage'},
     ])
     payload = {'input_mode': 'usage', 'data_dir': '/stale', 'upstream_artifact_id': 'old-output'}
     bind_batch_upstream(parent, plan[1], payload)
     assert payload['upstream_artifact_id'] == 'current-output'
     assert payload['source_job_id'] == 'current'
     assert 'data_dir' not in payload
+
+
+@pytest.mark.parametrize("usage_type", ["1VJusage", "0VJusage"])
+def test_vj_batch_binds_requested_usage_type_and_group(monkeypatch, usage_type):
+    from flask_app.services.analysis_batch_service import validate_batch, bind_batch_upstream
+    from flask_app.services import analysis_artifacts
+    plan = validate_batch({'items': [{'module': 'pep-analysis', 'payload': {}},
+        {'module': 'volcano', 'payload': {'input_mode': 'usage'}, 'upstream_from': 0}]})
+    plan[0].update(status='completed', job_id='current')
+    parent = {'project_id': 'p', 'payload': {'asset_set': 'Set2', 'items': plan}}
+    candidates = [{'id': f'{group}-{kind}', 'job_id': 'current', 'status': 'available',
+        'path': f'/current/{group}/usage_cate/usage/{kind}', 'group_fields': [group]}
+        for group in ['therapy', 'disease'] for kind in ['0VJusage', '1VJusage']]
+    candidates.append({'id': 'ungrouped', 'job_id': 'current', 'status': 'available', 'path': '/current/usage/1VJusage'})
+    monkeypatch.setattr(analysis_artifacts, 'scoped_pep_candidates', lambda *args: candidates)
+    payload = {'input_mode': 'usage', 'group_field': 'therapy', 'usage_type': usage_type}
+    bind_batch_upstream(parent, plan[1], payload)
+    assert payload['upstream_artifact_id'] == f'therapy-{usage_type}'

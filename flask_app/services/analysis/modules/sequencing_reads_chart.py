@@ -6,6 +6,7 @@ Sequencing Reads Chart Analysis Module
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import seaborn as sns
 from typing import Dict, Any, List, Tuple
 import logging
@@ -147,7 +148,7 @@ class SequencingReadsChartModule(AnalysisModule):
         chains = params["chains"]
         
         # 设置中文字体
-        plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+        configure_chinese_font()
         plt.rcParams["axes.unicode_minus"] = False
         
         # 设置颜色

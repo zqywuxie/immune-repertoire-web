@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -46,7 +46,7 @@ const MANAGEMENT_SECTIONS: SidebarSection[] = [
     items: [
       { key: "workbench", label: "项目概览", to: "/management", icon: LayoutDashboard },
       { key: "projects", label: "项目管理", to: "/management/projects", icon: FolderTree },
-      { key: "samples", label: "样本管理", to: "/management/samples", icon: Database },
+      { key: "samples", label: "样本登记", to: "/management/samples", icon: Database },
       { key: "mgmt-settings", label: "工作台设置", to: "/management/settings", icon: Settings },
     ],
   },
@@ -75,18 +75,29 @@ const ANALYSIS_SECTIONS: SidebarSection[] = [
 
 export function Sidebar() {
   const {user, logout}=useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const { setWorkspace, sidebarCollapsed, toggleSidebar } =
     useWorkspace();
 
   const { pathname, search } = useLocation();
-  const projectQuery = new URLSearchParams(search).get("project");
+  useEffect(() => setMobileOpen(false), [pathname, search]);
+  const scope = new URLSearchParams(search);
+  const projectQuery = scope.get("project") || pathname.match(/^\/management\/projects\/([^/]+)/)?.[1] || scope.get("project_id");
+  const scopedQuery = new URLSearchParams();
+  if (projectQuery) scopedQuery.set("project", projectQuery);
+  if (scope.has("asset_set")) scopedQuery.set("asset_set", scope.get("asset_set") || "");
+  for (const key of ["input_asset", "return_to", "reuse_inputs"]) {
+    if (scope.has(key)) scopedQuery.set(key, scope.get(key) || "");
+  }
   const navigate = useNavigate();
   const isManagement = !pathname.startsWith("/analysis");
+  useEffect(() => { setWorkspace(isManagement ? "management" : "analysis"); }, [isManagement, setWorkspace]);
   function switchWorkspace(ws: "analysis" | "management") {
-    setWorkspace(ws);
-    navigate(ws === "analysis" ? `/analysis/center${projectQuery ? `?project=${encodeURIComponent(projectQuery)}` : ""}` : "/management");
+    const managementQuery = new URLSearchParams({ tab: "assets", asset_set: scope.get("asset_set") || "" });
+    navigate(ws === "analysis" ? `/analysis/center${scopedQuery.size ? `?${scopedQuery}` : ""}`
+      : projectQuery ? `/management/projects/${encodeURIComponent(projectQuery)}?${managementQuery}` : "/management");
   }
   const sections = isManagement ? MANAGEMENT_SECTIONS : ANALYSIS_SECTIONS;
 
@@ -94,8 +105,10 @@ export function Sidebar() {
     <aside
       className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : styles.sidebarExpanded}`}
       aria-label="工作台导航"
+      data-mobile-open={mobileOpen}
       style={{ background: "var(--bg-elevated)", borderRight: "1px solid var(--separator)" }}
     >
+      <div className={styles.mobileBar}><Link to="/management">免疫组库 · 分析平台</Link><button className="btn btn-secondary" aria-expanded={mobileOpen} aria-label={mobileOpen ? "收起移动导航" : "展开移动导航"} onClick={() => setMobileOpen(value => !value)}>{mobileOpen ? "收起" : "导航"}</button></div>
       <Link to="/" className={styles.homeLink} title="返回内部工作台">{sidebarCollapsed ? "免" : "免疫组库 · 分析平台"}</Link>
       {/* Workspace switch tabs */}
       {!sidebarCollapsed && (
@@ -163,7 +176,7 @@ export function Sidebar() {
         )}
         {sidebarCollapsed && (
           <span style={{ color: "var(--text-secondary)", fontSize: "0.65rem", fontWeight: 600 }}>
-            {isManagement ? "MG" : "AN"}
+            {isManagement ? "数据" : "分析"}
           </span>
         )}
         <button
@@ -273,7 +286,14 @@ function SidebarSectionView({
 }) {
   const [open, setOpen] = useState(true);
   const { pathname, search } = useLocation();
-  const projectQuery = new URLSearchParams(search).get("project");
+  const scope = new URLSearchParams(search);
+  const projectQuery = scope.get("project") || pathname.match(/^\/management\/projects\/([^/]+)/)?.[1] || scope.get("project_id");
+  const scopedQuery = new URLSearchParams();
+  if (projectQuery) scopedQuery.set("project", projectQuery);
+  if (scope.has("asset_set")) scopedQuery.set("asset_set", scope.get("asset_set") || "");
+  for (const key of ["input_asset", "return_to", "reuse_inputs"]) {
+    if (scope.has(key)) scopedQuery.set(key, scope.get(key) || "");
+  }
   const Icon = section.icon;
 
   function handleHeaderClick() {
@@ -319,7 +339,7 @@ function SidebarSectionView({
           return (
             <Link
               key={item.key}
-              to={item.to.startsWith("/analysis") && projectQuery ? `${item.to}?project=${encodeURIComponent(projectQuery)}` : item.to}
+              to={item.to.startsWith("/analysis") && scopedQuery.size ? `${item.to}?${scopedQuery}` : item.to}
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}
               className={`${styles.navItem} ${collapsed ? styles.navItemCollapsed : ""} ${isActive ? styles.navItemActive : ""}`}

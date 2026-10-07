@@ -1,3 +1,4 @@
+import type { ProjectAsset } from "../../../shared/types/domain";
 import { InputMappingPanel } from "../InputMappingPanel";
 import { InputQualityPanel, type InputQuality } from "../InputQualityPanel";
 import { useState } from "react";
@@ -17,6 +18,8 @@ export interface TablePreview {
 }
 
 export interface InspectionResult {
+  inspectedInputTypes?: Array<"pep" | "profile" | "transcriptome" | "deconvolution">;
+  alignmentGroups?: Array<Array<"pep" | "profile" | "transcriptome" | "deconvolution">>;
   inputQuality?: InputQuality;
   samples: number;
   sampleNames: string[];
@@ -35,28 +38,33 @@ export interface InspectionResult {
 }
 
 interface Stage2SourceInspectionProps {
+  inputTypes?: InspectionResult["inspectedInputTypes"];
   projectId?: string;
   assetSet?: string;
+  inputAssets?: ProjectAsset[];
   pepPaths: string[];
   profilePath: string;
   transcriptomePath: string;
   deconvolutionPath?: string;
   inspection: InspectionResult | null;
   inspectionError?: string | null;
+  inspecting?: boolean;
   onInspect: (mappingChanged?: boolean) => Promise<void> | void;
 }
 
 export function Stage2SourceInspection({
-  projectId, assetSet,
+  projectId, assetSet, inputTypes, inputAssets,
   pepPaths,
   profilePath,
   transcriptomePath,
   deconvolutionPath,
   inspection,
   inspectionError,
+  inspecting: externalInspecting = false,
   onInspect,
 }: Stage2SourceInspectionProps) {
-  const [inspecting, setInspecting] = useState(false);
+  const [checking, setInspecting] = useState(false);
+  const inspecting = checking || externalInspecting;
 
   const handleInspect = async () => {
     setInspecting(true);
@@ -69,10 +77,14 @@ export function Stage2SourceInspection({
 
   const hasData = pepPaths.length > 0 || !!profilePath || !!transcriptomePath || !!deconvolutionPath;
 
+  if (inputTypes?.length === 0) {
+    return <Card><h2>本次使用前置结果</h2><p>无需重复检查原始输入。请在分析配置中核对前置结果的来源、样本范围和分组。</p>{inspectionError && <p role="alert">{inspectionError}</p>}<button type="button" className="btn btn-secondary" disabled={inspecting} onClick={() => void handleInspect()}>{inspecting ? "正在检查…" : "重新检查"}</button></Card>;
+  }
+
   if (!hasData) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
-        {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} onSaved={() => onInspect(true)} />}
+        {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} inputTypes={inputTypes} selectedAssets={inputAssets} onSaved={() => onInspect(true)} />}
         <div>
           <h2 style={{ margin: 0 }}>检查输入数据</h2>
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
@@ -98,13 +110,13 @@ export function Stage2SourceInspection({
   }
 
   return (<>
-    {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} onSaved={() => onInspect(true)} />}
+    {projectId && <InputMappingPanel key={`${projectId}:${assetSet}`} projectId={projectId} assetSet={assetSet || ""} inputTypes={inputTypes} selectedAssets={inputAssets} onSaved={() => onInspect(true)} />}
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xl)" }}>
       {/* Header */}
       <div>
         <h2 style={{ margin: 0 }}>检查输入数据</h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          配置分析前，请先核对并检查已选数据。
+          核对本次分析实际使用的数据。
         </p>
       </div>
 
@@ -171,7 +183,7 @@ export function Stage2SourceInspection({
 
       {inspection?.inputQuality && <InputQualityPanel quality={inspection.inputQuality} />}
 
-      {inspection ? (
+      {inspection && (profilePath || pepPaths.length > 0) ? (
         <div
           style={{
             display: "grid",
@@ -179,23 +191,23 @@ export function Stage2SourceInspection({
             gap: "var(--spacing-lg)",
           }}
         >
-          <PreviewTableCard
+          {!!profilePath && <PreviewTableCard
             title="样本指标表前 5 行"
             path={inspection.profilePreview?.path || profilePath || "未选择样本指标表"}
             preview={inspection.profilePreview}
             accent="var(--success)"
             empty="已选择样本指标表，但未能读取预览行。"
-          />
+          />}
 
-          <PreviewTableCard
+          {pepPaths.length > 0 && <PreviewTableCard
             title="克隆序列表前 5 行"
             path={inspection.pepPreview?.path || (pepPaths.length ? pepPaths[0] : "未选择克隆序列表路径")}
             preview={inspection.pepPreview}
             accent="var(--accent)"
             empty="已选择克隆序列表，但未能读取预览行。"
-          />
+          />}
         </div>
-      ) : (
+      ) : !inspection ? (
         <Card>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)" }}>
             <Table2 size={20} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
@@ -207,7 +219,7 @@ export function Stage2SourceInspection({
             </div>
           </div>
         </Card>
-      )}
+      ) : null}
 
       {/* Inspect Button */}
       <div
@@ -284,7 +296,7 @@ function PreviewTableCard({
             }}
             title={path}
           >
-            {path}
+            {path.split(/[\\/]/).filter(Boolean).pop() || path}
           </div>
         </div>
       </div>

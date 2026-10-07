@@ -96,7 +96,7 @@ class UmapService:
     ) -> UmapReport:
         datapoint = Path(datapoint_path)
         if not datapoint.exists():
-            raise FileNotFoundError(f"Datapoint file not found: {datapoint_path}")
+            raise FileNotFoundError(f"未找到所选样本指标表：{datapoint_path}")
 
         df = _try_read_csv(datapoint, low_memory=False)
         df.fillna(0, inplace=True)
@@ -116,7 +116,7 @@ class UmapService:
                 df[column] = numeric.fillna(0)
                 valid_param_columns.append(column)
         if not valid_param_columns:
-            raise ValueError("No numeric parameter columns were found in the selected UMAP parameter range.")
+            raise ValueError("所选特征范围内没有可用的数值列，请检查起始列、结束列和输入内容。")
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
         from flask_app.services.project_storage_paths import allocate_result_dir
@@ -156,8 +156,7 @@ class UmapService:
         if not png_paths:
             details = "; ".join(warnings[:3])
             no_result_message = details or (
-                "No UMAP plots were generated. Check that the selected classification field has at least two groups "
-                "and at least one parameter passes the Mann-Whitney U p-value threshold."
+                "未生成 UMAP 图。请确认所选分组至少包含两个有效组别，并有特征通过 Mann–Whitney U 检验阈值。"
             )
 
         if progress_callback:

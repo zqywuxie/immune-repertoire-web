@@ -2,10 +2,13 @@ import type { InputQuality } from "../../features/scripthub/InputQualityPanel";
 import { analysisLabel } from "../utils/analysisLabels";
 import { analysisTools } from "../../features/analysis/tools";
 import { apiClient } from "./client";
+import { postAfterInputValidation } from "./submission";
 import type { JobModule, JobOutput, JobSummary } from "../types/domain";
 import type { JobResultsResponse, SubmitJobResponse } from "./jobs";
 
 export interface ScriptHubInspectRequest {
+  alignment_groups?: Array<Array<"pep" | "profile" | "transcriptome" | "deconvolution">>;
+  input_types?: Array<"pep" | "profile" | "transcriptome" | "deconvolution">;
   project_id?: string;
   asset_set?: string;
   pep_paths: string[];
@@ -22,6 +25,7 @@ export interface ScriptHubPepPreview {
 }
 
 export interface ScriptHubInspectResponse {
+  inspected_input_types?: Array<"pep" | "profile" | "transcriptome" | "deconvolution">;
   input_quality?: InputQuality;
   success: boolean;
   pep_paths: string[];
@@ -68,6 +72,8 @@ export interface ScriptHubGroupValuesResponse {
   values: string[];
   sample_column?: string;
   samples_by_value?: Record<string, string[]>;
+  sample_labels?: Record<string, string>;
+  sample_ids?: Record<string, string>;
   count: number;
   message?: string;
 }
@@ -78,10 +84,12 @@ export function readScriptHubTablePreview(filePath: string) {
   });
 }
 
-export function readScriptHubGroupValues(filePath: string, column: string) {
+export function readScriptHubGroupValues(filePath: string, column: string, batchField?: string, sampleColumn?: string) {
   return apiClient.post<ScriptHubGroupValuesResponse>("/api/script-hub/boxplot/group-values", {
     file_path: filePath,
     column,
+    ...(batchField ? { batch_field: batchField } : {}),
+    ...(sampleColumn ? { sample_col: sampleColumn } : {}),
   });
 }
 
@@ -116,11 +124,11 @@ export interface PepCacheCandidatesResponse {
   candidates: PepCacheCandidate[];
 }
 
-export function listPepCacheCandidates(projectId?: string, cacheType?: string, assetSet?: string) {
+export function listPepCacheCandidates(projectId?: string, cacheType?: string, assetSet?: string, options?: {deduplicate?: boolean}) {
   return apiClient.get<PepCacheCandidatesResponse>(
     "/api/script-hub/pep-cache-candidates",
     { project_id: projectId, cache_type: cacheType, asset_set: assetSet },
-    { skipCache: true },
+    { skipCache: true, ...options },
   );
 }
 
@@ -135,11 +143,17 @@ export interface ScriptHubTaskStatusResponse {
   task_id: string;
   module?: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+  cancel_requested?: boolean;
   progress?: number;
   stage?: string;
   detail?: string;
   error?: string;
   result?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  config_json?: Record<string, unknown>;
+  input_assets?: Array<Record<string, unknown>>;
+  analysis_signature?: string;
+  runtime?: Record<string, unknown>;
   history?: Array<Record<string, unknown>>;
   meta?: Record<string, unknown>;
   project_id?: string | null;
@@ -151,6 +165,11 @@ export interface ScriptHubTaskStatusResponse {
 
 const SCRIPT_HUB_LEGACY_MODULES = new Set([
   "immune-infiltration",
+  "immune-infiltration-pathway",
+  "immune-infiltration-sample-pathway",
+  "immune-infiltration-paired",
+  "immune-infiltration-concordance",
+  "immune-infiltration-consistency",
   "db-alignment",
   "boxplot",
   "profile",
@@ -166,6 +185,11 @@ const SCRIPT_HUB_LEGACY_MODULES = new Set([
 ]);
 
 const MODULE_OUTPUT_KINDS: Record<string, string[]> = {
+  "immune-infiltration-consistency": ["html","png","csv","zip"],
+  "immune-infiltration-concordance": ["html","png","csv","zip"],
+  "immune-infiltration-pathway": ["html","png","csv","zip"],
+  "immune-infiltration-sample-pathway": ["html","png","csv","zip"],
+  "immune-infiltration-paired": ["html","png","csv","zip"],
   "immune-infiltration": ["html","png","csv","zip"],
   "db-alignment": ["html", "json", "zip"],
   profile: ["html", "png", "csv", "zip"],
@@ -183,6 +207,11 @@ const MODULE_OUTPUT_KINDS: Record<string, string[]> = {
 
 const MODULE_UI_ENTRIES: Record<string, string> = {
   "immune-infiltration": "ScriptHubInfiltrationConfig",
+  "immune-infiltration-pathway": "ScriptHubInfiltrationConfig",
+  "immune-infiltration-sample-pathway": "ScriptHubInfiltrationConfig",
+  "immune-infiltration-paired": "ScriptHubInfiltrationConfig",
+  "immune-infiltration-concordance": "ScriptHubInfiltrationConfig",
+  "immune-infiltration-consistency": "ScriptHubInfiltrationConfig",
   "db-alignment": "ScriptHubDbAlignmentConfig",
   profile: "ScriptHubProfileConfig",
   boxplot: "ScriptHubProfileConfig",
@@ -233,7 +262,7 @@ export function submitLegacyScriptHubJob({
   projectId?: string;
   forceRerun?: boolean;
 }) {
-  return apiClient.post<SubmitJobResponse>("/api/script-hub/jobs", {
+  return postAfterInputValidation<SubmitJobResponse>("/api/script-hub/jobs", {
     ...normalizeLegacyScriptHubPayload(module, payload),
     module,
     project_id: projectId || payload.project_id || null,
@@ -263,10 +292,18 @@ export function legacyScriptHubTaskToResults(task: ScriptHubTaskStatusResponse):
     job_type: "script-hub",
     module,
     status: task.status,
+    cancel_requested: Boolean(task.cancel_requested),
     progress: Number(task.progress || 0),
     stage: task.stage || null,
     detail: task.detail || null,
-    payload: {},
+    payload: {
+      ...task.payload,
+      ...(task.config_json ? {config_json: task.config_json} : {}),
+      ...(task.input_assets ? {input_assets: task.input_assets} : {}),
+      ...(task.analysis_signature ? {analysis_signature: task.analysis_signature} : {}),
+      ...(task.runtime ? {runtime: task.runtime} : {}),
+      history: task.history || [],
+    },
     result,
     error: task.error || null,
     project_id: task.project_id || null,
@@ -312,7 +349,7 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
   };
 
   if (selectedChains.length) normalized.selected_chains = selectedChains;
-  if (groupedSelectedSamples) normalized.selected_samples = groupedSelectedSamples;
+  if (groupedSelectedSamples && !["umapin", "volcano"].includes(module) && !(["pep-analysis", "pgen-analysis", "topclone", "db-alignment", "mait-nkt", "ml-analysis", "umap"].includes(module) && payload.group_sample_identity === "batch_sample")) normalized.selected_samples = groupedSelectedSamples;
   else if (selectedSamples) normalized.selected_samples = selectedSamples;
   if (selectedGroupValues) normalized.selected_group_values = selectedGroupValues;
   if (selectedSamplesByGroup) normalized.selected_samples_by_group = selectedSamplesByGroup;
@@ -330,8 +367,8 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
 
   if (module === "pep-analysis") {
     if (!selectedChains.length) normalized.selected_chains = ["TRA", "TRB"];
-    const optionalSteps = stringList(payload.optional_steps).filter((step) => ["5", "6", "7", "8"].includes(step));
-    normalized.optional_steps = optionalSteps.length ? optionalSteps : ["5", "6", "7", "8"];
+    const optionalSteps = stringList(payload.optional_steps).filter((step) => ["5", "6", "7", "8", "9", "10", "11", "12"].includes(step));
+    normalized.optional_steps = Array.isArray(payload.optional_steps) ? optionalSteps : ["5", "6", "7", "8"];
   }
 
   if (module === "pgen-analysis") {
@@ -345,21 +382,40 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
   }
 
   if (module === "volcano") {
+    delete normalized.selected_group_values;
+    delete normalized.selected_samples_by_group;
     normalized.input_mode = inputMode === "vj_usage" ? "usage" : (inputMode || (transcriptomePath ? "expression" : "usage"));
     normalized.expression_path = transcriptomePath || payload.expression_path || undefined;
     normalized.data_dir = payload.data_dir || primaryPepPath || undefined;
+    if (normalized.input_mode === "expression") delete normalized.selected_samples;
   }
 
+  if (module.startsWith("immune-infiltration")) {
+    delete normalized.selected_samples;
+    delete normalized.selected_group_values;
+    delete normalized.selected_samples_by_group;
+    if (module === "immune-infiltration-paired") {
+      delete normalized.selected_infiltration_samples;
+      delete normalized.selected_infiltration_groups;
+    }
+  }
   if (module === "go-kegg-enrichment") {
+    delete normalized.selected_samples;
+    delete normalized.selected_group_values;
+    delete normalized.selected_samples_by_group;
     if (payload.input_mode === "deg") {
       delete normalized.expression_path;
       delete normalized.transcriptome_path;
       delete normalized.deg_directory;
+      delete normalized.selected_expression_groups;
+      delete normalized.selected_expression_samples;
     } else normalized.expression_path = transcriptomePath || payload.expression_path || undefined;
   }
 
   if (module === "umapin") {
     normalized.data_path = payload.data_path || payload.df_vj_all_path || primaryPepPath || undefined;
+    delete normalized.selected_group_values;
+    delete normalized.selected_samples_by_group;
   }
 
   if (module === "ml-analysis") {
@@ -375,7 +431,7 @@ function normalizeLegacyScriptHubPayload(module: string, payload: Record<string,
   }
 
   if (payload.upstream_artifact_id) {
-    const field = module === "volcano" ? "data_dir" : module === "umapin" ? "data_path" : module === "ml-analysis" ? "usage_path" : module === "mait-nkt" ? "tra_path" : null;
+    const field = module === "volcano" ? "data_dir" : module === "umapin" ? "data_path" : module === "umap" ? "vj_usage_path" : module === "ml-analysis" ? "usage_path" : module === "mait-nkt" ? "tra_path" : null;
     if (field) delete normalized[field];
   }
   return normalized;
@@ -507,7 +563,7 @@ function stringList(value: unknown): string[] {
 
 
 export function submitAnalysisBatch(projectId: string, assetSet: string, taskName: string, items: Array<{module: string; payload: Record<string, unknown>; upstream_from?: number; depends_on?: number[]}>) {
-  return apiClient.post<SubmitJobResponse>("/api/script-hub/batches", {
+  return postAfterInputValidation<SubmitJobResponse>("/api/script-hub/batches", {
     project_id: projectId, asset_set: assetSet, task_name: taskName,
     items: items.map(item => ({...item, module: item.module, payload: isLegacyScriptHubModule(item.module) ? normalizeLegacyScriptHubPayload(item.module, item.payload) : item.payload})),
   });

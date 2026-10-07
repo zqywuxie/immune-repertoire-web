@@ -26,8 +26,10 @@ def run_charts_job(job_id: str) -> Dict[str, Any]:
         JobContext,
     )
 
+    from flask_app.services.project_storage_paths import job_storage_context
+
     app = create_app()
-    with app.app_context():
+    with app.app_context(), job_storage_context(job_id):
         service = get_background_job_service()
         job = service.get_job(job_id)
         if job is None:

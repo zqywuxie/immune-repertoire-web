@@ -113,7 +113,7 @@ function defaultConfig(module: string, value: Record<string, unknown>) {
     defaults.sample_col = "Sample";
     defaults.custom_threshold = 0.003;
     defaults.cv_splits = 3;
-    defaults.roc_cv_splits = 7;
+    defaults.group_col = "";
   }
   if (module === "mait-nkt") {
     defaults.tra_source = "upload";
@@ -546,6 +546,7 @@ function MlFields({
         </Field>
         <ColumnSelect label="标签列" value={stringValue(value.label_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("label_col", next)} emptyLabel="未识别到样本指标表的分组列" />
         <ColumnSelect label="样本列" value={stringValue(value.sample_col, "Sample")} options={sourceContext?.profileFields || []} onChange={(next) => setField("sample_col", next || "Sample")} emptyLabel="未识别到样本指标表的列" />
+        <ColumnSelect label="\u53d7\u8bd5\u8005\u5206\u7ec4\u5217（\u53ef\u9009）" value={stringValue(value.group_col)} options={detectedGroupFields(sourceContext)} onChange={(next) => setField("group_col", next || "")} emptyLabel="\u6309\u72ec\u7acb\u6837\u672c\u8fdb\u884c\u4ea4\u53c9\u9a8c\u8bc1" optional />
         <RangeFields value={value} setField={setField} sourceContext={sourceContext} />
         <Field label="基因使用数据路径">
           <input value={stringValue(value.usage_path)} onChange={(event) => setField("usage_path", event.target.value || undefined)} placeholder="使用 V/J 基因使用模式时必填" style={inputStyle} />
@@ -559,9 +560,6 @@ function MlFields({
         </Field>
         <Field label="交叉验证折数">
           <input type="number" min="2" value={String(value.cv_splits ?? 3)} onChange={(event) => setField("cv_splits", Number(event.target.value || 3))} style={inputStyle} />
-        </Field>
-        <Field label="分类评估交叉验证折数">
-          <input type="number" min="2" value={String(value.roc_cv_splits ?? 7)} onChange={(event) => setField("roc_cv_splits", Number(event.target.value || 7))} style={inputStyle} />
         </Field>
       </div>
     </Section>

@@ -14,7 +14,7 @@ def initialize(target: Path) -> bool:
         "# APP_UPLOAD_DIR=/colddata/SCigblast/platform/data",
         "# APP_RESULTS_DIR=/colddata/SCigblast/platform/results",
         "ANALYSIS_FLAVOR=full",
-        "ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-v1",
+        "ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-ml",
         "APP_DOCKERFILE=docker/app/Dockerfile.analysis",
         "FLASK_CONFIG=container",
         "AUTH_REGISTER_ENABLED=true",

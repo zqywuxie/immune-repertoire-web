@@ -8,8 +8,13 @@
 !scripts/
 !scripts/backup_sqlite.py
 !scripts/storage_maintenance.py
+!scripts/infiltration/
+!scripts/infiltration/**
 !docker/
 !docker/**
+!docs/
+!docs/api/
+!docs/api/module-manifest.yaml
 **/__pycache__
 **/.pytest_cache
 **/.tmp*
@@ -21,3 +26,6 @@
 **/.env*
 **/skills
 **/tests/_tmp_runtime
+
+scripts/liu.png
+scripts/pic.py

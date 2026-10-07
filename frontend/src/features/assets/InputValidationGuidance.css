@@ -1,0 +1,5 @@
+.data-input-guidance{margin:14px 0;padding:14px 16px;border:1px solid var(--separator);border-left:3px solid var(--accent);border-radius:var(--radius-control);background:var(--bg-root);font-size:.82rem;line-height:1.65;overflow-wrap:anywhere}
+.data-input-guidance strong{color:var(--text-primary);font-weight:600}
+.data-input-guidance p{margin:5px 0 0;color:var(--text-secondary)}
+
+.data-input-guidance-actions .btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center}

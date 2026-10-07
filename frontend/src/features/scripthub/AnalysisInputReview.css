@@ -1,0 +1,36 @@
+.analysis-input-review {
+  margin-bottom: 20px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+  min-width: 0;
+}
+.analysis-input-review__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.analysis-input-review__summary p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.analysis-input-review__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.analysis-input-review__details {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--separator);
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.analysis-input-review__alignment {
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-control);
+}

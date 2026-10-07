@@ -1,0 +1,77 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
+async function main(){
+ const out=process.env.E2E_OUTPUT_DIR;
+ const artifacts=JSON.parse(await fs.readFile(path.join(out,'artifact-context.json'),'utf8'));
+ const metadataBefore=await fs.readFile(artifacts.metadata,'utf8'),data=JSON.parse(metadataBefore);
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+ page.on('pageerror',e=>errors.push(String(e)));page.setDefaultTimeout(15000);
+ const shot=async name=>page.screenshot({path:path.join(out,name+'.png'),fullPage:true});
+ try{
+  await page.goto('file://'+artifacts.viewer);await page.getByRole('heading',{name:'数据库比对',exact:true}).waitFor();
+  const tabs=page.getByRole('tab'),panel=page.getByRole('tabpanel');
+  assert.equal(await tabs.count(),5);assert.equal(await panel.count(),1);
+  assert.equal(await tabs.filter({hasText:'概览'}).getAttribute('aria-selected'),'true');
+  assert((await page.locator('.sub').allTextContents()).some(s=>s.includes('合成样本指标.csv')));
+  assert(!(await page.locator('.sub').allTextContents()).some(s=>s.includes('/tmp/')));
+  assert.equal(await page.getByText('查看输入位置',{exact:true}).locator('..').getAttribute('open'),null);
+  assert.deepEqual(await page.locator('#panel-overview tbody tr td:last-child').allTextContents(),artifacts.pvalueTexts);
+  assert.deepEqual(await panel.locator('th').allTextContents(),['来源','分析范围','分组字段','比较','指标','p 值']);
+  assert(!(await panel.innerText()).includes('Overall'));
+  await shot('database-overview-desktop');
+  await page.getByRole('tab',{name:'概览',exact:true}).focus();await page.keyboard.press('ArrowRight');
+  assert.equal(await page.getByRole('tab',{name:'全部箱线图',exact:true}).getAttribute('aria-selected'),'true');
+  const all=data.boxplots.length;assert.equal(await panel.locator('.plot-card:visible').count(),all);
+  const expected=data.boxplots.filter(p=>p.chain==='TRA'&&p.source_label==='肿瘤分类').length;
+  await page.getByRole('button',{name:'TRA',exact:true}).click();await page.getByLabel('病理分类',{exact:true}).selectOption('肿瘤分类');
+  assert.equal(await panel.locator('.plot-card:visible').count(),expected);
+  assert.equal(expected,0);assert.match(await panel.getByRole('status').innerText(),/当前筛选没有匹配结果/);
+  await page.getByRole('button',{name:'TRB',exact:true}).click();
+  const matched=data.boxplots.filter(p=>p.chain==='TRB'&&p.source_label==='肿瘤分类').length;assert(matched>0);
+  assert.equal(await panel.locator('.plot-card:visible').count(),matched);
+  assert.match(await panel.getByRole('status').innerText(),new RegExp('当前显示 '+matched+' / '+all));
+  // TRB has no significant comparisons. The empty filter should not say the analysis produced no results.
+  await page.getByRole('tab',{name:'显著箱线图',exact:true}).click();
+  await page.getByRole('button',{name:'TRB',exact:true}).click();
+  assert.equal(await panel.locator('.plot-card:visible').count(),0);
+  assert.match(await panel.getByRole('status').innerText(),/当前筛选没有匹配结果/);
+  assert.equal(await page.getByRole('button',{name:'TRB',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'清除筛选',exact:true}).focus();await page.keyboard.press('Enter');
+  assert.equal(await page.getByLabel('病理分类',{exact:true}).inputValue(),'all');
+  assert.equal(await panel.locator('.plot-card:visible').count(),data.significant_boxplots.length);
+  assert.equal(await page.getByRole('button',{name:'全部',exact:true}).getAttribute('aria-pressed'),'true');
+  const image=panel.locator('img').first();await image.waitFor();
+  await image.evaluate(el=>el.complete&&el.naturalWidth?null:new Promise((resolve,reject)=>{el.onload=resolve;el.onerror=reject;}));
+  await shot('database-significant-desktop');
+  await page.getByRole('tab',{name:'比例表',exact:true}).click();
+  assert.equal(await page.getByLabel('病理分类',{exact:true}).isVisible(),false);
+  assert.equal(await page.getByRole('group',{name:'链型筛选',exact:true}).isVisible(),false);
+  const ratioRows=await panel.locator('tbody tr').count();assert.equal(ratioRows,10);
+  assert.equal(await panel.locator('tbody tr').first().locator('td').first().innerText(),'001');
+  await page.setViewportSize({width:390,height:844});
+  let widths=await page.evaluate(()=>({document:document.documentElement.scrollWidth,viewport:innerWidth}));
+  assert(widths.document<=widths.viewport+1,JSON.stringify(widths));
+  const region=page.getByRole('region',{name:'比例汇总预览',exact:true});await region.focus();await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(()=>document.querySelector('#panel-ratio .table-wrap').scrollLeft>0);
+  await shot('database-ratio-mobile');
+  await page.getByRole('tab',{name:'比例表',exact:true}).focus();await page.keyboard.press('End');
+  assert.equal(await page.getByRole('tab',{name:'比对汇总',exact:true}).getAttribute('aria-selected'),'true');
+  assert.equal(await page.getByLabel('病理分类',{exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'TRA',exact:true}).click();
+  assert.equal(await panel.locator('tbody tr[data-hidden="0"]').count(),10);
+  assert.match(await panel.getByRole('status').innerText(),/当前显示 10 \/ 20/);
+  await shot('database-alignment-mobile');
+  await page.goto('file://'+artifacts.emptyViewer);
+  assert(await page.getByText('未检测到显著比较结果。',{exact:true}).isVisible());
+  await page.getByRole('tab',{name:'显著箱线图',exact:true}).click();
+  assert(await page.getByText('没有检测到显著箱线图结果。',{exact:true}).isVisible());
+  assert.equal(await page.getByText('当前筛选没有匹配结果。可清除筛选查看已有结果。',{exact:true}).count(),0);
+  await shot('database-empty-mobile');
+  assert.equal(await fs.readFile(artifacts.metadata,'utf8'),metadataBefore);
+  assert.equal(errors.length,0,JSON.stringify(errors));
+  await fs.writeFile(path.join(out,'browser-results.json'),JSON.stringify({samples:data.sample_count,plots:all,significant:data.significant_boxplots.length,ratioRows,errors},null,2));
+  console.log('PASS real database report: saved precision, Chinese controls, tabs and filter reset, empty states, raw 001, unchanged metadata, 390px keyboard scrolling');
+ }catch(error){await shot('browser-failure');await fs.writeFile(path.join(out,'browser-failure.html'),await page.content());throw error}
+ finally{await browser.close()}
+}
+main().catch(error=>{console.error(error);process.exitCode=1});

@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { PageHeader } from '../../shared/components/PageHeader';
 import { Card } from '../../shared/components/Card';
-import { useApi } from '../../shared/hooks/useApi';
-import { listProjects, uploadProjectAssets } from '../../shared/api/projects';
+import { ProjectPicker } from '../../features/projects/ProjectPicker';
+import { uploadProjectAssets } from '../../shared/api/projects';
 import { uploadDocument, documentAction } from '../../shared/api/documentTools';
 type Scan = {session_id:string;slide_count:number;heatmap_slides:{slide_index:number;chain_type:string;image_positions:{index:number;metric:string;metric_display?:string;data_url?:string}[]}[]};
 type Replacement = {success:boolean;download_url:string;replaced_count:number;total_count:number;warnings?:string[];errors?:string[]};
 export function PptTools(){
-  const projects=useApi(()=>listProjects(),[]);
   const [project,setProject]=useState(''),[file,setFile]=useState<File|null>(null);
   const [scan,setScan]=useState<Scan|null>(null),[images,setImages]=useState<Record<string,File>>({});
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<Replacement|null>(null);
@@ -25,8 +24,7 @@ export function PptTools(){
   }catch(reason){setError(reason instanceof Error?reason.message:'生成失败');}finally{setBusy(false);}}
   return <><PageHeader title="PPT 图表替换" subtitle="解析真实模板位置，上传替换图表并下载演示文稿"/>
     <div style={{display:'grid',gap:20}}><Card><fieldset disabled={busy} style={{border:0,padding:0,display:'grid',gap:16}}>
-      <label>项目<select className="select" value={project} onChange={event=>{setProject(event.target.value);setResult(null);}}><option value="">请选择项目</option>{projects.status==='ready'&&projects.data.projects.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      {projects.status==='error'&&<div role="alert">{projects.error}<button type="button" onClick={projects.refetch}>重试</button></div>}
+      <ProjectPicker value={project} disabled={busy} onChange={value=>{setProject(value);setResult(null);}} />
       <label>上传 PPTX 模板<input className="input" type="file" accept=".pptx" onChange={event=>{const next=event.target.files?.[0]||null;setScan(null);setImages({});setResult(null);setError('');if(next&&!next.name.toLowerCase().endsWith('.pptx')){setError('请选择 PPTX 文件。');setFile(null);}else setFile(next);}}/></label>
       <button className="btn btn-primary" disabled={!file||busy} onClick={inspect}>{busy?'正在处理…':'解析模板'}</button>
     </fieldset></Card>

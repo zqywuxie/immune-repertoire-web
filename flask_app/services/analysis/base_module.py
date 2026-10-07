@@ -20,21 +20,9 @@ class PlotConfig:
     @staticmethod
     def setup_chinese_font():
         """设置中文字体支持"""
-        try:
-            import matplotlib as mpl
-            # 尝试多种中文字体
-            chinese_fonts = ["SimHei", "Microsoft YaHei", "Arial Unicode MS", "DejaVu Sans"]
-            for font in chinese_fonts:
-                try:
-                    mpl.rcParams["font.sans-serif"] = [font] + mpl.rcParams["font.sans-serif"]
-                    break
-                except:
-                    continue
-            mpl.rcParams["axes.unicode_minus"] = False
-            mpl.rcParams["font.family"] = "sans-serif"
-        except Exception as e:
-            logger.warning(f"Failed to setup Chinese font: {e}")
-    
+        from flask_app.services.figure_style import configure_chinese_font
+        configure_chinese_font()
+
     @staticmethod
     def get_style_config():
         """获取统一的绘图样式配置"""

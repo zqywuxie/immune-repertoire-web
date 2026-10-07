@@ -1,0 +1,71 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
+async function main(){
+ const out=process.env.E2E_OUTPUT_DIR,data=JSON.parse(await fs.readFile(path.join(out,'fixture-context.json'),'utf8'));
+ const before=await fs.readFile(data.mlMetadata,'utf8'),browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+ page.setDefaultTimeout(15000);page.on('pageerror',error=>errors.push(String(error)));
+ const shot=name=>page.screenshot({path:path.join(out,name+'.png'),fullPage:true});
+ const load=p=>page.goto('file://'+p);
+ try{
+  await load(data.ml);await page.getByRole('heading',{name:'机器学习分析结果',exact:true}).waitFor();
+  assert.equal(await page.locator('#sigToggle').count(),0);assert.equal(await page.locator('.plot-head em').count(),0);
+  assert.equal(await page.locator('.plot-card[data-sig="unknown"]:visible').count(),1);
+  const image=page.locator('img').first();assert(await image.evaluate(el=>el.complete&&el.naturalWidth>0));
+  assert.equal(await page.getByLabel('图表分类',{exact:true}).locator('option:checked').innerText(),'样本指标');
+  assert.equal(await page.locator('.plot-head span').innerText(),'样本指标');
+  await shot('ml-report-no-invented-significance');
+  await load(data.flags);
+  assert.equal(await page.getByLabel('图表分类',{exact:true}).inputValue(),'分类甲');
+  assert.equal(await page.locator('.plot-card:visible').count(),2);
+  assert.equal(await page.getByText('未标注显著性',{exact:true}).count(),2);
+  await page.getByRole('button',{name:'仅显示显著结果',exact:true}).focus();await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#sigToggle').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('.plot-card:visible').count(),1);
+  assert.equal(await page.locator('.plot-card[data-sig="1"]:visible').count(),data.knownTrue);
+  await page.getByLabel('图表分类',{exact:true}).selectOption('分类乙');
+  assert.equal(await page.locator('.plot-card:visible').count(),0);
+  assert(await page.getByText('当前筛选没有匹配图表，可清除筛选查看已有结果。',{exact:true}).isVisible());
+  assert.match(await page.getByRole('status').innerText(),/当前显示 0 \/ 4/);
+  await shot('report-empty-filter-desktop');
+  await page.reload();
+  assert.equal(await page.getByLabel('图表分类',{exact:true}).inputValue(),'分类乙');
+  assert.equal(await page.locator('#sigToggle').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('.plot-card:visible').count(),0);
+  await page.getByRole('button',{name:'清除筛选',exact:true}).focus();await page.keyboard.press('Enter');
+  assert.equal(await page.getByLabel('图表分类',{exact:true}).inputValue(),'');
+  assert.equal(await page.locator('#sigToggle').getAttribute('aria-pressed'),'false');
+  assert.equal(await page.locator('.plot-card:visible').count(),4);
+  assert.equal(await page.locator('.plot-card[data-sig="0"]:visible').count(),data.knownFalse);
+  assert.equal(await page.locator('.plot-card[data-sig="unknown"]:visible').count(),data.unknown);
+  assert(await page.locator('#filterEmpty').isHidden());
+  await page.reload();assert.equal(await page.locator('.plot-card:visible').count(),4);
+  await page.setViewportSize({width:390,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await shot('report-all-categories-mobile');
+  await page.setViewportSize({width:320,height:700});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await shot('report-320px');
+  // Stale saved categories must fall back to the actual first category.
+  await page.evaluate(()=>sessionStorage.setItem('analysis-report-filters:'+location.pathname,JSON.stringify({category:'不存在的分类',significant:true})));
+  await page.reload();
+  assert.equal(await page.getByLabel('图表分类',{exact:true}).inputValue(),'分类甲');
+  assert.equal(await page.locator('#sigToggle').getAttribute('aria-pressed'),'false');
+  await load(data.disabled);assert.equal(await page.locator('#sigToggle').count(),0);assert.equal(await page.locator('.plot-head em').count(),0);
+  await load(data.empty);
+  assert(await page.getByText('暂无图表结果。',{exact:true}).isVisible());
+  assert.equal(await page.getByRole('status').innerText(),'本次未生成图表。');
+  assert(await page.locator('#filterEmpty').isHidden());
+  await load(data.profile);
+  await page.getByRole('button',{name:'🔍 仅显示显著',exact:true}).click();
+  await page.waitForFunction(()=>getComputedStyle(document.getElementById('sigToggle')).color==='rgb(40, 85, 172)');
+  assert.equal(await page.locator('#sigToggle').evaluate(el=>getComputedStyle(el).color),'rgb(40, 85, 172)');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await shot('profile-blue-controls-mobile');
+  assert.equal(await fs.readFile(data.mlMetadata,'utf8'),before);
+  assert.equal(errors.length,0,JSON.stringify(errors));
+  await fs.writeFile(path.join(out,'browser-results.json'),JSON.stringify({mlSourceJob:data.mlSourceJob,dbSourceJob:data.dbSourceJob,profileJob:data.profileJob,knownTrue:data.knownTrue,knownFalse:data.knownFalse,unknown:data.unknown,viewports:[1280,390,320],errors},null,2));
+  console.log('PASS saved ML has no invented significance, recorded true/false/unknown, clear and reload, stale category fallback, empty report, blue profile controls, 390/320px');
+ }catch(error){await shot('browser-failure');await fs.writeFile(path.join(out,'browser-failure.html'),await page.content());throw error}
+ finally{await browser.close()}
+}
+main().catch(error=>{console.error(error);process.exitCode=1});

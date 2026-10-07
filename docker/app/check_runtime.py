@@ -6,11 +6,11 @@ import subprocess
 parser = argparse.ArgumentParser()
 parser.add_argument('--full', action='store_true')
 args = parser.parse_args()
-for name in ['flask', 'pandas', 'numpy', 'scipy', 'sklearn', 'umap', 'pptx', 'fitz', 'redis', 'rq', 'statsmodels', 'scikit_posthocs']:
+for name in ['flask', 'pandas', 'numpy', 'scipy', 'sklearn', 'xgboost', 'umap', 'pptx', 'fitz', 'redis', 'rq', 'statsmodels', 'scikit_posthocs', 'xlrd']:
     importlib.import_module(name)
     print(name + ': OK', flush=True)
 if args.full:
     from sonnia.processing import Processing
     from sonnia.sonnia import SoNNia
-    subprocess.run(['Rscript', '-e', 'stopifnot(all(vapply(c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE","data.table","ggplot2","patchwork","jsonlite"),requireNamespace,logical(1),quietly=TRUE)))'], check=True)
+    subprocess.run(['Rscript', '-e', 'stopifnot(all(vapply(c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE","data.table","ggplot2","patchwork","jsonlite","ComplexHeatmap","circlize","GSVA","AnnotationDbi","GO.db","limma"),requireNamespace,logical(1),quietly=TRUE)))'], check=True)
     print('SoNNia and R/Bioconductor: OK')

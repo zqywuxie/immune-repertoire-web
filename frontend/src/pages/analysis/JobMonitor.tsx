@@ -1,15 +1,18 @@
+import { ApiError } from "../../shared/api/client";
 import { Select } from "../../shared/components/Select";
+import { isTerminalJobStatus, preferLatestJobSnapshot } from "../../shared/utils/jobState";
 import { analysisLabel } from "../../shared/utils/analysisLabels";
-import { useSearchParams } from "react-router-dom";
+import { clearResultAddress } from "../../features/results/resultAddress";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   Activity, Play, CheckCircle2, XCircle, Ban,
-  AlertTriangle, Clock, Filter, Trash2,
+  AlertTriangle, Clock, Filter, Trash2, PackageCheck, ArrowLeft,
 } from "lucide-react";
 import { usePolling } from "../../shared/hooks/usePolling";
 import { useJobEvents } from "../../shared/hooks/useJobEvents";
-import { bulkDeleteJobs, deleteJob, listJobs, getJob, getJobResults, listJobModules, type JobResultsResponse } from "../../shared/api/jobs";
-import { listProjects, listProjectAssets } from "../../shared/api/projects";
+import { bulkDeleteJobs, deleteJob, downloadResultArchive, listJobs, getJob, getJobResults, listJobModules, type JobResultsResponse } from "../../shared/api/jobs";
+import { listProjectDatasets } from "../../shared/api/projects";
 import type { JobSummary } from "../../shared/types/domain";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { Card } from "../../shared/components/Card";
@@ -20,13 +23,21 @@ import { JobDetailPanel } from "../../features/jobs/JobDetailPanel";
 import { Skeleton } from "../../shared/components/Skeleton";
 import { EmptyState } from "../../shared/components/EmptyState";
 import { useToast } from "../../shared/hooks/useToast";
-import { buildAssetSets } from "../../features/assets/assetSets";
+import { ProjectPicker } from "../../features/projects/ProjectPicker";
+import "./JobMonitor.css";
 
 /* ── Component ── */
 
 export function JobMonitor() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const selectedRef = useRef<string | null>(null);
+  const detailElement = useRef<HTMLDivElement>(null);
+  const listElement = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const restoreListFocus = useRef(false);
+  const selectedSnapshot = useRef<JobSummary | null>(null);
   const resultVersion = useRef(0);
   const pendingResults = useRef(new Map<string, Promise<JobResultsResponse>>());
   const [readError, setReadError] = useState("");
@@ -57,6 +68,7 @@ export function JobMonitor() {
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
   const [deleteResults, setDeleteResults] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [downloadingResults, setDownloadingResults] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetailState, setJobDetailState] = useState<{
     job: JobSummary | null;
@@ -67,7 +79,7 @@ export function JobMonitor() {
     loading: boolean;
   }>({ result: null, loading: false });
 
-  const liveJob = useJobEvents(selectedJobId);
+  const liveJob = useJobEvents(readError && !jobDetailState.job && !jobDetailState.loading ? null : selectedJobId);
   const { addToast } = useToast();
   const lastResultFetchKeyRef = useRef("");
 
@@ -85,13 +97,9 @@ export function JobMonitor() {
 
   // Load modules for filter dropdown
   const [modules, setModules] = useState<{ key: string; label: string }[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     listJobModules()
       .then((res) => setModules(res.modules))
-      .catch(() => {});
-    listProjects()
-      .then((res) => setProjects(res.projects.map((p) => ({ id: p.id, name: p.name }))))
       .catch(() => {});
   }, []);
 
@@ -101,13 +109,18 @@ export function JobMonitor() {
       setAssetSets([]);
       return;
     }
-    listProjectAssets(filterProjectId, { pageSize: 200 })
-      .then((res) => setAssetSets(buildAssetSets(res.assets).map((set) => set.name)))
-      .catch(() => setAssetSets([]));
+    let active = true;
+    listProjectDatasets(filterProjectId)
+      .then((res) => { if (active) setAssetSets(res.datasets.map(dataset => dataset.name)); })
+      .catch(() => { if (active) setAssetSets([]); });
+    return () => { active = false; };
   }, [filterProjectId]);
 
-  const filteredJobs = jobs;
-  const stats = { running: 0, completed: 0, failed: 0, cancelled: 0, ...jobsState.data?.counts };
+  const filteredJobs = useMemo(() => jobs.map(job => {
+    if (!jobDetailState.job || (job.job_id || job.id) !== selectedJobId) return job;
+    return preferLatestJobSnapshot(jobDetailState.job, job);
+  }), [jobs, jobDetailState.job, selectedJobId]);
+  const stats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, interrupted: 0, ...jobsState.data?.counts };
   const moduleOptions = [...new Map([...modules, ...(jobsState.data?.modules || []).map(key => ({key, label: analysisLabel(key)}))].map(item => [item.key, item])).values()];
 
   const selectedJobs = useMemo(
@@ -120,36 +133,46 @@ export function JobMonitor() {
   );
   const allVisibleSelected = filteredJobs.length > 0 && filteredJobs.every((job) => selectedJobIds.has(job.job_id || job.id));
 
-  const fetchJobResults = useCallback(async (jobId: string) => {
+  const fetchJobResults = useCallback(async (jobId: string, forceFresh = false) => {
     const version = ++resultVersion.current;
     setReadError("");
     setDetailState((current) => ({ result: current.result, loading: true }));
     try {
-      let request = pendingResults.current.get(jobId);
+      let request = forceFresh ? undefined : pendingResults.current.get(jobId);
       if (!request) {
-        request = getJobResults(jobId);
+        request = getJobResults(jobId, { forceFresh });
         pendingResults.current.set(jobId, request);
       }
       let data: JobResultsResponse;
       try { data = await request; }
       finally { if (pendingResults.current.get(jobId) === request) pendingResults.current.delete(jobId); }
       if (selectedRef.current !== jobId || version !== resultVersion.current) return;
-      setDetailState({ result: data, loading: false });
-      setJobDetailState({ job: data.job, loading: false });
-      lastResultFetchKeyRef.current = `${jobId}:${data.job.status}:${data.job.updated_at || data.job.completed_at || data.job.progress}`;
+      const job = preferLatestJobSnapshot(selectedSnapshot.current, data.job);
+      selectedSnapshot.current = job;
+      setDetailState({ result: { ...data, job, status: job.status }, loading: false });
+      setJobDetailState({ job, loading: false });
+      lastResultFetchKeyRef.current = `${jobId}:${job.status}:${job.updated_at || job.completed_at || job.progress}`;
     } catch (reason) {
       if (selectedRef.current !== jobId || version !== resultVersion.current) return;
-      setReadError(reason instanceof Error ? reason.message : "结果读取失败");
+      setReadError(jobReadMessage(reason, "结果读取失败"));
       lastResultFetchKeyRef.current = "";
       setDetailState((current) => ({ result: current.result, loading: false }));
     }
   }, []);
 
   const handleSelectJob = useCallback(async (jobId: string) => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !detailElement.current?.contains(active)) returnFocus.current = active;
+    if (selectedRef.current === jobId) detailElement.current?.focus({ preventScroll: true });
     selectedRef.current = jobId;
+    selectedSnapshot.current = null;
     resultVersion.current += 1;
     setReadError("");
-    setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("job", jobId); return next; }, { replace: true });
+    if (searchParams.get("job") !== jobId) {
+      const next = clearResultAddress(searchParams);
+      next.set("job", jobId);
+      navigate({pathname:location.pathname,search:"?"+next,hash:location.hash},{replace:true});
+    }
     setSelectedJobId(jobId);
     lastResultFetchKeyRef.current = "";
     setJobDetailState({ job: null, loading: true });
@@ -157,21 +180,49 @@ export function JobMonitor() {
     try {
       const data = await getJob(jobId);
       if (selectedRef.current !== jobId) return;
-      setJobDetailState({ job: data.job, loading: false });
+      const job = preferLatestJobSnapshot(selectedSnapshot.current, data.job);
+      selectedSnapshot.current = job;
+      setJobDetailState({ job, loading: false });
     } catch (reason) {
       if (selectedRef.current !== jobId) return;
-      setReadError(reason instanceof Error ? reason.message : "任务读取失败");
+      setReadError(jobReadMessage(reason, "任务读取失败"));
       setJobDetailState({ job: null, loading: false });
       setDetailState({ result: null, loading: false });
       return;
     }
     await fetchJobResults(jobId);
-  }, [fetchJobResults, setSearchParams]);
+  }, [fetchJobResults, searchParams, navigate, location.pathname, location.hash]);
 
   useEffect(() => {
     const id = searchParams.get("job");
     if (id && selectedRef.current !== id) void handleSelectJob(id);
   }, [searchParams, handleSelectJob]);
+
+  const handleCloseDetails = useCallback(() => {
+    selectedRef.current = null;
+    selectedSnapshot.current = null;
+    resultVersion.current += 1;
+    restoreListFocus.current = true;
+    const next = clearResultAddress(searchParams);
+    next.delete("job");
+    navigate({pathname:location.pathname,search:next.toString() ? "?"+next : "",hash:location.hash},{replace:true});
+    setSelectedJobId(null);
+    setJobDetailState({ job: null, loading: false });
+    setDetailState({ result: null, loading: false });
+    setReadError("");
+  }, [searchParams, navigate, location.pathname, location.hash]);
+
+  useEffect(() => {
+    if (selectedJobId) {
+      detailElement.current?.focus({ preventScroll: true });
+      if (window.matchMedia?.("(max-width: 1100px)").matches) detailElement.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    } else if (restoreListFocus.current) {
+      restoreListFocus.current = false;
+      const target = returnFocus.current?.isConnected ? returnFocus.current : listElement.current;
+      returnFocus.current = null;
+      target?.focus();
+    }
+  }, [selectedJobId]);
 
   const handleOpenDetails = useCallback((job: JobSummary) => {
     const jobId = job.job_id || job.id;
@@ -212,15 +263,10 @@ export function JobMonitor() {
       return next;
     });
     if (selectedJobId && deletedIds.includes(selectedJobId)) {
-      selectedRef.current = null;
-      resultVersion.current += 1;
-      setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("job"); return next; }, { replace: true });
-      setSelectedJobId(null);
-      setJobDetailState({ job: null, loading: false });
-      setDetailState({ result: null, loading: false });
+      handleCloseDetails();
     }
     setRefreshTick((tick) => tick + 1);
-  }, [selectedJobId, setSearchParams]);
+  }, [selectedJobId, handleCloseDetails]);
 
   const handleDeleteOne = useCallback(async (job: JobSummary) => {
     if (!isTerminalJob(job)) {
@@ -269,29 +315,65 @@ export function JobMonitor() {
     }
   }, [addToast, clearDeletedState, deleteResults, selectedJobs.length, terminalSelectedJobs]);
 
+  const handleDownloadSelectedResults = useCallback(async () => {
+    if (!terminalSelectedJobs.length) {
+      addToast("请选择已结束且有结果的任务。", "warning");
+      return;
+    }
+    setDownloadingResults(true);
+    try {
+      const results = await Promise.all(terminalSelectedJobs.map((job) => getJobResults(job.job_id || job.id)));
+      const items = results.flatMap((result) => {
+        const jobId = result.job.job_id || result.job.id;
+        return [
+          ...(result.outputs || []).flatMap((output) => output.url ? [{ job_id: jobId, url: output.url }] : []),
+          ...(result.assets || []).flatMap((asset) => [asset.download_url, asset.preview_url].filter((url): url is string => Boolean(url)).map((url) => ({ job_id: jobId, url }))),
+        ];
+      });
+      const uniqueItems = [...new Map(items.map((item) => [`${item.job_id}:${item.url}`, item])).values()];
+      if (!uniqueItems.length) {
+        addToast("所选任务没有可打包的结果文件。", "warning");
+        return;
+      }
+      if (uniqueItems.length > 200) {
+        addToast(`共找到 ${uniqueItems.length} 个文件，单次最多打包 200 个，请减少所选任务。`, "warning");
+        return;
+      }
+      await downloadResultArchive(uniqueItems);
+      addToast(`已开始下载 ${uniqueItems.length} 个结果文件。`, "success");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "读取所选任务结果失败。", "error");
+    } finally {
+      setDownloadingResults(false);
+    }
+  }, [addToast, terminalSelectedJobs]);
+
   // Refresh detail when live job event arrives
   useEffect(() => {
     if (!selectedJobId || !liveJob.event || (liveJob.event.job.job_id || liveJob.event.job.id) !== selectedJobId) return;
-    const event = liveJob.event;
+    if (selectedRef.current !== selectedJobId) return;
+    const job = preferLatestJobSnapshot(selectedSnapshot.current, liveJob.event.job);
+    selectedSnapshot.current = job;
+    const event = { ...liveJob.event, job, status: job.status };
     setJobDetailState((prev) => {
       if (!prev.job) return prev;
       const selectedId = prev.job.job_id || prev.job.id;
       const eventId = event.job.job_id || event.job.id;
       if (selectedId !== eventId) return prev;
-      return { job: event.job, loading: false };
+      return { job: preferLatestJobSnapshot(prev.job, event.job), loading: false };
     });
-    if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
+    if (isTerminalJobStatus(event.status)) {
       const key = `${selectedJobId}:${event.status}:${event.job.updated_at || event.job.completed_at || event.job.progress}`;
       if (lastResultFetchKeyRef.current === key) return;
       lastResultFetchKeyRef.current = key;
-      void fetchJobResults(selectedJobId);
+      void fetchJobResults(selectedJobId, true);
       return;
     }
     // Update the status in-place for in-progress jobs
     setDetailState((prev) => {
       if (!prev.result) return prev;
       return {
-        result: { ...prev.result, job: event.job, status: event.status },
+        result: { ...prev.result, job: preferLatestJobSnapshot(prev.result.job, event.job), status: preferLatestJobSnapshot(prev.result.job, event.job).status },
         loading: false,
       };
     });
@@ -302,34 +384,37 @@ export function JobMonitor() {
   useEffect(() => {
     if (!selectedJobId) return;
     const polledJob = jobs.find((job) => (job.job_id || job.id) === selectedJobId);
-    if (!polledJob) return;
+    if (!polledJob || selectedRef.current !== selectedJobId) return;
+    const latest = preferLatestJobSnapshot(selectedSnapshot.current, polledJob);
+    selectedSnapshot.current = latest;
 
     setJobDetailState((current) => {
       const currentId = current.job ? current.job.job_id || current.job.id : "";
       if (currentId && currentId !== selectedJobId) return current;
-      return { job: polledJob, loading: false };
+      return { job: preferLatestJobSnapshot(current.job, latest), loading: false };
     });
     setDetailState((current) => {
       if (!current.result) return current;
       return {
-        result: { ...current.result, job: polledJob, status: polledJob.status },
+        result: { ...current.result, job: preferLatestJobSnapshot(current.result.job, latest), status: preferLatestJobSnapshot(current.result.job, latest).status },
         loading: current.loading,
       };
     });
 
-    if (!isTerminalJob(polledJob)) {
+    if (!isTerminalJob(latest)) {
       lastResultFetchKeyRef.current = "";
       return;
     }
 
-    const fetchKey = `${selectedJobId}:${polledJob.status}:${polledJob.updated_at || polledJob.completed_at || polledJob.progress}`;
+    const fetchKey = `${selectedJobId}:${latest.status}:${latest.updated_at || latest.completed_at || latest.progress}`;
     if (lastResultFetchKeyRef.current === fetchKey) return;
     lastResultFetchKeyRef.current = fetchKey;
-    void fetchJobResults(selectedJobId);
+    void fetchJobResults(selectedJobId, true);
   }, [fetchJobResults, jobs, selectedJobId]);
 
   return (
-    <>
+    <div className="job-monitor" data-detail-open={Boolean(selectedJobId)}>
+      <div className="job-monitor-overview">
       <PageHeader title="任务与结果" subtitle="跟踪分析进度，查看配置和结果">
         <label style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", fontSize: "0.85rem", cursor: "pointer" }}>
           <input
@@ -341,7 +426,6 @@ export function JobMonitor() {
         </label>
       </PageHeader>
 
-      {readError && <div role="alert"><p>{readError}</p><button className="btn btn-secondary" onClick={() => selectedJobId && handleSelectJob(selectedJobId)}>重新读取任务</button></div>}
       {/* Error banner */}
       {jobsError && (
         <div style={{
@@ -356,20 +440,19 @@ export function JobMonitor() {
 
       {/* Stats bar */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--spacing-lg)" }}>
+        <MetricCard icon={Clock} label="等待中" value={stats.queued} color="var(--accent)" />
         <MetricCard icon={Play} label="运行中" value={stats.running} color="var(--warning)" />
         <MetricCard icon={CheckCircle2} label="已完成" value={stats.completed} color="var(--success)" />
         <MetricCard icon={XCircle} label="失败" value={stats.failed} color="var(--danger)" />
         <MetricCard icon={Ban} label="已取消" value={stats.cancelled} color="#aeaeb2" />
+        <MetricCard icon={AlertTriangle} label="已中断" value={stats.interrupted} color="var(--danger)" />
       </div>
 
       {/* Filter toolbar */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
           <Filter size={16} style={{ color: "var(--text-tertiary)" }} />
-          <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
-            项目：
-            <Select ariaLabel="筛选项目" value={filterProjectId} onChange={setFilterProjectId} style={{minWidth:150}} options={[{value:"",label:"全部"},...projects.map(p=>({value:p.id,label:p.name}))]} />
-          </label>
+          <div style={{ minWidth: 180, maxWidth: "100%" }}><ProjectPicker label="筛选项目" value={filterProjectId} onChange={setFilterProjectId} allowAll /></div>
           <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: "var(--spacing-xs)" }}>
             数据集：
             <Select ariaLabel="筛选数据集" value={filterAssetSet} onChange={setFilterAssetSet} disabled={!filterProjectId} style={{minWidth:120}} options={[{value:"",label:"全部"},...assetSets.map(value=>({value,label:value}))]} />
@@ -415,17 +498,11 @@ export function JobMonitor() {
         <button className="btn btn-secondary" disabled={offset === 0 || jobsLoading} onClick={() => changePage(Math.max(0, offset - 50))}>上一页</button>
         <button className="btn btn-secondary" disabled={!jobsState.data?.has_more || jobsLoading} onClick={() => changePage(offset + 50)}>下一页</button>
       </nav>
+      </div>
       {/* Two-panel layout */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))",
-          gap: "var(--spacing-lg)",
-          alignItems: "start",
-        }}
-      >
+      <div className="job-monitor-panels">
         {/* Left: Job list */}
-        <div>
+        <div className="job-monitor-list" ref={listElement} role="region" aria-label="任务列表" tabIndex={-1}>
           {filteredJobs.length > 0 && (
             <Card>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
@@ -457,6 +534,15 @@ export function JobMonitor() {
                 <span style={{ color: "var(--text-tertiary)", fontSize: "0.78rem" }}>
                   {selectedJobIds.size} 已选择 · {terminalSelectedJobs.length} 可删除
                 </span>
+                <button
+                  type="button"
+                  onClick={handleDownloadSelectedResults}
+                  disabled={downloadingResults || terminalSelectedJobs.length === 0}
+                  style={{ ...smallButtonStyle, display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  <PackageCheck size={14} />
+                  {downloadingResults ? "正在整理结果…" : "打包所选结果"}
+                </button>
                 <button
                   type="button"
                   onClick={handleDeleteSelected}
@@ -499,6 +585,8 @@ export function JobMonitor() {
                   selected={selectedJobIds.has(job.job_id || job.id)}
                   onToggleSelected={handleToggleSelected}
                   onDelete={handleDeleteOne}
+                  onJobChanged={() => setRefreshTick(value => value + 1)}
+                  onRetried={newJobId => { addToast("已创建新的重试任务，原任务记录保留。", "success"); void handleSelectJob(newJobId); }}
                 />
               ))}
             </div>
@@ -506,7 +594,10 @@ export function JobMonitor() {
         </div>
 
         {/* Right: Job detail with SSE */}
-        <div style={{ position: "sticky", top: "var(--spacing-lg)", minWidth: 0 }}>
+        <div className="job-monitor-details" ref={detailElement} role="region" aria-label="任务详情" tabIndex={-1}>
+          {selectedJobId && <div className="job-monitor-mobile-navigation"><button className="btn btn-secondary" type="button" onClick={handleCloseDetails}><ArrowLeft size={16}/>返回任务列表</button></div>}
+          {readError && <div className="job-monitor-read-error" role="alert"><strong>任务信息读取失败</strong><p>{readError}</p><button className="btn btn-secondary" onClick={() => selectedJobId && handleSelectJob(selectedJobId)}>重新读取任务</button></div>}
+          {selectedJobId && !jobDetailState.job && jobDetailState.loading && <Card><p role="status">正在读取任务详情…</p><Skeleton height="120px"/></Card>}
           {!selectedJobId ? (
             <Card>
               <EmptyState
@@ -551,25 +642,20 @@ export function JobMonitor() {
               {jobDetailState.job && (
                 <JobDetailPanel
                   job={jobDetailState.job}
+                  resultFocus={searchParams.get("result_job") || undefined}
                   result={detailState.result}
                   resultLoading={detailState.loading}
                   resultError={readError}
                   onRetry={() => selectedJobId && void fetchJobResults(selectedJobId)}
                   loading={jobDetailState.loading}
-                  onClose={() => {
-                    selectedRef.current = null;
-            setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("job"); return next; }, { replace: true });
-            setSelectedJobId(null);
-                    setJobDetailState({ job: null, loading: false });
-                    setDetailState({ result: null, loading: false });
-                  }}
+                  onClose={handleCloseDetails}
                 />
               )}
             </div>
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -593,5 +679,11 @@ const smallButtonStyle: React.CSSProperties = {
 };
 
 function isTerminalJob(job: JobSummary): boolean {
-  return ["completed", "failed", "cancelled", "interrupted"].includes(job.status);
+  return isTerminalJobStatus(job.status);
+}
+function jobReadMessage(reason: unknown, fallback: string) {
+  if (reason instanceof ApiError && reason.status === 404 && reason.payload !== null && typeof reason.payload === "object" && "error" in reason.payload && reason.payload.error === "JOB_NOT_FOUND") {
+    return "无法找到该任务，请返回任务列表核对。";
+  }
+  return reason instanceof Error ? reason.message : fallback;
 }

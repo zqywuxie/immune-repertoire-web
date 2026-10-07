@@ -1,10 +1,12 @@
 # The environment is built once and imported on deployment hosts.
-ARG ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-v1
+ARG ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-ml
 FROM ${ANALYSIS_RUNTIME_IMAGE}
 WORKDIR /app
+ENV MPLCONFIGDIR=/app/tmp/matplotlib NUMBA_CACHE_DIR=/app/tmp/numba
 COPY flask_app/ flask_app/
 COPY analysis_workers/ analysis_workers/
 COPY scripts/ scripts/
+COPY docs/api/module-manifest.yaml docs/api/module-manifest.yaml
 COPY docker/app/ docker/app/
 RUN mkdir -p /app/flask_app/data/user_uploads /app/flask_app/data/user_results
 RUN python docker/app/check_runtime_manifest.py

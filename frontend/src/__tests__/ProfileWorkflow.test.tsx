@@ -6,11 +6,25 @@ import * as scriptHub from "../shared/api/scriptHub";
 
 vi.mock("../shared/api/projects", async (importOriginal) => ({
   ...await importOriginal<typeof import("../shared/api/projects")>(),
-  listProjectAssets: vi.fn().mockResolvedValue({ assets: [] }),
+  listProjectDatasets: vi.fn().mockResolvedValue({datasets:[]}), listProjectAssets: vi.fn().mockResolvedValue({ assets: [] }),
 }));
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
+  class UploadRequest {
+    upload: { onprogress?: (event: { lengthComputable: boolean; loaded: number; total: number }) => void } = {};
+    withCredentials = false; status = 0; responseText = ''; method = ''; url = '';
+    onload?: () => void; onerror?: () => void; onabort?: () => void;
+    open(method: string, url: string) { this.method = method; this.url = url; }
+    send(body: FormData) {
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 1 });
+      fetch(this.url, { method: this.method, body }).then(async response => {
+        this.status = response.ok ? 201 : 400; this.responseText = JSON.stringify(await response.json()); this.onload?.();
+      }).catch(() => this.onerror?.());
+    }
+    abort() { this.onabort?.(); }
+  }
+  vi.stubGlobal('XMLHttpRequest', UploadRequest);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -21,8 +35,9 @@ describe("Profile upload and analysis", () => {
     vi.stubGlobal("fetch", fetchMock);
     const saved = vi.fn();
     render(<AssetUpload projectId="project-1" onSuccess={saved} />);
-    fireEvent.change(screen.getByLabelText("上传 样本指标表（CSV / TSV / Excel）", { selector: "input" }), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole("button", { name: "保存数据" }));
+    fireEvent.change(screen.getByLabelText("上传样本指标表（逗号分隔、制表符分隔或表格文件）", { selector: "input" }), { target: { files: [file] } });
+    await waitFor(()=>expect(screen.getByRole("button", {name:/保存数据/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /保存数据/ }));
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
     const [url, options] = fetchMock.mock.calls.find(([url]) => url === "/api/projects/project-1/assets")!;
     expect(url).toBe("/api/projects/project-1/assets");
@@ -40,14 +55,15 @@ describe("Profile upload and analysis", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, statusText: "Bad Request", json: async () => ({ message: "文件格式错误" }) }));
     const saved = vi.fn();
     render(<AssetUpload projectId="project-1" onSuccess={saved} />);
-    fireEvent.change(screen.getByLabelText("上传 样本指标表（CSV / TSV / Excel）", { selector: "input" }), {
+    fireEvent.change(screen.getByLabelText("上传样本指标表（逗号分隔、制表符分隔或表格文件）", { selector: "input" }), {
       target: { files: [new File(["invalid"], "profile.csv")] },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存数据" }));
+    await waitFor(()=>expect(screen.getByRole("button", {name:/保存数据/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /保存数据/ }));
     await waitFor(() => expect(screen.getByText(/文件格式错误/)).toBeInTheDocument());
-    expect(screen.getByText("profile.csv")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "从提交清单移除 profile.csv" })).toBeInTheDocument();
     expect(saved).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "保存数据" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /保存数据/ })).toBeEnabled();
   });
 
   it("waits for the real task result and retains CSV and PNG outputs", async () => {

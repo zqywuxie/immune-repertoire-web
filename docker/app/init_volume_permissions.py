@@ -3,7 +3,19 @@ import os
 import stat
 from pathlib import Path
 
-ROOTS = (Path("/app/flask_app/data"), Path("/app/tmp"))
+def configured_roots():
+    paths = [Path("/app/flask_app/data"), Path("/app/tmp")]
+    for key in ("PROJECT_DATA_ROOT", "RESULTS_DIR", "USER_DATA_ROOT", "UPLOAD_FOLDER"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            path = Path(value)
+            if not path.is_absolute():
+                raise ValueError(f"{key} 必须是容器内绝对路径")
+            paths.append(path)
+    return tuple(dict.fromkeys(paths))
+
+
+ROOTS = configured_roots()
 APP_UID = int(os.environ.get("APP_UID", "10001"))
 APP_GID = int(os.environ.get("APP_GID", "10001"))
 if APP_UID <= 0 or APP_GID <= 0:

@@ -1,0 +1,37 @@
+.job-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 560px) {
+  .job-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--spacing-sm);
+  }
+
+  .job-row--selectable {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .job-row__select {
+    align-self: start;
+    margin-top: 5px;
+  }
+
+  .job-row__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+}
+
+.job-row[data-job-status="failed"] [role="progressbar"] > div,
+.job-row[data-job-status="interrupted"] [role="progressbar"] > div {
+  background: var(--danger) !important;
+}
+.job-row[data-job-status="cancelled"] [role="progressbar"] > div {
+  background: var(--text-tertiary) !important;
+}
+.job-row__title {overflow-wrap:anywhere;}
+.job-row__identity {margin:0 0 8px;font-size:.73rem;line-height:1.5;color:var(--text-tertiary);overflow-wrap:anywhere;}

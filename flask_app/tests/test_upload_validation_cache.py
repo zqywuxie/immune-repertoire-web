@@ -47,7 +47,46 @@ def test_pep_content_and_profile_duplicates_are_saved(context):
     with pytest.raises(ValidationError, match="检查未通过"):
         validate_analysis_inputs([{"asset_type":"pep", "path":bad.storage_path}])
     duplicate = upload(service, project, "profile", b"sample,group\nS1,A\nS1,B\n", "profile.csv")
-    assert duplicate.metadata_json["validation"]["status"] == "invalid"
+    assert duplicate.metadata_json["validation"]["status"] == "needs_mapping"
+    with pytest.raises(ValidationError, match="批次字段"):
+        validate_analysis_inputs([{"asset_type":"profile", "path":duplicate.storage_path}])
+
+def test_duplicate_sample_ids_are_distinguished_by_selected_batch_and_cache_scope(context):
+    service, project = context
+    profile = upload(
+        service, project, "profile",
+        b"sample,batch,group\nS1,batch-a,A\nS1,batch-b,B\n", "profile-batches.csv",
+    )
+    assert profile.metadata_json["validation"]["status"] == "needs_mapping"
+
+    inputs = [{"asset_type": "profile", "path": profile.storage_path}]
+    checked = validate_analysis_inputs(inputs, {"batch_field": "batch"})
+    assert checked["errors"] == []
+    assert checked["inputs"][0]["sample_count"] == 2
+    assert checked["inputs"][0]["batch_count"] == 2
+    assert checked["inputs"][0]["duplicate_samples"] == []
+
+    from flask_app.routes.api_script_hub._common import _build_script_cache_context
+    task_context = _build_script_cache_context(
+        project_id=None, module_name="pep-analysis", input_paths=inputs,
+        config_json={"batch_field": "batch"},
+    )
+    assert task_context["config_json"]["batch_field"] == "batch"
+
+    # A successful batch-aware scan cannot make the same file appear valid
+    # when a later analysis omits its batch mapping.
+    with pytest.raises(ValidationError, match="批次字段"):
+        validate_analysis_inputs(inputs)
+
+    repeated_pair = upload(
+        service, project, "profile",
+        b"sample,batch,group\nS1,batch-a,A\nS1,batch-a,B\n", "profile-repeated-pair.csv",
+    )
+    with pytest.raises(ValidationError, match="重复"):
+        validate_analysis_inputs(
+            [{"asset_type": "profile", "path": repeated_pair.storage_path}],
+            {"batch_field": "batch"},
+        )
 
 def test_result_runs_are_independent_and_missing_output_rejected(context):
     service, project = context
@@ -56,6 +95,10 @@ def test_result_runs_are_independent_and_missing_output_rejected(context):
     first_id, first_dir = allocate_result_dir(parent, "profile")
     second_id, second_dir = allocate_result_dir(parent, "profile")
     assert first_dir != second_dir
+    assert first_dir.parent.name == second_dir.parent.name == "profile"
+    assert first_dir.parent.parent.parent == parent
+    assert len(first_dir.parent.parent.name) == 15
+    assert first_dir.name == first_id and second_dir.name == second_id
     for path in [first_dir, second_dir]: (path / "table.csv").write_text("value\n1\n")
     a = service.register_analysis_result(project, analysis_type="profile", job_id=first_id, output_base=str(first_dir), metadata={"analysis_signature":"same"})
     b = service.register_analysis_result(project, analysis_type="profile", job_id=second_id, output_base=str(second_dir), metadata={"analysis_signature":"same"})
@@ -79,7 +122,17 @@ def test_queued_validation_does_not_start_a_second_scan(context):
     with patch("flask_app.services.input_quality._inspect_input_quality", side_effect=AssertionError("duplicate scan")) as scan:
         result = cached_validation(asset.storage_path, "profile", scan)
         assert result["inputs"][0]["status"] == "pending"
+        item = result["inputs"][0]
+        assert item["label"] == "样本指标表"
+        assert item["duplicate_samples"] == [] and item["missing_fields"] == {}
+        assert result["errors"]
         scan.assert_not_called()
+    report = inspect_input_quality([], asset.storage_path, "", "")
+    assert report["inputs"][0]["status"] == "pending"
+    assert report["alignments"] == []
+    assert len(report["errors"]) == 1
+    with pytest.raises(ValidationError, match="检查未通过"):
+        validate_analysis_inputs([{"asset_type": "profile", "path": asset.storage_path}])
 
 
 def test_old_infiltration_validation_is_rechecked_after_upgrade(context):
@@ -95,3 +148,45 @@ def test_old_infiltration_validation_is_rechecked_after_upgrade(context):
     assert report['errors']
     assert asset.metadata_json['validation']['status'] == 'invalid'
     assert asset.metadata_json['validation']['key']['validator'] == VALIDATOR_VERSION
+
+
+def test_gene_symbol_is_recognized_and_preview_preserves_group_identifiers(context):
+    from flask import current_app
+    service, project = context
+    expression = upload(service, project, "transcriptome", b"gene_symbol,001,002\nTP53,1,2\nCD3D,3,4\n", "expression.csv")
+    quality = inspect_input_quality([], "", expression.storage_path, "")
+    assert quality["errors"] == []
+    assert quality["inputs"][0]["sample_count"] == 2
+    assert quality["inputs"][0]["status"] == "checked"
+    profile = upload(service, project, "profile", b"sample,group,value\n001,01,1.25\n002,02,2.5\n", "profile.csv")
+    response = current_app.test_client().post("/api/script-hub/read-table-preview", json={"file_path":profile.storage_path})
+    assert response.status_code == 200, response.json
+    assert response.json["rows"] == [["001", "01", "1.25"], ["002", "02", "2.5"]]
+
+
+def test_restored_upload_is_usable_but_same_time_content_change_is_rejected(context):
+    import os
+    from pathlib import Path
+    from flask_app.services.input_validation_cache import cached_validation, snapshot
+    service, project = context
+    asset = upload(service, project, "profile", b"sample,group\nS1,A\nS2,B\n", "profile.csv")
+    path = Path(asset.storage_path)
+    original = path.stat()
+    # Recreating a restored file retains mtime but necessarily changes ctime.
+    restored = path.with_name("restored.csv")
+    restored.write_bytes(path.read_bytes())
+    os.utime(restored, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.replace(restored, path)
+    report = inspect_input_quality([], str(path), "", "")
+    assert report["errors"] == []
+    assert asset.metadata_json["upload_snapshot"] == snapshot(path)
+    with patch("flask_app.services.input_quality._inspect_input_quality", side_effect=AssertionError("full scan")) as scan:
+        assert cached_validation(path, "profile", scan)["inputs"][0]["sample_count"] == 2
+        scan.assert_not_called()
+    # Same size and original mtime do not bypass the upload content contract.
+    changed = path.with_name("changed.csv")
+    changed.write_bytes(b"sample,group\nS1,B\nS2,A\n")
+    os.utime(changed, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.replace(changed, path)
+    with pytest.raises(ValidationError, match="平台外"):
+        inspect_input_quality([], str(path), "", "")

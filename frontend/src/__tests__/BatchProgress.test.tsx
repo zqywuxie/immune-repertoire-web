@@ -15,7 +15,7 @@ describe("批次和执行进度", () => {
     const submit = vi.spyOn(api,"submitAnalysisBatch").mockResolvedValue({success:true,job_id:"batch",status:"queued"});
     const oldSubmit = vi.spyOn(api,"submitLegacyScriptHubJob");
     const items = [{job_id:"child1",module:"umapin",status:"completed"},{job_id:"child2",module:"volcano",status:"completed"}];
-    vi.spyOn(jobsApi,"getJob").mockResolvedValue({success:true,job:{id:"batch",status:"completed",payload:{items}}} as unknown as Awaited<ReturnType<typeof jobsApi.getJob>>);
+    vi.spyOn(jobsApi,"getJob").mockImplementation(async id => ({success:true,job:id === "batch" ? {id:"batch",status:"completed",payload:{items}} : {id,status:"completed",progress:100}} as unknown as Awaited<ReturnType<typeof jobsApi.getJob>>));
     vi.spyOn(jobsApi,"getJobResults").mockImplementation(async id => ({success:true,job:{id},status:"completed",outputs:[],assets:[],result:{}} as unknown as JobResultsResponse));
     const complete = vi.fn(); const batchCreated=vi.fn();
     render(<Stage4Execution projectId="project" modules={["umapin","volcano"]} baseConfig={{asset_set:"Set2"}} moduleConfigs={{umapin:{category_col:"Category",upstream_artifact_id:"one"},volcano:{input_mode:"usage",upstream_artifact_id:"two"}}} jobIds={[]} onJobsCreated={vi.fn()} onComplete={complete} onBatchCreated={batchCreated}/>);
@@ -25,7 +25,7 @@ describe("批次和执行进度", () => {
     expect(submit.mock.calls[0][3].map(item=>item.module)).toEqual(["umapin","volcano"]);
     expect(oldSubmit).not.toHaveBeenCalled();
     expect(batchCreated).toHaveBeenCalledWith("batch");
-    expect(Object.keys(complete.mock.calls[0][0])).toEqual(["child1","child2"]);
+    expect(Object.keys(complete.mock.calls.at(-1)![0])).toEqual(["child1","child2"]);
   });
 
   it("只有部分结果返回时不宣称整批完成", () => {

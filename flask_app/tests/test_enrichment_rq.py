@@ -3,6 +3,8 @@ import importlib
 import os
 import subprocess
 import uuid
+import zipfile
+from io import BytesIO
 from pathlib import Path
 import pandas as pd
 import pytest
@@ -28,19 +30,24 @@ def test_expression_to_enrichment_real_rq(tmp_path, monkeypatch):
     background=tmp_path/'background.txt'
     subprocess.run(['Rscript','-e','suppressPackageStartupMessages(library(org.Hs.eg.db)); writeLines(head(AnnotationDbi::keys(org.Hs.eg.db,keytype="SYMBOL"),2000), "'+str(background)+'")'],check=True)
     selected='CD3D CD3E CD3G CD247 CD4 CD8A CD8B LCK ZAP70 LAT LCP2 ITK FYN PTPRC CD28 CTLA4 ICOS PDCD1 IL2 IL2RA IL2RB JAK1 JAK3 STAT5A STAT5B IL7R CD40 CD40LG HLA-DRA'.split()
-    genes=list(dict.fromkeys(selected+background.read_text().splitlines()))
+    genes=list(dict.fromkeys(selected+background.read_text().splitlines()[:45]))
     expression=tmp_path/'expression.csv'
     values={'Gene':genes}
     for group in ['A','B']:
         for index in range(1,5):
-            values[f'tpm_{group}_{index}']=[(100 if group=='A' and gene in selected else 10)+index for gene in genes]
+            values[f'tpm_{group}_{index}']=[
+                10 + (gene_index % 13) * 2
+                + index * (0.25 + (gene_index % 5) * 0.11)
+                + ((4 if gene in selected else 0) + ((gene_index % 7) - 3) * 0.4 if group == 'A' else 0)
+                for gene_index, gene in enumerate(genes)
+            ]
     pd.DataFrame(values).to_csv(expression,index=False)
     with app.app_context():
         db.session.add(Project(id='enrich-project',name='合成富集链'));db.session.flush()
         db.session.add(ProjectAsset(project_id='enrich-project',asset_type='transcriptome',storage_path=str(expression),original_name=expression.name,size=expression.stat().st_size,metadata_json={'asset_set':'Set1'}));db.session.commit()
         response=app.test_client().post('/api/script-hub/batches',json={'project_id':'enrich-project','asset_set':'Set1','items':[
-            {'module':'volcano','payload':{'input_mode':'expression','comparisons':[['A','B']],'force_rerun':True}},
-            {'module':'go-kegg-enrichment','upstream_from':0,'payload':{'do_gsea':False,'simplify_go':False,'show_category':5,'force_rerun':True}}
+            {'module':'volcano','payload':{'input_mode':'expression','comparisons':[['A','B']],'pvalue_threshold':1e-300,'logfc_cutoff':100,'force_rerun':True}},
+            {'module':'go-kegg-enrichment','upstream_from':0,'payload':{'do_gsea':True,'simplify_go':False,'show_category':5,'force_rerun':True}}
         ]})
         if response.status_code != 202 and response.json.get('job_id'):
             print(get_background_job_service().get_job(response.json['job_id']))
@@ -56,18 +63,30 @@ def test_expression_to_enrichment_real_rq(tmp_path, monkeypatch):
             service=get_background_job_service()
             parent=service.get_job(parent_id)
             children=[service.get_job(item['job_id']) for item in parent['payload']['items'] if item.get('job_id')]
+            if parent['status']!='completed':
+                for child in children:
+                    if child['status']!='completed':
+                        print('ENRICHMENT FAILURE:', child.get('detail'))
             assert parent['status']=='completed',[(child['status'],child.get('detail')) for child in children]
             assert len(children)==2
             upstream,downstream=children
             assert downstream['payload']['upstream_input']['source_job_id']==upstream['job_id']
             assert downstream['result']['metadata']['reused_differential_results'] is True
+            assert downstream['result']['metadata']['do_gsea'] is True
             output=Path(downstream['result']['output_base'])
             assert list((output/'enrichment_results').rglob('*.csv'))
+            full_gsea=downstream['result']['metadata']['full_go_gsea_tables']
+            assert full_gsea, 'GSEA was enabled but no complete GO result table was registered'
+            for relative in full_gsea:
+                table=output/relative
+                assert table.is_file() and pd.read_csv(table).shape[0] > 0
             originals=list((Path(upstream['result']['output_base'])/'DEG').rglob('DEG_A_vs_B.csv'))
             copies=list((output/'DEG').rglob('DEG_A_vs_B.csv'))
             assert originals and copies and originals[0].read_bytes()==copies[0].read_bytes()
             response=app.test_client().get(downstream['result']['zip_url'])
             assert response.status_code==200, (response.json, downstream['result']['zip_url'], str(output), [(a.asset_type,(a.metadata_json or {}).get('job_id'),a.storage_path) for a in ProjectAsset.query.all()], downstream['payload'].get('analysis_signature'))
+            with zipfile.ZipFile(BytesIO(response.data)) as archive:
+                assert all(f'tables/{path}' in archive.namelist() for path in full_gsea)
             response.close()
         finally:
             for task_id in queue.finished_job_registry.get_job_ids()+queue.failed_job_registry.get_job_ids():

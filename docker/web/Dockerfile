@@ -3,6 +3,7 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+RUN npm test -- --maxWorkers=2
 CMD ["npm", "test"]
 
 FROM test AS build

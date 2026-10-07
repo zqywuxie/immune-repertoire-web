@@ -132,6 +132,27 @@ class StorageError(AppException):
 
 
 # Validation exceptions
+class UploadImpactChangedError(AppException):
+    """Current input identities changed after the user's replacement preview."""
+    error_code = "UPLOAD_IMPACT_CHANGED"
+    http_status = 409
+    message = "当前文件版本已变化，请重新核对更新范围；本次选择已保留。"
+
+
+class GroupSpecChangedError(AppException):
+    """An edit must refer to the scheme version the user actually read."""
+    error_code = "GROUP_SPEC_CHANGED"
+    http_status = 409
+    message = "分组方案已变化，当前编辑已保留；请读取最新方案或另存新方案。"
+
+
+class SampleRecordChangedError(AppException):
+    """The same editable field changed after a user opened its registration."""
+    error_code = "SAMPLE_RECORD_CHANGED"
+    http_status = 409
+    message = "登记信息已被更新，本次修改已保留；请核对最新值后再保存。"
+
+
 class ValidationError(AppException):
     """Raised when input validation fails."""
     error_code = "VALIDATION_ERROR"
@@ -187,3 +208,9 @@ class PPTNoHeatmapsError(PPTError):
     error_code = "PPT_NO_HEATMAPS"
     http_status = 400
     message = "No heatmaps found for replacement"
+
+
+class DatasetRecordChangedError(AppException):
+    error_code = 'DATASET_RECORD_CHANGED'
+    http_status = 409
+    message = '数据集说明已被更新，当前草稿已保留；请核对最新说明后再保存。'

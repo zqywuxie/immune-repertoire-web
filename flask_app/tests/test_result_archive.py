@@ -1,4 +1,5 @@
 import io
+import json
 import zipfile
 import pytest
 from flask import Flask, send_file
@@ -47,6 +48,32 @@ def test_archive_contains_both_tasks_without_duplicate_selection(app):
         assert len({name.split('/')[0] for name in archive.namelist()}) == 2
         assert all(archive.read(name).decode('utf-8') == "样本,值\n001,1.000000001\n" for name in archive.namelist())
     response.close()
+
+
+def test_archive_accepts_native_browser_form_download(app):
+    response = app.test_client().post(
+        "/api/jobs/results/archive",
+        data={"items": json.dumps([item(app)], ensure_ascii=False)},
+        content_type="application/x-www-form-urlencoded",
+        headers={"Origin": "http://localhost"},
+    )
+    assert response.status_code == 200
+    assert response.mimetype == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+        assert len(archive.namelist()) == 1
+        assert archive.read(archive.namelist()[0]).decode("utf-8") == "样本,值\n001,1.000000001\n"
+    response.close()
+
+
+def test_archive_rejects_cross_origin_browser_form(app):
+    response = app.test_client().post(
+        "/api/jobs/results/archive",
+        data={"items": json.dumps([item(app)], ensure_ascii=False)},
+        content_type="application/x-www-form-urlencoded",
+        headers={"Origin": "https://attacker.example"},
+    )
+    assert response.status_code == 403
+    assert response.json["error"] == "RESULT_ARCHIVE_ERROR"
 
 
 def test_rejects_file_from_another_task_and_missing_files(app):

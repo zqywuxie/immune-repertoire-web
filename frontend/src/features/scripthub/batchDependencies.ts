@@ -1,5 +1,6 @@
 export function acceptsPepResult(module: string, payload: Record<string, unknown>): boolean {
   return (module === "volcano" && ["usage", "vj_usage"].includes(String(payload.input_mode)))
+    || (module === "umap" && Array.isArray(payload.configurations) && payload.configurations.some((value) => String(value).split("+").includes("vj")))
     || module === "umapin"
     || (module === "ml-analysis" && ["vj", "profile_vj"].includes(String(payload.mode)))
     || (module === "mait-nkt" && payload.tra_source === "pep_analysis");

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useApi } from "../../shared/hooks/useApi";
 import { useJobResult } from "../../shared/hooks/useJobResult";
-import { listProjects } from "../../shared/api/projects";
+import { ProjectPicker } from "../../features/projects/ProjectPicker";
 import { submitJob } from "../../shared/api/jobs";
 import { statisticalPayload } from "../../shared/api/statistical";
 import { uploadDataFile, type UploadedFile as StatisticalFile } from "../../shared/api/files";
@@ -22,7 +21,6 @@ export function StatisticalComparison() {
   const [kind, setKind] = useState<"statistics" | "boxplot">("statistics");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const projects = useApi(listProjects, []);
   const task = useJobResult(params.get("job"));
   const active = !!task.jobId && !task.error && !["completed", "failed", "cancelled", "interrupted"].includes(task.status);
   const locked = busy || active;
@@ -67,9 +65,7 @@ export function StatisticalComparison() {
       <section style={{ background: "var(--bg-elevated)", border: "1px solid var(--separator)", borderRadius: 10, padding: 24 }}>
         <fieldset disabled={locked} style={{ border: 0, display: "grid", gap: 20, minWidth: 0 }}>
           <legend style={{ fontWeight: 600, marginBottom: 20 }}>1 · 准备数据</legend>
-          <label className="field-label">所属项目<select className="select" value={project} onChange={event => { setProject(event.target.value); setFiles([]); setValue(""); setGroup(""); }}><option value="">请选择项目</option>{projects.status === "ready" && projects.data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          {projects.status === "error" && <p role="alert">项目加载失败：{projects.error}</p>}
-          {projects.status === "ready" && !projects.data.projects.length && <Link to="/management/projects">先创建一个项目</Link>}
+          <ProjectPicker label="所属项目" value={project} disabled={locked} onChange={value => { setProject(value); setFiles([]); setValue(""); setGroup(""); }} />
           <label className="field-label">上传指标表（可多选）<input aria-label="上传统计数据" type="file" accept=".csv,.tsv,.xlsx,.csv.gz" multiple disabled={!project || locked} onChange={event => { const incoming = Array.from(event.target.files || []); event.target.value = ""; void upload(incoming); }} /></label>
           <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>文件会上传至平台。每行是一条观测记录；多个文件分别分析，使用各文件共有的字段。</p>
           <ul style={{ listStyle: "none", padding: 0 }}>{files.map(file => <li key={file.id} style={{ display: "flex", gap: 12, justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--separator)" }}><span style={{ overflowWrap: "anywhere" }}>{file.name} · {file.row_count} 行</span><button className="btn btn-ghost" aria-label={`移除 ${file.name}`} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))}>移除</button></li>)}</ul>

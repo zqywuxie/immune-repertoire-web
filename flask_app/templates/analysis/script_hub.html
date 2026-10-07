@@ -2646,10 +2646,6 @@
                                     <label for="scriptHubMlCvSplits" class="form-label">CV folds</label>
                                     <input type="number" class="form-control" id="scriptHubMlCvSplits" value="3" min="2" max="10">
                                 </div>
-                                <div class="sh-col-4">
-                                    <label for="scriptHubMlRocCvSplits" class="form-label">ROC CV folds</label>
-                                    <input type="number" class="form-control" id="scriptHubMlRocCvSplits" value="7" min="2" max="20">
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -2767,6 +2763,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/project_catalog.js') }}"></script>
 <script src="{{ url_for('static', filename='js/script_hub.js') }}?v=20260624-go-kegg"></script>
 <script>
 (function() {

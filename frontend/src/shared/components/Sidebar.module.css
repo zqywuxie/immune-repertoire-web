@@ -264,3 +264,16 @@
 .navItem { min-height: 40px; }
 .navItemActive { background: #edf2fc; }
 .sidebar :is(button,a):focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+.mobileBar { display:none; }
+@media(max-width:768px) {
+  .sidebar { position:sticky;top:0;z-index:30;max-height:48vh; }
+  .mobileBar { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;min-height:58px;box-sizing:border-box; }
+  .mobileBar a { font-weight:650;font-size:14px; }
+  .mobileBar .btn { padding:6px 12px; }
+  .sidebar>.homeLink,.sidebar>.header { display:none; }
+  .sidebar[data-mobile-open="false"]>div:not(.mobileBar),.sidebar[data-mobile-open="false"]>.scrollArea { display:none!important; }
+  .sidebar[data-mobile-open="true"] .scrollArea { max-height:28vh; }
+}
+
+@media(max-width:768px){.sidebar{width:100%!important;align-self:stretch;box-sizing:border-box}.mobileBar :global(.btn){padding:6px 12px}}

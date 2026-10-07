@@ -1,12 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { getFormComponent } from "../features/jobs/forms";
 import { Stage3ModuleConfig } from "../features/scripthub/stages/Stage3ModuleConfig";
 
 vi.mock("../features/jobs/forms", () => ({
-  getFormComponent: () => null,
+  getFormComponent: vi.fn(() => null),
 }));
 
 describe("Stage3ModuleConfig", () => {
+  it("从检查清单定位到待补充模块并聚焦配置区域", async () => {
+    vi.mocked(getFormComponent).mockReturnValue(() => <p>表单</p>);
+    render(<Stage3ModuleConfig
+      modules={[
+        {key:"profile",label:"指标分析",status:"available",ui_entry:"ProfileForm"},
+        {key:"topclone",label:"优势克隆",status:"available",ui_entry:"TopCloneForm"},
+      ]}
+      projectId="project-1" selectedModules={["profile","topclone"]} moduleConfigs={{profile:{},topclone:{}}} onUpdate={vi.fn()}
+      sourceContext={sourceContext({pepPaths:["/synthetic/pep"],profilePath:"/synthetic/profile.csv"})}
+      configurationReview={[
+        {module:"profile",label:"指标分析",issue:"请选择指标范围"},
+        {module:"topclone",label:"优势克隆",issue:"请选择分组字段"},
+      ]}
+    />);
+    fireEvent.click(screen.getByRole("button",{name:"补充参数：优势克隆"}));
+    await waitFor(() => expect(screen.getByRole("region",{name:"优势克隆参数配置"})).toHaveFocus());
+    expect(screen.queryByRole("region",{name:"指标分析参数配置"})).not.toBeInTheDocument();
+    vi.mocked(getFormComponent).mockReturnValue(null);
+  });
+
   it("does not show backend pending labels for unavailable ScriptHub modules", async () => {
     render(
       <Stage3ModuleConfig

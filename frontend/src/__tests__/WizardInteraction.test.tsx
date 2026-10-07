@@ -6,7 +6,7 @@ import { Stage3ModuleConfig } from "../features/scripthub/stages/Stage3ModuleCon
 import { Stage1DataIntake } from "../features/scripthub/stages/Stage1DataIntake";
 
 vi.mock("../features/jobs/forms", () => ({ getFormComponent: () => null }));
-vi.mock("../shared/api/projects", () => ({ listProjects: vi.fn().mockResolvedValue({projects:[{id:'p1',name:'项目'}]}), listProjectAssets: vi.fn().mockResolvedValue({assets:[]}), getProject: vi.fn().mockResolvedValue(null) }));
+vi.mock("../shared/api/projects", () => ({ getProjectInputSelection: vi.fn(async (_project:string,scope:string)=>({asset_set:scope,assets:[],totals:{},truncated_kinds:[]})), listProjects: vi.fn().mockResolvedValue({projects:[{id:'p1',name:'项目'}]}), listProjectDatasets: vi.fn().mockResolvedValue({datasets:[]}), listProjectAssets: vi.fn().mockResolvedValue({assets:[]}), getProject: vi.fn().mockResolvedValue(null) }));
 afterEach(cleanup);
 
 describe("wizard data isolation",()=>{
@@ -45,7 +45,7 @@ describe('module discovery',()=>{
     const onUpdate=vi.fn();
     render(<Stage3ModuleConfig modules={[{key:'profile',label:"样本指标表 指标"},{key:'charts',label:'综合图表'}]} projectId="" selectedModules={['profile']} moduleConfigs={{profile:{metric:'keep'}}} sourceContext={{profilePath:'/profile.csv'} as never} onUpdate={onUpdate}/>);
     expect(screen.getByRole('button',{name:'配置 综合图表'})).toHaveAttribute('aria-disabled','true');
-    fireEvent.click(screen.getByRole('checkbox',{name:'只显示当前可运行模块'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'只显示已有输入的模块'}));
     expect(screen.queryByRole('button',{name:'配置 综合图表'})).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox'),{target:{value:'no match'}});
     expect(screen.getByRole('status')).toHaveTextContent('没有匹配');

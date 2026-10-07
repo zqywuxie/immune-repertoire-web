@@ -7,10 +7,12 @@ clear enough for categorical contrast, but not dark or over-saturated.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Union
 
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
 
 
@@ -58,17 +60,24 @@ MUTED_DIVERGING_CMAP = LinearSegmentedColormap.from_list(
 )
 
 
+@lru_cache(maxsize=1)
+def available_plot_fonts() -> tuple[str, ...]:
+    """Choose installed families, preferring the container's CJK font."""
+    installed = {font.name for font in font_manager.fontManager.ttflist}
+    preferred = ("Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "SimHei",
+                 "Arial Unicode MS", "WenQuanYi Micro Hei", "DejaVu Sans", "Liberation Sans")
+    return tuple(name for name in preferred if name in installed) or ("DejaVu Sans",)
+
+
+def configure_chinese_font() -> None:
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = list(available_plot_fonts())
+    plt.rcParams["axes.unicode_minus"] = False
+
+
 def apply_publication_style(font_size: float = 9.0, axes_linewidth: float = 0.85) -> None:
     """Apply a compact publication style with editable SVG/PDF text."""
-    plt.rcParams["font.family"] = "sans-serif"
-    plt.rcParams["font.sans-serif"] = [
-        "Arial",
-        "DejaVu Sans",
-        "Liberation Sans",
-        "Microsoft YaHei",
-        "SimHei",
-        "sans-serif",
-    ]
+    configure_chinese_font()
     plt.rcParams["svg.fonttype"] = "none"
     plt.rcParams["pdf.fonttype"] = 42
     plt.rcParams["font.size"] = font_size

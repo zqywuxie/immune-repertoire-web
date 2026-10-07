@@ -110,7 +110,23 @@ class BoxPlotService:
         if not datapoint.exists():
             raise FileNotFoundError(f"Datapoint file not found: {datapoint_path}")
 
-        df = _try_read_csv(datapoint, low_memory=False)
+        # Resolve categorical columns before inference can merge labels such as 01 and 1.
+        columns = _try_read_csv(datapoint, nrows=0).columns.tolist()
+        if grouptype_fields:
+            class_columns = [c for c in grouptype_fields if c in columns]
+        elif classification_begin and classification_begin.strip():
+            begin_idx = columns.index(classification_begin)
+            over_idx = columns.index(classification_over) + 1
+            class_columns = columns[begin_idx:over_idx]
+        else:
+            class_columns = []
+        sample_column = self._detect_sample_column(columns)
+        text_columns = class_columns + ([sample_column] if sample_column else [])
+        df = _try_read_csv(datapoint, low_memory=False,
+                           dtype={column: str for column in text_columns} or None)
+        # Keep the existing missing-group category (0) as text, alongside raw labels.
+        if class_columns:
+            df[class_columns] = df[class_columns].fillna("0")
         df.fillna(0, inplace=True)
         original_row_count = len(df)
         df, sample_filter_info = self._filter_selected_samples(
@@ -125,15 +141,6 @@ class BoxPlotService:
         param_over_idx = columns.index(param_over) + 1
         param_columns = columns[param_begin_idx:param_over_idx]
         df, derived_columns, param_columns = self._apply_ucdr3_ratio_columns(df, param_columns)
-
-        if grouptype_fields:
-            class_columns = [c for c in grouptype_fields if c in columns]
-        elif classification_begin and classification_begin.strip():
-            begin_idx = columns.index(classification_begin)
-            over_idx = columns.index(classification_over) + 1
-            class_columns = columns[begin_idx:over_idx]
-        else:
-            class_columns = []
 
         self.output_parent.mkdir(parents=True, exist_ok=True)
         from flask_app.services.project_storage_paths import allocate_result_dir
@@ -188,12 +195,17 @@ class BoxPlotService:
             png_paths, csv_paths = self._generate_ungrouped(
                 df, param_columns, output_base, progress_callback,
             )
-            plot_infos = []
+            plot_infos = [
+                {"class_col": "", "param": param,
+                 "png": Path(png).relative_to(output_base).as_posix(),
+                 "is_significant": None, "significant_pairs": []}
+                for param, png in zip(param_columns, png_paths)
+            ]
             skipped_insufficient = 0
 
         # Count significant vs non-significant
         sig_plots = [p for p in plot_infos if p.get("is_significant")]
-        ns_plots = [p for p in plot_infos if not p.get("is_significant")]
+        ns_plots = [p for p in plot_infos if p.get("is_significant") is False]
 
         metadata = {
             "job_id": job_id,
@@ -280,10 +292,10 @@ class BoxPlotService:
                     zf.write(p, arcname)
 
         if progress_callback:
-            msg = f"Generated {len(png_paths)} plot(s)"
+            msg = f"已生成 {len(png_paths)} 张图。"
             if skipped_insufficient > 0:
-                msg += f" — {skipped_insufficient} comparison(s) skipped (groups need ≥2 data points)"
-            progress_callback(100, "BoxPlot completed", msg)
+                msg += f"已跳过 {skipped_insufficient} 项比较：每组至少需要 2 个有效数据点。"
+            progress_callback(100, "箱线图已完成", msg)
 
         return BoxPlotReport(
             job_id=job_id,
@@ -473,8 +485,8 @@ class BoxPlotService:
                 if progress_callback:
                     progress_callback(
                         92 + int(index / max(total, 1) * 6),
-                        "BoxPlot summary",
-                        f"Rendering summary {class_col} / {metric}",
+                        "指标汇总图",
+                        f"正在绘制汇总图：{class_col} / {metric}",
                         {"class_col": class_col, "metric": metric},
                     )
 
@@ -666,7 +678,6 @@ class BoxPlotService:
         sig_count = metadata.get("significant_plot_count", 0)
         total_count = metadata.get("plot_count", 0)
         skipped = metadata.get("skipped_insufficient_data", 0)
-        grouptype_fields = metadata.get("grouptype_fields", [])
         datapoint_path = metadata.get("datapoint_path", "")
         summary_infos = metadata.get("summary_metrics", []) if isinstance(metadata.get("summary_metrics"), list) else []
 
@@ -682,26 +693,28 @@ class BoxPlotService:
             class_col = str(p.get("class_col", ""))
             param = str(p.get("param", ""))
             png = str(p.get("png", ""))
-            is_sig = p.get("is_significant", False)
+            is_sig = p.get("is_significant")
             badge_text = "显著" if is_sig else "非显著"
             badge_class = "is-sig" if is_sig else "is-ns"
+            badge_html = f'<em class="{badge_class}">{badge_text}</em>' if isinstance(is_sig, bool) else ""
+            sig_state = ("1" if is_sig else "0") if isinstance(is_sig, bool) else "unknown"
             sig_pairs = p.get("significant_pairs") or []
 
             pairs_html = ""
             if sig_pairs:
                 pairs_html = "<div class=\"pvalue-list\">" + "".join(
-                    f"<span>{html.escape(str(sp['group1']))} vs {html.escape(str(sp['group2']))} p={float(sp['pvalue']):.4g}</span>"
+                    f"<span>{html.escape(str(sp['group1']))} 对比 {html.escape(str(sp['group2']))} p={float(sp['pvalue']):.4g}</span>"
                     for sp in sig_pairs[:10]
                 ) + "</div>"
 
             key = f"{param}||{class_col}"
-            cards_by_key[key] = f"""<article class="plot-card" data-param="{html.escape(param)}" data-class="{html.escape(class_col)}" data-sig="{'1' if is_sig else '0'}">
+            cards_by_key[key] = f"""<article class="plot-card" data-param="{html.escape(param)}" data-class="{html.escape(class_col)}" data-sig="{sig_state}">
               <div class="plot-head">
                 <div>
                   <strong>{html.escape(param)}</strong>
-                  <span>{html.escape(class_col)}</span>
+                  <span>{html.escape(class_col) if class_col else "未分组"}</span>
                 </div>
-                <em class="{badge_class}">{badge_text}</em>
+                {badge_html}
               </div>
               <a href="{html.escape(png)}" target="_blank" rel="noopener">
                 <img src="{html.escape(png)}" alt="{html.escape(param)}" loading="lazy">
@@ -727,10 +740,10 @@ class BoxPlotService:
                   <strong>{html.escape(metric)}</strong>
                   <span>{html.escape(class_col)} | {html.escape(chains)}</span>
                 </div>
-                <em class="is-sig">Summary</em>
+                <em class="is-sig">汇总图</em>
               </div>
               <a href="{html.escape(png)}" target="_blank" rel="noopener">
-                <img src="{html.escape(png)}" alt="{html.escape(metric)} summary" loading="lazy">
+                <img src="{html.escape(png)}" alt="{html.escape(metric)} 汇总图" loading="lazy">
               </a>
             </article>"""
         summary_cards_json = json.dumps(summary_cards_by_key, ensure_ascii=False).replace("</", "<\\/")
@@ -738,7 +751,7 @@ class BoxPlotService:
         all_summary_classes_json = json.dumps(all_summary_classes, ensure_ascii=False)
 
         empty_html = '<div class="empty-txt">所选条件下没有生成箱线图。</div>'
-        empty_summary_html = '<div class="empty-txt">No chain summary plots were generated for the selected profile features.</div>'
+        empty_summary_html = '<div class="empty-txt">所选指标未生成受体链汇总图。</div>'
 
         # Dropdown options
         param_options = "\n".join(
@@ -759,24 +772,26 @@ class BoxPlotService:
         )
 
         summary_cards = [
-            ("分类字段", ", ".join(grouptype_fields) if grouptype_fields else "未分组"),
+            ("分类字段", ", ".join(class_columns) if class_columns else "未分组"),
             ("参数列数", str(len(param_columns))),
-            ("P-value 阈值", str(pvalue_threshold)),
-            ("显著箱线图", f"{sig_count} / {total_count}" if total_count else "-"),
-            ("Summary 图", str(metadata.get("summary_plot_count", 0))),
+            ("p 值阈值", str(pvalue_threshold) if class_columns else "不适用"),
+            ("显著箱线图", (f"{sig_count} / {total_count}" if total_count else "-") if class_columns else "未进行组间检验"),
+            ("汇总图", str(metadata.get("summary_plot_count", 0))),
             ("跳过比较", str(skipped)),
         ]
         summary_html = "".join(
             f'<div class="stat-item"><strong>{html.escape(label)}</strong><span>{html.escape(val)}</span></div>'
             for label, val in summary_cards
         )
+        summary_disabled = "" if summary_infos else " disabled"
+        has_comparisons_json = json.dumps(bool(class_columns))
 
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Profile 分析 — 箱线图结果</title>
+  <title>组库指标与分组比较 — 箱线图结果</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif; background: #f4f7fa; color: #1e293b; line-height: 1.6; }}
@@ -792,10 +807,13 @@ class BoxPlotService:
     .control-group {{ display: flex; flex-direction: column; gap: .3rem; }}
     .control-group label {{ font-size: .72rem; font-weight: 680; color: #5f7d94; text-transform: uppercase; letter-spacing: .04em; }}
     .control-group select {{ padding: .48rem 2rem .48rem .7rem; border: 1px solid #c5d4e0; border-radius: 8px; font-size: .86rem; background: #fff; cursor: pointer; min-width: 180px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%235f7d94'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .6rem center; }}
-    .control-group select:focus {{ outline: none; border-color: #11597c; box-shadow: 0 0 0 2px rgba(17,89,124,.15); }}
+    .control-group select:focus {{ outline: none; border-color: #2855ac; box-shadow: 0 0 0 2px rgba(40,85,172,.15); }}
+    .control-group select:disabled {{ cursor: default; background-color: #f6f9fc; color: #64748b; }}
     .sig-toggle {{ display: inline-flex; align-items: center; gap: .45rem; padding: .48rem 1rem; border-radius: 999px; border: 1px solid #c5d4e0; background: #fff; cursor: pointer; font-size: .84rem; font-weight: 600; transition: all .15s; user-select: none; white-space: nowrap; height: fit-content; align-self: flex-end; }}
     .sig-toggle:hover {{ border-color: #6fa3c4; }}
-    .sig-toggle.is-active {{ border-color: #0b6b5f; background: #ecfbf6; color: #0b6b5f; }}
+    .sig-toggle:disabled {{ opacity: .55; cursor: default; }}
+    .sig-toggle:focus-visible {{ outline: 2px solid #2855ac; outline-offset: 3px; }}
+    .sig-toggle.is-active {{ border-color: #2855ac; background: #edf2fc; color: #2855ac; }}
     .plot-panel {{ background: #fff; border-radius: 14px; border: 1px solid #dee6ed; overflow: hidden; }}
     .plot-card {{ }}
     .plot-card.is-hidden {{ display: none; }}
@@ -809,7 +827,7 @@ class BoxPlotService:
     .pvalue-list {{ padding: .5rem .85rem .65rem; display: flex; flex-wrap: wrap; gap: .3rem; }}
     .pvalue-list span {{ display: inline-block; font-size: .68rem; background: #fef9e7; border: 1px solid #fde68a; border-radius: 6px; padding: .15rem .42rem; color: #92400e; }}
     .empty-txt {{ text-align: center; padding: 3rem 1rem; color: #8397a8; font-size: .92rem; }}
-    .back-link {{ display: inline-flex; align-items: center; gap: .35rem; color: #11597c; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
+    .back-link {{ display: inline-flex; align-items: center; gap: .35rem; color: #2855ac; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
     .back-link:hover {{ text-decoration: underline; }}
     .nav-hint {{ font-size: .74rem; color: #8397a8; margin-left: auto; }}
     @media (max-width: 640px) {{ .controls {{ flex-direction: column; align-items: stretch; }} .control-group select {{ min-width: 0; }} }}
@@ -819,36 +837,37 @@ class BoxPlotService:
 <div class="page">
   <a class="back-link" href="javascript:history.back()">← 返回</a>
   <div class="header">
-    <h1>Profile 分析 — 箱线图结果</h1>
-    <div class="meta">数据文件: {html.escape(datapoint_path)} &nbsp;|&nbsp; 任务: {html.escape(job_id)}</div>
+    <h1>组库指标与分组比较 — 箱线图结果</h1>
+    <div class="meta">数据文件: {html.escape(Path(datapoint_path).name)} &nbsp;|&nbsp; 任务: {html.escape(job_id)}</div>
     <div class="stats">{summary_html}</div>
   </div>
   <div class="controls">
     <div class="control-group">
-      <label for="modeSelect">View</label>
+      <label for="modeSelect">图表类型</label>
       <select id="modeSelect">
-        <option value="boxplot" selected>Boxplots</option>
-        <option value="summary">Summary</option>
+        <option value="boxplot" selected>箱线图</option>
+        <option value="summary"{summary_disabled}>汇总图</option>
       </select>
     </div>
     <div class="control-group">
-      <label for="paramSelect">📊 指标字段</label>
+      <label for="paramSelect">指标字段</label>
       <select id="paramSelect">{param_options}</select>
     </div>
     <div class="control-group">
-      <label for="classSelect">📂 分类字段</label>
+      <label for="classSelect">分类字段</label>
       <select id="classSelect">{class_options}</select>
     </div>
     <div class="control-group">
-      <label for="summaryMetricSelect">Summary Metric</label>
+      <label for="summaryMetricSelect">汇总指标</label>
       <select id="summaryMetricSelect">{summary_metric_options}</select>
     </div>
     <div class="control-group">
-      <label for="summaryClassSelect">Summary Class</label>
+      <label for="summaryClassSelect">汇总分组</label>
       <select id="summaryClassSelect">{summary_class_options}</select>
     </div>
-    <button class="sig-toggle" id="sigToggle">🔍 仅显示显著</button>
-    <span class="nav-hint" id="counter"></span>
+    <button class="sig-toggle" id="sigToggle" type="button" aria-pressed="false">仅显示显著</button>
+    <button class="sig-toggle" id="clearFilters" type="button">清除筛选</button>
+    <span class="nav-hint" id="counter" role="status" aria-live="polite"></span>
   </div>
   <div class="plot-panel" id="plotPanel">{empty_html}</div>
 </div>
@@ -866,140 +885,151 @@ class BoxPlotService:
   const summaryMetricSelect = document.getElementById('summaryMetricSelect');
   const summaryClassSelect = document.getElementById('summaryClassSelect');
   const sigToggle = document.getElementById('sigToggle');
+  const clearFilters = document.getElementById('clearFilters');
   const plotPanel = document.getElementById('plotPanel');
   const counter = document.getElementById('counter');
+  const hasComparisons = {has_comparisons_json};
+  const storageKey = 'profile-report-filters:' + location.pathname;
+  const filteredEmpty = '<div class="empty-txt">当前筛选没有匹配图表，可清除筛选查看已有结果。</div>';
   let sigOnly = false;
+  let selectedClass = classSelect.value;
+  let selectedSummaryClass = summaryClassSelect.value;
 
-  function syncModeControls() {{
-    const summaryMode = modeSelect.value === 'summary';
-    paramSelect.closest('.control-group').style.display = summaryMode ? 'none' : '';
-    classSelect.closest('.control-group').style.display = summaryMode ? 'none' : '';
-    sigToggle.style.display = summaryMode ? 'none' : '';
-    summaryMetricSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
-    summaryClassSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
-  }}
-
-  function showSummarySelected() {{
-    const metric = summaryMetricSelect.value;
-    const cls = summaryClassSelect.value;
-    const key = metric + '||' + cls;
-    plotPanel.innerHTML = summaryCards[key] || '{empty_summary_html}';
-    const total = Object.keys(summaryCards).filter(k => k.startsWith(metric + '||')).length;
-    counter.textContent = total ? total + ' summary class(es)' : '';
-  }}
-
-  function repopulateSummaryClassDropdown() {{
-    const metric = summaryMetricSelect.value;
-    const current = summaryClassSelect.value;
-    summaryClassSelect.innerHTML = '';
-    allSummaryClasses.forEach(cls => {{
-      const key = metric + '||' + cls;
-      if (summaryCards[key]) {{
-        const opt = document.createElement('option');
-        opt.value = cls;
-        opt.textContent = cls;
-        if (cls === current) opt.selected = true;
-        summaryClassSelect.appendChild(opt);
+  function restoreState() {{
+    try {{
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+      if (!saved || !allParams.includes(saved.param) || !allClasses.includes(saved.classification)
+          || !cards[saved.param + '||' + saved.classification]) return;
+      paramSelect.value = saved.param;
+      selectedClass = saved.classification;
+      sigOnly = hasComparisons && saved.significant === true;
+      if (allSummaryMetrics.includes(saved.summaryMetric)) summaryMetricSelect.value = saved.summaryMetric;
+      if (allSummaryClasses.includes(saved.summaryClass)) selectedSummaryClass = saved.summaryClass;
+      if (saved.mode === 'summary' && summaryCards[summaryMetricSelect.value + '||' + selectedSummaryClass]) {{
+        modeSelect.value = 'summary';
       }}
-    }});
-    if (!summaryClassSelect.querySelector('option[selected]')) {{
-      const first = summaryClassSelect.querySelector('option');
-      if (first) first.selected = true;
-    }}
-    showSummarySelected();
+    }} catch (error) {{ /* Storage is optional; real report navigation remains available. */ }}
   }}
 
-  function showSelected() {{
-    if (modeSelect.value === 'summary') {{
-      showSummarySelected();
+  function saveState() {{
+    try {{
+      sessionStorage.setItem(storageKey, JSON.stringify({{
+        mode: modeSelect.value, param: paramSelect.value, classification: selectedClass,
+        significant: sigOnly, summaryMetric: summaryMetricSelect.value, summaryClass: selectedSummaryClass,
+      }}));
+    }} catch (error) {{ /* Disabled storage must not interrupt report controls. */ }}
+  }}
+
+  function fillOptions(select, values, preferred) {{
+    select.replaceChildren();
+    select.disabled = values.length === 0;
+    if (!values.length) {{
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '暂无匹配项';
+      option.disabled = true;
+      option.selected = true;
+      select.appendChild(option);
       return;
     }}
-    const param = paramSelect.value;
-    const cls = classSelect.value;
-    const key = param + '||' + cls;
-    const html = cards[key] || '{empty_html}';
-    plotPanel.innerHTML = html;
-
-    // Update counter: how many params × classes match?
-    let total = 0, sigs = 0;
-    for (const [k, v] of Object.entries(cards)) {{
-      const [p, c] = k.split('||');
-      if (p === param) {{
-        total++;
-        if (v.includes('data-sig="1"')) sigs++;
-      }}
-    }}
-    counter.textContent = total ? sigs + ' 显著 / ' + total + ' 个分类' : '';
+    values.forEach(value => {{
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    }});
+    if (values.includes(preferred)) select.value = preferred;
   }}
 
   function repopulateClassDropdown() {{
     const param = paramSelect.value;
-    const current = classSelect.value;
-    classSelect.innerHTML = '';
-    allClasses.forEach(cls => {{
-      const key = param + '||' + cls;
-      if (cards[key]) {{
-        const opt = document.createElement('option');
-        opt.value = cls;
-        opt.textContent = cls;
-        if (cls === current) opt.selected = true;
-        classSelect.appendChild(opt);
-      }}
+    const classes = allClasses.filter(cls => {{
+      const card = cards[param + '||' + cls];
+      return card && (!sigOnly || card.includes('data-sig="1"'));
     }});
-    if (!classSelect.querySelector('option[selected]')) {{
-      const first = classSelect.querySelector('option');
-      if (first) first.selected = true;
-    }}
-    showSelected();
+    fillOptions(classSelect, classes, selectedClass);
+    // Keep the last real class while a filter temporarily matches no plot.
+    if (classes.length) selectedClass = classSelect.value;
   }}
 
-  modeSelect.addEventListener('change', () => {{
+  function repopulateSummaryClassDropdown() {{
+    const metric = summaryMetricSelect.value;
+    const classes = allSummaryClasses.filter(cls => summaryCards[metric + '||' + cls]);
+    fillOptions(summaryClassSelect, classes, selectedSummaryClass);
+    if (classes.length) selectedSummaryClass = summaryClassSelect.value;
+  }}
+
+  function syncModeControls() {{
+    const summaryMode = modeSelect.value === 'summary';
+    paramSelect.closest('.control-group').style.display = summaryMode ? 'none' : '';
+    classSelect.closest('.control-group').style.display = summaryMode || !hasComparisons ? 'none' : '';
+    sigToggle.style.display = summaryMode || !hasComparisons ? 'none' : '';
+    clearFilters.style.display = summaryMode || !hasComparisons ? 'none' : '';
+    clearFilters.disabled = !sigOnly;
+    sigToggle.classList.toggle('is-active', sigOnly);
+    sigToggle.setAttribute('aria-pressed', String(sigOnly));
+    summaryMetricSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
+    summaryClassSelect.closest('.control-group').style.display = summaryMode ? '' : 'none';
+  }}
+
+  function renderCurrent() {{
     syncModeControls();
     if (modeSelect.value === 'summary') {{
-      repopulateSummaryClassDropdown();
+      const metric = summaryMetricSelect.value;
+      const card = summaryClassSelect.options.length ? summaryCards[metric + '||' + summaryClassSelect.value] : '';
+      plotPanel.innerHTML = card || '{empty_summary_html}';
+      const total = allSummaryClasses.filter(cls => summaryCards[metric + '||' + cls]).length;
+      counter.textContent = total ? '当前显示 ' + (card ? 1 : 0) + ' 张图；当前指标有 ' + total + ' 个汇总分组。' : '本次未生成汇总图。';
     }} else {{
-      showSelected();
+      const param = paramSelect.value;
+      const available = allClasses.filter(cls => cards[param + '||' + cls]);
+      const matching = available.filter(cls => !sigOnly || cards[param + '||' + cls].includes('data-sig="1"'));
+      const candidate = classSelect.options.length ? cards[param + '||' + classSelect.value] : '';
+      const card = candidate && (!sigOnly || candidate.includes('data-sig="1"')) ? candidate : '';
+      plotPanel.innerHTML = card || (Object.keys(cards).length ? filteredEmpty : '{empty_html}');
+      if (!Object.keys(cards).length) {{
+        counter.textContent = '本次未生成箱线图。';
+      }} else if (hasComparisons) {{
+        counter.textContent = '当前显示 ' + (card ? 1 : 0) + ' 张图；当前指标 ' + matching.length + ' / ' + available.length + ' 个分类匹配筛选。';
+      }} else {{
+        counter.textContent = '当前显示 ' + (card ? 1 : 0) + ' 张图 · 未进行组间检验';
+      }}
     }}
+    saveState();
+  }}
+
+  modeSelect.addEventListener('change', renderCurrent);
+  paramSelect.addEventListener('change', () => {{
+    repopulateClassDropdown();
+    renderCurrent();
   }});
-
-  summaryMetricSelect.addEventListener('change', repopulateSummaryClassDropdown);
-  summaryClassSelect.addEventListener('change', showSummarySelected);
-
-  paramSelect.addEventListener('change', repopulateClassDropdown);
-
-  classSelect.addEventListener('change', showSelected);
-
+  classSelect.addEventListener('change', () => {{
+    selectedClass = classSelect.value;
+    renderCurrent();
+  }});
+  summaryMetricSelect.addEventListener('change', () => {{
+    repopulateSummaryClassDropdown();
+    renderCurrent();
+  }});
+  summaryClassSelect.addEventListener('change', () => {{
+    selectedSummaryClass = summaryClassSelect.value;
+    renderCurrent();
+  }});
   sigToggle.addEventListener('click', () => {{
     sigOnly = !sigOnly;
-    sigToggle.classList.toggle('is-active', sigOnly);
-    sigToggle.textContent = sigOnly ? '✅ 仅显示显著' : '🔍 仅显示显著';
-
-    // Rebuild class dropdown with sig-only filter
-    const param = paramSelect.value;
-    const current = classSelect.value;
-    classSelect.innerHTML = '';
-    allClasses.forEach(cls => {{
-      const key = param + '||' + cls;
-      const html = cards[key];
-      if (!html) return;
-      const isSig = html.includes('data-sig="1"');
-      if (sigOnly && !isSig) return;
-      const opt = document.createElement('option');
-      opt.value = cls;
-      opt.textContent = cls + (isSig ? ' ★' : '');
-      if (cls === current) opt.selected = true;
-      classSelect.appendChild(opt);
-    }});
-    if (!classSelect.querySelector('option[selected]')) {{
-      const first = classSelect.querySelector('option');
-      if (first) first.selected = true;
-    }}
-    showSelected();
+    repopulateClassDropdown();
+    renderCurrent();
+  }});
+  clearFilters.addEventListener('click', () => {{
+    sigOnly = false;
+    repopulateClassDropdown();
+    renderCurrent();
   }});
 
-  // Init
-  syncModeControls();
-  showSelected();
+  restoreState();
+  repopulateClassDropdown();
+  repopulateSummaryClassDropdown();
+  renderCurrent();
 }})();
 </script>
 </body>
@@ -1036,7 +1066,11 @@ class BoxPlotService:
             if not source_path.exists():
                 continue
             try:
-                df = _try_read_csv(source_path, low_memory=False)
+                columns = _try_read_csv(source_path, nrows=0).columns.tolist()
+                sample_column = self._detect_sample_column(columns)
+                text_columns = category_columns + ([sample_column] if sample_column else [])
+                df = _try_read_csv(source_path, low_memory=False,
+                                   dtype={column: str for column in text_columns})
             except Exception:
                 continue
             if df.empty:
@@ -1116,7 +1150,7 @@ class BoxPlotService:
                         png_path = target_dir / f"{safe_param}.png"
                         csv_path = target_dir / f"{safe_param}.csv"
 
-                        keep_cols = ["sample", group_col, param] if "sample" in subset.columns else [group_col, param]
+                        keep_cols = ([sample_column] if sample_column else []) + [group_col, param]
                         plot_df = subset[keep_cols].copy()
                         plot_df[param] = pd.to_numeric(plot_df[param], errors="coerce")
                         plot_df = plot_df.dropna(subset=[group_col, param])
@@ -1184,7 +1218,7 @@ class BoxPlotService:
                         png_path = target_dir / f"{safe_param}.png"
                         csv_path = target_dir / f"{safe_param}.csv"
 
-                        keep_cols = ["sample", param] if "sample" in df.columns else [param]
+                        keep_cols = ([sample_column] if sample_column else []) + [param]
                         plot_df = df[keep_cols].copy()
                         plot_df[param] = pd.to_numeric(plot_df[param], errors="coerce")
                         plot_df = plot_df.dropna(subset=[param])
@@ -1475,7 +1509,7 @@ class BoxPlotService:
         fig, ax = plt.subplots(figsize=(2.5, 3.05))
         box = ax.boxplot(
             [values],
-            labels=["All samples"],
+            labels=["全部样本"],
             patch_artist=True,
             widths=0.42,
             showfliers=False,
@@ -1495,7 +1529,7 @@ class BoxPlotService:
             linewidths=0,
             zorder=3,
         )
-        info_text = f"n={len(values)}  median={float(pd.Series(values).median()):.4g}"
+        info_text = f"n={len(values)}  中位数={float(pd.Series(values).median()):.4g}"
         ax.annotate(
             info_text,
             xy=(0.98, 0.98),
@@ -1535,6 +1569,8 @@ class BoxPlotService:
         skipped_insufficient = 0
         pvalue_lookup: Dict[str, Dict[tuple, float]] = {}
         class_type_order: Dict[str, List[str]] = {}
+        sample_column = self._detect_sample_column(df.columns.tolist())
+        all_significant_parts: List[pd.DataFrame] = []
 
         for class_col in class_columns:
             safe_class = self._sanitize_name(class_col)
@@ -1570,8 +1606,8 @@ class BoxPlotService:
                 if progress_callback:
                     progress_callback(
                         5 + int(step / max(total_steps, 1) * 90),
-                        "BoxPlot analysis",
-                        f"Processing {class_col} / {param}",
+                        "分组箱线图分析",
+                        f"正在分析：{class_col} / {param}",
                         {"class_col": class_col, "param": param},
                     )
 
@@ -1617,7 +1653,7 @@ class BoxPlotService:
                     "pvalue_threshold": pvalue_threshold,
                 })
 
-                plot_df = df[(["sample"] if "sample" in df.columns else []) + [class_col, param]]
+                plot_df = df[([sample_column] if sample_column else []) + [class_col, param]]
                 concat_df = pd.concat([
                     plot_df[plot_df[class_col].astype(str) == str(t)] for t in class_types
                 ])
@@ -1636,18 +1672,13 @@ class BoxPlotService:
                     sig_csv = class_dir / f"{class_col}_significant.csv"
                     sig_df.to_csv(sig_csv, index=False)
                     significant_paths.append(str(sig_csv))
+                    all_significant_parts.append(sig_df)
 
-        if significant_paths:
-            all_significant_parts: List[pd.DataFrame] = []
-            for sig_path in significant_paths:
-                try:
-                    all_significant_parts.append(pd.read_csv(sig_path))
-                except Exception:
-                    pass
-            if all_significant_parts:
-                all_sig_csv = output_base / "_all_significant.csv"
-                pd.concat(all_significant_parts, ignore_index=True).to_csv(all_sig_csv, index=False)
-                significant_paths.append(str(all_sig_csv))
+        # Combine the same computed records; a CSV round-trip alters group text and p precision.
+        if all_significant_parts:
+            all_sig_csv = output_base / "_all_significant.csv"
+            pd.concat(all_significant_parts, ignore_index=True).to_csv(all_sig_csv, index=False)
+            significant_paths.append(str(all_sig_csv))
 
         return png_paths, pvalue_paths, csv_paths, significant_paths, plot_infos, skipped_insufficient, pvalue_lookup, class_type_order
 
@@ -1666,20 +1697,21 @@ class BoxPlotService:
         png_paths: List[str] = []
         csv_paths: List[str] = []
         total_steps = len(param_columns)
+        sample_column = self._detect_sample_column(df.columns.tolist())
         for i, param in enumerate(param_columns):
             safe_param = self._sanitize_name(param)
             if progress_callback:
                 progress_callback(
                     5 + int((i + 1) / max(total_steps, 1) * 90),
-                    "BoxPlot analysis (ungrouped)",
-                    f"Processing {param}",
+                    "不分组箱线图分析",
+                    f"正在分析指标：{param}",
                     {"param": param},
                 )
 
             self._plot_ungrouped_boxplot(df, param, ungrouped_dir, safe_param)
             png_paths.append(str(ungrouped_dir / f"{safe_param}.png"))
 
-            param_data = df[[param]].dropna()
+            param_data = df[([sample_column] if sample_column else []) + [param]].dropna(subset=[param])
             csv_path = csv_dir / f"{safe_param}.csv"
             param_data.to_csv(csv_path, index=False)
             csv_paths.append(str(csv_path))

@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, send_file, current_app
+from flask_app.services.result_file_response import send_result_file
 from flask_app.services.user_scope import current_user_id, is_admin
 
-from flask_app.exceptions import ValidationError
+from flask_app.exceptions import ValidationError, FileNotFoundError as ResultFileMissing
 from flask_app.services.path_access_service import PathAccessService
 from flask_app.services.result_path_resolver import scoped_results_root, candidate_job_roots
 from ._common import (
@@ -20,7 +21,6 @@ from ._common import (
     _get_task_state,
     _is_readable_table_asset,
     _looks_like_category_row,
-    _mark_script_task_cancelled,
     _normalize_chain,
     _normalize_script_result,
     _pep_tra_candidates_from_output_base,
@@ -79,11 +79,8 @@ def get_script_hub_task_status(task_id: str):
         if os.environ.get("JOB_QUEUE", "").lower() != "redis":
             _sync_job_state(task_id, task)
         job = get_script_hub_job_service().get_job(task_id) or {}
-        if job.get("cancel_requested") or job.get("status") == "cancelled":
-            task = _mark_script_task_cancelled(task_id)
-            task = {**task, **job, "status": "cancelled", "module": job.get("module") or task.get("module")}
-        else:
-            task = {**job, **task, "module": job.get("module") or task.get("module")}
+        # Reading progress cannot confirm that a computing task has stopped.
+        task = {**task, **job, "module": job.get("module") or task.get("module")}
     if task is None:
         return jsonify({"success": False, "error": "TASK_NOT_FOUND", "message": "Task not found"}), 404
     job_id = str(task.get("job_id") or task_id)
@@ -113,9 +110,14 @@ def list_script_hub_jobs():
 def create_script_hub_job():
     data = request.get_json() or {}
     module_name = str(data.get("module") or "").strip().lower()
-    from .infiltration import run_infiltration
+    from .infiltration import run_infiltration, run_consistency, run_concordance, run_paired, run_pathway, run_sample_pathway
     dispatch = {
+        'immune-infiltration-concordance': run_concordance,
+        'immune-infiltration-paired': run_paired,
+        'immune-infiltration-pathway': run_pathway,
+        'immune-infiltration-sample-pathway': run_sample_pathway,
         'immune-infiltration': run_infiltration,
+        'immune-infiltration-consistency': run_consistency,
         "db-alignment": run_db_alignment,
         "boxplot": run_boxplot,
         "profile": run_profile,
@@ -153,7 +155,8 @@ def create_script_hub_job():
             "details": cache_error,
         }), 400
     try:
-        _validate_selected_samples_against_group_values(data)
+        if module_name not in {"umapin", "volcano", "go-kegg-enrichment"} and not module_name.startswith("immune-infiltration"):
+            _validate_selected_samples_against_group_values(data)
     except ValidationError as exc:
         return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
     return runner()
@@ -189,6 +192,11 @@ def _validate_required_cache_inputs(module_name: str, data: Dict[str, Any]) -> D
             return {"module": module_name, "field": "data_dir", "message": "Please select PEP VJ usage cache / 请选择 PEP VJ usage 缓存"}
     if module_name == "umapin" and not str(data.get("data_path") or "").strip():
         return {"module": module_name, "field": "data_path", "message": "Please select PEP UMAPin cache / 请选择 PEP UMAPin 缓存"}
+    if module_name == "umap" and str(data.get("analysis_mode") or "").strip().lower() == "unified":
+        configurations = data.get("configurations") if isinstance(data.get("configurations"), list) else []
+        needs_vj = any("vj" in str(config).split("+") for config in configurations)
+        if needs_vj and not str(data.get("upstream_artifact_id") or data.get("vj_usage_path") or "").strip():
+            return {"module": module_name, "field": "vj_usage_path", "message": "请选择 V/J 使用结果，或在本批次中先运行生成该结果的分析。"}
     if module_name == "mait-nkt":
         tra_source = str(data.get("tra_source") or "upload").strip()
         if tra_source == "pep_analysis" and not str(data.get("tra_path") or data.get("source_job_id") or "").strip():
@@ -222,15 +230,8 @@ def cancel_script_hub_job(job_id: str):
     task_id = str(job.get("task_id") or job_id)
     with _script_task_lock:
         task = _script_tasks.get(task_id)
-        if task and task.get("status") not in {"completed", "failed", "cancelled"}:
-            task.update({
-                "status": "cancelled",
-                "stage": "Cancelled",
-                "detail": "Job cancelled by user.",
-                "meta": {**(task.get("meta") or {}), "phase": "cancelled"},
-            })
-            job = dict(task, job_id=job_id, task_id=task_id)
-    get_script_hub_job_service().upsert_job(job_id, job)
+        if task:
+            task.update({key: job[key] for key in ("status", "stage", "detail", "cancel_requested", "completed_at") if key in job})
     return jsonify({"success": True, "job": _sanitize_nan(job)})
 
 
@@ -238,6 +239,8 @@ def cancel_script_hub_job(job_id: str):
 def list_pep_cache_candidates():
     project_id = str(request.args.get("project_id") or "").strip()
     cache_type = str(request.args.get("cache_type") or "").strip().lower()
+    from flask_app.services.upstream_source_catalog import source_view_options, source_management_view
+    options = source_view_options(request.args)
     if not project_id:
         return jsonify({"success": True, "candidates": []})
 
@@ -246,6 +249,8 @@ def list_pep_cache_candidates():
         from flask_app.services.analysis_artifacts import scoped_pep_candidates
         try:
             candidates = scoped_pep_candidates(project_id, asset_set, cache_type)
+            if options:
+                return jsonify(source_management_view(candidates, **options))
             return jsonify(success=True, candidates=_sanitize_nan(candidates))
         except ValidationError as error:
             return jsonify(success=False, message=error.message), 400
@@ -263,6 +268,7 @@ def _pep_cache_type_filter(cache_type: str) -> set[str]:
         "vj_usage": {"vj_usage"},
         "usage": {"usage", "vj_usage"},
         "umapin": {"umapin_table", "vj_usage"},
+        "umap": {"vj_usage"},
         "umapin_table": {"umapin_table"},
         "mait-nkt": {"tra_shared"},
         "mait": {"tra_shared"},
@@ -614,14 +620,14 @@ def get_script_hub_result_file(job_id: str, relative_path: str):
                 target_path = candidate_path
                 break
         if target_path is None:
-            raise ValidationError(message="Result file not found", details={"relative_path": relative_path})
+            raise ResultFileMissing(message="结果文件不存在或已移除。", details={"relative_path": relative_path})
         if target_path.name not in _RESULT_FILES and target_path.suffix.lower() not in {".csv", ".html", ".json", ".zip", ".png", ".jpg", ".pdf", ".txt", ".log"}:
             raise ValidationError(message="Unsupported result file", details={"relative_path": relative_path})
-        as_attachment = target_path.suffix.lower() in {".zip", ".pdf", ".txt", ".log"}
-        return send_file(target_path, as_attachment=as_attachment)
-    except ValidationError as exc:
+        as_attachment = target_path.suffix.lower() in {".zip", ".txt", ".log"} or (target_path.suffix.lower() == ".pdf" and request.args.get("download") == "1")
+        return send_result_file(target_path, as_attachment=as_attachment)
+    except (ValidationError, ResultFileMissing) as exc:
         logger.warning("Validation error serving script hub result file: %s", exc.message)
-        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), 400
+        return jsonify({"success": False, "error": exc.error_code, "message": exc.message, "details": exc.details}), exc.http_status
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error serving script hub result file: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "SCRIPT_HUB_RESULT_ERROR", "message": str(exc)}), 500
@@ -638,7 +644,7 @@ def read_table_preview():
         dp = PathAccessService.validate_read_path(file_path)
         if not dp.exists() or not dp.is_file():
             raise ValidationError(message="File not found", details={"file_path": file_path})
-        df = _robust_read_csv(dp, nrows=5)
+        df = _robust_read_csv(dp, nrows=5, dtype=str)
         return jsonify(_sanitize_nan({
             "success": True,
             "file_path": str(dp.resolve()),

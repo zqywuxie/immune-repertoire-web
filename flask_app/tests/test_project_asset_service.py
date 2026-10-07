@@ -1,6 +1,7 @@
 """Tests for project asset deletion behavior."""
 
 from pathlib import Path
+import io
 import sys
 
 from flask import Flask
@@ -141,6 +142,46 @@ def test_upload_asset_records_storage_uri(app_context):
     assert storage_uri.startswith("local:///")
     assert "upload.csv" in storage_uri
 
+
+
+def test_upload_batches_are_time_scoped_and_type_deletion_preserves_unregistered_and_other_project_files(app_context):
+    project = _create_project("Batch One")
+    other_project = _create_project("Batch Two")
+    service = ProjectAssetService(app_context / "projects")
+
+    def upload(target_project, filename, content, replace_existing=False):
+        return service.upload_assets(
+            target_project,
+            asset_type="profile",
+            file_storages=[FileStorage(stream=io.BytesIO(content), filename=filename)],
+            replace_existing=replace_existing,
+        )[0]
+
+    first = upload(project, "first.csv", b"sample,value\nA,1\n")
+    second = upload(project, "second.csv", b"sample,value\nB,2\n")
+    other = upload(other_project, "other.csv", b"sample,value\nC,3\n")
+
+    first_path = Path(first.storage_path)
+    second_path = Path(second.storage_path)
+    other_path = Path(other.storage_path)
+    first_batch = first_path.parents[1].name
+    second_batch = second_path.parents[1].name
+    assert first_batch != second_batch
+    assert len(first_batch.split("__", 1)[0]) == 15
+    assert first_path.parent.name == second_path.parent.name == other_path.parent.name == "profile"
+    assert first.metadata_json["upload_batch"] == first_batch
+    assert first.metadata_json["relative_path"] == first_path.relative_to(service.projects_root / "legacy").as_posix()
+
+    unregistered = first_path.parent / "operator-note.txt"
+    unregistered.write_text("keep", encoding="utf-8")
+    service.delete_assets_by_type(project, "profile")
+
+    assert not first_path.exists()
+    assert not second_path.exists()
+    assert unregistered.read_text(encoding="utf-8") == "keep"
+    assert other_path.read_text(encoding="utf-8") == "sample,value\nC,3\n"
+    assert ProjectAsset.query.filter_by(project_id=project.id, asset_type="profile").count() == 0
+    assert ProjectAsset.query.filter_by(project_id=other_project.id, asset_type="profile").count() == 1
 
 def test_register_cached_asset_records_storage_uri(app_context):
     project = _create_project("Storage URI Register")

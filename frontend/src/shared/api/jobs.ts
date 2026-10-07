@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { postAfterInputValidation } from "./submission";
 import type { JobModule, JobOutput, JobSummary, ProjectAsset } from "../types/domain";
 
 export interface JobListResponse {
@@ -81,7 +82,7 @@ export function listJobModules() {
 }
 
 export function submitJob({ module, payload, projectId, forceRerun }: SubmitJobPayload) {
-  return apiClient.post<SubmitJobResponse>("/api/jobs", {
+  return postAfterInputValidation<SubmitJobResponse>("/api/jobs", {
     module,
     payload,
     project_id: projectId,
@@ -92,12 +93,12 @@ export function submitJob({ module, payload, projectId, forceRerun }: SubmitJobP
   });
 }
 
-export function getJob(jobId: string) {
-  return apiClient.get<JobDetailResponse>(`/api/jobs/${jobId}`, undefined, { skipCache: true });
+export function getJob(jobId: string, options: { forceFresh?: boolean } = {}) {
+  return apiClient.get<JobDetailResponse>(`/api/jobs/${jobId}`, undefined, { skipCache: true, deduplicate: !options.forceFresh });
 }
 
-export function getJobResults(jobId: string) {
-  return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`, undefined, { skipCache: true });
+export function getJobResults(jobId: string, options: { forceFresh?: boolean } = {}) {
+  return apiClient.get<JobResultsResponse>(`/api/jobs/${jobId}/results`, undefined, { skipCache: true, deduplicate: !options.forceFresh });
 }
 
 export function jobEventsUrl(jobId: string) {
@@ -138,17 +139,19 @@ export function bulkDeleteJobs(jobIds: string[], params: { deleteResults?: boole
 
 
 export async function downloadResultArchive(items: Array<{ job_id: string; url: string }>) {
-  const response = await fetch("/api/jobs/results/archive", {
-    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || "结果打包失败，请重试。");
-  }
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url; link.download = "分析结果.zip";
-  document.body.appendChild(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  if (!items.length) throw new Error("请选择需要下载的结果文件。");
+  // A native form download lets the browser stream the response to disk instead
+  // of materializing a potentially multi-gigabyte ZIP in a JavaScript Blob.
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = "/api/jobs/results/archive";
+  form.style.display = "none";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "items";
+  input.value = JSON.stringify(items);
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
 }

@@ -4,7 +4,6 @@ from importlib import import_module
 from pathlib import Path
 import json
 import sys
-from types import SimpleNamespace
 
 import pandas as pd
 
@@ -17,7 +16,6 @@ for import_dir in (APP_DIR, ROOT_DIR):
 
 
 def _import_script_hub_module():
-    sys.modules.setdefault("umap", SimpleNamespace(UMAP=object))
     try:
         return import_module("flask_app.routes.api_script_hub")
     except ModuleNotFoundError:

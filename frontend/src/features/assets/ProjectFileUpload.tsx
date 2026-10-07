@@ -1,140 +1,63 @@
-import { useState } from "react";
-import { FileUp, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileUp, Upload } from "lucide-react";
 import { uploadProjectAssets } from "../../shared/api/projects";
+import { createUploadOperationId } from "../../shared/api/uploadOperations";
 import { FileDropZone } from "../../shared/components/FileDropZone";
+import "./DataManagement.css";
 
-type Props = {
-  projectId: string;
-  onSuccess: () => void;
-};
-
-type FileEntry = {
-  name: string;
-  size: number;
-  file: File;
-};
-
-export function ProjectFileUpload({ projectId, onSuccess }: Props) {
+type Props = { projectId: string; onSuccess: () => void; onBusyChange?: (busy: boolean) => void; onPendingChange?: (count: number) => void; };
+type FileEntry = { name: string; size: number; file: File; operationId: string; };
+export function ProjectFileUpload({ projectId, onSuccess, onBusyChange, onPendingChange }: Props) {
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-
-  const handleUpload = async () => {
-    if (!files.length || state === "loading") return;
-    setState("loading");
-    setMessage("");
-    try {
-      const result = await uploadProjectAssets(projectId, {
-        assetType: "project_file",
-        files: files.map((item) => item.file),
-        replaceExisting: false,
-      });
-      setFiles([]);
-      setState("idle");
-      setMessage(`${result.assets.length} 个项目文件已上传。`);
-      onSuccess();
-    } catch (err) {
-      setState("error");
-      setMessage(err instanceof Error ? err.message : "项目文件上传失败。");
+  const [collisions, setCollisions] = useState<string[]>([]);
+  const [rows, setRows] = useState<{ name: string; stage: string; progress?: number }[]>([]);
+  const controller = useRef<AbortController | null>(null);
+  const attempted = useRef(new Set<string>());
+  useEffect(() => { onPendingChange?.(files.length); }, [files.length, onPendingChange]);
+  useEffect(() => () => { onPendingChange?.(0); onBusyChange?.(false); }, [onPendingChange, onBusyChange]);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
+  useEffect(() => () => controller.current?.abort(), []);
+  async function handleUpload() {
+    if (!files.length || busy) return;
+    const aborter = new AbortController(); controller.current = aborter;
+    setBusy(true); setMessage(""); setRows(files.map(item => ({ name: item.name, stage: "等待上传" })));
+    let saved = 0; const errors: string[] = [];
+    const row = (name: string, stage: string, progress?: number) => setRows(previous => previous.map(item => item.name === name ? { name, stage, progress } : item));
+    for (const item of files) {
+      if (aborter.signal.aborted) { row(item.name, "未开始，已保留选择"); continue; }
+      try {
+        row(item.name, "正在上传", 0);
+        const retry = attempted.current.has(item.operationId);
+        attempted.current.add(item.operationId);
+        await uploadProjectAssets(projectId, { assetType: "project_file", files: [item.file], signal: aborter.signal,
+          operationId: item.operationId, retry, onStatusCheck: () => row(item.name, "正在核对保存状态"),
+          onProgress: percentage => row(item.name, percentage === 100 ? "已传输，正在保存" : "正在上传", percentage) });
+        saved++; row(item.name, "已保存"); setFiles(previous => previous.filter(entry => entry.file !== item.file));
+      } catch (reason) { const error = reason instanceof Error ? reason.message : "上传失败"; errors.push(error); row(item.name, error); }
     }
-  };
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--spacing-md)",
-        padding: "var(--spacing-xl)",
-        background: "var(--bg-elevated)",
-        borderRadius: "var(--radius-card)",
-        border: "1px solid var(--separator)",
+    controller.current = null; setBusy(false);
+    setMessage(`已保存 ${saved} 个附件${errors.length ? `；${errors.join("；")}。剩余选择已保留，可重试。` : "。"}`);
+    if (saved) onSuccess();
+  }
+  return <div className="data-section">
+    <div className="data-section-header"><FileUp size={20} /><p>这些文件随项目保存，不参与分析输入。</p></div>
+    <FileDropZone files={files} disabled={busy} multiple label="将项目文档、笔记、表格或附件拖到此处"
+      onFilesAdded={incoming => {
+        const entries = new Map(files.map(item => [item.name, item]));
+        const skipped: string[] = [];
+        for (const file of Array.from(incoming as FileList | File[])) {
+          if (entries.has(file.name)) skipped.push(file.name);
+          else entries.set(file.name, { file, name: file.name, size: file.size, operationId: createUploadOperationId() });
+        }
+        setCollisions([...new Set(skipped)]); setFiles([...entries.values()]);
       }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-md)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)" }}>
-          <FileUp size={18} style={{ color: "var(--accent)" }} />
-          <div>
-            <h4 style={{ margin: 0, fontSize: "0.95rem" }}>项目文件</h4>
-            <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-              上传项目相关文件，这些文件不作为分析输入。
-            </p>
-          </div>
-        </div>
-        {files.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setFiles([])}
-            disabled={state === "loading"}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "4px",
-              border: "1px solid var(--separator)",
-              borderRadius: "var(--radius-control)",
-              background: "var(--bg-root)",
-              color: "var(--text-secondary)",
-              padding: "6px 10px",
-              fontSize: "0.78rem",
-              cursor: state === "loading" ? "not-allowed" : "pointer",
-            }}
-          >
-            <X size={14} />
-            清空
-          </button>
-        )}
-      </div>
-
-      <FileDropZone
-        files={files}
-        onFilesAdded={(incoming) => {
-          const nextFiles = Array.from(incoming as FileList | File[]).map((file) => ({
-            name: file.name,
-            size: file.size,
-            file,
-          }));
-          setFiles((prev) => {
-            const byName = new Map(prev.map((item) => [item.name, item]));
-            for (const item of nextFiles) byName.set(item.name, item);
-            return [...byName.values()];
-          });
-        }}
-        onRemoveFile={(name) => setFiles((prev) => prev.filter((item) => item.name !== name))}
-        multiple
-        disabled={state === "loading"}
-        label="将项目文档、笔记、表格或附件拖到此处"
-      />
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)" }}>
-        <span style={{ color: "var(--text-tertiary)", fontSize: "0.78rem" }}>
-          这些文件随项目保存，不作为分析数据集的输入。
-        </span>
-        <button
-          type="button"
-          onClick={handleUpload}
-          disabled={!files.length || state === "loading"}
-          className="btn btn-primary"
-          style={{ padding: "10px 18px", whiteSpace: "nowrap" }}
-        >
-          <Upload size={15} />
-          {state === "loading" ? "正在上传…" : `Upload ${files.length || ""}`}
-        </button>
-      </div>
-
-      {message && (
-        <div
-          style={{
-            padding: "var(--spacing-sm) var(--spacing-md)",
-            borderRadius: "var(--radius-control)",
-            background: state === "error" ? "rgba(255,59,48,0.08)" : "rgba(52,199,89,0.08)",
-            border: `1px solid ${state === "error" ? "var(--danger)" : "var(--success)"}`,
-            color: state === "error" ? "var(--danger)" : "var(--success)",
-            fontSize: "0.82rem",
-          }}
-        >
-          {message}
-        </div>
-      )}
-    </div>
-  );
+      onRemoveFile={name => setFiles(previous => previous.filter(item => item.name !== name))} />
+    {collisions.length > 0 && <p role="alert" className="data-error">以下同名文件未添加，已保留先前选择：{collisions.join("、")}。如需替换，请先移除原选择再添加。</p>}
+    <div className="data-row-actions"><button className="btn btn-primary" disabled={busy || !files.length} onClick={handleUpload}><Upload size={15} />{busy ? "正在上传…" : `上传 ${files.length} 个附件`}</button>
+      {busy && <button className="btn btn-secondary" onClick={() => controller.current?.abort()}>取消剩余上传</button>}</div>
+    {rows.length > 0 && <ul className="data-upload-progress" aria-live="polite">{rows.map(item => <li key={item.name}><span>{item.name}</span><span>{item.stage}{typeof item.progress === "number" ? ` · ${item.progress}%` : ""}</span></li>)}</ul>}
+    {message && <p role="status">{message}</p>}
+  </div>;
 }

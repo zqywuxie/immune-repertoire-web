@@ -29,16 +29,17 @@ export function PathInput({
   const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
       {label && (
         <span style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", color: "var(--text-secondary)", fontFamily: "var(--font-family)" }}>
           {label}
         </span>
       )}
-      <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
+      <div style={{ display: "flex", gap: "var(--spacing-sm)", minWidth: 0 }}>
         <div
           style={{
             flex: 1,
+            minWidth: 0,
             display: "flex",
             alignItems: "center",
             gap: "var(--spacing-sm)",
@@ -74,6 +75,7 @@ export function PathInput({
             disabled={disabled}
             style={{
               flex: 1,
+              minWidth: 0,
               border: "none",
               outline: "none",
               background: "transparent",
@@ -84,6 +86,7 @@ export function PathInput({
           />
           {value && !disabled && (
             <button
+              type="button"
               onClick={() => onChange("")}
               style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: "2px", flexShrink: 0 }}
               aria-label="清空路径"

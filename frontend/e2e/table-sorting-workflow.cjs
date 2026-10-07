@@ -1,0 +1,63 @@
+// Production frontend + real Flask table endpoint, isolated synthetic 4096-row file.
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+async function main(){
+ const base=process.env.E2E_BASE_URL,output=process.env.E2E_OUTPUT_DIR;
+ const fixture=JSON.parse(await fs.readFile(path.join(output,'server-ready.json'),'utf8'));
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+ const context=await browser.newContext({viewport:{width:1440,height:1000}});
+ const page=await context.newPage(),errors=[],requests=[];
+ page.on('pageerror',e=>errors.push(String(e)));
+ const id=fixture.job_id,job={id,job_id:id,module:'profile',status:'completed',stage:'分析完成',progress:100,created_at:'2026-10-03T00:00:00Z'};
+ await page.route('**/api/**',async route=>{
+  const p=new URL(route.request().url()).pathname;
+  if(p==='/api/jobs/'+id+'/table-preview'){requests.push(route.request().postDataJSON());return route.continue();}
+  let body={success:true};
+  if(p==='/api/auth/me')body={auth_mode:'internal',username:'内部验证',role:'user'};
+  else if(p==='/api/projects')body={success:true,projects:[]};
+  else if(p==='/api/jobs/modules')body={success:true,modules:[]};
+  else if(p==='/api/jobs')body={success:true,jobs:[job],counts:{completed:1},total:1,has_more:false};
+  else if(p==='/api/jobs/'+id)body={success:true,job};
+  else if(p==='/api/jobs/'+id+'/results')body={success:true,job,status:'completed',outputs:[{kind:'csv',label:'科学数值.csv',url:fixture.url}],assets:[],result:{}};
+  else if(p==='/api/jobs/'+id+'/events')return route.fulfill({contentType:'text/event-stream',body:'event: completed\ndata: '+JSON.stringify({job,status:'completed'})+'\n\n'});
+  await route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
+ });
+ await page.goto(base+'/analysis/script-hub/jobs?job='+id);
+ await page.getByRole('cell',{name:'00001',exact:true}).waitFor();
+ const table=page.getByRole('table',{name:'分析结果数据表'}),panel=page.getByRole('tabpanel',{name:'数据表',exact:true});
+ const firstRow=()=>table.locator('tbody tr').first();
+ await panel.getByRole('button',{name:'下一页',exact:true}).click();await page.getByRole('cell',{name:'00026',exact:true}).waitFor();
+ await page.getByLabel('排序方式',{exact:true}).selectOption('numeric');
+ await page.getByRole('button',{name:'按p值排序',exact:true}).click();
+ await page.getByRole('cell',{name:'04096',exact:true}).waitFor();
+ assert((await firstRow().textContent()).includes('1e-1000'));
+ assert.equal(await page.getByRole('button',{name:'按p值排序'}).locator('..').getAttribute('aria-sort'),'ascending');
+ assert.equal(requests.at(-1).offset,0);assert.equal(requests.at(-1).sort_mode,'numeric');
+ await page.getByRole('button',{name:'按计数排序',exact:true}).click();await page.getByRole('cell',{name:'00001',exact:true}).waitFor();
+ await page.getByRole('button',{name:'按计数排序',exact:true}).click();await page.getByRole('cell',{name:'04096',exact:true}).waitFor();
+ assert((await firstRow().textContent()).includes('1790983155444453247'));
+ assert((await table.locator('tbody tr').nth(1).textContent()).includes('1790983155444453246'));
+ await page.screenshot({path:path.join(output,'desktop-sorted-table.png'),fullPage:true});
+ await page.getByLabel('筛选全部数据',{exact:true}).fill('研究组');await panel.getByRole('button',{name:'筛选',exact:true}).click();
+ await page.getByText('共 4096 行 · 匹配 2048 行 · 每页 25 行',{exact:true}).waitFor();
+ assert((await firstRow().textContent()).startsWith('04095研究组'));
+ await page.getByRole('button',{name:'恢复原始顺序',exact:true}).click();await page.getByRole('cell',{name:'00001',exact:true}).waitFor();
+ assert(!('sort_column' in requests.at(-1)));
+ await page.getByRole('button',{name:'清除筛选',exact:true}).click();await page.getByText('共 4096 行 · 匹配 4096 行 · 每页 25 行',{exact:true}).waitFor();
+ await page.screenshot({path:path.join(output,'desktop-original-table.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ await page.getByRole('button',{name:'按p值排序',exact:true}).focus();await page.keyboard.press('Enter');
+ await page.getByRole('cell',{name:'04096',exact:true}).waitFor();
+ const sizes=await page.evaluate(()=>({width:innerWidth,document:document.documentElement.scrollWidth}));
+ assert(sizes.document<=sizes.width+1,JSON.stringify(sizes));
+ await page.screenshot({path:path.join(output,'mobile-sorted-table.png'),fullPage:true});
+ const downloaded=await page.request.get(base+fixture.url);
+ assert.equal(downloaded.status(),200);const source=await downloaded.text();
+ assert(source.includes('1e-1000')&&source.includes('1790983155444453247'));
+ assert.deepEqual(errors,[]);
+ await fs.writeFile(path.join(output,'browser-summary.json'),JSON.stringify({scope:'production frontend + real table API; synthetic data only',rows:fixture.rows,exact_precision:true,full_table_sort:true,filter_and_pagination:true,restore_original_order:true,keyboard_sort:true,download_preserved:true,requests,sizes,errors},null,2));
+ await browser.close();console.log(JSON.stringify({passed:true,sizes,errors}));
+}
+main().catch(e=>{console.error(e);process.exit(1)});

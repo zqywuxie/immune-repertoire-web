@@ -1,5 +1,7 @@
+import { ResultDocumentPreview } from "./ResultDocumentPreview";
+import { ResultImageViewer } from "./ResultImageViewer";
 import { TablePreview } from "./TablePreview";
-import { useState, useEffect } from "react";
+import { TextResultPreview } from "./TextResultPreview";
 import type { JobOutput } from "../../shared/types/domain";
 
 export type ResultOutput = JobOutput & {
@@ -28,6 +30,9 @@ export function kindLabel(kind: string): string {
     pptx: "演示文稿",
     pdf: "PDF",
     json: "JSON",
+    log: "日志",
+    text: "文本说明",
+    txt: "文本说明",
     data: "下载",
   };
   return map[kind] ?? kind.toUpperCase();
@@ -69,8 +74,9 @@ export function ResultViewer({ outputs, className }: Props) {
 }
 
 export function OutputCard({ output }: { output: ResultOutput }) {
-  const { kind, url, label } = output;
-  const openUrl = output.download_url || url;
+  const { kind: recordedKind, url, label } = output;
+  const kind = textOutputKind(recordedKind, url) || recordedKind;
+  const openUrl = ["html", "pdf"].includes(kind) ? url : output.download_url || url;
 
   return (
     <div
@@ -126,28 +132,28 @@ export function OutputCard({ output }: { output: ResultOutput }) {
 
       {/* Content area */}
       <div style={{ padding: "var(--spacing-md)" }}>
-        <ViewArea kind={kind} url={url} downloadUrl={output.download_url || undefined} />
+        <ViewArea kind={kind} url={url} downloadUrl={output.download_url || undefined} label={label || undefined} />
       </div>
     </div>
   );
 }
 
-export function ViewArea({ kind, url, downloadUrl, jobId }: { kind: string; url: string; downloadUrl?: string; jobId?: string }) {
+export function ViewArea({ kind, url, downloadUrl, jobId, label }: { kind: string; url: string; downloadUrl?: string; jobId?: string; label?: string }) {
   if (!url) {
     return <EmptyState message="此输出没有可用链接。" />;
   }
 
-  switch (kind) {
+  switch (textOutputKind(kind, url) || kind) {
     case "html":
-      return <HtmlViewer url={url} />;
+      return <ResultDocumentPreview key={"html:" + url} kind="html" url={url} label={label} />;
     case "png":
     case "jpg":
     case "jpeg":
     case "svg":
     case "image":
-      return <ImageViewer url={url} />;
+      return <ResultImageViewer key={url} url={url} label={label} />;
     case "pdf":
-      return <PdfViewer url={url} />;
+      return <ResultDocumentPreview key={"pdf:" + url} kind="pdf" url={url} label={label} downloadUrl={downloadUrl} />;
     case "tsv":
     case "csv":
       return <CsvViewer jobId={jobId} kind={kind} url={downloadUrl || url} />;
@@ -156,70 +162,17 @@ export function ViewArea({ kind, url, downloadUrl, jobId }: { kind: string; url:
     case "ppt":
     case "pptx":
       return <PptViewer url={downloadUrl || url} />;
+    case "log":
+    case "text":
+      return <div><TextResultPreview key={kind + ":" + url} url={url} kind={textOutputKind(kind, url) || "text"} /><DownloadLink url={downloadUrl || url} label={textOutputKind(kind, url) === "log" ? "下载完整日志" : "下载完整文本"} /></div>;
     case "json":
-      return <JsonViewer url={url} />;
+      return <div><TextResultPreview key={url} url={url} /><DownloadLink url={downloadUrl || url} label="下载完整结构化数据" /></div>;
     default:
       return <DownloadViewer url={downloadUrl || url} kind={kind} />;
   }
 }
 
 // ── Sub-viewers ───────────────────────────────────────────────────────
-
-function HtmlViewer({ url }: { url: string }) {
-  return (
-    <iframe
-      src={url}
-      title="网页报告"
-      style={{
-        width: "100%",
-        height: "500px",
-        border: "1px solid var(--separator)",
-        borderRadius: "var(--radius-sm)",
-        background: "#fff",
-      }}
-      sandbox="allow-scripts allow-same-origin"
-    />
-  );
-}
-
-function ImageViewer({ url }: { url: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <div role="alert">图片加载失败，文件可能已移除。<button type="button" onClick={() => setFailed(false)}>重新加载</button></div>;
-  return (
-    <div style={{ textAlign: "center" }}>
-      <img
-        src={url}
-        alt="输出图片"
-        loading="lazy"
-        onError={() => setFailed(true)}
-        style={{
-          maxWidth: "100%",
-          maxHeight: "600px",
-          borderRadius: "var(--radius-sm)",
-          border: "1px solid var(--separator)",
-        }}
-      />
-    </div>
-  );
-}
-
-function PdfViewer({ url }: { url: string }) {
-  return (
-    <div>
-      <iframe
-        src={url}
-        title="文档查看器"
-        style={{
-          width: "100%",
-          height: "600px",
-          border: "1px solid var(--separator)",
-          borderRadius: "var(--radius-sm)",
-        }}
-      />
-      <DownloadLink url={url} label="下载文档" />
-    </div>
-  );
-}
 
 function CsvViewer({ url, kind, jobId }: { url: string; kind: string; jobId?: string }) {
   return <div><TablePreview key={url} url={url} kind={kind} jobId={jobId} /><DownloadLink url={url} label="下载完整数据表" /></div>;
@@ -242,74 +195,6 @@ function PptViewer({ url }: { url: string }) {
       label="下载演示文稿"
       hint="下载后可使用演示文稿软件打开。"
     />
-  );
-}
-
-function JsonViewer({ url }: { url: string }) {
-  const [json, setJson] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!url) return;
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    fetch(url, { credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const text = await r.text();
-        // Try to pretty-print if valid JSON
-        try {
-          return JSON.stringify(JSON.parse(text), null, 2);
-        } catch {
-          return text;
-        }
-      })
-      .then((formatted) => {
-        if (!cancelled) setJson(formatted);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || "读取结构化数据失败");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [url]);
-
-  return (
-    <div>
-      {loading && (
-        <div style={{ padding: "var(--spacing-md)", color: "var(--text-tertiary)", fontSize: "0.85rem" }}>
-          正在加载…
-        </div>
-      )}
-      {error && (
-        <div style={{ padding: "var(--spacing-md)", color: "var(--danger)", fontSize: "0.85rem" }}>
-          错误： {error}
-        </div>
-      )}
-      {json && (
-        <pre
-          style={{
-            maxHeight: "400px",
-            overflow: "auto",
-            background: "var(--bg-root)",
-            border: "1px solid var(--separator)",
-            borderRadius: "var(--radius-sm)",
-            padding: "var(--spacing-md)",
-            fontSize: "0.78rem",
-            fontFamily: "var(--font-mono, monospace)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          <code>{json}</code>
-        </pre>
-      )}
-      <DownloadLink url={url} label="下载结构化数据" />
-    </div>
   );
 }
 
@@ -379,4 +264,18 @@ function EmptyState({ message }: { message: string }) {
       {message}
     </div>
   );
+}
+
+/** Recognize registered log/text output, including legacy generic file kinds. */
+export function textOutputKind(kind: string, url: string): "log" | "text" | null {
+  const value = kind.toLowerCase();
+  if (value === "log") return "log";
+  if (value === "text" || value === "txt") return "text";
+  if (!["data", "file", ""].includes(value)) return null;
+  try {
+    const pathname = decodeURIComponent(new URL(url, window.location.href).pathname).toLowerCase();
+    if (pathname.endsWith(".log")) return "log";
+    if (pathname.endsWith(".txt")) return "text";
+  } catch { /* Unknown links retain their existing download behavior. */ }
+  return null;
 }

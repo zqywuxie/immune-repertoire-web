@@ -35,7 +35,7 @@ def test_register_login_logout_and_cookie_identity(app):
     assert post(client, "login", dict(username="alice", password="wrong")).status_code == 401
     assert post(client, "login", dict(username="alice", password="test-password")).status_code == 200
     with app.app_context():
-        user = User.query.one()
+        user = User.query.filter_by(username="alice").one()
         assert user.password_hash != "test-password"
         user.is_active_flag = False
         db.session.commit()
@@ -102,7 +102,7 @@ def test_real_profile_run_upload_results_and_cross_user_denial(app, tmp_path, mo
     task = alice.get(f"/api/script-hub/task/{task_id}")
     assert task.json["status"] == "completed", task.json
     output = Path(task.json["result"]["output_base"])
-    assert output.parent == tmp_path / "results" / "alice" / project_id
+    assert output.parents[2] == tmp_path / "results" / "alice"
     url = task.json["result"]["viewer_url"]
     assert alice.get(url).status_code == 200
     assert bob.get(url).status_code in {400,403,404}
@@ -138,7 +138,7 @@ def test_project_profile_reused_by_unified_analysis_and_persisted(app, tmp_path)
             completed = service.complete_job(job["id"], result)
             result = completed["result"]
             output = Path(result["output_base"])
-            assert output.parent == tmp_path / "results" / "alice" / pid
+            assert output.parents[2] == tmp_path / "results" / "alice"
             assert (output / "chart_1.png").is_file()
             assert (output / "results.zip").is_file()
             outputs.append(output)
@@ -165,7 +165,8 @@ def test_heatmap_report_and_reuse_keep_project_paths_and_references(app, tmp_pat
         project = db.session.get(Project, pid)
         service = SimilarityHeatmapReportService(tmp_path / "results")
         report = service.generate_report({"mode":"traditional", "metrics":{"sorensen":{"matrix_data":{"samples":["S1","S2"], "values":[[1,0.5],[0.5,1]]}}}})
-        assert report.output_base.parent.parent == tmp_path / "results" / "alice" / pid
+        assert report.output_base.parent.parent.name == "heatmap"
+        assert report.output_base.parent.parent.parent.parent == tmp_path / "results" / "alice"
         assert service.create_archive(report.job_id).is_file()
         asset = register_report(project, "heatmap", report, "", "")
         asset_id = asset.id

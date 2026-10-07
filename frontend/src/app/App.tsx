@@ -47,7 +47,7 @@ function PageLoader() {
 
 function AuthenticatedWorkspace() {
   const { user } = useAuth();
-  return <AnalysisDataProvider key={user?.user_id ?? "guest"}><Shell /></AnalysisDataProvider>;
+  return <AnalysisDataProvider key={user?.user_id ?? "guest"} storageKey={`analysis-selection:${user?.user_id ?? "guest"}`}><Shell /></AnalysisDataProvider>;
 }
 
 function Shell() {

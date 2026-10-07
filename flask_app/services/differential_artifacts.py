@@ -15,17 +15,19 @@ def differential_candidates(project_id, asset_set):
     for job in AnalysisJob.query.filter_by(project_id=str(project_id), module='volcano').all():
         payload, result = job.payload or {}, job.result or {}
         metadata = result.get('metadata') or {}
+        scientific_result = result.get('source_result') if result.get('reused_result') else result
+        scientific_result = scientific_result if isinstance(scientific_result, dict) else {}
         if payload.get('asset_set') != asset_set or metadata.get('input_mode') != 'expression':
             continue
         reason, files = '', []
         root = None
         if job.status != 'completed':
             reason = '来源差异表达分析尚未成功完成。'
-        elif not result.get('output_base'):
+        elif not scientific_result.get('output_base'):
             reason = '来源结果目录未登记，请重新运行差异表达分析。'
         else:
             try:
-                output = PathAccessService.validate_read_path(result['output_base'])
+                output = PathAccessService.validate_read_path(scientific_result['output_base'])
                 root = output / 'DEG'
                 if not root.is_dir() or not root.resolve().is_relative_to(output.resolve()):
                     raise ValueError('完整差异表达结果目录不存在。')

@@ -1,0 +1,5 @@
+.workspace-tabs{display:flex;position:relative;overflow-x:auto;max-width:100%;gap:var(--spacing-sm);border-bottom:1px solid var(--separator);padding:3px 3px var(--spacing-md);scrollbar-width:thin;scroll-padding:8px;overscroll-behavior-x:contain}
+.workspace-tab{padding:8px 16px;flex-shrink:0;white-space:nowrap;border-radius:var(--radius-pill);font-weight:500;font-size:.875rem;color:var(--text-secondary);background:transparent;border:1px solid var(--separator);cursor:pointer;transition:color var(--duration-fast),background var(--duration-fast),border-color var(--duration-fast);min-height:40px}
+.workspace-tab.is-secondary{border-style:dashed;color:var(--text-tertiary);font-size:.82rem}.workspace-tab.is-secondary:not(.is-secondary+.is-secondary){margin-left:8px}
+.workspace-tab:hover{background:var(--bg-elevated);border-color:var(--accent)}.workspace-tab[aria-selected="true"]{background:var(--accent);color:white;border:1px solid var(--accent)}
+.workspace-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

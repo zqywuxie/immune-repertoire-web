@@ -1,9 +1,11 @@
+import {SourceTaskLink,formatSourceTime} from "./SourceSelection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { GroupSpec } from "../../../shared/api/groupSpecs";
 import { listPepCacheCandidates, readScriptHubGroupValues } from "../../../shared/api/scriptHub";
 import type { PepCacheCandidate } from "../../../shared/api/scriptHub";
 import type { ScriptHubSourceContext } from "../../jobs/forms";
+import { analysisLabel } from "../../../shared/utils/analysisLabels";
 
 export const CHAIN_OPTIONS = ["TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"];
 
@@ -34,10 +36,12 @@ export function CommonRunFields({
   value,
   setField,
   sourceContext,
+  showPvalue = true,
 }: {
   value: Record<string, unknown>;
   setField: (key: string, next: unknown) => void;
   sourceContext?: ScriptHubSourceContext;
+  showPvalue?: boolean;
 }) {
   return (
     <Section title="运行设置">
@@ -50,7 +54,7 @@ export function CommonRunFields({
             style={inputStyle}
           />
         </Field>
-        <Field label="p 值阈值">
+        {showPvalue && <Field label="p 值阈值">
           <input
             type="number"
             min="0"
@@ -60,13 +64,13 @@ export function CommonRunFields({
             onChange={(event) => setField("pvalue_threshold", Number(event.target.value || 0.05))}
             style={inputStyle}
           />
-        </Field>
+        </Field>}
       </div>
     </Section>
   );
 }
 
-function SamplePicker({
+export function SamplePicker({
   value,
   setField,
   samples,
@@ -74,6 +78,7 @@ function SamplePicker({
   label = "样本",
   selectedSamples,
   onSelectedSamplesChange,
+  sampleLabels = {},
 }: {
   value: Record<string, unknown>;
   setField: (key: string, next: unknown) => void;
@@ -82,6 +87,7 @@ function SamplePicker({
   label?: string;
   selectedSamples?: string[];
   onSelectedSamplesChange?: (next: string[]) => void;
+  sampleLabels?: Record<string, string>;
 }) {
   const [keyword, setKeyword] = useState("");
   const sampleOptions = uniqueStrings(samples);
@@ -92,7 +98,7 @@ function SamplePicker({
   const activeSelection = hasExplicitSelection ? selected : sampleOptions;
   const normalizedKeyword = keyword.trim().toLowerCase();
   const visibleSamples = sampleOptions.filter((sample) => {
-    const lower = sample.toLowerCase();
+    const lower = `${sample} ${sampleLabels[sample] || ""}`.toLowerCase();
     return !normalizedKeyword || lower.includes(normalizedKeyword);
   });
 
@@ -131,19 +137,26 @@ function SamplePicker({
     ...visibleSamples.filter((sample) => !activeSelection.includes(sample)),
   ]));
   return (
-    <div style={{ marginTop: "var(--spacing-md)", display: "grid", gap: "8px" }}>
+    <div role="group" aria-label={`${label}选择`} style={{ marginTop: "var(--spacing-md)", display: "grid", gap: "8px" }}>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr)", gap: "var(--spacing-xs)" }}>
         <input
+          aria-label={`${label}：筛选样本`}
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
           placeholder="按关键词筛选样本"
           style={inputStyle}
         />
       </div>
+      {normalizedKeyword && <p role="status" style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.78rem", lineHeight: 1.6 }}>
+        {visibleSamples.length ? `当前筛选匹配 ${visibleSamples.length} 个样本，仅隐藏不匹配项，不改变已选范围。`
+          : "没有匹配的样本，已选范围保持不变。可清除筛选后继续选择。"}
+      </p>}
+      {keyword && <button type="button" className="btn btn-secondary" style={{ justifySelf: "start" }}
+        onClick={() => setKeyword("")}>清除筛选</button>}
       <ChipPicker
-        label={`${label} (${activeSelection.length}/${sampleOptions.length}, ${visibleSamples.length} 项筛选结果)`}
+        label={`${label} · 已选 ${activeSelection.length}/${sampleOptions.length}`}
         selected={activeSelection}
-        options={visibleSamples.map((sample) => ({ key: sample, label: sample }))}
+        options={visibleSamples.map((sample) => ({ key: sample, label: sampleLabels[sample] || sample }))}
         onToggle={setSelected}
       />
       <div style={{ display: "flex", gap: "var(--spacing-xs)", marginTop: "6px", flexWrap: "wrap" }}>
@@ -161,13 +174,18 @@ function SamplePicker({
 
 export function SourceSummary({ sourceContext }: { sourceContext?: ScriptHubSourceContext }) {
   if (!sourceContext) return null;
+  const scope = sourceContext.inspectedInputTypes;
+  const includes = (kind: NonNullable<ScriptHubSourceContext["inspectedInputTypes"]>[number]) => !scope || scope.includes(kind);
+  const fileName = (value?: string) => value?.replace(/\\/g, "/").split("/").pop() || "尚未选择";
   return (
-    <Section title="已识别的数据">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--spacing-sm)" }}>
+    <Section title={scope ? "本次分析输入" : "已识别的数据"}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: "var(--spacing-sm)" }}>
         <SourceLine label="数据集" value={sourceContext.assetSetId || "手动选择"} />
-        <SourceLine label="克隆序列表路径" value={`${sourceContext.pepPaths?.length || 0} 已选择`} title={(sourceContext.pepPaths || []).join("\n")} />
-        <SourceLine label="样本指标表" value={sourceContext.profilePath || "尚未选择"} />
-        <SourceLine label="转录组" value={sourceContext.transcriptomePath || "尚未选择"} />
+        {scope?.length === 0 && <SourceLine label="输入来源" value="前置分析结果（在下方选择）" />}
+        {includes("pep") && <SourceLine label="克隆序列表" value={`已选择 ${sourceContext.pepPaths?.length || 0} 份`} title={(sourceContext.pepPaths || []).map(fileName).join("、")} />}
+        {includes("profile") && <SourceLine label="样本指标表" value={fileName(sourceContext.profilePath)} />}
+        {includes("transcriptome") && <SourceLine label="转录组" value={fileName(sourceContext.transcriptomePath)} />}
+        {includes("deconvolution") && sourceContext.deconvolutionPath && <SourceLine label="免疫浸润结果" value={fileName(sourceContext.deconvolutionPath)} />}
       </div>
     </Section>
   );
@@ -205,13 +223,20 @@ export function PepCacheCardSelector({
   const [candidates, setCandidates] = useState<PepCacheCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState("");
+  const [readFailed, setReadFailed] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [loadedScope, setLoadedScope] = useState("");
   const projectId = sourceContext?.projectId || "";
   const assetSet = sourceContext?.assetSetId || "";
+  const scopeKey = [projectId, assetSet, cacheType].join("\u0000");
+  const scopedCandidates = useMemo(() => loadedScope === scopeKey ? candidates : [], [candidates, loadedScope, scopeKey]);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
   useEffect(() => {
+    setReadFailed(false);
     if (!projectId) {
+      setLoading(false);
       setCandidates([]);
       setNote("请选择项目数据集以读取前置分析结果。");
       return;
@@ -220,13 +245,14 @@ export function PepCacheCardSelector({
     setLoading(true);
     setNote("");
     setCandidates([]);
-    listPepCacheCandidates(projectId, cacheType, assetSet)
+    listPepCacheCandidates(projectId, cacheType, assetSet, {deduplicate: false})
       .then((response) => {
         if (cancelled) return;
         setCandidates(response.candidates || []);
+        setLoadedScope(scopeKey);
       })
       .catch((error) => {
-        if (!cancelled) setNote(error instanceof Error ? error.message : "读取前置分析结果失败");
+        if (!cancelled) { setReadFailed(true); setNote(error instanceof TypeError ? "网络连接中断，请重新读取。" : error instanceof Error ? error.message : "读取前置分析结果失败"); }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -234,48 +260,49 @@ export function PepCacheCardSelector({
     return () => {
       cancelled = true;
     };
-  }, [projectId, cacheType, assetSet]);
+  }, [projectId, cacheType, assetSet, revision]);
 
   const selectedValue = stringValue(value);
   const availableCandidates = useMemo(
-    () => candidates.filter((candidate) => !candidate.status || candidate.status === "available"),
-    [candidates],
+    () => scopedCandidates.filter((candidate) => !candidate.status || candidate.status === "available"),
+    [scopedCandidates],
   );
   const selectedCandidate = useMemo(
-    () => findSelectedPepCache(candidates, selectedValue),
-    [candidates, selectedValue],
+    () => findSelectedPepCache(scopedCandidates, selectedValue),
+    [scopedCandidates, selectedValue],
   );
   const selectValue = selectedCandidate?.id || "";
   useEffect(() => {
     if (!selectedValue && !loading && availableCandidates.length === 1) onSelectRef.current(availableCandidates[0]);
   }, [selectedValue, loading, availableCandidates]);
   return (
-    <div style={pepCacheSelectorStyle}>
-      <div style={pepCacheHeaderStyle}>
+    <section className="source-selection" style={pepCacheSelectorStyle} aria-label={label + "选择"} aria-busy={loading}>
+      <div className="source-selection-actions" style={pepCacheHeaderStyle}>
         <span style={fieldLabelStyle}>{label}</span>
-      {!!candidates.length && (
+      {!loading && !note && !!scopedCandidates.length && (
           <span style={pepCacheCountStyle}>
-            {availableCandidates.length}/{candidates.length} 就绪
+            {availableCandidates.length}/{scopedCandidates.length} 就绪
           </span>
         )}
+        <button type="button" className="btn btn-secondary" disabled={loading || !projectId} onClick={() => setRevision(count => count + 1)}>刷新前置结果</button>
       </div>
-      {loading && <div style={cacheEmptyStyle}>正在读取前置分析结果…</div>}
-      {!loading && note && <div style={cacheEmptyStyle}>{note}</div>}
-      {!loading && !note && !candidates.length && <div style={cacheEmptyStyle}>{emptyText}</div>}
-      {!loading && !availableCandidates.length && projectId && <a className="btn btn-secondary" href={`/analysis/tools/sharing?project=${encodeURIComponent(projectId)}&asset_set=${encodeURIComponent(assetSet)}`}>前往运行克隆共享分析</a>}
-      {!!candidates.length && (
+      {loading && <div style={cacheEmptyStyle} role="status">正在读取前置分析结果…</div>}
+      {!loading && note && <div className="source-selection-message" role={readFailed ? "alert" : undefined}><p>{readFailed ? "前置结果读取失败：" : ""}{note}</p>{readFailed && <button type="button" className="btn btn-secondary" onClick={() => setRevision(count => count + 1)}>重新读取前置结果</button>}</div>}
+      {!loading && !note && !scopedCandidates.length && <div style={cacheEmptyStyle}>{emptyText}</div>}
+      {!loading && !note && !availableCandidates.length && projectId && <a className="btn btn-secondary" href={`/analysis/tools/sharing?project=${encodeURIComponent(projectId)}&asset_set=${encodeURIComponent(assetSet)}`}>前往运行克隆共享分析</a>}
+      {!loading && !note && !!scopedCandidates.length && (
         <>
           <select
             aria-label="选择前置分析结果"
             value={selectValue}
             onChange={(event) => {
-              const next = candidates.find((candidate) => candidate.id === event.target.value);
+              const next = scopedCandidates.find((candidate) => candidate.id === event.target.value);
               if (next && (!next.status || next.status === "available")) onSelect(next);
             }}
             style={pepCacheSelectStyle}
           >
             <option value="">选择前置分析结果</option>
-            {candidates.map((candidate) => {
+            {scopedCandidates.map((candidate) => {
               const available = !candidate.status || candidate.status === "available";
               return (
                 <option key={candidate.id} value={candidate.id} disabled={!available}>
@@ -285,7 +312,7 @@ export function PepCacheCardSelector({
             })}
           </select>
           {selectedCandidate ? (
-            <PepCacheSummary candidate={selectedCandidate} />
+            <PepCacheSummary candidate={selectedCandidate} projectId={projectId} assetSet={assetSet} />
           ) : (
             <div style={cacheEmptyStyle}>
               请选择一个可用的前置分析结果，运行时将自动关联该结果。
@@ -293,7 +320,8 @@ export function PepCacheCardSelector({
           )}
         </>
       )}
-    </div>
+      {selectedValue && !loading && !note && !selectedCandidate && <p role="alert" className="source-selection-message">所选前置结果未在当前来源中找到，请重新选择；原配置尚未更改。</p>}
+    </section>
   );
 }
 
@@ -308,19 +336,34 @@ function findSelectedPepCache(candidates: PepCacheCandidate[], selectedValue: st
   ));
 }
 
+function pepCacheTypeLabel(value?: string) {
+  const labels: Record<string, string> = {
+    tra_shared: "受体 α 链共享矩阵", "TRA shared": "受体 α 链共享矩阵", "TRA shared by group": "带分组的受体 α 链共享矩阵", profile: "样本指标表", Profile: "样本指标表",
+    usage: "基因使用表", vj_usage: "V/J 使用频率", "VJ usage": "V/J 使用频率",
+    umapin_table: "带分组的特征表", df_1VJusage_all: "V/J 计数频率汇总", "VJ summary": "V/J 特征汇总",
+    "Step7 images": "CDR3 排列图表",
+    "0Vusage": "V 基因克隆频率", "1Vusage": "V 基因计数频率",
+    "0Jusage": "J 基因克隆频率", "1Jusage": "J 基因计数频率",
+    "0VJusage": "V/J 配对克隆频率", "1VJusage": "V/J 配对计数频率",
+  };
+  return value ? labels[value] || value : "前置分析结果";
+}
+
 function pepCacheOptionLabel(candidate: PepCacheCandidate) {
-  const name = candidate.label || candidate.usage_type || candidate.cache_type || "前置分析结果";
+  const name = candidate.label || pepCacheTypeLabel(candidate.usage_type || candidate.cache_type);
   const bits = [
-    candidate.usage_type || candidate.cache_type,
+    pepCacheTypeLabel(candidate.usage_type || candidate.cache_type),
     candidate.chains?.length ? candidate.chains.join("/") : "",
     candidate.group_field || (candidate.group_fields || []).join(", "),
+    candidate.job_id || "",
+    candidate.created_at ? formatSourceTime(candidate.created_at) : "",
     candidate.file_count !== undefined ? `${candidate.file_count} 个文件` : "",
     candidate.reason || "",
   ].filter(Boolean);
   return bits.length ? `${name} · ${bits.join(" · ")}` : name;
 }
 
-function PepCacheSummary({ candidate }: { candidate: PepCacheCandidate }) {
+function PepCacheSummary({ candidate, projectId, assetSet }: { candidate: PepCacheCandidate; projectId: string; assetSet: string }) {
   const ready = !candidate.status || candidate.status === "available";
   const source = candidate.source_task_name || "克隆共享分析";
   const jobText = candidate.job_id ? `来源任务 ${shortId(candidate.job_id)}` : "项目结果";
@@ -335,7 +378,7 @@ function PepCacheSummary({ candidate }: { candidate: PepCacheCandidate }) {
     >
       <div style={pepCacheSummaryTopStyle}>
         <div style={{ minWidth: 0 }}>
-          <strong style={pepCacheTitleStyle}>{candidate.label || candidate.usage_type || "前置分析结果"}</strong>
+          <strong style={pepCacheTitleStyle}>{candidate.label || pepCacheTypeLabel(candidate.usage_type || candidate.cache_type)}</strong>
           <div style={cacheMetaStyle}>{source} · {jobText}</div>
         </div>
         <span style={{ ...cacheBadgeStyle, color: ready ? "var(--success)" : "var(--warning)" }}>
@@ -345,15 +388,16 @@ function PepCacheSummary({ candidate }: { candidate: PepCacheCandidate }) {
       {candidate.reason && <p role="status">{candidate.reason}</p>}
       {candidate.asset_set && <p style={cacheMetaStyle}>来源数据集：{candidate.asset_set}</p>}
       <div style={pepCacheChipRowStyle}>
-        <span style={pepCacheChipStyle}>{candidate.usage_type || candidate.cache_type || "cache"}</span>
+        <span style={pepCacheChipStyle}>{pepCacheTypeLabel(candidate.usage_type || candidate.cache_type)}</span>
         {!!candidate.chains?.length && <span style={pepCacheChipStyle}>{candidate.chains.join(" / ")}</span>}
         {!!groupText && <span style={pepCacheChipStyle}>分组： {groupText}</span>}
         {candidate.sample_count !== undefined && <span style={pepCacheChipStyle}>{candidate.sample_count} 个样本</span>}
-        {!!candidate.data_types?.length && <span style={pepCacheChipStyle}>{candidate.data_types.join(" + ")}</span>}
-        {!!candidate.available_for?.length && <span style={pepCacheChipStyle}>对应： {candidate.available_for.join(", ")}</span>}
+        {!!candidate.data_types?.length && <span style={pepCacheChipStyle}>{candidate.data_types.map(pepCacheTypeLabel).join(" + ")}</span>}
+        {!!candidate.available_for?.length && <span style={pepCacheChipStyle}>对应： {candidate.available_for.map(analysisLabel).join("、")}</span>}
         {candidate.file_count !== undefined && <span style={pepCacheChipStyle}>{candidate.file_count} 个文件</span>}
-        {!!candidate.created_at && <span style={pepCacheChipStyle}>{formatCacheDate(candidate.created_at)}</span>}
+        {!!candidate.created_at && <span style={pepCacheChipStyle}>{formatSourceTime(candidate.created_at)}</span>}
       </div>
+      <SourceTaskLink jobId={candidate.job_id} projectId={projectId} assetSet={assetSet}/>
     </div>
   );
 }
@@ -361,12 +405,6 @@ function PepCacheSummary({ candidate }: { candidate: PepCacheCandidate }) {
 function shortId(value: string) {
   const text = String(value || "").trim();
   return text.length > 12 ? `${text.slice(0, 8)}...` : text;
-}
-
-function formatCacheDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString();
 }
 
 export function RangeFields({
@@ -411,6 +449,8 @@ export function GroupSpecSelect({
   groupSpecs: GroupSpec[];
   loadingSpecs: boolean;
 }) {
+  const selected = groupSpecs.find(spec => spec.id === stringValue(value.group_spec_id));
+  const groups = Array.isArray(selected?.spec_json?.groups) ? selected!.spec_json!.groups.map(item => typeof item === "string" ? item : String((item as Record<string, unknown>).name || (item as Record<string, unknown>).label || "")) : [];
   return (
     <Field label="项目分组方案">
       <select
@@ -421,9 +461,11 @@ export function GroupSpecSelect({
       >
         <option value="">使用指标表字段或不设置</option>
         {groupSpecs.map((spec) => (
-          <option key={spec.id} value={spec.id}>{spec.name}</option>
+          <option key={spec.id} value={spec.id} disabled={spec.source?.available === false}>{spec.name}{spec.source?.asset_set ? ` · ${spec.source.asset_set}` : ""}{spec.source?.name ? ` · ${spec.source.name}` : ""}{spec.source?.content_version ? ` · ${spec.source.content_version.slice(0, 8)}` : ""}{spec.source?.available === false ? ` · ${spec.source.reason}` : ""}</option>
         ))}
       </select>
+      {selected?.source?.available === false && <p role="alert" style={{color:"var(--danger)"}}>{selected.source.reason}请选择匹配方案，或清除当前方案。</p>}
+      {selected && <p style={{fontSize:".8rem",color:"var(--text-secondary)",lineHeight:1.6}}>生效顺序：{groups.join(" → ") || "方案没有有效分组，请重新配置"}。此方案优先于手动顺序；提交时保存内容快照。</p>}
     </Field>
   );
 }
@@ -469,8 +511,8 @@ export function ColumnSelect({
   const normalizedOptions = uniqueStrings(options);
   return (
     <Field label={label}>
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={!normalizedOptions.length} style={inputStyle}>
-        <option value="">{normalizedOptions.length ? (optional ? "None" : "选择已识别的列") : emptyLabel}</option>
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} disabled={!normalizedOptions.length} style={inputStyle}>
+        <option value="">{normalizedOptions.length ? (optional ? "不选择" : "选择已识别的列") : emptyLabel}</option>
         {normalizedOptions.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
@@ -729,17 +771,26 @@ export function GroupValueSamplePicker({
   setField,
   sourceContext,
   fields,
+  batchField,
+  sampleColumn,
 }: {
   value: Record<string, unknown>;
   setField: (key: string, next: unknown) => void;
   sourceContext?: ScriptHubSourceContext;
   fields: string[];
+  batchField?: string;
+  sampleColumn?: string;
 }) {
   const profilePath = sourceContext?.profilePath || "";
   const selectedFields = uniqueStrings(fields);
   const selectedGroupValues = recordStringLists(value.selected_group_values);
   const selectedSamplesByGroup = recordNestedSampleSelections(value.selected_samples_by_group);
-  const [state, setState] = useState<Record<string, { values: string[]; samplesByValue: Record<string, string[]>; loading?: boolean; error?: string }>>({});
+  type GroupState = { scope: string; values: string[]; samplesByValue: Record<string, string[]>; sampleLabels: Record<string, string>; sampleIds: Record<string, string>; loading?: boolean; error?: string };
+  const scope = JSON.stringify([profilePath, batchField || "", sampleColumn || ""]);
+  const [state, setState] = useState<Record<string, GroupState>>({});
+  const latestSelection = useRef({ scope, setField });
+  latestSelection.current = { scope, setField };
+  const ready = selectedFields.every(field => state[field]?.scope === scope && !state[field]?.loading && !state[field]?.error);
 
   useEffect(() => {
     if (!profilePath || !selectedFields.length) {
@@ -747,20 +798,19 @@ export function GroupValueSamplePicker({
       return;
     }
     let cancelled = false;
-    setState((current) => {
-      const next: Record<string, { values: string[]; samplesByValue: Record<string, string[]>; loading?: boolean; error?: string }> = {};
-      for (const field of selectedFields) {
-        next[field] = current[field] || { values: [], samplesByValue: {}, loading: true };
-      }
-      return next;
-    });
+    setState(Object.fromEntries(selectedFields.map(field => [field, {
+      scope, values: [], samplesByValue: {}, sampleLabels: {}, sampleIds: {}, loading: true,
+    }])));
     for (const field of selectedFields) {
-      readScriptHubGroupValues(profilePath, field)
+      readScriptHubGroupValues(profilePath, field, batchField, sampleColumn)
         .then((data) => {
           if (cancelled) return;
           setState((current) => ({
             ...current,
             [field]: {
+              scope,
+              sampleLabels: data.sample_labels || {},
+              sampleIds: data.sample_ids || {},
               values: Array.isArray(data.values) ? data.values.map(String) : [],
               samplesByValue: data.samples_by_value || {},
             },
@@ -771,6 +821,7 @@ export function GroupValueSamplePicker({
           setState((current) => ({
             ...current,
             [field]: {
+              scope, sampleLabels: {}, sampleIds: {},
               values: [],
               samplesByValue: {},
               error: error instanceof Error ? error.message : "读取分组值失败",
@@ -781,7 +832,7 @@ export function GroupValueSamplePicker({
     return () => {
       cancelled = true;
     };
-  }, [profilePath, selectedFields.join("\n")]);
+  }, [profilePath, batchField, sampleColumn, selectedFields.join("\n")]);
 
   const writeGroupValues = (field: string, nextValues: string[]) => {
     const next = { ...selectedGroupValues, [field]: uniqueStrings(nextValues) };
@@ -807,7 +858,9 @@ export function GroupValueSamplePicker({
         const rawField = raw[field] || {};
         const hasExplicitGroupSelection = Object.prototype.hasOwnProperty.call(rawField, groupValue);
         const clean = hasExplicitGroupSelection
-          ? uniqueStrings(rawField[groupValue] || []).filter((sample) => options.includes(sample))
+          ? options.filter(sample => (rawField[groupValue] || []).includes(
+            batchField && value.group_sample_identity !== "batch_sample" ? state[field]?.sampleIds[sample] || sample : sample,
+          ))
           : options;
         if (!next[field]) next[field] = {};
         next[field][groupValue] = clean;
@@ -822,15 +875,17 @@ export function GroupValueSamplePicker({
   };
 
   useEffect(() => {
+    if (latestSelection.current.scope !== scope) return;
     if (!hasSelectedValues) {
-      if (Object.keys(selectedSamplesByGroup).length) setField("selected_samples_by_group", undefined);
+      if (Object.keys(selectedSamplesByGroup).length) latestSelection.current.setField("selected_samples_by_group", undefined);
       return;
     }
+    if (!ready) return;
     const next = buildSamplesByGroup(selectedSamplesByGroup);
     if (JSON.stringify(next) !== JSON.stringify(selectedSamplesByGroup)) {
-      setField("selected_samples_by_group", next);
+      latestSelection.current.setField("selected_samples_by_group", next);
     }
-  }, [selectedFields.join("\n"), JSON.stringify(selectedGroupValues), sampleStateSignature]);
+  }, [selectedFields.join("\n"), JSON.stringify(selectedGroupValues), sampleStateSignature, scope, ready]);
 
   if (!selectedFields.length) {
     return <div style={{ ...groupPreviewStyle, gridColumn: "1 / -1", color: "var(--text-tertiary)" }}>请先选择分组列，再选择样本。</div>;
@@ -843,23 +898,24 @@ export function GroupValueSamplePicker({
     <div style={{ display: "grid", gap: "10px", gridColumn: "1 / -1" }}>
       <span style={fieldLabelStyle}>分组值</span>
       {selectedFields.map((field) => {
-        const item = state[field];
+        const item = state[field]?.scope === scope ? state[field] : undefined;
+        const loading = !item || item.loading;
         const values = item?.values || [];
         const selected = selectedGroupValues[field] || [];
         return (
           <div key={field} style={groupPreviewStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
               <strong style={{ color: "var(--text-primary)", fontSize: "0.78rem" }}>{field}</strong>
-              {item?.loading && <span>正在读取分组…</span>}
+              {loading && <span>正在读取分组…</span>}
               {item?.error && <span style={{ color: "var(--danger)" }}>{item.error}</span>}
-              {!item?.loading && !item?.error && values.length > 0 && (
+              {!loading && !item?.error && values.length > 0 && (
                 <>
                   <button type="button" onClick={() => writeGroupValues(field, values)} style={miniButtonStyle}>全部分组</button>
                   <button type="button" onClick={() => writeGroupValues(field, [])} style={miniButtonStyle}>清空分组</button>
                 </>
               )}
             </div>
-            {!item?.loading && !item?.error && values.length > 0 && (
+            {!loading && !item?.error && values.length > 0 && (
               <ChipPicker
                 label={`${selected.length}/${values.length} 已选择`}
                 selected={selected}
@@ -870,7 +926,7 @@ export function GroupValueSamplePicker({
                 onToggle={(next) => writeGroupValues(field, next)}
               />
             )}
-            {!item?.loading && !item?.error && selected.length > 0 && (
+            {!loading && !item?.error && selected.length > 0 && (
               <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
                 {selected.map((groupValue) => {
                   const groupSamples = uniqueStrings(item?.samplesByValue[groupValue] || []);
@@ -887,7 +943,8 @@ export function GroupValueSamplePicker({
                         value={value}
                         setField={setField}
                         samples={groupSamples}
-                        label={`${groupValue} 个样本`}
+                        sampleLabels={item?.sampleLabels}
+                        label={`${field} = ${groupValue} 的样本`}
                         selectedSamples={selectedSamples}
                         onSelectedSamplesChange={(nextSamples) => {
                           writeSamplesByGroup({
@@ -976,7 +1033,7 @@ function GroupValuesPreview({
         return (
           <div key={field} style={groupPreviewStyle}>
             <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-secondary)" }}>
-              {field}: {item?.loading ? "正在读取分组…" : item?.error ? item.error : `${values.length} groups`}
+              {field}: {item?.loading ? "正在读取分组…" : item?.error ? item.error : `${values.length} 个分组`}
             </div>
             {!item?.loading && !item?.error && values.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "5px" }}>
@@ -1047,8 +1104,11 @@ export function ChipPicker({
               key={option.key}
               type="button"
               disabled={option.disabled}
+              aria-pressed={active}
               onClick={() => onToggle(active ? selected.filter((item) => item !== option.key) : [...selected, option.key])}
               style={{
+                maxWidth: "100%",
+                overflowWrap: "anywhere",
                 padding: "5px 10px",
                 borderRadius: "var(--radius-pill)",
                 border: "1px solid var(--separator)",
@@ -1401,7 +1461,7 @@ const dragHandleStyle: CSSProperties = {
   userSelect: "none",
 };
 
-const miniButtonStyle: CSSProperties = {
+export const miniButtonStyle: CSSProperties = {
   minHeight: "24px",
   padding: "2px 7px",
   borderRadius: "var(--radius-control)",

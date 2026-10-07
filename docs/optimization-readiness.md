@@ -76,3 +76,14 @@ rtk docker compose --env-file .env -f compose.docker.yml exec api python -B scri
 代码已加入生产配置约束，但本轮没有公网部署、真实多用户并发压测或完整安全审计。部署应使用 `FLASK_CONFIG=production`、长度至少 32 的独立 `SECRET_KEY`、启用登录，并由 HTTPS 入口提供服务；安全 Cookie 需要 HTTPS。不要直接将开发服务器用于公网。
 
 Redis 队列及完整分析依赖已落地。07/08 和 CSR 仍缺少对应源脚本；公网域名、证书与服务器尚未提供。大样本性能基准、全量参考脚本数值对照和异常断点恢复属于后续独立验收，不能以小型运行测试替代。
+
+## 2026-09-27 状态勘误（本节覆盖上文同项的历史状态）
+
+本文主体记录于 2026-09-12，部分 尚未接入的描述已过期。当前应以 docs/superpowers/project-input-workflow-progress.md 与 docs/superpowers/optimization-progress-20260921.md 的后续记录为准：
+
+- 02.immunoglobulin 的 CSR 分析及 IGH 亚类 TopClone 已接入，并完成原始脚本合成数据对照。
+- 07.immuneInfiltration 已接入组成/组间比较、C1/C2 一致性部分分析、通路方向等多项入口；每个子分析的源脚本覆盖和实际参考数据可用性以执行记录为准，不能笼统称为尚未接入。
+- 10.Umap 现增加统一多模态入口，支持 Profile、VJ 和 VJ+Profile；TCR signature 当前不开放，参考脚本自身也在参数规范化阶段拒绝该模态。
+- Docker 中前端全量回归 44 个测试文件、130 项通过；UMAP 定向后端回归 10 项通过，TypeScript/Vite 生产构建通过。本轮没有部署、提交或推送。
+
+仍待完成的主要事项：其他 01–10 脚本逐项数值核验、目标 Linux 服务器部署/资源/整机重启和大数据规模验收。2026-10-03 已补齐隔离 Linux 容器的七卷应用级恢复，覆盖 Mongo 结果复用、Redis 等待任务恢复执行、四类输入下载及恢复产物的原生 UMAP，详见工作流执行记录；不替代目标服务器验收。跨批次身份已有 PEP、Pgen、TopClone 与统一 UMAP 的合成服务回归；PEP 复合标识现额外覆盖批次名和样本号包含分隔符的情形。这些是服务层证据，不能代替四类输入从上传、检查、排队到结果展示的完整浏览器验收。D2 Hallmark 仍缺已登记的参考文件；08.Cluster 全链路不属于当前计划要求的分析入口范围。

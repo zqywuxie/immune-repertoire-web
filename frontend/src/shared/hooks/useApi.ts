@@ -24,12 +24,14 @@ function reducer<T>(_state: State<T>, action: Action<T>): State<T> {
 
 export function useApi<T>(
   fetcher: () => Promise<T>,
-  deps: unknown[] = []
+  deps: unknown[] = [],
+  enabled = true
 ) {
   const [state, dispatch] = useReducer(reducer<T>, { status: "idle" });
   const requestVersion = useRef(0);
 
   const execute = useCallback(() => {
+    if (!enabled) return;
     const version = ++requestVersion.current;
     dispatch({ type: "start" });
     fetcher()
@@ -45,7 +47,7 @@ export function useApi<T>(
         }
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [enabled, ...deps]);
 
   useEffect(() => {
     execute();

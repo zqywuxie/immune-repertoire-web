@@ -1,0 +1,17 @@
+.sample-export-flow{display:grid;gap:20px;padding-bottom:4px}
+.sample-export-scope{border:1px solid var(--separator);border-radius:var(--radius-panel);background:var(--bg-inset);padding:20px;overflow-wrap:anywhere}
+.sample-export-eyebrow{font-size:.75rem;color:var(--text-secondary)}
+.sample-export-scope h3{margin:8px 0;font-size:1.1rem}.sample-export-scope p{margin:8px 0}
+.sample-export-scope strong{font-size:1.05rem}.sample-export-scope strong span{font-size:.8rem;font-weight:400;color:var(--text-secondary)}
+.sample-export-scope dl{display:grid;gap:8px;margin:16px 0}.sample-export-scope dl>div{display:grid;grid-template-columns:90px 1fr;gap:12px;font-size:.85rem}
+.sample-export-scope dt{color:var(--text-secondary)}.sample-export-scope dd{margin:0}
+.sample-export-formats{padding:0;margin:0;border:0;display:grid;gap:10px}.sample-export-formats legend{font-weight:600;margin-bottom:12px;font-size:.9rem}
+.sample-export-formats label{display:flex;gap:12px;align-items:center;padding:15px;border:1px solid var(--separator);border-radius:14px;cursor:pointer;transition:background .15s,border-color .15s}
+.sample-export-formats label:hover{background:var(--bg-inset)}.sample-export-formats label.is-selected{border-color:var(--accent,#2563eb);background:color-mix(in srgb,var(--accent,#2563eb) 7%,var(--bg-elevated))}
+.sample-export-formats small,.sample-export-source small{display:block;margin-top:5px;color:var(--text-secondary);line-height:1.5}.sample-export-formats strong{font-size:.9rem}
+.sample-export-source{display:flex;gap:10px;align-items:flex-start;font-size:.9rem}.sample-export-source input{margin-top:4px}
+.sample-export-status{display:flex;align-items:center;gap:8px;color:var(--text-primary);font-size:.9rem;line-height:1.6;margin:0}
+.sample-export-actions{position:sticky;bottom:0;background:var(--bg-elevated);border-top:1px solid var(--separator);padding:14px 0 4px;display:flex;justify-content:flex-end;gap:10px}
+.sample-export-flow .data-muted{font-size:.8rem;line-height:1.6}.sample-export-flow input{accent-color:var(--accent,#2563eb)}
+.sample-export-flow label:focus-within{outline:2px solid var(--accent,#2563eb);outline-offset:3px}
+@media(max-width:480px){.sample-export-scope{padding:15px}.sample-export-actions{justify-content:stretch}.sample-export-actions .btn{flex:1}.sample-export-formats label{padding:12px}.sample-export-scope dl>div{grid-template-columns:72px 1fr}}

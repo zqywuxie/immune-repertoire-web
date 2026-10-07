@@ -24,7 +24,7 @@ describe("前置分析结果选择", () => {
     const onSelect = vi.fn();
     render(<PepCacheCardSelector sourceContext={sourceContext} cacheType="volcano" value={second.artifact_id} onSelect={onSelect} />);
     await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue(second.id));
-    expect(list).toHaveBeenCalledWith("project-1", "volcano", "第二批");
+    expect(list).toHaveBeenCalledWith("project-1", "volcano", "第二批", { deduplicate: false });
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByText("来源数据集：第二批")).toBeInTheDocument();
   });

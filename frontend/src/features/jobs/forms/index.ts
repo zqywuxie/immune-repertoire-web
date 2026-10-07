@@ -67,6 +67,7 @@ export type ModuleFormProps = {
 };
 
 export type ScriptHubSourceContext = {
+  inspectedInputTypes?: Array<"pep" | "profile" | "transcriptome" | "deconvolution">;
   projectId?: string;
   assetSetId?: string;
   profilePath?: string;

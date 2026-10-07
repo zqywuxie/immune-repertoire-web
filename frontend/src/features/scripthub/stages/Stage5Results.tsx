@@ -1,3 +1,5 @@
+import { analysisLabel } from "../../../shared/utils/analysisLabels";
+import { kindLabel } from "../../results";
 import { downloadResultArchive } from "../../../shared/api/jobs";
 import { JobResultPanel } from "../../jobs/JobResultPanel";
 import { BatchStatus } from "../../jobs/BatchStatus";
@@ -266,7 +268,7 @@ export function Stage5Results({ jobIds, resultsByJobId, onReset, expectedCount =
                       {item.label}
                     </span>
                     <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                      {item.module} · {item.kind} · 任务 {item.jobId.slice(0, 8)}
+                      {analysisLabel(item.module)} · {kindLabel(item.kind)} · 任务 {item.jobId.replace(/^script_task_|^job_/, "").slice(0, 8)}
                     </span>
                   </span>
                 </label>

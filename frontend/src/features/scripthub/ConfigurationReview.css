@@ -1,0 +1,10 @@
+.configuration-review { min-width: 0; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--bg-elevated); overflow: hidden; }
+.configuration-review__header { padding: 16px 20px; background: var(--bg-inset); }
+.configuration-review__header p, .configuration-review__item p { margin: 6px 0 0; color: var(--text-secondary); font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
+.configuration-review__items { padding: 0; margin: 0; list-style: none; }
+.configuration-review__item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-top: 1px solid var(--separator); min-width: 0; }
+.configuration-review__item > div { min-width: 0; }
+.configuration-review__item strong { font-size: .86rem; }
+.configuration-review__item--pending p:not(.configuration-review__source) { color: var(--danger); }
+.configuration-review__item button { flex-shrink: 0; }
+@media (max-width: 480px) { .configuration-review__item { align-items: flex-start; flex-direction: column; } }

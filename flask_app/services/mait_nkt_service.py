@@ -34,7 +34,7 @@ from flask_app.services.figure_style import PALETTE, MUTED_CATEGORY_COLORS, appl
 _BUILTIN_REFERENCE = Path(__file__).resolve().parent.parent / "data" / "reference" / "Alpha_Restrict.csv"
 
 # CDR3 terminus stripping: remove N-terminal "C" and C-terminal "F"/"W"/"L"
-_STRIP_CDR3_TERMINI = True
+_STRIP_CDR3_TERMINI = False
 
 _NATURE_COLORS = MUTED_CATEGORY_COLORS
 _POINT_COLOR = PALETTE["neutral_dark"]
@@ -86,6 +86,11 @@ class MaitNktService:
         profile_df: pd.DataFrame,
         group_field: str,
         group_order: Optional[List[str]] = None,
+        batch_field: Optional[str] = None,
+        selected_group_values: Optional[Dict[str, List[str]]] = None,
+        selected_samples: Optional[List[str]] = None,
+        selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        group_sample_identity: str = "sample",
         progress_callback=None,
         job_id: str = "",
         datapoint_path: str = "",
@@ -115,61 +120,30 @@ class MaitNktService:
         from flask_app.services.project_storage_paths import allocate_result_dir
         job_id, output_base = allocate_result_dir(self._output_parent, "mait-nkt")
 
-        self._maybe_report(progress_callback, 5, "Loading reference", "Reading Alpha_Restrict.csv")
+        self._maybe_report(progress_callback, 5, "读取参考数据", "正在读取 Alpha_Restrict.csv")
         ref_dict = self._load_reference()
 
-        # Detect if tra_df has an embedded category row (second row is non-numeric)
-        cat_map: Dict[str, str] = {}
-        tra_data = tra_df.copy()
-        if len(tra_data) >= 1:
-            second_row_vals = tra_data.iloc[0, 1:] if len(tra_data.columns) > 1 else pd.Series(dtype=object)
-            if _looks_like_category_row(second_row_vals):
-                sample_names = [str(c) for c in tra_data.columns[1:]]
-                sample_cats = [str(v) for v in second_row_vals.values]
-                cat_map = dict(zip(sample_names, sample_cats))
-                # Remove the category row from data
-                tra_data = tra_data.iloc[1:].copy()
+        tra_data, cat_map, sample_details = self.prepare_inputs(
+            tra_df=tra_df, profile_df=profile_df, group_field=group_field,
+            batch_field=batch_field, selected_group_values=selected_group_values,
+            selected_samples=selected_samples, selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
+        )
 
-        # Build CDR3-indexed numeric matrix
-        tra_data.rename(columns={tra_data.columns[0]: "CDR3"}, inplace=True)
-        tra_data["CDR3"] = tra_data["CDR3"].astype(str).str.strip()
-        tra_data.set_index("CDR3", inplace=True)
-        tra_data = tra_data.apply(pd.to_numeric, errors="coerce").fillna(0)
-
-        # Merge grouping from profile_df if provided
-        sample_col = _find_profile_sample_column(profile_df) if not profile_df.empty else ""
-        if not profile_df.empty and group_field and group_field in profile_df.columns and sample_col:
-            profile_lookup = {}
-            for _, row in profile_df.iterrows():
-                sample = _normalize_sample_name(row.get(sample_col, ""))
-                group_val = str(row.get(group_field, "")).strip()
-                if sample:
-                    profile_lookup[sample] = group_val
-            # Prefer profile_df grouping over embedded category row
-            if profile_lookup:
-                cat_map = {}
-                for col in tra_data.columns:
-                    sample_name = str(col).strip()
-                    base_name = _normalize_sample_name(sample_name)
-                    if base_name in profile_lookup:
-                        cat_map[sample_name] = profile_lookup[base_name]
-                    elif sample_name in profile_lookup:
-                        cat_map[sample_name] = profile_lookup[sample_name]
-
-        if not cat_map:
-            raise ValueError(
-                "无法确定样本分组信息：TRA CSV 中未检测到 category 行，且 Profile 文件中未找到匹配的 sample 列。"
-            )
-
-        self._maybe_report(progress_callback, 15, "Computing profile", "Aligning CDR3s against reference")
+        self._maybe_report(progress_callback, 15, "计算样本指标", "正在将 CDR3 与参考序列匹配")
         profile = self._compute_profile(tra_data, cat_map, ref_dict, group_order)
+        batch_output_column = batch_field if batch_field and batch_field not in profile.columns else "batch"
+        sample_output_column = "original_sample_id" if batch_output_column == "sample_id" else "sample_id"
+        if batch_field:
+            profile[sample_output_column] = profile["sample"].map(lambda sample: sample_details[sample]["sample_id"])
+            profile[batch_output_column] = profile["sample"].map(lambda sample: sample_details[sample]["batch"])
 
         # Save profile CSV
         profile_csv = output_base / "MAIT_iNKT_profile.csv"
         profile.to_csv(profile_csv, index=False)
         csv_paths = [str(profile_csv)]
 
-        self._maybe_report(progress_callback, 40, "Generating boxplots", "MAIT fraction boxplot")
+        self._maybe_report(progress_callback, 40, "生成分组图表", "正在绘制 MAIT 细胞比例箱线图")
         png_paths: List[str] = []
         for cdr3_type in ref_dict:
             y_col = f"{cdr3_type}_fraction"
@@ -180,36 +154,50 @@ class MaitNktService:
                 profile=profile,
                 x="category",
                 y=y_col,
-                ylabel=f"{cdr3_type} fraction (of total TRA clonotypes)",
+                ylabel=f"{cdr3_type} 比例（占样本 TRA 总计数）",
                 out_path=out_png,
                 group_order=group_order,
             )
-            png_paths.append(str(out_png))
+            if out_png.is_file():
+                png_paths.append(str(out_png))
 
-        self._maybe_report(progress_callback, 85, "Building viewer", "Generating HTML report")
+        self._maybe_report(progress_callback, 85, "整理结果页面", "正在生成结果浏览页")
         viewer_path = output_base / "viewer.html"
+        from flask_app.services.runtime_provenance import reference_file_provenance
         metadata: Dict[str, Any] = {
             "job_id": job_id,
             "module": "mait-nkt",
             "group_field": group_field,
             "group_order": group_order,
+            "batch_field": batch_field or "",
+            "batch_column": batch_output_column if batch_field else "",
+            "sample_id_column": sample_output_column if batch_field else "",
+            "group_sample_identity": group_sample_identity,
+            "selected_group_values": selected_group_values or {},
+            "selected_samples": selected_samples or [],
+            "selected_samples_by_group": selected_samples_by_group or {},
+            "sample_count": len(profile),
+            "notes": [] if png_paths else ["所选样本没有可绘制的有效比例；请查看数据表中的计数与缺失值。"],
             "plot_count": len(png_paths),
             "profile_csv": str(profile_csv),
             "datapoint_path": datapoint_path,
             "cdr3_types": list(ref_dict.keys()),
+            "reference_version": reference_file_provenance(self._reference_path),
         }
+        (output_base / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         self._build_viewer(metadata, png_paths, output_base, viewer_path)
 
         # Build zip
         zip_path = output_base / "mait_nkt_results.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(profile_csv, profile_csv.name)
+            zf.write(output_base / "metadata.json", "metadata.json")
             for png in png_paths:
                 pp = Path(png)
                 zf.write(png, pp.name)
             zf.write(viewer_path, viewer_path.name)
 
-        self._maybe_report(progress_callback, 100, "Complete", f"Generated {len(png_paths)} plot(s)")
+        self._maybe_report(progress_callback, 100, "分析完成", f"已生成 {len(png_paths)} 张图")
 
         return MaitNktReport(
             job_id=job_id,
@@ -239,6 +227,109 @@ class MaitNktService:
             ref_dict[str(cdr3_type).strip()] = cdr3_list
         return ref_dict
 
+    @staticmethod
+    def prepare_inputs(*, tra_df, profile_df, group_field, batch_field=None,
+                       selected_group_values=None, selected_samples=None,
+                       selected_samples_by_group=None, group_sample_identity="sample"):
+        """Resolve sample identities and filter the real matrix before computing ratios."""
+        from flask_app.services.pep_analysis_service import _batch_sample_identity
+        if group_sample_identity not in {"sample", "batch_sample"} or (group_sample_identity == "batch_sample" and not batch_field):
+            raise ValueError("批次样本选择需要有效的批次字段与编号方式。")
+        if tra_df is None or tra_df.empty or len(tra_df.columns) < 2:
+            raise ValueError("受体 α 链数据为空或缺少样本列。")
+        tra_data = tra_df.copy()
+        columns = [str(column).strip() for column in tra_data.columns[1:]]
+        if any(not column for column in columns) or len(set(columns)) != len(columns):
+            raise ValueError("受体 α 链数据的样本列为空或重复，请先检查输入。")
+        tra_data.columns = [str(tra_data.columns[0]), *columns]
+        cat_map = {}
+        first_label = str(tra_data.iloc[0, 0]).strip()
+        if first_label in {group_field, "group", "category", "Category"} or _looks_like_category_row(tra_data.iloc[0, 1:]):
+            cat_map = {column: str(value).strip() for column, value in zip(columns, tra_data.iloc[0, 1:])}
+            tra_data = tra_data.iloc[1:].copy()
+        if tra_data.empty:
+            raise ValueError("受体 α 链数据没有克隆序列行。")
+        tra_data.rename(columns={tra_data.columns[0]: "CDR3"}, inplace=True)
+        tra_data["CDR3"] = tra_data["CDR3"].fillna("").astype(str).str.strip()
+        if tra_data["CDR3"].eq("").any():
+            raise ValueError("受体 α 链数据存在空克隆序列。")
+        tra_data.set_index("CDR3", inplace=True)
+        tra_data = tra_data.apply(pd.to_numeric, errors="coerce")
+        if not np.isfinite(tra_data.to_numpy()).all() or (tra_data < 0).any().any():
+            raise ValueError("受体 α 链数据含空值、非数值、无穷值或负数，请检查计数。")
+        has_selection = bool(selected_samples or selected_group_values or selected_samples_by_group)
+        sample_details = {}
+        if profile_df is not None and not profile_df.empty:
+            profile = profile_df.fillna("").copy()
+            sample_col = _find_profile_sample_column(profile)
+            if not sample_col:
+                raise ValueError("样本指标表缺少样本编号列。")
+            if group_field == "__all_samples__":
+                profile[group_field] = "全部样本"
+            elif not group_field or group_field not in profile.columns:
+                raise ValueError("所选分组字段不在样本指标表中，请重新选择。")
+            profile[sample_col] = profile[sample_col].astype(str).str.strip()
+            if profile[sample_col].eq("").any():
+                raise ValueError("样本指标表含空样本编号。")
+            if batch_field:
+                if batch_field not in profile.columns or batch_field == sample_col:
+                    raise ValueError("批次字段不存在或与样本编号列冲突。")
+                profile[batch_field] = profile[batch_field].astype(str).str.strip()
+                if profile[batch_field].eq("").any():
+                    raise ValueError("样本指标表含空批次值。")
+                keys = [_batch_sample_identity(batch, sample) for sample, batch in
+                        profile[[sample_col, batch_field]].itertuples(index=False, name=None)]
+            else:
+                keys = profile[sample_col].map(_normalize_sample_name).tolist()
+            if len(set(keys)) != len(keys):
+                if batch_field:
+                    raise ValueError("同一批次内样本编号重复，无法唯一匹配受体 α 链数据。")
+                duplicate = next(key for index, key in enumerate(keys) if key in keys[:index])
+                raise ValueError(f"样本指标表中样本编号“{duplicate}”重复，无法唯一匹配 MAIT/NKT TRA 数据；跨批次同名样本请选择批次字段。")
+            profile["__mait_identity__"] = keys
+            lookup = {key: row for key, (_, row) in zip(keys, profile.iterrows())}
+            resolved_columns = {column: column if column in lookup else _normalize_sample_name(column) for column in columns}
+            if len(set(resolved_columns.values())) != len(columns):
+                raise ValueError("TRA 数据中存在无法区分的同名样本，请检查样本列。")
+            unmatched = [column for column, key in resolved_columns.items() if key not in lookup]
+            if unmatched:
+                raise ValueError(f"样本指标表未匹配到 {len(unmatched)} 个 TRA 样本：{'、'.join(unmatched[:5])}。" +
+                                 ("请确认批次字段与上游分析一致。" if batch_field else ""))
+            selected = profile.copy()
+            for field, values in (selected_group_values or {}).items():
+                if field not in selected.columns:
+                    raise ValueError(f"所选分组字段不存在：{field}")
+                allowed = {str(value).strip() for value in values}
+                if allowed:
+                    selected = selected[selected[field].astype(str).str.strip().isin(allowed)].copy()
+            for field, groups in (selected_samples_by_group or {}).items():
+                if field not in selected.columns:
+                    raise ValueError(f"所选样本分组字段不存在：{field}")
+                identities = selected["__mait_identity__"] if group_sample_identity == "batch_sample" else selected[sample_col]
+                keep = pd.Series(False, index=selected.index)
+                for group, samples in groups.items():
+                    keep |= selected[field].astype(str).str.strip().eq(str(group).strip()) & identities.isin({str(sample).strip() for sample in samples})
+                selected = selected[keep].copy()
+            if selected_samples:
+                selected = selected[selected[sample_col].isin({str(sample).strip() for sample in selected_samples})].copy()
+            selected_keys = set(selected["__mait_identity__"])
+            columns = [column for column in columns if not has_selection or resolved_columns[column] in selected_keys]
+            if not columns:
+                raise ValueError("筛选后没有可分析的受体 α 链样本，请检查上游结果与样本选择。")
+            cat_map = {}
+            for column in columns:
+                row = lookup[resolved_columns[column]]
+                cat_map[column] = str(row[group_field]).strip()
+                sample_details[column] = {"sample_id": str(row[sample_col]), **({"batch": str(row[batch_field])} if batch_field else {})}
+            tra_data = tra_data[columns]
+        elif batch_field or has_selection:
+            raise ValueError("批次或样本筛选需要样本指标表。")
+        elif group_field == "__all_samples__":
+            cat_map = {column: "全部样本" for column in columns}
+        if not cat_map or any(not value for value in cat_map.values()):
+            raise ValueError("无法确定样本分组信息：请选择有效分组字段或提供带分类行的受体 α 链数据。")
+        return tra_data, cat_map, sample_details
+
     # ── profile computation ───────────────────────────────────────────
 
     def _compute_profile(
@@ -262,7 +353,7 @@ class MaitNktService:
                 col_sum = pd.Series(0, index=samples)
             profile[f"{cdr3_type}_sum"] = col_sum.values
             profile[f"{cdr3_type}_log10"] = np.log10(col_sum.replace(0, np.nan)).values
-            profile[f"{cdr3_type}_fraction"] = (col_sum / total.replace(0, np.nan)).fillna(0).values
+            profile[f"{cdr3_type}_fraction"] = (col_sum / total.replace(0, np.nan)).values
 
         # Sort by group_order if provided
         if group_order:
@@ -457,7 +548,10 @@ class MaitNktService:
     ) -> None:
         """Write a self-contained HTML viewer for the generated boxplots."""
         job_id = html.escape(str(metadata.get("job_id", "")))
-        group_field = html.escape(str(metadata.get("group_field", "")))
+        group_field = html.escape("全部样本" if metadata.get("group_field") == "__all_samples__" else str(metadata.get("group_field", "")))
+        batch_field = html.escape(str(metadata.get("batch_field") or "未使用"))
+        sample_count = int(metadata.get("sample_count") or 0)
+        notes_html = "".join(f"<p>{html.escape(str(note))}</p>" for note in metadata.get("notes", []))
         plot_count = metadata.get("plot_count", 0)
         datapoint_path = html.escape(str(metadata.get("datapoint_path", "")))
         cdr3_types = metadata.get("cdr3_types", [])
@@ -470,7 +564,7 @@ class MaitNktService:
                 rel = pp.relative_to(output_base).as_posix()
             except ValueError:
                 rel = pp.name
-            name = pp.stem
+            name = pp.stem.replace("_fraction_boxplot", " 比例箱线图")
             png_cards += f"""<div class="plot-card">
               <h3>{html.escape(name)}</h3>
               <a href="{html.escape(rel)}" target="_blank" rel="noopener">
@@ -499,12 +593,12 @@ class MaitNktService:
     .stat-item {{ background: #f6f9fc; border-radius: 12px; padding: .65rem 1rem; border: 1px solid #dee8f0; }}
     .stat-item strong {{ display: block; font-size: .72rem; color: #5f7d94; text-transform: uppercase; letter-spacing: .04em; }}
     .stat-item span {{ font-size: .92rem; font-weight: 680; }}
-    .type-tag {{ display: inline-block; padding: .2rem .55rem; border-radius: 999px; background: #d8ecfa; color: #11597c; font-size: .75rem; font-weight: 680; }}
+    .type-tag {{ display: inline-block; padding: .2rem .55rem; border-radius: 999px; background: #e7edfb; color: #2d58a6; font-size: .75rem; font-weight: 680; }}
     .grid {{ display: grid; grid-template-columns: 1fr; gap: .85rem; }}
     .plot-card {{ background: #fff; border-radius: 14px; border: 1px solid #dee6ed; overflow: hidden; }}
     .plot-card h3 {{ padding: .65rem .85rem; font-size: .82rem; border-bottom: 1px solid #edf2f6; background: #fbfdfe; }}
     .plot-card img {{ width: 100%; height: auto; display: block; cursor: pointer; }}
-    .back-link {{ display: inline-flex; align-items: center; gap: .35rem; color: #11597c; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
+    .back-link {{ display: inline-flex; align-items: center; gap: .35rem; color: #2d58a6; text-decoration: none; font-size: .85rem; margin-bottom: .8rem; }}
     .back-link:hover {{ text-decoration: underline; }}
   </style>
 </head>
@@ -513,12 +607,20 @@ class MaitNktService:
   <a class="back-link" href="javascript:history.back()">← 返回</a>
   <div class="header">
     <h1>MAIT/NKT 分析结果</h1>
-    <div class="meta">TRA 数据: {datapoint_path} &nbsp;|&nbsp; 任务: {job_id}</div>
+    <div class="meta">受体 α 链参考序列比对 &nbsp;|&nbsp; 任务: {job_id}</div>
+    <details class="meta"><summary>查看数据来源</summary>{datapoint_path}</details>
     <div class="stats">
       <div class="stat-item"><strong>分组字段</strong><span>{group_field}</span></div>
+      <div class="stat-item"><strong>样本数</strong><span>{sample_count}</span></div>
+      <div class="stat-item"><strong>批次字段</strong><span>{batch_field}</span></div>
       <div class="stat-item"><strong>箱线图数</strong><span>{plot_count}</span></div>
       <div class="stat-item"><strong>检测类型</strong><span>{cdr3_type_tags}</span></div>
     </div>
+  </div>
+  <div class="header">
+    <a class="back-link" href="MAIT_iNKT_profile.csv" download>下载样本指标表</a> &nbsp;
+    <a class="back-link" href="mait_nkt_results.zip" download>下载完整结果</a>
+    {notes_html}
   </div>
   <div class="grid">{png_cards}</div>
 </div>

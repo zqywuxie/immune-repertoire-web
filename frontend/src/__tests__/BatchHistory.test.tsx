@@ -8,6 +8,20 @@ import type {JobResultsResponse} from "../shared/api/jobs";
 const snapshot=(status:string)=>({success:true,job:{id:"batch",module:"analysis-batch",status,payload:{items:[{module:"profile",status:"completed",job_id:"child"},{module:"umapin",status:"failed",error:"分组列缺失"},{module:"volcano",status:"cancelled"}]}},status,result:{},outputs:[],assets:[]}) as unknown as JobResultsResponse;
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.useRealTimers();});
 describe("批次历史与恢复",()=>{
+ it("未执行项的空编号不会阻止默认读取成功结果",async()=>{
+  const result=snapshot("failed");
+  result.job.payload!.items = [
+    {module:"profile",status:"completed",job_id:"child"},
+    {module:"umapin",status:"interrupted",job_id:"",error:"批次结束，尚未执行"},
+  ];
+  const get=vi.spyOn(jobs,"getJob").mockResolvedValue({success:true,job:{id:"child",module:"profile",status:"completed"}} as Awaited<ReturnType<typeof jobs.getJob>>);
+  const results=vi.spyOn(jobs,"getJobResults").mockResolvedValue({...snapshot("completed"),job:{...snapshot("completed").job,id:"child",module:"profile"}});
+  render(<BatchResultPanel result={result} renderResult={child=><p>已读取结果：{child.job.id}</p>}/>);
+  expect(await screen.findByText("已读取结果：child")).toBeInTheDocument();
+  expect(screen.getByText("批次结束，尚未执行")).toBeInTheDocument();
+  expect(results).toHaveBeenCalledWith("child");
+  expect(get.mock.calls.every(([id])=>id==="child")).toBe(true);
+ });
  it("失败批次保留成功子结果，并展示没有编号的失败项目",async()=>{
   vi.spyOn(jobs,"getJob").mockResolvedValue({success:true,job:{id:"child",module:"profile",status:"completed"}} as Awaited<ReturnType<typeof jobs.getJob>>);
   vi.spyOn(jobs,"getJobResults").mockResolvedValue({...snapshot("completed"),job:{...snapshot("completed").job,id:"child",module:"profile"}});

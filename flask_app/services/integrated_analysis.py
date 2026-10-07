@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import seaborn as sns
 import io
 import base64
@@ -21,7 +22,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Set Chinese font support
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
+configure_chinese_font()
 plt.rcParams['axes.unicode_minus'] = False
 
 

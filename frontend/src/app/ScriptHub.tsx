@@ -3,7 +3,7 @@ import { useApi } from "../shared/hooks/useApi";
 import { useJobEvents } from "../shared/hooks/useJobEvents";
 import { usePolling } from "../shared/hooks/usePolling";
 import { listJobs, listJobModules, getJob, getJobResults } from "../shared/api/jobs";
-import { listProjects } from "../shared/api/projects";
+import { ProjectPicker } from "../features/projects/ProjectPicker";
 import { listGroupSpecs } from "../shared/api/groupSpecs";
 import type { JobResultsResponse } from "../shared/api/jobs";
 import type { JobSummary } from "../shared/types/domain";
@@ -32,10 +32,8 @@ export function ScriptHub() {
     modulesState.status === "ready" ? modulesState.data.modules : [];
   const modulesError = modulesState.status === "error" ? modulesState.error : null;
 
-  const projectsState = useApi(() => listProjects(), []);
-  const projects =
-    projectsState.status === "ready" ? projectsState.data.projects : [];
-  const projectsError = projectsState.status === "error" ? projectsState.error : null;
+  const [noProjects, setNoProjects] = useState(false);
+  const onAvailability = useCallback((available: boolean) => setNoProjects(!available), []);
 
   // Load group specs for the selected project
   const groupSpecsState = useApi(
@@ -45,13 +43,6 @@ export function ScriptHub() {
   const groupSpecs =
     groupSpecsState.status === "ready" ? groupSpecsState.data.group_specs : [];
   const loadingSpecs = groupSpecsState.status === "loading";
-
-  // Auto-select first project if none selected
-  useEffect(() => {
-    if (projects.length > 0 && !selectedProjectId) {
-      setSelectedProjectId(projects[0].id);
-    }
-  }, [projects, selectedProjectId]);
 
   // Poll jobs filtered by selected project
   const allJobsState = usePolling(
@@ -130,7 +121,6 @@ export function ScriptHub() {
     });
   }, [liveJob.event, resultJobId]);
 
-  const noProjects = projectsState.status === "ready" && projects.length === 0;
 
   return (
     <>
@@ -138,31 +128,10 @@ export function ScriptHub() {
         title="组合分析"
         subtitle="提交分析任务并查看结果"
       >
-        {!noProjects && (
-        <select
-          value={selectedProjectId}
-          onChange={(e) => setSelectedProjectId(e.target.value)}
-          style={{
-            minHeight: "38px",
-            padding: "7px 12px",
-            borderRadius: "var(--radius-control)",
-            border: "1px solid var(--separator)",
-            background: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            fontSize: "0.85rem",
-          }}
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        )}
+        <ProjectPicker value={selectedProjectId} onChange={setSelectedProjectId} autoSelectFirst onAvailability={onAvailability} />
       </PageHeader>
 
       {/* Error banners */}
-      {projectsError && <div className="error-banner">⚠ {projectsError}</div>}
       {modulesError && <div className="error-banner">⚠ {modulesError}</div>}
 
       {/* Empty project state */}

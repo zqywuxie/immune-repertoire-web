@@ -1,0 +1,28 @@
+.job-progress-panel { display:grid; gap:var(--spacing-md); min-width:0; }
+.job-progress-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--spacing-md); }
+.job-progress-heading h4 { margin:0; font-size:.9rem; }
+.job-progress-heading p { margin:4px 0 0; color:var(--text-secondary); font-size:.8rem; overflow-wrap:anywhere; }
+.job-progress-percentage { display:grid; gap:6px; font-size:.82rem; color:var(--text-secondary); font-weight:600; }
+.job-progress-panel--failed [role="progressbar"] > div,
+.job-progress-panel--interrupted [role="progressbar"] > div { background:var(--danger) !important; }
+.job-progress-panel--cancelled [role="progressbar"] > div { background:var(--text-tertiary) !important; }
+.job-progress-error, .job-progress-notice { margin:0; padding:var(--spacing-md); border:1px solid var(--separator); border-radius:var(--radius-control); background:var(--bg-root); font-size:.82rem; line-height:1.6; overflow-wrap:anywhere; }
+.job-progress-error { border-color:color-mix(in srgb,var(--danger) 35%,var(--separator)); }
+.job-progress-error strong { color:var(--danger); }
+.job-progress-error p { margin:6px 0 10px; }
+.job-progress-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:var(--spacing-sm); margin:0; }
+.job-progress-facts > div { min-width:0; padding:10px 12px; border-radius:var(--radius-control); background:var(--bg-root); }
+.job-progress-facts dt { color:var(--text-tertiary); font-size:.72rem; margin-bottom:4px; }
+.job-progress-facts dd { margin:0; font-size:.82rem; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+.job-progress-hint { margin:0; color:var(--text-tertiary); font-size:.75rem; line-height:1.5; }
+.job-progress-records { min-width:0; border:1px solid var(--separator); border-radius:var(--radius-control); padding:var(--spacing-sm) var(--spacing-md); }
+.job-progress-records summary { cursor:pointer; font-size:.82rem; font-weight:600; padding:4px 0; }
+.job-progress-records summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:4px; }
+.job-progress-records[open] > summary { margin-bottom:var(--spacing-sm); }
+.job-progress-records ol { list-style:none; margin:0; padding:0; display:grid; gap:8px; max-height:320px; overflow:auto; }
+.job-progress-records li { min-width:0; padding:10px 12px; border:1px solid var(--separator); border-radius:var(--radius-control); background:var(--bg-root); font-size:.78rem; overflow-wrap:anywhere; }
+.job-progress-entry-heading { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.job-progress-entry-heading span { color:var(--text-secondary); }
+.job-progress-records time { display:block; color:var(--text-tertiary); margin-top:4px; font-size:.72rem; }
+.job-progress-records li p { margin:4px 0 0; white-space:pre-wrap; line-height:1.5; }
+.job-progress-records pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; font-size:.78rem; background:var(--bg-root); border-radius:var(--radius-control); padding:var(--spacing-sm); }

@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 
-export interface UploadedFile { id: string; name: string; columns: string[]; row_count: number; }
+export interface UploadedFile { id: string; name: string; columns: string[]; row_count: number; asset_id?: string; asset_set?: string; }
 export async function uploadDataFile(file: File, project: string): Promise<UploadedFile> {
   const body = new FormData();
   body.append("file", file, file.name);
@@ -14,4 +14,5 @@ export async function uploadDataFile(file: File, project: string): Promise<Uploa
 }
 
 
-export const listDataFiles = (project: string) => apiClient.get<{ files: UploadedFile[] }>("/api/files", { project });
+export const listDataFiles = (project: string, assetSet?: string) => apiClient.get<{ files: UploadedFile[] }>("/api/files", { project, asset_set:assetSet });
+export const getAnalysisInputFile = (project:string, assetId:string, assetSet:string) => apiClient.get<UploadedFile>(`/api/analysis/input-files/${encodeURIComponent(assetId)}`, {project_id:project,asset_set:assetSet}, {skipCache:true});

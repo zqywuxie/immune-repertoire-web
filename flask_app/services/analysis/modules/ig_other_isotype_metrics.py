@@ -6,6 +6,7 @@ B细胞成熟状态分析模块
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import seaborn as sns
 from typing import Dict, Any, List, Tuple
 import logging
@@ -121,7 +122,7 @@ class BcellMaturationAnalyzer(AnalysisModule):
         """生成图表"""
         charts = {}
         
-        plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+        configure_chinese_font()
         plt.rcParams["axes.unicode_minus"] = False
         plt.style.use("default")
         sns.set_palette(params.get("color_scheme", "Set2"))

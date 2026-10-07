@@ -18,20 +18,20 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 describe("analysis history", () => {
   it("opens a result and sends search to the history API", async () => {
     renderHistory(<Stage6History projectId="p1" onSelectResult={vi.fn()} />);
-    fireEvent.click(await screen.findByText('任务A'));
+    fireEvent.click(await screen.findByRole('button', { name: /任务A/ }));
     expect(await screen.findByRole('link', { name: '打开交互报告' })).toHaveAttribute('href', '/任务A.html');
     vi.mocked(listJobs).mockResolvedValue({success:true,jobs:[job('任务B')],total:1} as never);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '任务B' } });
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('共 1 项任务'));
+    await waitFor(() => expect(screen.getByText('共 1 项任务 · 第 1 页')).toBeInTheDocument());
     expect(listJobs).toHaveBeenLastCalledWith(expect.objectContaining({search:'任务B',offset:0}));
   });
   it("ignores an earlier result after another job is selected", async () => {
     let resolveOld!: (value: unknown) => void;
     vi.mocked(getJobResults).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }) as never);
     renderHistory(<Stage6History projectId="p1" onSelectResult={vi.fn()} />);
-    fireEvent.click(await screen.findByText('任务A'));
+    fireEvent.click(await screen.findByRole('button', { name: /任务A/ }));
     await waitFor(() => expect(getJobResults).toHaveBeenCalledWith('任务A'));
-    fireEvent.click(screen.getByText('任务B'));
+    fireEvent.click(screen.getByRole('button', { name: /任务B/ }));
     expect(await screen.findByRole('link', { name: '打开交互报告' })).toHaveAttribute('href', '/任务B.html');
     await act(async () => { resolveOld(result('任务A')); });
     expect(screen.getByRole('link', { name: '打开交互报告' })).toHaveAttribute('href', '/任务B.html');
@@ -41,7 +41,7 @@ describe("analysis history", () => {
     vi.mocked(listJobs).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }) as never);
     const view = renderHistory(<Stage6History projectId="p1" onSelectResult={vi.fn()} />);
     view.rerender(<Stage6History projectId="p2" onSelectResult={vi.fn()} />);
-    await screen.findByText('任务B');
+    await screen.findByRole('button', { name: /任务B/ });
     await act(async () => { resolveOld({ success: true, jobs: [job('旧项目任务')] }); });
     expect(screen.queryByText('旧项目任务')).not.toBeInTheDocument();
     expect(listJobs).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 'p2', limit: 50, offset:0 }));
@@ -50,7 +50,7 @@ describe("analysis history", () => {
     const onSelect = vi.fn();
     vi.mocked(getJobResults).mockRejectedValueOnce(new Error('暂时不可用'));
     const view = renderHistory(<Stage6History projectId="p1" onSelectResult={onSelect} />);
-    fireEvent.click(await screen.findByText('任务A'));
+    fireEvent.click(await screen.findByRole('button', { name: /任务A/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时不可用');
     fireEvent.click(screen.getByRole('button', { name: '重新读取结果' }));
     await screen.findByRole('link', { name: '打开交互报告' });

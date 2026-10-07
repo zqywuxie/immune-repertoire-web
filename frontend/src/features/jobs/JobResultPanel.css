@@ -1,0 +1,13 @@
+/* Keep result navigation within the panel on narrow screens. */
+.job-result-sections { min-width: 0; }
+.job-result-sections [role="tablist"] { flex-wrap: wrap; }
+.job-result-content { display: grid; gap: var(--spacing-md); min-width: 0; }
+.job-result-content > div { min-width: 0; }
+.job-result-content a { overflow-wrap: anywhere; }
+.job-result-sections button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.job-result-preview { display: grid; gap: var(--spacing-md); min-width: 0; scroll-margin-top: 80px; }
+.job-result-preview:focus { outline: none; }
+.job-result-back { justify-self: start; border: 1px solid var(--separator); border-radius: var(--radius-control); padding: 8px 12px; background: var(--bg-elevated); color: var(--text-primary); font: inherit; font-size: .8rem; cursor: pointer; }
+.job-result-back:hover { border-color: var(--accent); }
+.job-result-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

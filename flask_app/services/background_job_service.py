@@ -29,7 +29,7 @@ def _history_entry(progress: float, stage: str, detail: str, meta: Optional[Dict
         "stage": stage or "",
         "detail": detail or "",
         "meta": meta or {},
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -48,7 +48,7 @@ class JobContext:
 
     def raise_if_cancelled(self) -> None:
         if self.is_cancel_requested():
-            raise RuntimeError("Job cancelled by user")
+            raise RuntimeError("用户已取消任务")
 
 
 class BackgroundJobService:
@@ -83,8 +83,8 @@ class BackgroundJobService:
         user_id: Optional[int] = None,
         project_id: Optional[str] = None,
         job_id: Optional[str] = None,
-        stage: str = "Queued",
-        detail: str = "Task created and waiting to start",
+        stage: str = "等待执行",
+        detail: str = "任务已创建，等待开始。",
         history: Optional[list[Dict[str, Any]]] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -118,7 +118,7 @@ class BackgroundJobService:
         if "project_id" in clean:
             clean["project_id"] = str(clean["project_id"]).strip() or None if clean["project_id"] is not None else None
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if job is None:
                 job = AnalysisJob(
                     id=job_id,
@@ -126,7 +126,7 @@ class BackgroundJobService:
                     module=str(clean.get("module") or (clean.get("meta") or {}).get("module") or "analysis"),
                     status=str(clean.get("status") or "queued"),
                     progress=float(clean.get("progress") or 0.0),
-                    stage=str(clean.get("stage") or "Queued"),
+                    stage=str(clean.get("stage") or "等待执行"),
                     detail=str(clean.get("detail") or ""),
                     history=clean.get("history") if isinstance(clean.get("history"), list) else [],
                     payload={},
@@ -136,6 +136,14 @@ class BackgroundJobService:
                 incoming_status = str(clean.get("status") or "")
                 if incoming_status and incoming_status != job.status:
                     return job.to_dict()
+
+            # A progress snapshot must not confirm cancellation while compute is active.
+            if job.cancel_requested and job.status == "running" and clean.get("status") not in {"cancelled", "interrupted"}:
+                for key in ("status", "progress", "stage", "detail", "history", "error"):
+                    clean.pop(key, None)
+                if updates.get("status") in {"completed", "failed"}:
+                    clean.pop("result", None)
+            clean.pop("cancel_requested", None)  # only request_cancel/cancel_job change this flag
 
             for key in ("job_type", "module", "status", "progress", "stage", "detail", "history", "payload", "result", "error", "project_id", "user_id"):
                 if key not in clean:
@@ -164,17 +172,21 @@ class BackgroundJobService:
 
     def _run(self, job_id: str, func: Callable[..., Any], args: tuple, kwargs: Dict[str, Any]) -> None:
         try:
-            self.mark_running(job_id)
-            context = JobContext(self, job_id)
-            with self._ctx():
-                result = func(context, *args, **kwargs)
-            if self.get_job(job_id, include_payload=False).get("cancel_requested"):
+            if self.is_cancel_requested(job_id):
                 self.cancel_job(job_id)
                 return
-            self.complete_job(job_id, result if isinstance(result, dict) else {"value": result})
+            self.mark_running(job_id)
+            context = JobContext(self, job_id)
+            from flask_app.services.project_storage_paths import job_storage_context
+            with self._ctx(), job_storage_context(job_id):
+                result = func(context, *args, **kwargs)
+                if self.get_job(job_id, include_payload=False).get("cancel_requested"):
+                    self.cancel_job(job_id)
+                    return
+                self.complete_job(job_id, result if isinstance(result, dict) else {"value": result})
         except Exception as exc:
-            if "cancelled" in str(exc).lower():
-                self.cancel_job(job_id, detail=str(exc))
+            if self.is_cancel_requested(job_id):
+                self.cancel_job(job_id)
             else:
                 self.fail_job(job_id, str(exc), traceback.format_exc())
 
@@ -182,8 +194,8 @@ class BackgroundJobService:
         self.upsert_job(job_id, {
             "status": "running",
             "progress": 1.0,
-            "stage": "Running",
-            "detail": "Task started",
+            "stage": "执行中",
+            "detail": "任务已开始执行。",
         })
 
     def update_progress(
@@ -196,7 +208,7 @@ class BackgroundJobService:
         meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if job is None:
                 raise ValueError(f"Job not found: {job_id}")
             if job.cancel_requested or job.status in TERMINAL_STATUSES:
@@ -214,32 +226,37 @@ class BackgroundJobService:
             db.session.commit()
             return job.to_dict()
 
-    def complete_job(self, job_id: str, result: Optional[Dict[str, Any]] = None, detail: str = "Task completed") -> Dict[str, Any]:
+    def complete_job(self, job_id: str, result: Optional[Dict[str, Any]] = None, detail: str = "任务已完成。") -> Dict[str, Any]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
+            if job and job.status not in TERMINAL_STATUSES and self.is_cancel_requested(job_id):
+                return self.cancel_job(job_id)
             if job and job.status not in TERMINAL_STATUSES:
                 from flask_app.services.generic_result_storage import persist_generic_result
                 result = persist_generic_result(job, result or {})
         return self.upsert_job(job_id, {
             "status": "completed",
             "progress": 100.0,
-            "stage": "Completed",
+            "stage": "已完成",
             "detail": detail,
             "result": result or {},
         })
 
     def fail_job(self, job_id: str, error: str, detail: str = "") -> Dict[str, Any]:
+        # The generic worker calls this only after its computation has exited.
+        if self.is_cancel_requested(job_id):
+            return self.cancel_job(job_id)
         return self.upsert_job(job_id, {
             "status": "failed",
-            "progress": 100.0,
-            "stage": "Failed",
+            # Keep the last reported work progress; failure does not complete computation.
+            "stage": "失败",
             "detail": detail or error,
             "error": error,
         })
 
-    def cancel_job(self, job_id: str, detail: str = "Job cancelled by user.") -> Optional[Dict[str, Any]]:
+    def cancel_job(self, job_id: str, detail: str = "用户已取消任务。") -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if job is None:
                 return None
             if job.status in TERMINAL_STATUSES:
@@ -247,7 +264,7 @@ class BackgroundJobService:
             job.cancel_requested = True
             job.status = "cancelled"
             job.progress = max(float(job.progress or 0.0), 0.0)
-            job.stage = "Cancelled"
+            job.stage = "已取消"
             job.detail = detail
             job.completed_at = _now()
             job.updated_at = _now()
@@ -270,31 +287,31 @@ class BackgroundJobService:
 
     def request_cancel(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            now = _now()
+            # Race with the worker's claim using the same queued-state condition.
+            queued = AnalysisJob.query.filter(AnalysisJob.id == job_id, AnalysisJob.status == "queued").update({
+                "cancel_requested": True, "status": "cancelled", "stage": "已取消",
+                "detail": "任务已在开始前取消。", "completed_at": now, "updated_at": now,
+            }, synchronize_session=False)
+            if not queued:
+                AnalysisJob.query.filter(AnalysisJob.id == job_id, AnalysisJob.status == "running").update({
+                    "cancel_requested": True, "stage": "正在取消",
+                    "detail": "已请求取消，等待计算在检查点停止。", "updated_at": now,
+                }, synchronize_session=False)
+            db.session.commit()
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if job is None:
                 return None
-            job.cancel_requested = True
-            if job.status not in TERMINAL_STATUSES:
-                was_queued = job.status == "queued"
-                if job.module == "analysis-batch" and not was_queued:
-                    job.stage = "正在取消"
-                    job.detail = "等待当前子任务在计算检查点停止。"
-                else:
-                    job.status = "cancelled"
-                    job.stage = "Cancelled"
-                    job.detail = "Job cancelled before start." if was_queued else "Job cancellation requested."
-                    job.completed_at = _now()
-                    if job.module == "analysis-batch":
-                        payload = dict(job.payload or {})
-                        payload["items"] = [{**item, "status": "cancelled", "error": "批次在开始前已取消。"} for item in payload.get("items", [])]
-                        job.payload = payload
-            job.updated_at = _now()
-            db.session.commit()
+            if queued and job.module == "analysis-batch":
+                payload = dict(job.payload or {})
+                payload["items"] = [{**item, "status": "cancelled", "error": "批次在开始前已取消。"} for item in payload.get("items", [])]
+                job.payload = payload
+                db.session.commit()
             return job.to_dict()
 
     def get_job(self, job_id: str, *, include_payload: bool = True) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if not job:
                 return None
             from flask_app.services.persistent_queue import reconcile_terminal_queue_job
@@ -393,7 +410,7 @@ class BackgroundJobService:
 
     def delete_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._ctx():
-            job = db.session.get(AnalysisJob, job_id)
+            job = db.session.get(AnalysisJob, job_id, populate_existing=True)
             if job is None:
                 return None
             data = job.to_dict()

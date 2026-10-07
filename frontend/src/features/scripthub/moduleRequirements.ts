@@ -23,6 +23,11 @@ const ASSET_LABELS: Record<RequiredAsset, string> = {
 };
 
 const MODULE_REQUIREMENTS: Record<string, RequirementRule> = {
+  "immune-infiltration-consistency": {all:["profile","deconvolution"]},
+  "immune-infiltration-concordance": {all:["profile","deconvolution"]},
+  "immune-infiltration-pathway": {all:["profile","deconvolution"]},
+  "immune-infiltration-sample-pathway": {all:["profile","deconvolution","transcriptome"]},
+  "immune-infiltration-paired": {all:["profile","deconvolution"]},
   "immune-infiltration": {all:["profile","deconvolution"]},
   "db-alignment": { all: ["pep", "profile"] },
   profile: { all: ["profile"] },
@@ -51,9 +56,33 @@ export function getModuleRequiredAssets(moduleKey: string): RequiredAsset[] {
   return [...(rule?.all || []), ...(rule?.any || [])];
 }
 
+/** Original files consumed by this mode; registered outputs are checked by the module form/API. */
+export function getModuleInspectionInputs(moduleKey: string, config: Record<string, unknown> = {}, sourceContext?: SourceAvailabilityContext): RequiredAsset[] {
+  if (moduleKey === "volcano") {
+    const mode = config.input_mode || (sourceContext ? (sourceContext.transcriptomePath ? "expression" : "usage") : "expression");
+    return mode === "usage" || mode === "vj_usage" ? [] : ["transcriptome"];
+  }
+  if (moduleKey === "go-kegg-enrichment") return config.input_mode === "deg" ? [] : ["transcriptome"];
+  if (moduleKey === "umapin") return [];
+  if (moduleKey === "mait-nkt") return ["profile"];
+  return getModuleRequiredAssets(moduleKey);
+}
+
+export function getCombinedInspectionInputs(moduleKeys: string[], configs: Record<string, Record<string, unknown>>, sourceContext?: SourceAvailabilityContext): RequiredAsset[] {
+  return [...new Set(moduleKeys.flatMap(key => getModuleInspectionInputs(key, configs[key], sourceContext)))].sort();
+}
+
+export function getCombinedInspectionScope(moduleKeys: string[], configs: Record<string, Record<string, unknown>>, sourceContext?: SourceAvailabilityContext) {
+  const alignmentGroups = [...new Map(moduleKeys.map(key => getModuleInspectionInputs(key, configs[key], sourceContext))
+    .filter(inputs => inputs.length > 1).map(inputs => {const sorted=[...inputs].sort();return [JSON.stringify(sorted),sorted] as const;})).values()]
+    .sort((first,second)=>JSON.stringify(first).localeCompare(JSON.stringify(second)));
+  return {inputTypes:getCombinedInspectionInputs(moduleKeys,configs,sourceContext),alignmentGroups};
+}
+
 export function getModuleAvailability(
   module: JobModule | undefined,
   sourceContext?: SourceAvailabilityContext,
+  config?: Record<string, unknown>,
 ) {
   if (!module) {
     return { selectable: false, reason: "未找到此分析模块。", missing: [] as RequiredAsset[] };
@@ -62,8 +91,8 @@ export function getModuleAvailability(
     return { selectable: false, reason: module.unavailable_reason || "此模块当前不可用。", missing: [] as RequiredAsset[] };
   }
 
-  if (sourceContext?.artifactModules?.includes(module.key)) return {selectable:true,reason:"",missing:[] as RequiredAsset[]};
-  const rule = MODULE_REQUIREMENTS[module.key];
+  if (!config && sourceContext?.artifactModules?.includes(module.key)) return {selectable:true,reason:"",missing:[] as RequiredAsset[]};
+  const rule: RequirementRule | undefined = config ? {all:getModuleInspectionInputs(module.key,config,sourceContext)} : MODULE_REQUIREMENTS[module.key];
   if (!rule) {
     return { selectable: true, reason: "", missing: [] as RequiredAsset[] };
   }
@@ -93,8 +122,8 @@ export function getModuleAvailability(
   };
 }
 
-export function isModuleSelectable(module: JobModule | undefined, sourceContext?: SourceAvailabilityContext) {
-  return getModuleAvailability(module, sourceContext).selectable;
+export function isModuleSelectable(module: JobModule | undefined, sourceContext?: SourceAvailabilityContext, config?: Record<string, unknown>) {
+  return getModuleAvailability(module, sourceContext, config).selectable;
 }
 
 export function assetLabel(asset: RequiredAsset): string {

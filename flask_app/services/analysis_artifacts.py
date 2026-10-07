@@ -31,7 +31,8 @@ def capture_input_lineage(project_id, input_paths, asset_set=''):
             continue
         stat = path.stat()
         refs.append({'asset_id': asset.id, 'asset_set': asset_set_name(asset), 'path': _path(path),
-                     'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns})
+                     'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
+                     'name': asset.original_name, 'content_version': (asset.metadata_json or {}).get('content_version')})
     names = {ref['asset_set'] for ref in refs}
     return {'asset_set': asset_set or (next(iter(names)) if len(names) == 1 else ''), 'source_assets': refs}
 
@@ -110,9 +111,17 @@ def scoped_pep_candidates(project_id, asset_set, cache_type=''):
             if not feature_ready:
                 candidate['available_for'] = [target for target in targets if target != 'umapin']
                 if cache_type == 'umapin' and not reason:
-                    reason = '该产物没有特征降维需要的分组列，请选择带分组的汇总特征表。'
+                    reason = '请检查该产物的分组列与特征列，或选择带分组的汇总特征表。'
             else:
                 candidate['available_for'] = list(dict.fromkeys([*targets, 'umapin']))
+        if candidate.get('cache_type') == 'vj_usage':
+            usage_ready = supports_usage_groups(candidate) if not reason else False
+            targets = list(candidate.get('available_for') or [])
+            candidate['available_for'] = list(dict.fromkeys([*targets, 'volcano'])) if usage_ready else [
+                target for target in targets if target != 'volcano'
+            ]
+            if cache_type == 'volcano' and not usage_ready and not reason:
+                reason = '该产物没有 V/J 差异分析可读取的分组表，请选择带分组的汇总使用表。'
         artifact_id = f"{job_id}:{candidate['cache_type']}:{quote(str(path), safe='')}"
         if artifact_id in seen:
             continue
@@ -125,26 +134,48 @@ def scoped_pep_candidates(project_id, asset_set, cache_type=''):
 
 
 def supports_feature_groups(candidate):
-    """Use header-only checks for the Category column required by feature UMAP."""
+    """Check the worker-selected headers without advertising sibling-directory features."""
     from flask_app.services.umapin_service import UmapinService, _try_read_csv
     path = Path(str(candidate.get('path') or ''))
-    paths = [path] if path.is_file() else [
-        file for directory in UmapinService._candidate_usage_dirs(path)
-        for file in sorted(directory.glob('*.csv')) if file.is_file() and file.resolve().is_relative_to(path.resolve())
-    ]
-    for file in paths:
-        try:
+    try:
+        files, concatenate = UmapinService._usage_source_files(path)
+        if not files:
+            return False
+        for file in files:
+            if path.is_dir() and not file.resolve().is_relative_to(path.resolve()):
+                return False
             columns = list(_try_read_csv(file, nrows=0).columns)
-        except (OSError, ValueError, UnicodeError):
-            continue
-        if 'Category' in columns and len(columns) > columns.index('Category') + 1:
-            return True
-    return False
+            if concatenate:
+                columns[0] = 'sample'
+                if 'Category' not in columns:
+                    return False
+            category, sample = UmapinService._identity_columns(columns)
+            if not any(column not in {category, sample} for column in columns):
+                return False
+    except (OSError, ValueError, UnicodeError):
+        return False
+    return True
+
+
+def supports_usage_groups(candidate):
+    """Check headers from the same file selection and aliases used by the worker."""
+    from flask_app.services.volcano_service import VolcanoService
+    try:
+        files, _ = VolcanoService._usage_source_files(Path(str(candidate.get('path') or '')))
+        if not files:
+            return False
+        for file in files:
+            VolcanoService._read_usage_table(file, nrows=0)
+    except (OSError, ValueError, UnicodeError):
+        return False
+    return True
 
 
 def downstream_spec(module, data):
     if module == 'volcano' and data.get('input_mode') in {'usage', 'vj_usage'}:
         return 'volcano', 'data_dir'
+    if module == 'umap' and data.get('analysis_mode') == 'unified' and any('vj' in str(config).split('+') for config in (data.get('configurations') if isinstance(data.get('configurations'), list) else [])):
+        return 'umapin', 'vj_usage_path'
     if module == 'umapin':
         return 'umapin', 'data_path'
     if module == 'ml-analysis' and data.get('mode') in {'vj', 'profile_vj'}:
@@ -191,6 +222,7 @@ def resolve_upstream_input(module, data):
     ref = {'artifact_id': candidate['id'], 'source_job_id': candidate['job_id'], 'project_id': project_id,
            'asset_set': dataset, 'module': module, 'cache_type': cache_type, 'path': candidate['path'],
            'input_mode': data.get('input_mode'), 'mode': data.get('mode'), 'tra_source': data.get('tra_source'),
+           'analysis_mode': data.get('analysis_mode'), 'configurations': data.get('configurations'),
            'chain': data.get('chain'), 'group_field': data.get('group_field')}
     data['upstream_input'] = ref
     return ref
@@ -201,6 +233,12 @@ def revalidate_job_upstream(job):
     if not ref:
         return
     data = {**ref, 'upstream_artifact_id': ref['artifact_id']}
+    if ref.get('cache_type') == 'go_bp_gsea':
+        from flask_app.services.pathway_artifacts import resolve_pathway_input
+        candidate = resolve_pathway_input(data)
+        if candidate['path'] != ref['path'] or candidate['file'] != ref.get('file'):
+            raise ValidationError(message='通路结果已改变，请重新选择来源并提交分析。')
+        return
     if ref.get('cache_type') == 'differential_expression':
         from flask_app.services.differential_artifacts import resolve_differential_input
         candidate = resolve_differential_input(data)

@@ -349,56 +349,59 @@ def list_projects():
 
 @bp.route('/files', methods=['GET'])
 def list_files():
-    """
-    Get all uploaded files.
-    GET /api/files
-    
-    Query parameters:
-    - project: Filter by project name (optional)
-    
-    Requirements: 1.5
+    """List current validated profile inputs in the requested project/dataset.
+
+    Unmapped legacy File records remain available at project scope; they cannot
+    be assigned to a dataset by guessing. Historical assets require explicit opt-in.
     """
     project = request.args.get('project')
-    
+    dataset = request.args.get('asset_set', '').strip()
+    include_history = request.args.get('include_superseded', '').lower() in {'1', 'true'}
+    if dataset and not project:
+        raise ValidationError(message='请先选择数据集所属项目。')
     query = scope_query(File.query, File)
     if project:
         query = query.filter(File.project == project)
-    
     files = query.order_by(File.uploaded_at.desc()).all()
-    
-    asset_files = []
+    registered_ids, assets = set(), []
     if project:
         from flask_app.models.database import Project, ProjectAsset
         from flask_app.services.user_scope import assert_owned
+        from flask_app.services.project_asset_service import ProjectAssetService
         record = db.session.get(Project, project)
         if current_app.config.get("REQUIRE_LOGIN", True):
             assert_owned(record, "项目")
         if record:
-            existing = {item.id for item in files}
-            for asset in ProjectAsset.query.filter(ProjectAsset.project_id == project, ProjectAsset.asset_type.in_(["profile", "datapoint"])).all():
-                if asset.id in existing: continue
-                validation = (asset.metadata_json or {}).get("validation", {})
-                if validation.get("status") != "valid": continue
-                inputs = validation.get("summary", {}).get("inputs", [])
-                info = next((item for item in inputs if item.get("kind") == "profile"), {})
-                asset_files.append({"id": asset.id, "name": asset.original_name, "size": asset.size,
-                    "columns": info.get("columns", []), "row_count": info.get("row_count", info.get("sample_count", 0)), "project": project})
-    return jsonify({
-        'files': [
-            {
-                'id': f.id,
-                'name': f.original_name,
-                'size': f.size,
-                'columns': f.columns,
-                'column_count': len(f.columns),
-                'row_count': f.row_count,
-                'uploaded_at': f.uploaded_at.isoformat(),
-                'project': f.project or 'default'
-            }
-            for f in files
-        ] + asset_files,
-        'total': len(files) + len(asset_files)
-    })
+            registered_ids = {identifier for identifier, in ProjectAsset.query.filter(
+                ProjectAsset.project_id == project,
+                ProjectAsset.asset_type.in_(['profile', 'datapoint'])
+            ).with_entities(ProjectAsset.id).all()}
+            assets = ProjectAssetService.asset_query(project, inputs_only=True,
+                asset_type='profile', asset_set=dataset, include_superseded=include_history
+            ).order_by(ProjectAsset.uploaded_at.desc(), ProjectAsset.id.desc()).all()
+    payload = [{
+        'id': item.id, 'name': item.original_name, 'size': item.size,
+        'columns': item.columns or [], 'column_count': len(item.columns or []),
+        'row_count': item.row_count, 'uploaded_at': item.uploaded_at.isoformat(),
+        'project': item.project or 'default',
+    } for item in files if not dataset and item.id not in registered_ids]
+    for asset in assets:
+        validation = (asset.metadata_json or {}).get('validation') or {}
+        if validation.get('status') != 'valid':
+            continue
+        info = next((item for item in (validation.get('summary') or {}).get('inputs', [])
+                     if item.get('kind') == 'profile'), {})
+        columns = info.get('columns') or []
+        payload.append({
+            'id': asset.id, 'asset_id': asset.id, 'name': asset.original_name,
+            'size': asset.size, 'columns': columns, 'column_count': len(columns),
+            'row_count': info.get('row_count', info.get('sample_count', 0)),
+            'project': project, 'asset_set': ProjectAssetService.dataset_name(asset),
+            'superseded': bool((asset.metadata_json or {}).get('superseded')),
+            'content_version': (asset.metadata_json or {}).get('content_version'),
+            'uploaded_at': asset.uploaded_at.isoformat() if asset.uploaded_at else None,
+        })
+    return jsonify({'files': payload, 'total': len(payload)})
 
 
 @bp.route('/files/<file_id>', methods=['GET'])

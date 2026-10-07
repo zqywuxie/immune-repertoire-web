@@ -13,6 +13,7 @@ import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 
 from .base_analyzer import BaseAnalyzer, ValidationResult
 
@@ -275,7 +276,7 @@ class SequencingReadsChartAnalyzer(BaseAnalyzer):
         charts = []
         
         try:
-            plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+            configure_chinese_font()
             plt.rcParams["axes.unicode_minus"] = False
             
             chart_config = params.get('chart_config', {})

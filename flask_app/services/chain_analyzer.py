@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union, Set
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import numpy as np
 import pandas as pd
 
@@ -460,7 +461,7 @@ class ChainChartGenerator:
         self.default_config = config or ChainChartConfig()
         
         # Set up matplotlib for scientific publication style
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
+        configure_chinese_font()
         plt.rcParams['axes.unicode_minus'] = False
         
         # Professional styling for scientific publications

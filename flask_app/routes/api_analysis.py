@@ -31,32 +31,69 @@ logger = logging.getLogger(__name__)
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
 
 
+def _asset_input_file(asset):
+    from flask_app.models.database import Project
+    from flask_app.services.analysis_artifacts import asset_set_name
+    from flask_app.services.input_preparation import analysis_input_path
+    from flask_app.services.input_quality import validate_analysis_inputs
+    project = db.session.get(Project, asset.project_id)
+    assert_owned(project, "项目")
+    payload = request.get_json(silent=True) or request.args
+    if payload.get('project_id') and str(payload['project_id']) != str(asset.project_id):
+        raise ValidationError(message="输入文件不属于当前项目")
+    if payload.get('asset_set') and str(payload['asset_set']).strip() != asset_set_name(asset):
+        raise ValidationError(message="输入文件不属于当前数据集，请重新选择。")
+    if asset.asset_type not in {'profile', 'datapoint'}:
+        raise ValidationError(message="此分析方案需要样本指标表，请选择相应输入文件。")
+    path = analysis_input_path(asset)
+    if not Path(path).is_file():
+        raise AppFileNotFoundError(message="所选输入文件已不可读取，请重新导入或选择其他版本。")
+    quality = validate_analysis_inputs([{"asset_type": "profile", "path": str(path)}])
+    info = next((item for item in quality.get('inputs', []) if item.get('kind') == 'profile'), {})
+    return project, {'id': asset.id, 'name': asset.original_name, 'asset_id': asset.id,
+        'asset_set': asset_set_name(asset), 'columns': info.get('columns', []),
+        'row_count': info.get('row_count', info.get('sample_count', 0)),
+        'path': str(path), 'size': Path(path).stat().st_size}
+
+
 def _get_owned_file(file_id: str) -> File:
+    from flask_app.models.database import ProjectAsset
     file_record = File.query.get(file_id)
-    if not file_record:
-        from flask_app.models.database import ProjectAsset, Project
-        from flask_app.services.input_preparation import analysis_input_path
-        asset = db.session.get(ProjectAsset, file_id)
-        if asset and asset.asset_type in {"profile", "datapoint"}:
-            project = db.session.get(Project, asset.project_id)
-            assert_owned(project, "项目")
-            from flask_app.services.input_quality import validate_analysis_inputs
-            path = analysis_input_path(asset)
-            validate_analysis_inputs([{"asset_type": "profile", "path": str(path)}])
-            info = next(iter((asset.metadata_json or {}).get("validation", {}).get("summary", {}).get("inputs", [])), {})
-            file_record = File(id=asset.id, name=Path(path).name, original_name=asset.original_name,
-                storage_path=str(path), size=asset.size, mime_type=asset.mime_type,
-                columns=info.get("columns", []), row_count=info.get("row_count", 0),
-                project=project.id, user_id=project.user_id)
+    if file_record:
+        assert_owned(file_record, "File")
+    asset = db.session.get(ProjectAsset, file_id)
+    if asset and asset.asset_type in {"profile", "datapoint"}:
+        project, descriptor = _asset_input_file(asset)
+        if file_record and str(file_record.project) != str(project.id):
+            raise ValidationError(message="输入文件登记与项目不一致，请重新选择。")
+        if not file_record:
+            file_record = File(id=asset.id, project=project.id, user_id=project.user_id, mime_type=asset.mime_type or "text/csv")
             db.session.add(file_record)
-            db.session.commit()
+        # The compatibility File record must reflect the resolved input, not stale source columns.
+        file_record.name = Path(descriptor['path']).name
+        file_record.original_name = asset.original_name
+        file_record.storage_path = descriptor['path']
+        file_record.size = descriptor['size']
+        file_record.columns = descriptor['columns']
+        file_record.row_count = descriptor['row_count']
+        db.session.commit()
     if not file_record:
         raise AppFileNotFoundError(message=f"File not found: {file_id}", details={'file_id': file_id})
     assert_owned(file_record, "File")
-    project_id = (request.get_json(silent=True) or {}).get("project_id")
+    project_id = (request.get_json(silent=True) or request.args).get("project_id")
     if project_id and str(file_record.project) != str(project_id):
         raise ValidationError(message="输入文件不属于当前项目")
     return file_record
+
+
+@analysis_bp.route('/input-files/<asset_id>', methods=['GET'])
+def describe_analysis_input_file(asset_id):
+    from flask_app.models.database import ProjectAsset
+    asset = db.session.get(ProjectAsset, asset_id)
+    if not asset:
+        raise AppFileNotFoundError(message="入口指定文件不存在或已删除，请重新选择。")
+    _, descriptor = _asset_input_file(asset)
+    return jsonify({key: value for key, value in descriptor.items() if key != 'path'})
 
 
 @analysis_bp.route('/modules', methods=['GET'])

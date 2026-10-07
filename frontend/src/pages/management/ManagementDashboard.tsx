@@ -1,7 +1,12 @@
-import { useNavigate } from "react-router-dom";
-import { Boxes, FlaskConical, Activity, Database, Users, Settings2, ArrowRight, AlertTriangle } from "lucide-react";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { usePageActivity } from "../../shared/hooks/usePageActivity";
+import { analysisLabel, jobTextLabel } from "../../shared/utils/analysisLabels";
+import { taskName } from "../../features/jobs/jobConfiguration";
+import "./ManagementDashboard.css";
+import { Boxes, FlaskConical, Activity, Database, Users, Settings2, ArrowRight } from "lucide-react";
 import { useApi } from "../../shared/hooks/useApi";
-import { listProjects } from "../../shared/api/projects";
+import { listProjects, getProjectStatistics } from "../../shared/api/projects";
 import { listJobs } from "../../shared/api/jobs";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { MetricCard } from "../../shared/components/MetricCard";
@@ -10,23 +15,34 @@ import { ProjectList } from "../../features/projects/ProjectList";
 import { StatusBadge } from "../../shared/components/StatusBadge";
 import { Skeleton } from "../../shared/components/Skeleton";
 import { EmptyState } from "../../shared/components/EmptyState";
+import { DataReadError } from "../../features/assets/DataReadError";
 
 export function ManagementDashboard() {
   const navigate = useNavigate();
-  const projects = useApi(() => listProjects(), []);
-  const jobs = useApi(() => listJobs({ limit: 10 }), []);
+  const projects = useApi(() => listProjects({ pageSize: 4, sort: "updated_desc" }), []);
+  const statistics = useApi(() => getProjectStatistics(), []);
+  const pageActive = usePageActivity();
+  const jobs = useApi(() => listJobs({ limit: 10 }), [], pageActive);
+  const hasActiveJobs = jobs.status === "ready" && (jobs.data.counts
+    ? (jobs.data.counts.running || 0) + (jobs.data.counts.queued || 0) > 0
+    : jobs.data.jobs.some(job => ["running", "queued"].includes(job.status)));
+  useEffect(() => {
+    if (!pageActive || !hasActiveJobs) return;
+    const timer = setTimeout(jobs.refetch, 5000);
+    return () => clearTimeout(timer);
+  }, [pageActive, hasActiveJobs, jobs.status, jobs.refetch]);
 
   const projectList = projects.status === "ready" ? projects.data.projects : [];
   const jobList = jobs.status === "ready" ? jobs.data.jobs : [];
 
-  const loadingProjects = projects.status === "loading";
-  const loadingJobs = jobs.status === "loading";
+  const loadingProjects = projects.status === "loading" || projects.status === "idle";
+  const loadingJobs = jobs.status === "loading" || jobs.status === "idle";
   const projectsError = projects.status === "error" ? projects.error : null;
   const jobsError = jobs.status === "error" ? jobs.error : null;
 
   const stats = {
-    projects: projectList.length,
-    results: projectList.reduce((sum, p) => sum + Number(p.result_count || 0), 0),
+    projects: statistics.status === "ready" ? statistics.data.project_count : 0,
+    results: statistics.status === "ready" ? statistics.data.result_count : 0,
     activeJobs: jobs.status === "ready" ? (jobs.data.counts?.running || 0) + (jobs.data.counts?.queued || 0) : 0,
   };
 
@@ -40,7 +56,7 @@ export function ManagementDashboard() {
     },
     {
       icon: Users,
-      label: "样本管理",
+      label: "样本登记",
       description: "查看与编辑样本信息",
       to: "/management/samples",
       color: "var(--success)",
@@ -64,10 +80,6 @@ export function ManagementDashboard() {
         subtitle="从项目数据出发，管理样本并跟进分析进度"
       />
 
-      {/* Error banners */}
-      {projectsError && <ErrorBanner message={projectsError} />}
-      {jobsError && <ErrorBanner message={jobsError} />}
-
       {/* Metric cards */}
       <div
         style={{
@@ -76,13 +88,13 @@ export function ManagementDashboard() {
           gap: "var(--spacing-lg)",
         }}
       >
-        {loadingProjects ? (
+        {statistics.status === "loading" || statistics.status === "idle" ? (
           <>
             <Skeleton height="100px" />
             <Skeleton height="100px" />
             <Skeleton height="100px" />
           </>
-        ) : (
+        ) : statistics.status === "error" ? <Card><p role="alert">项目统计暂时无法读取：{statistics.error}</p><button className="btn btn-secondary" onClick={statistics.refetch}>重新读取统计</button></Card> : (
           <>
             <MetricCard icon={Boxes} label="项目数" value={stats.projects} color="var(--accent)" />
             <MetricCard icon={FlaskConical} label="结果数" value={stats.results} color="var(--success)" />
@@ -170,7 +182,7 @@ export function ManagementDashboard() {
                 <Skeleton key={i} height="100px" />
               ))}
             </div>
-          ) : recentProjects.length === 0 ? (
+          ) : projectsError ? <DataReadError title="最近项目暂时无法读取" message={projectsError} onRetry={projects.refetch} retryLabel="重新读取项目" /> : recentProjects.length === 0 ? (
             <EmptyState
               icon={Database}
               title="还没有项目"
@@ -206,7 +218,7 @@ export function ManagementDashboard() {
                 [1, 2, 3].map((i) => (
                   <Skeleton key={i} height="50px" variant="text" />
                 ))
-              ) : latestActivity.length === 0 ? (
+              ) : jobsError ? <DataReadError title="最近任务暂时无法读取" message={jobsError} onRetry={jobs.refetch} retryLabel="重新读取任务" /> : latestActivity.length === 0 ? (
                 <p
                   style={{
                     color: "var(--text-tertiary)",
@@ -218,43 +230,22 @@ export function ManagementDashboard() {
                   暂无任务。可前往分析向导提交第一次分析。
                 </p>
               ) : (
-                latestActivity.map((job) => (
-                  <div
-                    key={job.job_id || job.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "var(--spacing-sm)",
-                      padding: "var(--spacing-sm) 0",
-                      borderBottom: "1px solid var(--separator)",
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {job.module || job.job_type}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "var(--text-tertiary)",
-                          marginTop: "2px",
-                        }}
-                      >
-                        {job.stage || job.detail || ""}
-                      </div>
+                latestActivity.map((job) => {
+                  const label = taskName(job) || analysisLabel(job.module || job.job_type);
+                  const target = new URLSearchParams({job:job.job_id || job.id});
+                  if (job.project_id) target.set("project", job.project_id);
+                  const dataset = job.payload?.asset_set;
+                  if (typeof dataset === "string" && dataset) target.set("asset_set", dataset);
+                  const updated = job.updated_at || job.created_at;
+                  return <Link key={job.job_id || job.id} className="management-recent-task"
+                    to={"/analysis/script-hub/jobs?" + target} aria-label={`查看任务：${label}`}>
+                    <div className="management-recent-task-copy"><strong>{label}</strong>
+                      <span>{jobTextLabel(job.stage || job.detail) || "查看任务进度与结果"}</span>
+                      <small>{typeof dataset === "string" && dataset ? `数据集：${dataset} · ` : ""}{updated ? new Date(updated).toLocaleString("zh-CN",{hour12:false}) : "未记录更新时间"}</small>
                     </div>
-                    <StatusBadge status={job.status} />
-                  </div>
-                ))
+                    <StatusBadge status={job.status} /><ArrowRight size={16} aria-hidden="true"/>
+                  </Link>;
+                })
               )}
               {latestActivity.length > 0 && (
                 <button
@@ -280,26 +271,5 @@ export function ManagementDashboard() {
         </div>
       </div>
     </>
-  );
-}
-
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--spacing-sm)",
-        padding: "var(--spacing-md) var(--spacing-lg)",
-        borderRadius: "var(--radius-panel)",
-        background: "var(--danger)",
-        color: "#fff",
-        fontSize: "0.85rem",
-        fontWeight: 500,
-      }}
-    >
-      <AlertTriangle size={18} />
-      {message}
-    </div>
   );
 }

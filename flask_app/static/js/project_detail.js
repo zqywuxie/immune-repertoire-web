@@ -658,12 +658,32 @@ const ProjectDetailPage = {
         });
         
         try {
+            if (replaceExisting && ['pep', 'profile', 'datapoint', 'transcriptome', 'deconvolution', 'cibersort'].includes(assetType)) {
+                const versions = new Map();
+                const names = new Set();
+                for (let offset = 0; offset < this.selectedUploads.length; offset += 200) {
+                    const check = await fetch(`/api/projects/${encodeURIComponent(this.projectId)}/upload-impact`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({items: this.selectedUploads.slice(offset, offset + 200).map(file => ({
+                            asset_type: assetType, asset_set: 'Set1', name: file.name, directory: false,
+                        }))}),
+                    });
+                    const preview = await check.json();
+                    if (!check.ok) throw new Error(preview.message || '无法核对更新范围，文件选择已保留。');
+                    for (const impact of preview.impacts) {
+                        impact.expected_versions.forEach(item => versions.set(item.id, item));
+                        impact.assets.forEach(item => names.add(item.original_name));
+                    }
+                }
+                if (!confirm(`确认保存到数据集 Set1？将更新 ${versions.size} 个当前文件，原文件保留为历史版本。${names.size ? '\n包括：' + [...names].slice(0, 10).join('、') : ''}`)) return;
+                formData.append('expected_versions', JSON.stringify([...versions.values()].sort((a,b)=>a.id.localeCompare(b.id))));
+            }
             const response = await fetch(`/api/projects/${encodeURIComponent(this.projectId)}/assets`, {
                 method: 'POST',
                 body: formData,
             });
             
-            if (!response.ok) throw new Error('上传失败');
+            if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.message || '上传失败，文件选择已保留。'); }
             
             // Close modal and refresh
             this.uploadModal.hide();
@@ -726,21 +746,23 @@ const ProjectDetailPage = {
         }
         
         try {
+            const existing = (this.projectData?.group_specs || []).find(item => item.name === 'default');
             const response = await fetch(`/api/projects/${encodeURIComponent(this.projectId)}/group-specs`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
+                    ...(existing ? {id: existing.id, expected_revision: existing.revision} : {}),
                     spec_json: Object.fromEntries(specs.map((v, i) => [String(i), v])),
                     name: 'default'
                 }),
             });
             
-            if (!response.ok) throw new Error('保存失败');
-            
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.message || '保存失败');
             this.loadProject();
-            showManagementToast('Group 规格已保存。', 'success');
+            showManagementToast('分组方案已保存。', 'success');
             
         } catch (error) {
             showManagementToast('保存失败: ' + error.message, 'danger');

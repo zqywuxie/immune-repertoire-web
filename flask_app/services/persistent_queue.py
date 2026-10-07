@@ -1,5 +1,6 @@
 """Persistent execution of API and Script Hub tasks through Redis/RQ."""
 import importlib
+import json
 import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -12,17 +13,44 @@ def redis_queue():
     connection.ping()
     return Queue('default',connection=connection,default_timeout=int(os.environ.get('ANALYSIS_TIMEOUT_SECONDS','7200')))
 
+def _job_timeout_seconds(job_id):
+    """Resolve an RQ timeout from the job module with a global fallback."""
+    default_timeout = int(os.environ.get('ANALYSIS_TIMEOUT_SECONDS', '7200'))
+    if default_timeout < 1:
+        raise ValueError('ANALYSIS_TIMEOUT_SECONDS must be a positive integer')
+
+    raw_overrides = os.environ.get('ANALYSIS_TIMEOUTS_JSON', '').strip()
+    if not raw_overrides:
+        return default_timeout
+    try:
+        overrides = json.loads(raw_overrides)
+    except (TypeError, ValueError) as error:
+        raise ValueError('ANALYSIS_TIMEOUTS_JSON must be a JSON object of module names and seconds') from error
+    if not isinstance(overrides, dict):
+        raise ValueError('ANALYSIS_TIMEOUTS_JSON must be a JSON object of module names and seconds')
+    if any(not isinstance(key, str) or not key.strip() or isinstance(value, bool)
+           or not isinstance(value, int) or value < 1 for key, value in overrides.items()):
+        raise ValueError('ANALYSIS_TIMEOUTS_JSON values must be positive integer seconds keyed by module name')
+
+    from flask_app.services.background_job_service import get_background_job_service
+    job = get_background_job_service().get_job(job_id)
+    module = str((job or {}).get('module') or '').strip()
+
+    value = overrides.get(module, default_timeout) if module else default_timeout
+    return value
+
 def enqueue(entrypoint,job_id,*args,queue=None):
     from flask_app.services.background_job_service import get_background_job_service
     service=get_background_job_service()
     try:
         task=(queue if queue is not None else redis_queue()).enqueue(entrypoint,*args,job_id='analysis-'+job_id,
-             meta={'analysis_job_id':job_id},on_failure=record_failure,job_timeout=int(os.environ.get('ANALYSIS_TIMEOUT_SECONDS','7200')),
+             meta={'analysis_job_id':job_id},on_failure=record_failure,job_timeout=_job_timeout_seconds(job_id),
              result_ttl=86400,failure_ttl=604800)
         service.upsert_job(job_id,{'queue_backend':'redis','rq_job_id':task.id})
         return task
     except Exception as error:
         service.fail_job(job_id,'任务入队失败：'+str(error))
+        interrupt_child_jobs(job_id)
         raise
 
 def claim(job_id):
@@ -41,13 +69,17 @@ def claim(job_id):
 
 def interrupt_child_jobs(parent_job_id):
     """End unfinished inline children when their owning RQ process fails."""
-    from flask_app.models.database import AnalysisJob
+    from flask_app.models.database import db, AnalysisJob
     from flask_app.services.background_job_service import get_background_job_service
     service = get_background_job_service()
     pending = [parent_job_id]
     visited = {parent_job_id}
+    batch_parents = []
     while pending:
         parent_id = pending.pop()
+        parent = db.session.get(AnalysisJob, parent_id, populate_existing=True)
+        if parent is not None and parent.module == "analysis-batch":
+            batch_parents.append(parent_id)
         children = AnalysisJob.query.filter(
             AnalysisJob.payload["parent_job_id"].as_string() == parent_id
         ).all()
@@ -61,6 +93,10 @@ def interrupt_child_jobs(parent_job_id):
                     "status": "interrupted",
                     "detail": "所属工作进程已中断，请从组合分析任务重试。",
                 })
+
+    from flask_app.services.analysis_batch_service import settle_interrupted_batch_plan
+    for batch_id in reversed(batch_parents):
+        settle_interrupted_batch_plan(batch_id)
 
 
 def record_failure(rq_job,connection,exc_type,exc_value,traceback):
@@ -100,7 +136,7 @@ class ScriptExecutor:
     def __init__(self):self.local=ThreadPoolExecutor(max_workers=2)
     def submit(self,function,job_id,**kwargs):
         if os.environ.get('JOB_QUEUE','').lower()!='redis':
-            return self.local.submit(function,job_id,**kwargs)
+            return self.local.submit(_execute_local_script,function,job_id,kwargs)
         from flask_app.services.background_job_service import get_background_job_service
         context=kwargs.pop('app_context_app',None)
         call={'function':function.__module__+':'+function.__name__,'kwargs':encode(kwargs),'with_app_context':context is not None}
@@ -113,6 +149,35 @@ class ScriptExecutor:
             # waiting for a second worker that may not exist.
             return execute_script(job_id)
         return enqueue(execute_script,job_id,job_id)
+
+def _finish_script_cancellation(job_id, state_module=None):
+    from flask_app.services.background_job_service import TERMINAL_STATUSES, get_background_job_service
+    from flask_app.routes.api_script_hub import _common
+    service = get_background_job_service()
+    job = _common.get_script_hub_job_service().get_job(job_id)
+    if not job or job.get("status") in TERMINAL_STATUSES or not _common._script_task_cancel_requested(job_id):
+        return
+    if service.get_job(job_id) is not None:
+        service.cancel_job(job_id, detail="计算已停止，任务已取消。")
+    if state_module is None or state_module is _common:
+        _common._mark_script_task_cancelled(job_id)
+
+
+def _execute_local_script(function, job_id, kwargs):
+    from contextlib import nullcontext
+    from flask_app.routes.api_script_hub import _common
+    from flask_app.services.background_job_service import get_background_job_service
+    app = kwargs.get('app_context_app') or get_background_job_service().app
+    with app.app_context() if app else nullcontext():
+        try:
+            if not _common._script_task_cancel_requested(job_id):
+                return function(job_id, **kwargs)
+        except _common.ScriptTaskCancelled:
+            pass
+        finally:
+            # Wait until the function and any nested executors have unwound.
+            _finish_script_cancellation(job_id)
+
 
 def execute_script(job_id):
     from flask_app.app import app
@@ -149,15 +214,29 @@ def execute_script(job_id):
                     login_user(owner)
                 from flask import g
                 g.analysis_project_id = job.get('project_id')
+                g.analysis_task_id = job_id
                 from flask_app.services.analysis_artifacts import revalidate_job_upstream
                 revalidate_job_upstream(job)
                 from flask_app.services.input_preparation import revalidate_prepared_sources
                 revalidate_prepared_sources(job)
-                from flask_app.services.input_quality import validate_analysis_inputs
-                validate_analysis_inputs((job.get('payload') or {}).get('input_assets', []))
+                from flask_app.services.input_quality import require_alignment_review, validate_analysis_inputs
+                if job.get('module') == 'immune-infiltration-paired':
+                    from flask_app.services.infiltration_pairing import validate_paired_assets
+                    validate_paired_assets((job.get('payload') or {}).get('input_assets', []), (job.get('payload') or {}).get('config_json') or {})
+                else:
+                    payload = job.get('payload') or {}
+                    config_json = payload.get('config_json') or {}
+                    quality = validate_analysis_inputs(payload.get('input_assets', []), config_json, module_name=job.get('module'))
+                    alignment = config_json.get('input_alignment') or {}
+                    require_alignment_review(quality, alignment.get('reviewed') is True)
                 function(job_id,**kwargs)
+        except _common.ScriptTaskCancelled:
+            pass
         finally:
-            with task_lock:tasks.pop(job_id,None)
+            try:
+                _finish_script_cancellation(job_id, state_module)
+            finally:
+                with task_lock:tasks.pop(job_id,None)
         return service.get_job(job_id)
 
 def execute_api(module,job_id):

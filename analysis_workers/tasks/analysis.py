@@ -17,8 +17,10 @@ def _run_analysis_module(job_id: str, module: str, stage: str) -> Dict[str, Any]
     from flask_app.services.background_job_service import get_background_job_service
     from flask_app.services.api_job_runner import call_json_endpoint
 
+    from flask_app.services.project_storage_paths import job_storage_context
+
     app = create_app()
-    with app.app_context():
+    with app.app_context(), job_storage_context(job_id):
         service = get_background_job_service()
         job = service.get_job(job_id)
         if job is None:

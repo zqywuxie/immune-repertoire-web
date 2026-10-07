@@ -1,0 +1,18 @@
+.batch-execution { display:grid; gap:var(--spacing-md); min-width:0; }
+.batch-execution__items { display:grid; gap:var(--spacing-sm); }
+.batch-execution__item { padding:var(--spacing-lg); border:1px solid var(--separator); border-radius:var(--radius-panel); background:var(--bg-elevated); min-width:0; overflow-wrap:anywhere; }
+.batch-execution__header { display:flex; flex-wrap:wrap; align-items:center; gap:var(--spacing-sm); }
+.batch-execution__number { display:grid; place-items:center; width:30px; height:30px; flex-shrink:0; border:1px solid var(--separator); border-radius:var(--radius-control); background:var(--bg-inset); color:var(--text-secondary); font-variant-numeric:tabular-nums; font-size:.8rem; }
+.batch-execution__title { display:grid; gap:3px; flex:1; min-width:100px; }
+.batch-execution__id { color:var(--text-secondary); font-size:.75rem; }
+.batch-execution__progress { margin-top:var(--spacing-md); }
+.batch-execution__caption { display:flex; align-items:baseline; justify-content:space-between; gap:var(--spacing-sm); margin-bottom:8px; font-size:.82rem; color:var(--text-secondary); }
+.batch-execution__caption strong { color:var(--text-primary); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.batch-execution__note { font-size:.82rem; line-height:1.6; color:var(--text-secondary); margin:var(--spacing-sm) 0 0; }
+.batch-execution__error { font-size:.85rem; line-height:1.6; color:var(--danger); margin:var(--spacing-sm) 0 0; }
+.batch-execution__notice { display:flex; flex-wrap:wrap; align-items:center; gap:var(--spacing-sm); padding:var(--spacing-sm); border-radius:var(--radius-control); background:var(--bg-inset); margin-top:var(--spacing-sm); font-size:.82rem; }
+.batch-execution__actions { display:flex; flex-wrap:wrap; gap:var(--spacing-sm); margin-top:var(--spacing-md); }
+.batch-execution__link { color:var(--accent); font-size:.82rem; text-decoration:none; border:1px solid var(--separator); border-radius:var(--radius-control); padding:7px 12px; }
+.batch-execution__link:hover { background:var(--bg-inset); }
+.batch-execution__link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:480px) { .batch-execution__item { padding:var(--spacing-md); } }

@@ -16,6 +16,24 @@ def _build_script_hub_bp():
 
     bp = Blueprint("script_hub", __name__, url_prefix="/api/script-hub")
     @bp.before_request
+    def resolve_group_specification():
+        from flask import request, jsonify
+        from flask_app.exceptions import ValidationError
+        from flask_app.services.group_spec_service import get_group_spec_service
+        if request.method != 'POST':
+            return None
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict) or not data.get('group_spec_id'):
+            return None
+        module = str(data.get('module') or (request.path.split('/')[3] if len(request.path.split('/')) > 3 else ''))
+        try:
+            resolved = get_group_spec_service().apply_to_payload(module, data)
+            data.clear()
+            data.update(resolved)
+        except ValidationError as error:
+            return jsonify(success=False, message=error.message, details=error.details), 400
+
+    @bp.before_request
     def resolve_result_reference():
         from flask import request, jsonify
         from flask_app.exceptions import ValidationError

@@ -1,8 +1,10 @@
 """Modules listing, data-selection, and DB-alignment routes for the Script Hub API."""
 
+import os
 import random
 import re
 import uuid
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -44,6 +46,7 @@ from ._common import (
     _script_executor,
     _set_task_state,
     _selected_samples_from_request,
+    _group_sample_identity_from_request,
     _selected_group_values_from_request,
     _selected_samples_by_group_from_request,
     _validate_selected_samples_against_group_values,
@@ -63,6 +66,7 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
     file_preview: List[Dict[str, Any]] = []
     warnings: List[str] = []
     pep_columns: List[str] = []
+    sample_files: Dict[tuple[str, str], List[Path]] = {}
 
     for pep_file in pep_files:
         chain = _infer_wide_chain_from_filename(pep_file.name) or _chain_from_parent_dirs(pep_file)
@@ -70,15 +74,41 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
             pep_columns = _read_table_columns(pep_file)
         if not chain:
             continue
+        sample_name = _sample_name_from_pep_file(pep_file, chain)
         discovered_chains.add(chain)
-        sample_names.add(_sample_name_from_pep_file(pep_file, chain))
+        sample_names.add(sample_name)
+        identity = (chain, sample_name)
+        resolved_file = pep_file.resolve()
+        files_for_identity = sample_files.setdefault(identity, [])
+        if resolved_file not in files_for_identity:
+            files_for_identity.append(resolved_file)
         if len(file_preview) < 20:
             file_preview.append({
                 "path": str(pep_file),
                 "filename": pep_file.name,
                 "chain": chain,
-                "sample": _sample_name_from_pep_file(pep_file, chain),
+                "sample": sample_name,
             })
+
+    sample_conflicts = []
+    for (chain, sample), paths in sorted(sample_files.items()):
+        if len(paths) < 2:
+            continue
+        common_root = Path(os.path.commonpath([str(path.parent) for path in paths]))
+        sample_conflicts.append({
+            "sample": sample,
+            "chain": chain,
+            "files": [path.relative_to(common_root).as_posix() for path in paths],
+        })
+    if sample_conflicts:
+        examples = "、".join(
+            f"{item['sample']}（{item['chain']}：{'、'.join(item['files'][:2])}）"
+            for item in sample_conflicts[:5]
+        )
+        warnings.append(
+            f"发现 {len(sample_conflicts)} 组同名且同链的克隆序列文件（例如：{examples}）。"
+            "跨批次同名样本需选择支持批次字段的分析，并核对批次目录与指标表；未使用批次字段时，请先合并或重命名样本编号。"
+        )
 
     random_pep_preview_file = None
     if pep_files:
@@ -126,6 +156,7 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
         "pep_file_count": len(pep_files),
         "pep_columns": pep_columns,
         "pep_files_preview": file_preview,
+        "sample_conflicts": sample_conflicts,
         "random_pep_preview_file": random_pep_preview_file,
         "warnings": warnings,
     }
@@ -133,56 +164,74 @@ def _inspect_data_selection_payload(pep_paths: List[str], profile_path: Optional
 
 # ── Helper: discover DB alignment inputs ──
 
-def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], requested_mapping: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], requested_mapping: Optional[Dict[str, Any]] = None, *, pep_paths: Optional[List[str]] = None, batch_field: Optional[str] = None) -> Dict[str, Any]:
     if not str(base_path or "").strip():
         raise ValidationError(message="base_path is required", details={"field": "base_path"})
 
     service = get_auto_heatmap_service()
-    scan_result = service.scan_base_folder(base_path)
-
-    filtered_samples: List[Dict[str, Any]] = []
+    sources = list(dict.fromkeys(pep_paths or [base_path]))
+    batch_values = set()
+    if batch_field:
+        if not profile_path:
+            raise ValidationError(message="批次匹配需要样本指标表。")
+        profile = DBAlignmentService._read_profile_frame(Path(profile_path))
+        if batch_field not in profile.columns:
+            raise ValidationError(message="所选批次字段不在样本指标表中。")
+        batch_values = set(profile[batch_field].fillna("").astype(str).str.strip()) - {""}
+    groups: Dict[tuple, Dict[str, Any]] = {}
     discovered_chains: set[str] = set()
     preview_file_path = ""
     preview_columns: List[str] = []
     preview_rows: List[List[Any]] = []
-
-    for sample in scan_result.samples:
-        normalized_files: Dict[str, Dict[str, Any]] = {}
-        for file_info in sample.data_files:
-            normalized_chain = _normalize_chain(_infer_chain_from_filename(file_info.filename))
-            if normalized_chain not in _SUPPORTED_CHAINS:
-                continue
-            if normalized_chain not in normalized_files:
-                normalized_files[normalized_chain] = {
-                    "filename": file_info.filename,
-                    "filepath": file_info.filepath,
-                    "size": file_info.size,
-                    "rows": file_info.rows,
-                    "columns": file_info.columns,
-                }
-                discovered_chains.add(normalized_chain)
+    seen_files = set()
+    for source in sources:
+        path = Path(source)
+        if path.is_file():
+            file = service._get_file_info(path.name, str(path))
+            source_samples = [{"original_name": service._extract_sample_name_from_chain_file(path.name) or path.stem,
+                               "display_name": path.stem, "folder_path": str(path.parent), "data_files": [file]}]
+        else:
+            scanned = service.scan_base_folder(source)
+            source_samples = [{"original_name": sample.original_name, "display_name": sample.display_name,
+                               "folder_path": sample.folder_path, "data_files": sample.data_files} for sample in scanned.samples]
+        for sample in source_samples:
+            for file in sample["data_files"]:
+                chain = _normalize_chain(_infer_chain_from_filename(file.filename))
+                if chain not in _SUPPORTED_CHAINS:
+                    continue
+                file_path = Path(file.filepath).resolve()
+                if file_path in seen_files:
+                    continue
+                seen_files.add(file_path)
+                sample_name = service._extract_sample_name_from_chain_file(file.filename) or sample["original_name"]
+                batches = {ancestor.name.strip() for ancestor in file_path.parents if ancestor.name.strip() in batch_values}
+                if len(batches) > 1:
+                    raise ValidationError(message=f"克隆文件路径对应多个批次：{file.filename}")
+                batch = next(iter(batches)) if batches else ""
+                if batch_field and not batch:
+                    raise ValidationError(message=f"克隆文件所在批次目录名需与批次字段值一致：{file.filename}")
+                key = (sample_name, batch)
+                entry = groups.setdefault(key, {"original_name": sample_name,
+                    "display_name": f"{batch} / {sample_name}" if batch_field else sample_name,
+                    "folder_path": str(file_path.parent), "batch": batch, "data_files": []})
+                if any(_normalize_chain(_infer_chain_from_filename(item["filename"])) == chain for item in entry["data_files"]):
+                    raise ValidationError(message=f"同一样本、批次与链型存在多个克隆文件，请选择正确批次字段或输入：{sample_name} / {batch or '未指定批次'} / {chain}")
+                entry["data_files"].append({"filename": file.filename, "filepath": str(file_path),
+                    "size": file.size, "rows": file.rows, "columns": file.columns})
+                discovered_chains.add(chain)
                 if not preview_file_path:
-                    preview_file_path = file_info.filepath
-
-        if normalized_files:
-            filtered_samples.append(
-                {
-                    "original_name": sample.original_name,
-                    "display_name": sample.display_name,
-                    "folder_path": sample.folder_path,
-                    "data_files": list(normalized_files.values()),
-                }
-            )
+                    preview_file_path = str(file_path)
+    filtered_samples = list(groups.values())
 
     if not filtered_samples:
         raise ValidationError(
-            message="No TRA/TRB pep files were detected under the selected base path",
+            message="所选数据中未检测到 TRA/TRB 克隆文件。",
             details={"base_path": base_path}
         )
 
     if not discovered_chains:
         raise ValidationError(
-            message="DB alignment currently supports TRA/TRB files only",
+            message="数据库比对仅支持 TRA/TRB 文件。",
             details={"base_path": base_path}
         )
 
@@ -206,7 +255,7 @@ def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], r
     missing_mapping = [name for name, value in resolved_mapping.items() if not value]
     if missing_mapping:
         raise ValidationError(
-            message="Unable to auto-detect required DB alignment columns",
+            message="无法识别比对所需字段，请选择序列列和拷贝数列。",
             details={
                 "missing_fields": missing_mapping,
                 "preview_file": preview_file_path,
@@ -217,7 +266,7 @@ def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], r
     invalid_mapping = [value for value in resolved_mapping.values() if value not in preview_columns]
     if invalid_mapping:
         raise ValidationError(
-            message="Selected field mapping does not exist in the detected pep file",
+            message="所选映射字段不在克隆数据中，请重新检查。",
             details={"invalid_columns": invalid_mapping, "available_columns": preview_columns}
         )
 
@@ -232,9 +281,13 @@ def _discover_db_alignment_inputs(base_path: str, profile_path: Optional[str], r
         for sample in filtered_samples[:20]
     ]
 
+    reference_service = DBAlignmentService(output_parent=Path.cwd())
+    reference_sources = [{"name": name, "available": path.is_file(), "path": str(path)} for name, path in (
+        ("VDJdb", reference_service.vdjdb_path), ("McPAS-TCR", reference_service.mcpas_path), ("IEDB", reference_service.iedb_path))]
     return {
+        "reference_sources": reference_sources,
         "base_path": base_path,
-        "summary": scan_result.summary,
+        "summary": f"发现 {len(filtered_samples)} 个样本身份、{len(seen_files)} 个克隆文件，含 {len(discovered_chains)} 种链型。",
         "samples": filtered_samples,
         "sample_count": len(filtered_samples),
         "pep_file_count": sum(len(sample["data_files"]) for sample in filtered_samples),
@@ -276,7 +329,7 @@ def _filter_discovery_samples(discovery: Dict[str, Any], selected_samples: List[
             samples.append(sample)
     if not samples:
         raise ValidationError(
-            message="No DB alignment samples matched the selected sample list. Check sample name prefixes/suffixes or choose samples from detected DB alignment sample names.",
+            message="所选样本未匹配到比对数据，请核对样本编号，或从已识别的样本中重新选择。",
             details={
                 "selected_samples": sorted(selected)[:30],
                 "selected_sample_keys": sorted(selected_lookup.keys())[:30],
@@ -290,6 +343,12 @@ def _filter_discovery_samples(discovery: Dict[str, Any], selected_samples: List[
         for file_info in sample.get("data_files", [])
         if _normalize_chain(_infer_chain_from_filename(file_info.get("filename", ""))) in _SUPPORTED_CHAINS
     })
+    db_service = DBAlignmentService(output_parent=Path.cwd())
+    reference_paths = {
+        "VDJdb": db_service.vdjdb_path,
+        "McPAS-TCR": db_service.mcpas_path,
+        "IEDB": db_service.iedb_path,
+    }
     return {
         **discovery,
         "samples": samples,
@@ -298,6 +357,10 @@ def _filter_discovery_samples(discovery: Dict[str, Any], selected_samples: List[
         "selected_chains": chains,
         "selected_samples_requested": sorted(selected),
         "selected_samples_unmatched": unmatched[:30],
+        "reference_sources": [
+            {"name": name, "available": path.is_file(), "path": str(path)}
+            for name, path in reference_paths.items()
+        ],
         "sample_preview": [
             {
                 "sample_name": sample.get("display_name") or sample.get("original_name"),
@@ -413,19 +476,24 @@ def _run_db_alignment_task(
     contained_pathology: bool,
     pathology_values: List[str],
     selected_samples: Optional[List[str]] = None,
+    pep_paths: Optional[List[str]] = None,
+    batch_field: Optional[str] = None,
+    selected_group_values: Optional[Dict[str, List[str]]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    group_sample_identity: str = "sample",
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
-        _record_stage(task_id, 5, "Inspect assets", "Scanning pep/Profile inputs for DB alignment", {"module": "db-alignment"})
+        _record_stage(task_id, 5, "检查比对输入", "正在检查克隆序列表与样本指标表", {"module": "db-alignment"})
 
-        discovery = _discover_db_alignment_inputs(base_path, profile_path, field_mapping)
+        discovery = _discover_db_alignment_inputs(base_path, profile_path, field_mapping, pep_paths=pep_paths, batch_field=batch_field)
         discovery = _filter_discovery_samples(discovery, selected_samples or [])
 
         _record_stage(
             task_id,
             12,
-            "Inspect assets",
-            f"Detected {discovery['sample_count']} sample(s) and {len(discovery['selected_chains'])} chain(s)",
+            "检查比对输入",
+            f"发现 {discovery['sample_count']} 个样本和 {len(discovery['selected_chains'])} 种链型",
             {
                 "module": "db-alignment",
                 "sample_count": discovery["sample_count"],
@@ -441,6 +509,11 @@ def _run_db_alignment_task(
             output_name=output_name,
             base_path=base_path,
             profile_path=profile_path,
+            batch_field=batch_field,
+            selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             categories=categories,
             contained_pathology=contained_pathology,
             pathology_values=pathology_values,
@@ -466,20 +539,23 @@ def _run_db_alignment_task(
             "profile_path": str(report.metadata.get("profile_path") or ""),
             "metadata": report.metadata,
         }
+        summary_files = [report.summary_path, report.output_base / "specify_ratio_with_profile.csv", report.output_base / "alignment_summary.csv"]
+        result["csv_urls"] = [f"/api/script-hub/results/{report.job_id}/{quote(path.relative_to(report.output_base).as_posix(), safe='/')}"
+                              for path in summary_files if path.is_file()]
         _normalize_script_result(
             result,
             report.output_base,
             report.metadata,
-            title="DB Alignment Results",
-            subtitle="Chains: " + ", ".join(result.get("selected_chains") or []),
-            dl_extras=[("metadata_url", "metadata.json", "Metadata")],
+            title="数据库比对结果",
+            subtitle="链型：" + ", ".join(result.get("selected_chains") or []),
+            dl_extras=[("metadata_url", "metadata.json", "分析详情"), ("csv_urls", None, "比对数据表")],
             zip_name="db_alignment_bundle.zip",
         )
         history = (_get_task_state(task_id) or {}).get("history", [])
         _complete_script_task(
             task_id,
             module_name="db-alignment",
-            detail="DB alignment report generated",
+            detail="数据库比对结果已生成",
             result=result,
             history=history,
             app_context_app=app_context_app,
@@ -490,8 +566,8 @@ def _run_db_alignment_task(
         _set_task_state(
             task_id,
             status="failed",
-            progress=100.0,
-            stage="Failed",
+            progress=float((_get_task_state(task_id) or {}).get("progress") or 0.0),
+            stage="执行失败",
             detail=str(exc),
             error=str(exc),
             meta={"phase": "failed", "module": "db-alignment"},
@@ -507,6 +583,11 @@ def list_modules():
         {
             "success": True,
             "modules": [
+                {"key":"immune-infiltration-consistency","label":"免疫浸润细胞相关性","status":"available","description":"组别校正后的细胞共同变化、相关矩阵及统计表。"},
+                {"key":"immune-infiltration-concordance","label":"浸润与亚类方向比较","status":"available","description":"比较免疫球蛋白亚类与浸润细胞的组间变化方向。"},
+                {"key":"immune-infiltration-pathway","label":"GO-BP 与浸润方向比较","status":"available","description":"复用完整 GO-BP 富集结果，按明确比较方向计算通路与细胞一致性。"},
+                {"key":"immune-infiltration-sample-pathway","label":"GO-BP 与浸润样本级相关性","status":"available","description":"用转录组计算固定 GO-BP ssGSEA 分数，再与同样本浸润分数做组别校正相关和组内置换。"},
+                {"key":"immune-infiltration-paired","label":"浸润与亚类配对相关性","status":"available","description":"使用明确的一对一配对计算组别校正后的跨数据相关性。"},
                 {"key":"immune-infiltration","label":"免疫浸润组成与比较","status":"available","description":"按样本指标表匹配分组，生成细胞组成图及组间比较统计。"},
                 {
                     "key": "db-alignment",
@@ -548,7 +629,7 @@ def list_modules():
                     "key": "umap",
                     "label": "UMAP 降维分析",
                     "status": "available",
-                    "description": "基于 Mann-Whitney U 显著性预过滤的 UMAP 降维投影。",
+                    "description": "组合样本指标与 V/J 使用结果，按组间差异筛选特征并输出 UMAP 与 PERMANOVA。",
                 },
                 {
                     "key": "volcano",
@@ -572,7 +653,7 @@ def list_modules():
                     "key": "ml-analysis",
                     "label": "机器学习分析",
                     "status": "available",
-                    "description": "参考 ML_260526 随机森林流程，支持 Profile 特征或 PEP共享分析缓存的 VJ usage 特征。",
+                    "description": "支持多分类模型比较、受试者分组嵌套交叉验证和稳定特征筛选，可使用样本指标、V/J 使用特征或两者联合分析。",
                 },
                 {
                     "key": "mait-nkt",
@@ -586,10 +667,14 @@ def list_modules():
 
 
     import importlib.util
-    from flask_app.services.module_runtime import enrichment_runtime_ready, infiltration_runtime_ready
+    from flask_app.services.module_runtime import enrichment_runtime_ready, infiltration_runtime_ready, consistency_runtime_ready, sample_pathway_runtime_ready
     payload = response.get_json()
     required = {'pgen-analysis': ('sonnia', 'Pgen 运行环境未配置，请联系管理员启用 SoNNia 模型。'), 'umap': ('umap', 'UMAP 运行环境未配置。'), 'umapin': ('umap', 'UMAP 运行环境未配置。')}
     for module in payload['modules']:
+        if module['key'] in {'immune-infiltration-consistency','immune-infiltration-concordance','immune-infiltration-paired'} and not consistency_runtime_ready():
+            module.update(status='unavailable', description='细胞相关性绘图环境尚未启用，请更新分析依赖镜像。')
+        if module['key'] == 'immune-infiltration-sample-pathway' and not sample_pathway_runtime_ready():
+            module.update(status='unavailable', unavailable_reason='样本级通路运行环境未就绪，需要 GSVA、GO 注释数据包及绘图依赖。')
         if module['key'] == 'immune-infiltration' and not infiltration_runtime_ready():
             module.update(status='unavailable', unavailable_reason='免疫浸润绘图运行环境未就绪，请检查分析基础镜像。')
         dependency = required.get(module['key'])
@@ -606,14 +691,27 @@ def inspect_data_selection():
         data = request.get_json() or {}
         project_id = str(data.get("project_id") or "").strip()
         asset_set = str(data.get("asset_set") or "").strip()
-        project_assets = (_collect_project_script_hub_assets(project_id, asset_set, selections=data)
-                          if asset_set else _collect_project_script_hub_assets(project_id))
+        input_types = data.get("input_types")
+        if input_types is not None and (not isinstance(input_types, list) or
+                any(not isinstance(kind, str) or kind not in {"pep", "profile", "transcriptome", "deconvolution"} for kind in input_types)):
+            raise ValidationError(message="数据检查范围不正确，请重新选择分析。")
+        requested_types = set(input_types) if input_types is not None else None
+        alignment_groups = data.get("alignment_groups")
+        allowed_types = requested_types if requested_types is not None else {"pep", "profile", "transcriptome", "deconvolution"}
+        if alignment_groups is not None and (not isinstance(alignment_groups, list) or any(
+                not isinstance(group, list) or len(group) < 2 or
+                any(not isinstance(kind, str) or kind not in allowed_types for kind in group) or
+                len(set(group)) != len(group) for group in alignment_groups)):
+            raise ValidationError(message="联合输入的样本检查范围不正确，请重新选择分析。")
+        project_assets = _collect_project_script_hub_assets(
+            project_id, asset_set or None, selections=data, input_types=requested_types)
+        includes = lambda kind: requested_types is None or kind in requested_types
         if project_id:
             pep_paths = project_assets["pep_paths"]
             profile_path = project_assets["profile_path"] or None
         else:
-            pep_paths = _pep_paths_from_request(data)
-            profile_path = _profile_path_from_request(data, "profile_path")
+            pep_paths = _pep_paths_from_request(data) if includes("pep") else []
+            profile_path = _profile_path_from_request(data, "profile_path") if includes("profile") else None
         discovery = _inspect_data_selection_payload(pep_paths, profile_path)
         invalid_profiles = project_assets.get("invalid_profile_paths", []) if project_id else []
         registered_profiles = project_assets.get("profile_paths", []) if project_id else []
@@ -640,12 +738,20 @@ def inspect_data_selection():
                 "项目已注册转录组表达矩阵无效或为空，请在项目资产页删除后重新注册有效的表达矩阵。"
             )
             discovery["invalid_transcriptome_paths"] = invalid_transcriptomes[:5]
-        from flask_app.services.input_quality import inspect_input_quality
-        discovery["input_quality"] = inspect_input_quality(
+        from flask_app.services.input_quality import inspect_selected_input_quality
+        discovery["input_quality"] = inspect_selected_input_quality(
             pep_paths, profile_path,
-            project_assets.get("transcriptome_path", "") if project_id else data.get("transcriptome_path", ""),
-            project_assets.get("deconvolution_path", "") if project_id else data.get("deconvolution_path", ""),
+            (project_assets.get("transcriptome_path", "") if project_id else data.get("transcriptome_path", "")) if includes("transcriptome") else "",
+            (project_assets.get("deconvolution_path", "") if project_id else data.get("deconvolution_path", "")) if includes("deconvolution") else "",
+            profile_batch_field=project_assets.get("profile_batch_field") if project_id else None,
+            alignment_groups=alignment_groups,
         )
+        discovery["inspected_input_types"] = sorted(requested_types) if requested_types is not None else ["pep", "profile", "transcriptome", "deconvolution"]
+        if not pep_paths and not profile_path:
+            reference = next((item for item in discovery["input_quality"]["inputs"] if item.get("status") == "checked"), None)
+            if reference:
+                samples = reference.get("samples") or []
+                discovery.update(sample_count=len(samples), samples=samples[:50])
         return jsonify(_sanitize_nan({"success": True, **discovery}))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_data_selection: %s", exc.message)
@@ -663,7 +769,7 @@ def inspect_db_alignment():
         base_path = _primary_pep_path_from_request(data, "base_path")
         profile_path = _profile_path_from_request(data, "profile_path")
         field_mapping = data.get("field_mapping") if isinstance(data.get("field_mapping"), dict) else None
-        discovery = _discover_db_alignment_inputs(base_path, profile_path, field_mapping)
+        discovery = _discover_db_alignment_inputs(base_path, profile_path, field_mapping, pep_paths=pep_paths, batch_field=str(data.get("batch_field") or "").strip() or None)
         return jsonify(_sanitize_nan({"success": True, **discovery}))
     except ValidationError as exc:
         logger.warning("Validation error in inspect_db_alignment: %s", exc.message)
@@ -712,10 +818,14 @@ def run_db_alignment():
         profile_path = _profile_path_from_request(data, "profile_path")
         categories = [str(item).strip() for item in (data.get("categories") or []) if str(item).strip()]
         if not categories:
-            raise ValidationError(message="Please select group field / 请选择分组字段", details={"field": "categories"})
+            raise ValidationError(message="请选择分组字段。", details={"field": "categories"})
         pathology_values = [str(item).strip() for item in (data.get("pathology_values") or []) if str(item).strip()]
         contained_pathology = _as_bool(data.get("contained_pathology"), False)
         selected_samples = _selected_samples_from_request(data)
+        selected_group_values = _selected_group_values_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
+        batch_field = str(data.get("batch_field") or "").strip() or None
+        group_sample_identity = _group_sample_identity_from_request(data)
         _validate_selected_samples_against_group_values(data)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
@@ -734,8 +844,10 @@ def run_db_alignment():
                 "contained_pathology": contained_pathology,
                 "pathology_values": pathology_values,
                 "selected_samples": selected_samples,
-                "selected_group_values": _selected_group_values_from_request(data),
-                "selected_samples_by_group": _selected_samples_by_group_from_request(data),
+                "batch_field": batch_field,
+                "group_sample_identity": group_sample_identity,
+                "selected_group_values": selected_group_values,
+                "selected_samples_by_group": selected_samples_by_group,
             },
         )
         if not _force_rerun_requested(data):
@@ -749,10 +861,10 @@ def run_db_alignment():
             task_id,
             status="queued",
             progress=0.0,
-            stage="Queued",
-            detail="Task created and waiting to start",
+            stage="等待执行",
+            detail="数据库比对任务已加入队列。",
             meta=queued_meta,
-            history=[_history_entry(0.0, "Queued", "Task created and waiting to start", queued_meta)],
+            history=[_history_entry(0.0, "等待执行", "数据库比对任务已加入队列。", queued_meta)],
             **cache_context,
         )
 
@@ -771,6 +883,11 @@ def run_db_alignment():
             contained_pathology=contained_pathology,
             pathology_values=pathology_values,
             selected_samples=selected_samples,
+            pep_paths=pep_paths or None,
+            batch_field=batch_field,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             app_context_app=current_app._get_current_object() if project_id else None,
         )
 
@@ -794,7 +911,7 @@ def inspect_selected_table_schema():
             raise ValidationError(message='请选择样本指标表、转录组或浸润表。')
         if not str(data.get('project_id') or '').strip():
             raise ValidationError(message='请先选择项目和数据集。')
-        assets = _request_registered_assets(data)
+        assets = _request_registered_assets(data, input_types={kind})
         value = assets.get(kind + '_path')
         if not value:
             raise ValidationError(message='当前数据集尚未登记可读取的此类表格。')

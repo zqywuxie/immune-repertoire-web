@@ -1,0 +1,6 @@
+.job-queue-notice {display:grid;gap:8px;padding:var(--spacing-md);border:1px solid var(--separator);border-left:3px solid var(--accent);border-radius:var(--radius-control);background:var(--bg-root);font-size:.82rem;line-height:1.7;overflow-wrap:anywhere;min-width:0;}
+.job-queue-notice__heading {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.job-queue-notice p {margin:0;}
+.job-queue-notice__facts,.job-queue-notice small {color:var(--text-secondary);}
+.job-queue-notice .btn {min-height:44px;}
+@media(max-width:600px){.job-queue-notice__heading .btn{width:100%;}}

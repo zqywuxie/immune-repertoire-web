@@ -1,0 +1,21 @@
+.dataset-details {display:grid;gap:10px;padding:16px;border:1px solid var(--separator);border-radius:var(--radius-panel);background:var(--bg-surface);min-width:0;overflow-wrap:anywhere;font-size:.84rem;line-height:1.7;}
+.dataset-details__heading {display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.dataset-details__heading>div {min-width:0;}
+.dataset-details__heading small {display:block;color:var(--text-secondary);}
+.dataset-details p,.dataset-details dl {margin:0;}
+.dataset-details dl {display:flex;flex-wrap:wrap;gap:12px 32px;}
+.dataset-details dt {color:var(--text-secondary);font-size:.78rem;}
+.dataset-details dd {margin:0;}
+.dataset-details__archived {margin-left:10px;padding:3px 8px;border-radius:var(--radius-pill);background:var(--bg-inset);color:var(--text-secondary);font-size:.76rem;}
+.dataset-details__sheet {width:min(620px,90vw);}
+.dataset-details__sheet form {display:grid;gap:16px;}
+.dataset-details__sheet form>label {display:grid;gap:6px;font-size:.84rem;font-weight:600;}
+.dataset-details__sheet .dataset-details__archive {display:flex;align-items:center;gap:10px;min-height:44px;}
+.dataset-details__sheet textarea {resize:vertical;line-height:1.7;}
+.dataset-details__hint {margin:0;color:var(--text-secondary);font-size:.8rem;line-height:1.7;overflow-wrap:anywhere;}
+.dataset-details__conflict {display:grid;gap:12px;padding:14px;border:1px solid var(--accent);border-radius:var(--radius-control);background:var(--bg-root);font-size:.82rem;overflow-wrap:anywhere;}
+.dataset-details__conflict dl {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0;}
+.dataset-details__conflict dt {font-weight:600;}.dataset-details__conflict dd {margin:4px 0;}
+.dataset-details .btn,.dataset-details__sheet .btn {min-height:44px;}
+.data-dataset-archive-filter {display:flex;align-items:center;gap:8px;min-height:44px;font-size:.82rem;}
+@media(max-width:600px){.dataset-details {padding:12px;}.dataset-details__heading .btn {width:100%;}.dataset-details__conflict dl {grid-template-columns:1fr;}}

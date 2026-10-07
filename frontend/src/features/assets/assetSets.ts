@@ -1,6 +1,8 @@
 import type { ProjectAsset } from "../../shared/types/domain";
 
 export interface AssetSet {
+  display_name?: string;
+  archived?: boolean;
   name: string;
   assets: ProjectAsset[];
   pepPaths: string[];
@@ -78,11 +80,39 @@ export function buildAssetSets(assets: ProjectAsset[]): AssetSet[] {
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
-export function nextAssetSetName(sets: AssetSet[]): string {
+export function nextAssetSetName(sets: Pick<AssetSet, "name">[]): string {
   let max = 0;
   for (const set of sets) {
     const match = /^Set(\d+)$/i.exec(set.name.trim());
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `Set${max + 1 || 1}`;
+}
+
+export function projectReturnPath(projectId: string, value: string, fallback: string) {
+  if(value){
+    try {
+      const url=new URL(value,window.location.origin);
+      if(url.origin===window.location.origin && url.pathname===`/management/projects/${encodeURIComponent(projectId)}`)return url.pathname+url.search+url.hash;
+    }catch{ /* Return to the current project when the source is unavailable. */ }
+  }
+  return fallback;
+}
+
+export function projectAssetDetailPath(projectId: string, assetId: string, dataset: string, kind = "") {
+  const query = new URLSearchParams({ tab: "assets", asset_set: dataset, asset: assetId });
+  if (kind) query.set("file_type", kind);
+  return `/management/projects/${encodeURIComponent(projectId)}?${query}`;
+}
+
+/** A result with no saved scope must not inherit the input upload default. */
+export function getAssetSetLabel(asset: ProjectAsset): string {
+  if(asset.asset_type !== "processed_result") return getAssetSetName(asset);
+  const saved=asset.metadata || {};
+  for(const key of ["asset_set","dataset","data_set","group_label","group"]){const value=saved[key];if(typeof value==="string" && value.trim())return value.trim();}
+  const config=saved.config_json;
+  if(config && typeof config==="object" && !Array.isArray(config)){
+    const value=(config as Record<string,unknown>).asset_set;if(typeof value==="string" && value.trim())return value.trim();
+  }
+  return "未记录数据集";
 }

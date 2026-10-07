@@ -1,3 +1,4 @@
+import { listScriptHubModules, inspectScriptHubDataSelection, readScriptHubTablePreview } from "../shared/api/scriptHub";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -29,7 +30,7 @@ async function inspect(){fireEvent.click(screen.getByRole("button",{name:"检查
 describe("独立分析工具",()=>{
  it("下游入口保留产物标识，切换数据集后清除",async()=>{
   wizard("vj-difference","/analysis/tools/vj-difference?project=p1&asset_set=pep&upstream_artifact=source-one");
-  fireEvent.click(screen.getByText("选择 克隆序列表 数据"));await inspect();fireEvent.click(screen.getByText("下一步"));
+  fireEvent.click(screen.getByText("选择 克隆序列表 数据"));await inspect();await screen.findByTestId("config");
   expect(JSON.parse(screen.getByTestId("config").textContent!).volcano).toEqual({upstream_artifact_id:"source-one",input_mode:"usage"});
   fireEvent.click(screen.getByText("上一步"));
   fireEvent.click(screen.getByText("选择 样本指标表 数据"));
@@ -37,13 +38,13 @@ describe("独立分析工具",()=>{
  });
 
  it("更换输入后仍固定 Profile 工具，并保留项目地址",async()=>{
-  wizard("profile");expect(screen.getByText("确认数据")).toBeInTheDocument();expect(screen.getByText("运行与结果")).toBeInTheDocument();fireEvent.click(screen.getByText("选择 样本指标表 数据"));await inspect();fireEvent.click(screen.getByText("下一步"));
-  expect(screen.getByTestId("selection")).toHaveTextContent("profile");
+  wizard("profile");expect(screen.getByText("确认数据")).toBeInTheDocument();expect(screen.getByText("运行与结果")).toBeInTheDocument();fireEvent.click(screen.getByText("选择 样本指标表 数据"));await inspect();
+  expect(await screen.findByTestId("selection")).toHaveTextContent("profile");
   fireEvent.click(screen.getByText("上一步"));fireEvent.click(screen.getByText("选择 样本指标表 数据"));await inspect();fireEvent.click(screen.getByText("下一步"));
-  expect(screen.getByTestId("fixed-module")).toHaveTextContent("profile");expect(screen.getByTestId("location")).toHaveTextContent("project=p1");
+  expect(await screen.findByTestId("fixed-module")).toHaveTextContent("profile");expect(screen.getByTestId("location")).toHaveTextContent("project=p1");
  });
  it("图表独立页只能提交自己的模式，并保留可重开的任务地址",async()=>{
-  wizard("similarity");fireEvent.click(screen.getByText("选择 克隆序列表 数据"));await inspect();fireEvent.click(screen.getByText("下一步"));fireEvent.click(screen.getByText("配置并尝试切换模式"));fireEvent.click(screen.getByText("下一步"));
+  wizard("similarity");fireEvent.click(screen.getByText("选择 克隆序列表 数据"));await inspect();fireEvent.click(await screen.findByText("配置并尝试切换模式"));fireEvent.click(screen.getByText("下一步"));
   const payload=JSON.parse(screen.getByTestId("execution").textContent!);
   expect(payload).toEqual({modules:["charts"],moduleConfigs:{charts:{samples:["S1"],selected_modules:["heatmap"]}}});
   fireEvent.click(screen.getByText("提交测试任务"));expect(screen.getByTestId("location")).toHaveTextContent("job=job-1");
@@ -63,4 +64,34 @@ describe("独立分析工具",()=>{
   render(<MemoryRouter initialEntries={["/analysis/tools/profile?project=p1&job=job-1"]}><Routes><Route path="/analysis/tools/profile" element={<ProtectedRoute allowUnauthenticated={false}><p>内部分析</p></ProtectedRoute>}/><Route path="/login" element={<Location/>}/></Routes></MemoryRouter>);
   expect(screen.queryByText("内部分析")).not.toBeInTheDocument();expect(screen.getByTestId("location").textContent).toBe("/login?redirect=%2Fanalysis%2Ftools%2Fprofile%3Fproject%3Dp1%26job%3Djob-1");
  });
+});
+
+it("检查整理文件时保留原始选择，预览使用实际整理路径",async()=>{
+ sessionStorage.clear();
+ vi.mocked(inspectScriptHubDataSelection).mockReset().mockResolvedValue({sample_count:2,profile_columns:["sample","group"],profile_path:"/prepared/profile.csv",chains:["TRB"]} as any);
+ vi.mocked(readScriptHubTablePreview).mockClear();
+ wizard("profile");fireEvent.click(screen.getByText("选择 样本指标表 数据"));await inspect();
+ await waitFor(()=>expect(readScriptHubTablePreview).toHaveBeenCalledWith("/prepared/profile.csv"));
+ fireEvent.click(screen.getByText("上一步"));
+ expect(screen.getByTestId("selected-profile")).toHaveTextContent("/synthetic/profile.csv");
+});
+
+
+it("管理页选择的富集复用方式进入真实向导配置",async()=>{
+ sessionStorage.clear();
+ vi.mocked(listScriptHubModules).mockResolvedValueOnce({success:true,modules:[{key:"go-kegg-enrichment",label:"富集"}]} as any);
+ wizard("go-kegg","/analysis/tools/go-kegg?project=p1&asset_set=demo&prepare_mode=deg");
+ fireEvent.click(screen.getByText("选择 样本指标表 数据"));
+ await screen.findByTestId("config");
+ expect(JSON.parse(screen.getByTestId("config").textContent!)["go-kegg-enrichment"]).toEqual({input_mode:"deg"});
+});
+
+
+it("没有原始输入时仍可选择复用来源，但来源未确认不能运行",async()=>{
+ sessionStorage.clear();
+ vi.mocked(listScriptHubModules).mockResolvedValueOnce({success:true,modules:[{key:"go-kegg-enrichment",label:"富集"}]} as any);
+ wizard("go-kegg","/analysis/tools/go-kegg?project=p1&asset_set=derived&prepare_mode=deg");
+ await screen.findByTestId("config");
+ expect(JSON.parse(screen.getByTestId("config").textContent!)["go-kegg-enrichment"]).toEqual({input_mode:"deg"});
+ expect(screen.getByRole("button",{name:"下一步"})).toBeDisabled();
 });

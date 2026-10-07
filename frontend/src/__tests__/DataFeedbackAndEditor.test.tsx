@@ -1,0 +1,67 @@
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {afterEach, expect, it, vi} from "vitest";
+import {MemoryRouter, createMemoryRouter, RouterProvider} from "react-router-dom";
+import {ProjectInputSamples} from "../features/assets/ProjectInputSamples";
+import {ProjectGroupSpecs} from "../features/projects/ProjectGroupSpecs";
+import {SampleEditSheet} from "../features/samples/SampleEditSheet";
+import {apiClient} from "../shared/api/client";
+import * as projects from "../shared/api/projects";
+import * as samples from "../shared/api/samples";
+afterEach(()=>{cleanup();vi.restoreAllMocks();apiClient.invalidateCache();});
+const sample: samples.SampleRecord = {id:"r",project_id:"p",project_name:"研究项目",sample_id:"001",sample_name:"原名称",sequence_id:null,spices:"人",institution:"原机构",chain_flag:"旧链",is_healthy:null,illness:null,is_pe:null,contain_method:null,iso_tag:null,created_at:null,updated_at:null,extra_metadata:{asset_set:"甲"}};
+const coverage = {samples:[],unresolved:[],input_scopes:{},note:"保留原始编号",pagination:{page:1,page_size:50,total:0,total_pages:0}};
+it("输入筛选无匹配不误报需要导入，清除保留数据集", async()=>{
+  vi.spyOn(apiClient,"get").mockResolvedValue(coverage);
+  const router=createMemoryRouter([{path:"*",element:<ProjectInputSamples projectId="p" revision={0}/> }],{initialEntries:["/management/projects/p?tab=samples&asset_set=甲&sample_q=不存在&sample_state=multiple"]});
+  render(<RouterProvider router={router}/>);
+  expect(await screen.findByText("没有符合当前筛选的输入样本，请调整或清除筛选。")).toBeVisible();
+  expect(screen.queryByText(/尚未识别样本。请导入/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"清除样本筛选"}));
+  await screen.findByText(/尚未识别样本。请导入/);
+  expect(new URLSearchParams(router.state.location.search).get("asset_set")).toBe("甲");
+});
+it("识别未完成提示处理来源，展开只列前十项并提供完整入口",async()=>{
+  vi.spyOn(apiClient,"get").mockResolvedValue({...coverage,unresolved:Array.from({length:35},(_,i)=>({asset_id:`a${i}`,name:`来源${i}.csv`,status:"pending",asset_set:"甲",kind:"profile"}))});
+  render(<MemoryRouter initialEntries={["/?asset_set=甲"]}><ProjectInputSamples projectId="p" revision={0}/></MemoryRouter>);
+  expect(await screen.findByText("样本识别尚未完成，请先查看文件校验与映射。")).toBeVisible();
+  fireEvent.click(screen.getByText("35 个文件尚未识别样本，查看校验或映射"));
+  expect(screen.getAllByRole("link",{name:/^来源\d+\.csv$/})).toHaveLength(10);
+  expect(screen.getByRole("link",{name:"查看全部来源文件"})).toHaveAttribute("href","/management/projects/p?tab=assets&asset_set=%E7%94%B2");
+});
+it("分组指标表慢请求不显示空态，失败后可重试并导入",async()=>{
+  let reject!: (reason:Error)=>void;
+  const pending = new Promise<projects.AssetListResponse>((_,fail)=>{reject=fail;});
+  vi.spyOn(projects,"listProjectAssets").mockReturnValueOnce(pending).mockResolvedValue({assets:[]});
+  render(<MemoryRouter initialEntries={["/?asset_set=甲"]}><ProjectGroupSpecs groupSpecs={[]} loading={false} projectId="p" onChanged={vi.fn()}/></MemoryRouter>);
+  expect(await screen.findByText("正在读取当前范围的指标表与版本…")).toBeVisible();
+  expect(screen.queryByText(/当前范围暂无指标表/)).not.toBeInTheDocument();
+  await act(async()=>{reject(new Error("范围读取失败"));await pending.catch(()=>undefined);});
+  expect(await screen.findByRole("alert")).toHaveTextContent("范围读取失败");
+  expect(screen.queryByText(/当前范围暂无指标表/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"重新读取指标表"}));
+  await screen.findByText(/当前范围暂无指标表/);
+  expect(screen.getByRole("link",{name:"导入指标表"})).toHaveAttribute("href","/management/projects/p?tab=assets&import=1&file_type=profile&asset_set=%E7%94%B2");
+});
+it("样本建议限定原数据集，允许新值，只保存变更并保留旧链",async()=>{
+  const options=vi.spyOn(samples,"getSampleFieldOptions").mockResolvedValue({fields:{illness:["已有疾病"],institution:["原机构"]}});
+  const save=vi.fn().mockResolvedValue(undefined);
+  render(<SampleEditSheet sample={sample} open onClose={vi.fn()} onSave={save}/>);
+  await waitFor(()=>expect(options).toHaveBeenCalledWith("p","","甲"));
+  const input=await screen.findByRole("combobox",{name:"疾病"});
+  fireEvent.change(input,{target:{value:"新疾病"}});
+  expect(screen.getByRole("button",{name:"链标记"})).toHaveTextContent("旧链（原有值）");
+  fireEvent.click(screen.getByRole("button",{name:"保存"}));
+  await waitFor(()=>expect(save).toHaveBeenCalledWith({illness:"新疾病",expected_values:{illness:null}}));
+});
+it("建议失败不阻止填写和保存，保存失败后输入仍在",async()=>{
+  vi.spyOn(samples,"getSampleFieldOptions").mockRejectedValue(new Error("建议读取失败"));
+  const save=vi.fn().mockRejectedValueOnce(new Error("暂时保存失败")).mockResolvedValueOnce(undefined), close=vi.fn();
+  render(<SampleEditSheet sample={sample} open onClose={close} onSave={save}/>);
+  await screen.findByText(/已有值建议暂时无法读取/);
+  const input=screen.getByRole("textbox",{name:"疾病"});fireEvent.change(input,{target:{value:"人工填写"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("暂时保存失败");expect(input).toHaveValue("人工填写");expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"保存"}));await waitFor(()=>expect(close).toHaveBeenCalledTimes(1));
+  expect(save).toHaveBeenLastCalledWith({illness:"人工填写",expected_values:{illness:null}});
+  expect(within(screen.getByRole("region",{name:"样本基本信息"})).getByRole("textbox",{name:"样本名称"})).toHaveValue("原名称");
+});

@@ -117,7 +117,7 @@ def _run_boxplot_task(
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
-        _record_stage(task_id, 5, "Inspect assets", f"Reading datapoint from {datapoint_path}", {"module": module_name})
+        _record_stage(task_id, 5, "检查指标输入", f"正在读取样本指标表：{datapoint_path}", {"module": module_name})
         dp_path = str(datapoint_path)
         if not Path(dp_path).exists():
             raise FileNotFoundError(f"Datapoint file not found: {dp_path}")
@@ -138,7 +138,7 @@ def _run_boxplot_task(
         if param_over not in columns:
             raise ValidationError(message=f"param_over column not found: {param_over}", details={"available_columns": columns})
 
-        _record_stage(task_id, 10, f"{module_name.title()} analysis", f"Starting with {len(columns)} columns", {"module": module_name})
+        _record_stage(task_id, 10, "指标分组分析", f"已读取 {len(columns)} 列，开始核对分组与指标。", {"module": module_name})
 
         service = BoxPlotService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
@@ -219,7 +219,7 @@ def _run_boxplot_task(
         _complete_script_task(
             task_id,
             module_name=module_name,
-            detail=f"{module_name.title()} generated {len(report.png_paths)} plots",
+            detail=f"指标分析已完成，生成 {len(report.png_paths)} 张图。",
             result=result,
             history=history,
             app_context_app=app_context_app,
@@ -300,14 +300,31 @@ def get_boxplot_group_values():
         dp = Path(file_path)
         if not dp.exists() or not dp.is_file():
             raise ValidationError(message="File not found", details={"file_path": file_path})
-        df = _robust_read_csv(dp)
+        df = _robust_read_csv(dp, dtype=str)
 
         if column not in df.columns:
             raise ValidationError(message=f"Column not found: {column}", details={"available_columns": df.columns.tolist()})
 
-        sample_col = _detect_sample_column(df.columns.tolist())
+        sample_col = str(data.get("sample_col") or "").strip() or _detect_sample_column(df.columns.tolist())
+        if sample_col and sample_col not in df.columns:
+            raise ValidationError(message="所选样本列不存在，请重新选择。", details={"field": "sample_col"})
         raw_values = df[column].dropna().unique().tolist()
-        values = sorted(str(v) for v in raw_values)
+        values = sorted({str(v).strip() for v in raw_values if str(v).strip()})
+        batch_field = str(data.get("batch_field") or "").strip() or None
+        sample_labels, sample_ids = {}, {}
+        if batch_field:
+            if not sample_col or batch_field not in df.columns or batch_field == sample_col:
+                raise ValidationError(message="所选批次字段不存在或与样本编号列相同。", details={"field": "batch_field"})
+            from flask_app.services.pep_analysis_service import _batch_sample_identity
+            selected = df[[sample_col, batch_field]].astype("string").apply(lambda col: col.str.strip())
+            if selected.isna().any().any() or selected.eq("").any().any():
+                raise ValidationError(message="样本编号或批次存在空值，请先整理输入。")
+            if selected.duplicated().any():
+                raise ValidationError(message="同一批次存在重复样本编号，请先整理输入。")
+            identities = [_batch_sample_identity(batch, sample) for sample, batch in selected.itertuples(index=False, name=None)]
+            sample_labels = dict(zip(identities, [f"{batch} / {sample}" for sample, batch in selected.itertuples(index=False, name=None)]))
+            sample_ids = dict(zip(identities, selected[sample_col]))
+            df[sample_col] = identities
         samples_by_value = _samples_by_group_value(df, sample_col, column) if sample_col else {}
         return jsonify({
             "success": True,
@@ -316,6 +333,8 @@ def get_boxplot_group_values():
             "values": values,
             "sample_column": sample_col,
             "samples_by_value": samples_by_value,
+            "sample_labels": sample_labels,
+            "sample_ids": sample_ids,
             "count": len(values),
         })
     except ValidationError as exc:
@@ -340,7 +359,7 @@ def get_boxplot_group_values_bulk():
         dp = Path(file_path)
         if not dp.exists() or not dp.is_file():
             raise ValidationError(message="File not found", details={"file_path": file_path})
-        df = _robust_read_csv(dp)
+        df = _robust_read_csv(dp, dtype=str)
 
         result: Dict[str, Any] = {}
         sample_col = _detect_sample_column(df.columns.tolist())
@@ -349,7 +368,7 @@ def get_boxplot_group_values_bulk():
                 result[column] = {"error": f"Column not found: {column}"}
                 continue
             raw_values = df[column].dropna().unique().tolist()
-            values = sorted(str(v) for v in raw_values)
+            values = sorted({str(v).strip() for v in raw_values if str(v).strip()})
             samples_by_value = _samples_by_group_value(df, sample_col, column) if sample_col else {}
             result[column] = {"values": values, "count": len(values), "sample_column": sample_col, "samples_by_value": samples_by_value}
 
@@ -377,7 +396,7 @@ def _detect_sample_column(columns: List[str]) -> str:
 def _samples_by_group_value(df, sample_col: str, group_col: str) -> Dict[str, List[str]]:
     if not sample_col or sample_col not in df.columns or group_col not in df.columns:
         return {}
-    work_df = df[[sample_col, group_col]].dropna(subset=[sample_col, group_col]).copy()
+    work_df = df[list(dict.fromkeys([sample_col, group_col]))].dropna(subset=[sample_col, group_col]).copy()
     work_df[sample_col] = work_df[sample_col].astype(str).str.strip()
     work_df[group_col] = work_df[group_col].astype(str).str.strip()
     result: Dict[str, List[str]] = {}

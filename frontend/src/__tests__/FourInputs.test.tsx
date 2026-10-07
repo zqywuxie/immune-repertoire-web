@@ -3,8 +3,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { buildAssetSets } from "../features/assets/assetSets";
 import { AssetUpload } from "../features/assets/AssetUpload";
 import { uploadProjectAssets } from "../shared/api/projects";
-vi.mock("../shared/api/projects", () => ({
-  listProjectAssets: vi.fn().mockResolvedValue({ assets: [] }),
+vi.mock("../shared/api/projects", async () => ({
+  ...await vi.importActual<typeof import("../shared/api/projects")>("../shared/api/projects"),
+  listProjectDatasets: vi.fn().mockResolvedValue({datasets:[]}), listProjectAssets: vi.fn().mockResolvedValue({ assets: [] }),
   uploadProjectAssets: vi.fn().mockResolvedValue({ assets: [{ id: "saved" }] }),
 }));
 describe("四类项目输入", () => {
@@ -28,7 +29,8 @@ describe("四类项目输入", () => {
     expect(inputs).toHaveLength(4);
     const file = new File(["sample,B cells\ns1,0.2"], "cells.csv", { type: "text/csv" });
     fireEvent.change(inputs[3], { target: { files: [file] } });
-    fireEvent.click(screen.getByRole("button", { name: "保存数据" }));
+    await waitFor(()=>expect(screen.getByRole("button", {name:/保存数据/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /保存数据/ }));
     await waitFor(() => expect(uploadProjectAssets).toHaveBeenCalledWith("p1", expect.objectContaining({
       assetType: "deconvolution", files: [file], assetSet: "Set1",
     })));

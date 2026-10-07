@@ -43,6 +43,7 @@ class Config:
     UPLOAD_FOLDER = BASE_DIR / 'data' / 'uploads'
     RESULTS_FOLDER = Path(os.environ.get('RESULTS_DIR', str(BASE_DIR / 'data' / 'results')))
     PROJECT_DATA_ROOT = os.environ.get('PROJECT_DATA_ROOT', '')
+    APP_STORAGE_USER = os.environ.get('APP_STORAGE_USER', 'zhengqinyun')
     ANALYSIS_TIMEZONE = os.environ.get('ANALYSIS_TIMEZONE', 'Asia/Shanghai')
     PDF_EXTRACTION_FOLDER = BASE_DIR / 'data' / 'pdf_extractions'
     UPLOAD_MAX_MB = int(os.environ.get('UPLOAD_MAX_MB', '100'))
@@ -138,7 +139,7 @@ class InternalConfig(Config):
         if len(os.environ.get('SECRET_KEY', '')) < 32:
             raise RuntimeError('Internal deployment requires SECRET_KEY with at least 32 characters')
         if not app.config.get('ALLOWED_BASE_PATHS'):
-            app.config['ALLOWED_BASE_PATHS'] = [str(cls.BASE_DIR / 'data'), str(cls.BASE_DIR.parent / 'tmp')]
+            app.config['ALLOWED_BASE_PATHS'] = [str(cls.BASE_DIR / 'data'), str(cls.BASE_DIR.parent / 'tmp'), str(cls.RESULTS_FOLDER), *([str(cls.PROJECT_DATA_ROOT)] if cls.PROJECT_DATA_ROOT else [])]
         app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
 
 

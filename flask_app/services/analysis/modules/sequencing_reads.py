@@ -4,6 +4,7 @@ Analyzes sequencing reads across different chains (TRA, TRB, TRD, TRG, IGH, IGK,
 """
 
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -125,7 +126,7 @@ class SequencingReadsModule(AnalysisModule):
         plt.figure(figsize=(12, 8))
         
         # Set Chinese font
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
+        configure_chinese_font()
         plt.rcParams['axes.unicode_minus'] = False
         
         # Prepare data
@@ -162,7 +163,7 @@ class SequencingReadsModule(AnalysisModule):
         plt.figure(figsize=(12, 8))
         
         # Set Chinese font
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
+        configure_chinese_font()
         plt.rcParams['axes.unicode_minus'] = False
         
         # Calculate percentages
@@ -203,7 +204,7 @@ class SequencingReadsModule(AnalysisModule):
         plt.figure(figsize=(10, 6))
         
         # Set Chinese font
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
+        configure_chinese_font()
         plt.rcParams['axes.unicode_minus'] = False
         
         # Prepare table data

@@ -1,0 +1,18 @@
+.result-image-viewer { display: grid; gap: var(--spacing-sm); min-width: 0; }
+.result-image-toolbar, .result-image-zoom-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-sm); }
+.result-image-toolbar { justify-content: space-between; color: var(--text-secondary); font-size: .8rem; }
+.result-image-viewer button, .result-image-viewer a { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--bg-elevated); color: var(--text-primary); font-size: .82rem; text-decoration: none; }
+.result-image-viewer button:disabled { opacity: .5; cursor: default; }
+.result-image-viewer :is(button,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.result-image-preview { min-height: 100px; text-align: center; padding: var(--spacing-sm); background: var(--bg-root); border: 1px solid var(--separator); border-radius: var(--radius-control); }
+.result-image-preview > img { display: block; max-width: 100%; max-height: 600px; height: auto; margin: 0 auto; }
+.result-image-preview > p { color: var(--text-secondary); font-size: .85rem; }
+.result-image-error p { margin-top: 0; }
+.result-image-error { padding: var(--spacing-lg); }
+.result-image-error a { margin-left: var(--spacing-sm); }
+.result-image-expanded { display: grid; gap: var(--spacing-md); width: min(980px, 72vw); min-width: 0; }
+.result-image-title { margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: .85rem; }
+.result-image-zoom-controls output { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+.result-image-viewport { max-height: 58vh; overflow: auto; background: var(--bg-root); border: 1px solid var(--separator); border-radius: var(--radius-control); }
+.result-image-viewport img { display: block; max-width: none; height: auto; }
+@media (max-width: 600px) { .result-image-expanded { width: 72vw; } .result-image-zoom-controls { gap: 6px; } }

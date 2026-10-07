@@ -1,7 +1,24 @@
 # Retry transient repository failures without accepting an incomplete runtime.
-options(timeout = 600)
-required <- c("clusterProfiler", "org.Hs.eg.db", "enrichplot", "DOSE")
+# Bioconductor redirects package downloads to mirrors. In this build environment
+# R's libcurl intermittently fails during TLS redirects; external curl follows
+# redirects and retries transient network errors reliably.
+options(
+    timeout = 600,
+    download.file.method = "curl",
+    download.file.extra = paste(
+        "--location --retry 5 --retry-all-errors --retry-delay 2",
+        "--connect-timeout 30 --max-time 600"
+    )
+)
+required <- c("clusterProfiler", "org.Hs.eg.db", "enrichplot", "DOSE", "ComplexHeatmap", "circlize", "GSVA", "limma")
+install_ncpus <- suppressWarnings(as.integer(Sys.getenv("R_INSTALL_NCPUS", "2")))
+if (is.na(install_ncpus) || install_ncpus < 1L) {
+    stop("R_INSTALL_NCPUS must be a positive integer")
+}
+install_ncpus <- min(install_ncpus, 8L)
 for (attempt in seq_len(3)) {
+    available <- vapply(required, requireNamespace, logical(1), quietly = TRUE)
+    if (all(available)) quit(status = 0)
     message(sprintf("Analysis dependency installation attempt %d/3", attempt))
     tryCatch(
         {
@@ -12,9 +29,9 @@ for (attempt in seq_len(3)) {
                 required, db = catalog, which = c("Depends", "Imports", "LinkingTo"),
                 recursive = TRUE), use.names = FALSE))
             missing <- setdiff(dependencies, rownames(installed.packages()))
-            targets <- unique(c(missing, required))
+            targets <- unique(c(missing, required[!available]))
             BiocManager::install(targets, version = "3.20", ask = FALSE,
-                                 update = FALSE, force = TRUE)
+                                 update = FALSE, force = TRUE, Ncpus = install_ncpus)
         },
         error = function(error) message(conditionMessage(error))
     )

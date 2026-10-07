@@ -6,9 +6,12 @@ type SheetProps = {
   onClose: () => void;
   title?: string;
   children: ReactNode;
+  keepMounted?: boolean;
+  layer?: number;
+  panelClassName?: string;
 };
 
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children, keepMounted = false, layer = 100, panelClassName }: SheetProps) {
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -20,7 +23,10 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     const getControls = () => Array.from(panel.current?.querySelectorAll<HTMLElement>('*') || []).filter(node => node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[hidden]') && (!node.closest('details:not([open])') || node.tagName === 'SUMMARY'));
     if (!panel.current?.contains(document.activeElement)) (getControls()[0] || panel.current)?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      const top = Array.from(document.querySelectorAll<HTMLElement>("[data-sheet-panel]"))
+        .filter(node => !node.closest("[hidden]"))
+        .sort((left, right) => Number(left.style.zIndex) - Number(right.style.zIndex)).at(-1);
+      if (event.defaultPrevented || top !== panel.current) return;
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key === "Tab") {
         const controls = getControls(); const first = controls[0]; const last = controls[controls.length - 1];
@@ -32,22 +38,23 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     document.addEventListener("keydown", handleKey);
     return () => { document.removeEventListener("keydown", handleKey); document.body.style.overflow = oldOverflow; previous?.focus(); };
   }, [open]);
-  if (!open) return null;
+  if (!open && !keepMounted) return null;
 
   return (
-    <>
+    <div hidden={!open}>
       <div
         onClick={onClose}
         style={{
           position: "fixed",
           inset: 0,
           background: "rgba(0,0,0,0.2)",
-          zIndex: 100,
+          zIndex: layer,
           backdropFilter: "blur(2px)",
         }}
       />
       <div
         ref={panel}
+        data-sheet-panel
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
@@ -55,7 +62,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         style={{
           position: "fixed",
           inset: 0,
-          zIndex: 101,
+          zIndex: layer + 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -63,6 +70,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         }}
       >
         <div
+          className={panelClassName}
           style={{
             pointerEvents: "auto",
             background: "var(--bg-elevated)",
@@ -104,6 +112,6 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
           {children}
         </div>
       </div>
-    </>
+    </div>
   );
 }

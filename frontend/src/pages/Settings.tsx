@@ -1,3 +1,4 @@
+import "../features/assets/StorageUsage.css";
 import { Select } from "../shared/components/Select";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -66,11 +67,20 @@ function WorkspaceSettings({ workspace }: { workspace: string }) {
 }
 
 
+type RegisteredCategory={count:number;bytes:number};
+type FilesystemCapacity={labels:string[];available:boolean;total_bytes?:number;used_bytes?:number;free_bytes?:number};
+type StorageStatistics={files:number;assets:number;file_bytes:number;asset_bytes:number;registered_categories?:Record<string,RegisteredCategory>;filesystem_capacity?:FilesystemCapacity[];capacity_visible?:boolean;cache_bytes?:number|null};
+const storageLabels:Record<string,string>={current_inputs:"当前分析输入",historical_inputs:"历史输入版本",results:"已登记分析结果",other:"其他项目文件"};
+const formatStorageBytes=(bytes:number)=>{if(bytes<1024)return `${bytes} B`;if(bytes<1024**2)return `${(bytes/1024).toFixed(2)} KB`;if(bytes<1024**3)return `${(bytes/1024**2).toFixed(2)} MB`;return `${(bytes/1024**3).toFixed(2)} GB`;};
 function StorageUsage() {
-  const state = useApi(() => apiClient.get<{files:number;assets:number;file_bytes:number;asset_bytes:number}>('/api/storage', undefined, {skipCache:true}), []);
-  return <Card><h3>账户文件容量</h3>
-    {state.status === 'ready' ? <p>已登记 {state.data.files || 0} 个上传文件、{state.data.assets || 0} 个项目文件，条目累计约 {(((state.data.file_bytes || 0) + (state.data.asset_bytes || 0))/1024/1024).toFixed(2)} MB。</p> : <p>{state.status === 'error' ? state.error : '正在统计…'}</p>}
-    <p>仅统计数据库登记的文件；临时缓存与未登记的外部结果目录不包含在内。分析结果请在任务中心按需删除。</p>
-    <button className="btn btn-secondary" onClick={state.refetch}>刷新容量统计</button>
+  const state=useApi(()=>apiClient.get<StorageStatistics>('/api/storage',undefined,{skipCache:true}),[]);
+  return <Card className="storage-usage"><h3>已登记文件统计</h3>
+    {state.status==='ready' ? <><p>已登记 {state.data.files} 个上传文件、{state.data.assets} 个项目文件，条目累计 {formatStorageBytes(state.data.file_bytes+state.data.asset_bytes)}。</p>
+      {state.data.registered_categories && <dl className="storage-usage__categories">{Object.entries(state.data.registered_categories).map(([key,value])=><div className="storage-usage__category" key={key}><dt>{storageLabels[key] || "其他登记"}</dt><dd><strong>{value.count} 项</strong><span>{formatStorageBytes(value.bytes)}</span></dd></div>)}</dl>}
+      {state.data.capacity_visible && <section className="storage-usage__capacity" aria-label="服务器文件系统容量"><h4>服务器文件系统容量</h4><p>以下为共享文件系统容量，包含其他目录和项目；同一文件系统合并显示，不是当前账户的占用或配额。</p>
+        {(state.data.filesystem_capacity || []).map((item,index)=><div className="storage-usage__filesystem" key={index}><strong>{item.labels.join(" / ")}</strong>{item.available ? <dl>{([["总量",item.total_bytes],["已用",item.used_bytes],["可用",item.free_bytes]] as const).map(([label,bytes])=><div key={label}><dt>{label}</dt><dd>{typeof bytes==='number'?formatStorageBytes(bytes):"未记录"}</dd></div>)}</dl> : <p className="storage-usage__unknown">暂时无法读取</p>}</div>)}</section>}
+    </> : <p role={state.status==='error'?'alert':'status'}>{state.status==='error'?state.error:'正在统计…'}</p>}
+    <p>登记字节包含历史版本和结果；同一物理文件有多个登记时可能重复累计。缓存占用未单独统计，不能当作零；未登记的外部文件不在登记统计中。分析结果请通过任务生命周期处理。</p>
+    <button className="btn btn-secondary" onClick={state.refetch}>刷新存储统计</button>
   </Card>;
 }

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import threading
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from flask_app.services.background_job_service import TERMINAL_STATUSES, get_background_job_service
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class ScriptHubJobService:
@@ -123,18 +123,20 @@ class ScriptHubJobService:
             if stored is not None:
                 return stored
         except Exception:
-            pass
+            import os
+            if os.environ.get("JOB_QUEUE", "").lower() == "redis":
+                raise
         job = self.get_job(job_id)
         if not job:
             return None
         if job.get("status") in TERMINAL_STATUSES:
             return job
         return self.upsert_job(job_id, {
-            "status": "cancelled",
+            "status": "cancelled" if job.get("status") == "queued" else "running",
+            "cancel_requested": True,
             "progress": job.get("progress", 0.0),
-            "stage": "Cancelled",
-            "detail": "Job cancelled by user.",
-            "meta": {**(job.get("meta") or {}), "phase": "cancelled"},
+            "stage": "已取消" if job.get("status") == "queued" else "正在取消",
+            "detail": "任务已在开始前取消。" if job.get("status") == "queued" else "已请求取消，等待计算在检查点停止。",
         })
 
     def clear(self) -> None:

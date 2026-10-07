@@ -1,3 +1,5 @@
+> 2026-10-07新增数据集说明表；普通更新、依赖镜像更新、版本记录及回退见[升级与回退](operations/release-upgrade-rollback.md)。
+
 # Docker 运行与部署
 
 在项目根目录操作。依赖安装、测试、构建和分析均在 Linux 容器内执行。
@@ -13,17 +15,17 @@
 
 ```bash
 git pull --ff-only origin main
-docker build --platform linux/amd64 --progress plain -f docker/app/Dockerfile.runtime -t immune-analysis-runtime:3.20-v1 .
-docker save -o immune-analysis-runtime-3.20-v1.tar immune-analysis-runtime:3.20-v1
-scp immune-analysis-runtime-3.20-v1.tar zhengqinyun@服务器IP:/colddata/SCigblast/platform/
+docker build --platform linux/amd64 --progress plain -f docker/app/Dockerfile.runtime -t immune-analysis-runtime:3.20-ml .
+docker save -o immune-analysis-runtime-3.20-ml.tar immune-analysis-runtime:3.20-ml
+scp immune-analysis-runtime-3.20-ml.tar zhengqinyun@服务器IP:/colddata/SCigblast/platform/
 ```
 
-归档放在仓库外或上传后移走，避免部署的未跟踪文件检查阻止拉取。在 Windows PowerShell 可将导出路径直接设为 `E:\Desktop\immune-analysis-runtime-3.20-v1.tar`。首次构建仍需要下载并安装依赖，成功后才执行导出；已完成的旧构建层可复用。
+归档放在仓库外或上传后移走，避免部署的未跟踪文件检查阻止拉取。在 Windows PowerShell 可将导出路径直接设为 `E:\Desktop\immune-analysis-runtime-3.20-ml.tar`。首次构建仍需要下载并安装依赖，成功后才执行导出；已完成的旧构建层可复用。
 
 ### 2. 服务器导入并配置
 
 ```bash
-docker load -i /colddata/SCigblast/platform/immune-analysis-runtime-3.20-v1.tar
+docker load -i /colddata/SCigblast/platform/immune-analysis-runtime-3.20-ml.tar
 cd /colddata/SCigblast/platform/immune-repertoire-web
 bash init-env.sh
 nano .env
@@ -32,16 +34,19 @@ nano .env
 确认 `.env` 使用：
 
 ```dotenv
-ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-v1
+ANALYSIS_RUNTIME_IMAGE=immune-analysis-runtime:3.20-ml
 APP_DOCKERFILE=docker/app/Dockerfile.analysis
 ANALYSIS_FLAVOR=full
 ```
+已有部署的 .env 不会被 init-env.sh 覆盖；若仍设置 immune-analysis-runtime:3.20-v1，请在导入新版运行时镜像后手动改为 immune-analysis-runtime:3.20-ml。应用镜像构建会比对基础镜像内记录的 Python/R 依赖清单，不匹配时会停止构建，避免产生依赖状态不明的应用镜像。
 
 保留已设置的数据路径、UID/GID、端口和密钥，然后执行 `bash deploy.sh`。应用镜像从本机导入的基础镜像构建；不要启用 `--pull` 强制向远端查找这个本地标签。前端 npm 构建、数据库等其他镜像仍可能需要网络，并非完全离线部署。
 
 ### 3. 后续更新
 
 普通业务代码或分析脚本变化：服务器依次执行 `bash init-env.sh`、编辑 `.env`、`bash deploy.sh`。Python 依赖清单、R 安装脚本或 `Dockerfile.runtime` 变化：先重新构建基础镜像，使用新标签（例如 `3.20-v2`）导出上传，服务器导入并修改 `ANALYSIS_RUNTIME_IMAGE`，再部署。应用构建会比对环境快照，依赖不一致时停止并提示，不能跳过检查。旧基础镜像保留供回退。
+
+2026-09-23 起 D1-Sample 依赖的 GSVA 已加入 R 依赖安装清单及完整运行时检查。当前本地镜像 `immune-analysis-runtime:3.20-pathway` 已构建并通过完整运行时检查；GSVA 2.0.7 ssGSEA 合成矩阵调用通过。镜像约 9.19 GB，比之前的 3.20 运行时约增加 0.30 GB。服务器部署前须导入该镜像并将 `.env` 的 `ANALYSIS_RUNTIME_IMAGE` 更新为同一标签。该运行时依赖准备完成不等于 D1-Sample 面板已接入平台。
 
 构建基础镜像时可通过 `--build-arg BIOCONDUCTOR_IMAGE=可信地址` 改变原始 Bioconductor 来源；日常应用构建只使用 `ANALYSIS_RUNTIME_IMAGE`。
 
@@ -193,15 +198,18 @@ rtk docker compose --env-file .env -f compose.docker.yml exec worker python -m a
 
 ### 分析资源与并发
 
-Compose 对应用和工作进程设置资源上限，均可在 `.env.docker` 调整：
+Compose 对应用和工作进程设置资源上限，均可在 `.env` 调整：
 
 | 配置 | 默认值 | 含义 |
 | --- | --- | --- |
 | API_CPUS / API_MEMORY_LIMIT | 2 / 2g | 单个接口容器的 CPU 配额与内存上限 |
 | WORKER_CPUS / WORKER_MEMORY_LIMIT | 4 / 8g | 每个分析工作进程容器的资源上限 |
 | ANALYSIS_NUM_THREADS | 1 | OpenMP、OpenBLAS、MKL、NumExpr 的默认数值计算线程数 |
-| ANALYSIS_TIMEOUT_SECONDS | 7200 | 队列任务超时秒数 |
+| ANALYSIS_TIMEOUT_SECONDS | 7200 | 未单独配置模块时使用的队列任务超时秒数 |
+| ANALYSIS_TIMEOUTS_JSON | 空 | 可选 JSON 对象，按 `AnalysisJob.module` 精确覆盖超时，单位为秒 |
 | WORKER_STOP_GRACE_PERIOD | 2m | 停止容器时等待工作进程退出的最长时间 |
+
+例如在 `.env` 中设置 `ANALYSIS_TIMEOUTS_JSON='{"analysis-batch":14400,"ml-analysis":14400,"topclone":3600}'`，可分别给组合任务、机器学习和优势克隆分析设置超时；未列出的模块继续使用 `ANALYSIS_TIMEOUT_SECONDS`。JSON 必须为正整数秒数，配置格式错误会在任务入队时明确报错。
 
 这些是可调的初始上限，不是已测得的最低服务器配置。数据库、文件缓存和宿主机也需内存空间。
 一个 RQ 工作进程同时执行一个顶层任务；增加工作进程容器数量时，应按数量计算总资源预算。
@@ -215,14 +223,14 @@ Compose 对应用和工作进程设置资源上限，均可在 `.env.docker` 调
 
 ### Linux 全量冷备份与恢复
 
-工具 `docker/operations/cold_backup.py` 备份五个数据卷和 `.env`，保留文件所有权。
-备份包含数据库凭据，应存放在受限目录。工具检查归档可读性，不代替数据库启动恢复验收。
+工具 `docker/operations/cold_backup.py` 备份七个数据卷和 `.env`，保留文件所有权和文件修改时间的纳秒精度；包含应用数据、独立上传目录、独立结果目录、临时卷及三种数据库卷。
+备份包含数据库凭据，应存放在受限目录。发布归档前完整读取压缩流并执行与恢复一致的清单、路径和链接检查；不合格归档不会发布。工具校验不代替数据库启动恢复验收。
 执行前停止接收新任务，等待队列和运行任务清空，再停止全部服务；工具自身不会停止服务。
 以下命令在仓库根目录执行，适用于默认项目名 `immune-platform`、默认完整镜像和 Linux Bash。
 自定义项目名时必须替换卷名，并先用 `docker volume inspect` 确认源卷存在，避免备份新建空卷。
 
 ```bash
-rtk docker volume inspect immune-platform_app_data immune-platform_app_tmp immune-platform_mysql_data immune-platform_mongo_data immune-platform_redis_data
+rtk docker volume inspect immune-platform_app_data immune-platform_app_uploads immune-platform_app_results immune-platform_app_tmp immune-platform_mysql_data immune-platform_mongo_data immune-platform_redis_data
 rtk proxy mkdir -p -m 700 backups
 rtk docker compose --env-file .env -f compose.docker.yml stop
 rtk docker run --rm --network none --user 0:0 \
@@ -230,6 +238,8 @@ rtk docker run --rm --network none --user 0:0 \
   --mount type=bind,src="$PWD/.env",dst=/config/.env,readonly \
   --mount type=bind,src="$PWD/backups",dst=/backups \
   --mount type=volume,src=immune-platform_app_data,dst=/volumes/app_data,readonly \
+  --mount type=volume,src=immune-platform_app_uploads,dst=/volumes/app_uploads,readonly \
+  --mount type=volume,src=immune-platform_app_results,dst=/volumes/app_results,readonly \
   --mount type=volume,src=immune-platform_app_tmp,dst=/volumes/app_tmp,readonly \
   --mount type=volume,src=immune-platform_mysql_data,dst=/volumes/mysql_data,readonly \
   --mount type=volume,src=immune-platform_mongo_data,dst=/volumes/mongo_data,readonly \
@@ -237,6 +247,8 @@ rtk docker run --rm --network none --user 0:0 \
   immune-platform-api:latest python /operations/cold_backup.py backup --archive /backups/platform.tar.gz
 rtk docker compose --env-file .env -f compose.docker.yml up -d --no-build --wait
 ```
+
+以上挂载命令适用于 `.env` 未设置 `APP_DATA_DIR`、`APP_UPLOAD_DIR`、`APP_RESULTS_DIR` 的默认命名卷。若使用绝对宿主机目录，备份时将各实际目录以只读 bind mount 挂载到对应的 `/volumes/app_data`、`/volumes/app_uploads`、`/volumes/app_results`；恢复时挂载到新建的目标目录。不要只备份 `app_data`，独立上传和结果目录也包含用户文件及分析产物。
 
 每次使用新的备份文件名；工具拒绝覆盖既有归档。执行备份失败也应检查原因后恢复原服务。
 同时保存对应源代码版本、镜像标识和数据库镜像，恢复先使用同版本，不同时进行数据库升级。
@@ -250,6 +262,8 @@ rtk docker run --rm --network none --user 0:0 \
   --mount type=bind,src="$PWD/restore-config",dst=/config \
   --mount type=bind,src="$PWD/backups",dst=/backups,readonly \
   --mount type=volume,src=immune-restore_app_data,dst=/volumes/app_data \
+  --mount type=volume,src=immune-restore_app_uploads,dst=/volumes/app_uploads \
+  --mount type=volume,src=immune-restore_app_results,dst=/volumes/app_results \
   --mount type=volume,src=immune-restore_app_tmp,dst=/volumes/app_tmp \
   --mount type=volume,src=immune-restore_mysql_data,dst=/volumes/mysql_data \
   --mount type=volume,src=immune-restore_mongo_data,dst=/volumes/mongo_data \
@@ -257,12 +271,14 @@ rtk docker run --rm --network none --user 0:0 \
   immune-platform-api:latest python /operations/cold_backup.py restore --archive /backups/platform.tar.gz
 ```
 
+恢复的 `.env` 会保留备份主机上的配置。若恢复目标使用新宿主机目录，先编辑 `restore-config/.env` 中三个 `APP_*_DIR` 指向对应恢复目录，再启动 Compose。旧格式五卷备份缺少独立上传和结果卷，工具会拒绝将其当作完整平台备份恢复。
+
 工具拒绝非空目标卷、非空配置目录、越界归档路径和越界链接。归档解包成功后，
 先将恢复配置中的 HTTP_PORT 改为未占用端口，再用 `-p immune-restore`、
 `--env-file restore-config/.env` 启动同一 Compose，避免与原服务冲突。
 验收必须包括数据库健康、项目与资产完整性、历史文件下载及一次小型分析。
 已使用隔离 Linux 容器完成 MySQL 8.0、MongoDB 7.0、Redis 7 的合成数据冷备份与恢复：
-停库后备份五卷，恢复到空卷，再启动三个数据库并读回原记录，同时检查应用文件和配置。
+停库后备份七卷，恢复到空卷，再启动三个数据库并读回原记录，同时检查应用文件和配置。
 MySQL 的 mysql.sock 运行时符号链接不进入备份，由数据库启动时重建。
 2026-09-21 补充了应用级恢复演练：正常停止 MySQL 后备份并恢复数据，使用非 root 应用用户读回项目、任务并下载登记的结果文件。此次补充演练未覆盖完整分析重跑及 MongoDB、Redis 的应用级恢复。
 
@@ -325,12 +341,12 @@ nano .env
 
 将 `HTTP_PORT` 改为确认空闲的端口，例如 `18080`，再执行 `bash deploy.sh`。默认 `HTTP_BIND=127.0.0.1` 供本机代理访问；可信内网直连才改为 `0.0.0.0` 并配置防火墙。该检查是当时的监听快照，实际占用由 Docker 启动时报错确认。
 
-冷备份工具内部保留 `config/.env.docker` 归档名称以兼容旧备份。备份时把当前 `.env` 挂载到容器 `/config/.env.docker`；恢复出的 `.env.docker` 核对后作为部署 `.env` 使用。
+冷备份读取容器 `/config/.env`，新归档保存为 `config/.env`，恢复为配置目录下的 `.env`。仅在读取旧格式三版归档时兼容 `config/.env.docker` 名称，恢复仍输出 `.env`；不要将当前配置挂到 `/config/.env.docker`。
 
 
 ## 应用文件所有者与数据根目录
 
-`APP_UID` / `APP_GID` 必须填写服务器 `id -u zhengqinyun` / `id -g zhengqinyun` 的实际结果；Linux 文件所有权由数字编号决定。初始化器在使用 `--user` 的容器中记录对应编号；已有配置不会重写。`APP_STORAGE_USER` 标识服务器文件所有者，不能替代 UID/GID；业务子目录使用应用账号用户名。
+`APP_UID` / `APP_GID` 必须填写服务器 `id -u zhengqinyun` / `id -g zhengqinyun` 的实际结果；Linux 文件所有权由数字编号决定。初始化器在使用 `--user` 的容器中记录对应编号；已有配置不会重写。`APP_STORAGE_USER` 决定内部共享模式的新文件目录名，默认 `zhengqinyun`；认证模式按项目所属应用账号用户名分目录。这个名称不能替代 UID/GID，也不改变项目的数据库归属。
 
 `APP_DATA_DIR` 可设为宿主机绝对目录，省略时保留原有 app_data 卷。更改该变量不会自动搬迁旧卷，请先完成数据备份和恢复。已有文件权限迁移前停止 API 和工作进程，再运行权限初始化并启动：
 
@@ -340,7 +356,7 @@ docker compose --env-file .env -f compose.docker.yml --profile operations run --
 docker compose --env-file .env -f compose.docker.yml up -d --wait
 ```
 
-权限初始化只对应用数据和临时目录设置指定用户所有权，跳过符号链接，不修改数据库自身的数据卷用户。必须先构建包含最新权限初始化代码的应用镜像。独立上传/结果根目录及账号/项目/分析时间目录规则见本文多用户升级章节。
+权限初始化覆盖应用数据、临时目录，以及 `PROJECT_DATA_ROOT`、`RESULTS_DIR`、`USER_DATA_ROOT`、`UPLOAD_FOLDER` 中显式配置的容器绝对路径；跳过符号链接，不修改数据库服务数据卷。API、worker 和初始化容器必须使用同一挂载与 UID/GID。应先构建新应用镜像，再初始化卷，再启动应用；镜像预填充的绘图缓存也需要按这个顺序设置所有权。绘图缓存位于 `/app/tmp/matplotlib`。
 
 
 ## Bioconductor 镜像代理返回 403
@@ -373,7 +389,7 @@ APP_RESULTS_DIR=/colddata/SCigblast/platform/results
 
 Linux 上先运行 `id -u zhengqinyun` 和 `id -g zhengqinyun`，把真实编号填入 APP_UID、APP_GID。由该服务器账号创建上传与结果目录；应用登录账号只决定目录内部的逻辑归属，不改变 Linux 文件用户。
 
-新上传：`APP_UPLOAD_DIR/用户名/项目ID/assets/数据类型/文件`；新核心分析结果：`APP_RESULTS_DIR/用户名/项目ID/分析类型_年月日_时分秒__唯一标识/`。上传、结果和原应用数据使用独立挂载；原数据路径继续保留，历史资产按数据库记录读取，不自动搬动或改归属。
+新上传：`APP_UPLOAD_DIR/用户名/年月日_时分秒__批次标识/数据类型/文件`；新核心分析结果：`APP_RESULTS_DIR/用户名/年月日_时分秒/分析类型/分析类型_UUID/`。项目归属由资产和任务记录保存，不将项目编号插入新的时间布局。上传、结果和原应用数据使用独立挂载；原数据路径继续保留，历史资产按数据库记录读取，不自动搬动或改归属。按类型删除清理已登记上传批次内的文件并回收空目录。删除整个项目依据该项目的资产和任务记录清理已登记上传、新结果的独立运行目录及旧项目目录，同时清理 Mongo 原始资产/结果/缓存记录和终态任务记录；存在未结束任务时拒绝删除。共享的用户名/时间父目录不会整段删除，未登记上传文件、外部登记输入以及其他项目或任务仍引用的结果保留。Script Hub 在分配运行目录时记录任务输出，失败后没有结果资产的残留也可按任务记录清理。
 
 首次切换到新存储后，如目录未归属设定 UID/GID，可在构建新应用镜像后显式运行：
 
@@ -413,7 +429,7 @@ BOOTSTRAP_ADMIN_PASSWORD=请替换为至少6位的独立密码
 
 `init-env.sh` 生成的新配置会包含随机管理员密码，不在终端打印。已有 `.env` 不被初始化脚本覆盖，升级时需自行补充以上四项。API 启动完成数据库初始化后创建管理员；重复部署不会重置密码、重新启用停用账号或把已有普通用户提升为管理员。用户名或邮箱冲突会使启动失败并显示不含密码的说明。首次成功后可设 `BOOTSTRAP_ADMIN_ENABLED=false`，管理员仍保留在数据库。
 
-本地现有 `.env` 已补齐缺失的四项，未改变其他密钥。该文件不提交 Git，因此服务器仍需自行配置。该账号与 APP_STORAGE_USER（Linux 文件所有者）独立；普通业务界面仍按自己的项目范围访问。
+本地现有 `.env` 已补齐缺失的四项，未改变其他密钥。该文件不提交 Git，因此服务器仍需自行配置。该账号与 APP_STORAGE_USER（内部共享存储目录名）独立；普通业务界面仍按自己的项目范围访问。
 
 
 ## 并行分析与排队诊断
@@ -459,3 +475,46 @@ bash deploy.sh
 首次从不含维护模块的旧版本升级时仍需人工暂停提交；脚本会明确提示。后续更新自动保护该窗口。维护文件位于应用数据卷，不要在维护期间重启清理卷或人工删除锁文件。意外终止部署进程后，需按日志中的本次令牌解除维护。
 
 备份工具现在保存 `.env`，兼容读取旧备份中的 `.env.docker` 并恢复为 `.env`。冷备份仍要求停止所有写入服务；维护模式不能替代数据库正常停机。
+
+
+## 2026-10-03 存储与镜像验收
+
+宿主机上传/结果目录变量是 `APP_UPLOAD_DIR` / `APP_RESULTS_DIR`；应用读取的 `PROJECT_DATA_ROOT` / `RESULTS_DIR` 必须是对应挂载的容器绝对路径。权限初始化、API 和 worker 使用同一环境变量、卷映射和数字 UID/GID，不能把 Windows 路径作为容器配置。
+
+已在 Docker Linux 容器中使用独立命名卷、`/storage/上传 数据` 与 `/storage/分析 结果` 挂载，以及 UID 12345/GID 23456 完成四类上传、原生 RQ 差异表达、登记结果复用、下载和刷新恢复。应用镜像实际构建通过，复用已有 R/Bioconductor 依赖层。未挂载宿主机源码的重建容器能读取旧资产/结果、运行新任务、删除指定项目并保留同名用户下其他项目。测试卷只包含合成数据，不代表目标服务器的 UID/GID 或发行版已验证。
+
+当前工作区中的 `compose.docker.yml`、`deploy.sh`、`init-env.sh`、`.env.example` 和 `.dockerignore` 已删除，本轮保留这些既有删除，不恢复文件。本文涉及这些入口的命令为历史部署流程说明，当前工作区不能直接执行；最终服务器部署仍需相应入口及挂载配置的完整验收。本轮构建使用约 7.15 MB 的临时过滤上下文，排除了数据和目录链接，没有将现有业务数据打入镜像。
+
+
+## 2026-10-03 全平台冷恢复与任务续接验收
+
+使用 MySQL 8.0、MongoDB 7.0、Redis 7 的独立 Linux 容器和七个合成数据卷完成了应用级恢复；API/worker 使用 UID 24501、GID 24502，上传和结果分别挂载到 `/storage/上传 数据`、`/storage/分析 结果`。停掉所有写入服务后备份，恢复到全新空卷；新容器没有挂载宿主应用源码，也未执行恢复后权限修复。
+
+验收覆盖已登记的四类输入（11 个原始资产）、SQL 项目/任务/资产记录、Mongo 结果与派生产物缓存，以及 Redis 持久化等待任务。恢复前后历史 ZIP 逐字节一致（12343 字节），所有原始资产能通过 API 下载，11 个文件的数字所有权和纳秒修改时间保持一致。未启动 worker 时可从 Mongo 复用历史 PEP 结果；启动 worker 后原等待指标任务完成，并从恢复的 PEP 矩阵生成 8 个样本的原生 UMAP 坐标及可下载结果。最终运行/排队均为零。
+
+首次演练发现两类阻塞：tarfile 浮点时间损失纳秒精度，以及 Linux 恢复后不可保留的 ctime 导致上传文件误报外部修改。备份/恢复现保留精确修改时间；上传文件状态变化时，只核对上传时已有的内容摘要，内容一致才更新快照并重新校验。后续正常读取仍复用校验缓存；相同大小和修改时间的内容替换仍拒绝。旧归档不能补回已丢失的纳秒精度，历史上传可经摘要核对继续使用，依赖精确时间的旧派生缓存可能需要重新生成。
+
+本次为了验证队列恢复，特意在停止 worker 后保留一个未领取任务，确认无运行任务，再正常停库备份；这不改变日常备份前清空队列的建议，也不提供运行中算法断点续算。当前证据是本机 Docker 的 Linux 容器，不代表目标服务器的资源、整机重启或部署入口已验收。详细任务、镜像与回归记录见 [工作流执行记录](superpowers/project-input-workflow-progress.md)。
+
+### 结果数据表排序的临时空间（2026-10-03）
+
+CSV/TSV 的服务端排序逐行写入单次临时 SQLite 数据库，再返回请求的数据页。数值排序保留大整数/科学计数法原文；默认无排序时继续流式读取。临时库在成功或解析失败后自动清理，不登记为项目资产或永久缓存。
+
+临时目录遵循容器 Python 的 `TMPDIR`（未设置时通常为 `/tmp`）。完整表排序需要额外磁盘空间；如将 `/tmp` 配成较小 tmpfs，应将 `TMPDIR` 指向容器内有足够空间且当前应用 UID/GID 可写的磁盘目录。额外空间包含匹配行数据库和 SQLite 排序暂存，不能只按网页每页行数估算。空间不可用时接口返回中文 503 提示，用户仍可恢复原始顺序或下载文件。服务器磁盘与并发容量需在目标部署环境实测。
+
+### 网页报告与 PDF 文件预览（2026-10-03）
+
+Script Hub 的 PDF 结果默认使用 Content-Disposition: inline，便于浏览器内嵌查看；需要强制附件时在结果文件链接添加 download=1。ZIP/TXT/LOG 继续作为附件。文件不存在返回 404，非法结果路径仍拒绝。反向代理应保留上游类型、文件长度、Range 与 Content-Disposition，不将 PDF 全部改成附件。
+
+网页/PDF 预览先以 HEAD 检查本地文件；不支持 HEAD 的历史接口可回退 GET 元数据后取消正文。外部报告沿用浏览器原生查看，不额外要求跨域请求。浏览器不支持 PDF 或文件以附件返回时显示新标签页/下载入口；原生查看器渲染由浏览器负责。实际文件接口、原生 PDF 渲染与手机交互已在本机隔离 Linux 容器验证，目标服务器代理仍需按部署环境验收。
+
+
+### 在非内网环境通过 SSH 访问
+
+SSH 能连接服务器时，可以将服务器的网页端口转发到本机，不需要浏览器直连服务器内网地址。例如服务器平台端口为 `10322`，本机空闲端口为 `10323`：
+
+```bash
+ssh -N -L 127.0.0.1:10323:127.0.0.1:10322 remote_nanhua
+```
+
+保持 SSH 连接运行，在本机浏览器打开 `http://127.0.0.1:10323`。`remote_nanhua` 使用本机已有的 SSH 配置；右侧 `10322` 要与服务器实际网页端口一致，左侧 `10323` 只用于本机访问。上传镜像不会自动建立此隧道，也不会将网页服务公开到外网。

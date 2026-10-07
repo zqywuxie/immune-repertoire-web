@@ -1,0 +1,72 @@
+.sample-id-mapping {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--bg-inset);
+}
+
+.sample-id-mapping__help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+
+.sample-id-mapping__textarea {
+  min-height: 108px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.65;
+  tab-size: 16;
+}
+
+.sample-id-mapping__textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+.sample-id-mapping__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.input-mapping-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--bg-elevated);
+}
+
+.input-mapping-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.input-mapping-table caption {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.input-mapping-table th,
+.input-mapping-table td {
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.input-mapping-table th {
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+}
+
+.input-mapping-table td {
+  border-top: 1px solid var(--separator);
+}

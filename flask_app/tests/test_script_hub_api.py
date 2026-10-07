@@ -26,7 +26,6 @@ for import_dir in (APP_DIR, ROOT_DIR):
 
 @pytest.fixture(scope="module")
 def api_module():
-    sys.modules.setdefault("umap", SimpleNamespace(UMAP=object))
     try:
         return import_module("flask_app.routes.api_script_hub")
     except ModuleNotFoundError:
@@ -130,6 +129,32 @@ def test_inspect_data_selection_payload_empty(api_module):
     assert result["sample_count"] == 0
     assert result["pep_file_count"] == 0
     assert result["chains"] == []
+    assert result["sample_conflicts"] == []
+
+
+def test_inspect_data_selection_reports_same_sample_name_across_batches(api_module, tmp_path):
+    pep_root = tmp_path / "pep_data"
+    for batch in ("batch_1", "batch_2"):
+        chain_dir = pep_root / batch / "TRA"
+        chain_dir.mkdir(parents=True)
+        pd.DataFrame({"CDR3(pep)": ["CASS"], "copy": [1], "v": ["TRAV1"], "j": ["TRAJ1"]}).to_csv(
+            chain_dir / "S01.csv", index=False
+        )
+    trb_dir = pep_root / "batch_1" / "TRB"
+    trb_dir.mkdir(parents=True)
+    pd.DataFrame({"CDR3(pep)": ["CASR"], "copy": [1], "v": ["TRBV1"], "j": ["TRBJ1"]}).to_csv(
+        trb_dir / "S01.csv", index=False
+    )
+
+    result = api_module._inspect_data_selection_payload([str(pep_root)], None)
+
+    assert result["sample_count"] == 1
+    assert result["pep_file_count"] == 3
+    assert result["sample_conflicts"] == [{
+        "sample": "S01", "chain": "TRA",
+        "files": ["batch_1/TRA/S01.csv", "batch_2/TRA/S01.csv"],
+    }]
+    assert any("需选择支持批次字段的分析" in warning for warning in result["warnings"])
 
 
 def test_inspect_data_selection_payload_requires_explicit_profile(api_module):
@@ -413,16 +438,22 @@ def test_pep_viewer_switches_by_chain_and_collapses_csv(api_module, tmp_path):
     assert "CDR3 arrangement heatmaps" in html
     assert "Unique CDR3 heatmaps" in html
     assert 'id="pepImageCategorySelect"' in html
-    assert '<option value="Differential heatmaps" selected>Differential heatmaps</option>' in html
-    assert '<option value="CDR3 arrangement heatmaps">CDR3 arrangement heatmaps</option>' in html
+    assert '<option value="Differential heatmaps" selected>差异热图</option>' in html
+    assert '<option value="CDR3 arrangement heatmaps">CDR3 排列热图</option>' in html
     assert "therapy/CDR3_arrage_heatmap/TRA.png" in html
     assert "chain-tab" not in html
-    assert "<details><summary>2.Pep_shared.py / Pep_shared</summary>" in html
-    assert "<details><summary>2.Pep_shared.py / usage</summary>" in html
-    assert "<details><summary>5.Heat_map_Thread.py / heatmap/csv_file</summary>" in html
+    assert "<details><summary>共享克隆矩阵</summary>" in html
+    assert "<details><summary>基因使用矩阵</summary>" in html
+    assert "<details><summary>差异热图数据</summary>" in html
     assert "Pep_shared/TRA.csv" in html
     assert "usage/1VJusage/TRA.csv" in html
     assert "plot-card" in html
+    assert "克隆共享分析结果" in html
+    assert "筛选后的图表" in html
+    assert "数据表下载" in html
+    assert '<option value="__all__">全部</option>' in html
+    assert metadata["viewer_filter_schema"][0]["key"] == "section"
+    assert metadata["viewer_filter_schema"][0]["label"] == "图表分类"
 
 
 def test_pep_viewer_displays_arrange_heatmap_category_when_only_step7_images(api_module, tmp_path):
@@ -449,9 +480,9 @@ def test_pep_viewer_displays_arrange_heatmap_category_when_only_step7_images(api
     })
 
     html = (output_base / "viewer.html").read_text(encoding="utf-8")
-    assert '<option value="CDR3 arrangement heatmaps" selected>CDR3 arrangement heatmaps</option>' in html
+    assert '<option value="CDR3 arrangement heatmaps" selected>CDR3 排列热图</option>' in html
     assert "group_type/CDR3_arrage_heatmap/TRA.png" in html
-    assert "No images generated" not in html
+    assert "未生成图表" not in html
 
 
 def test_pep_viewer_does_not_render_csv_previews_as_main_images(api_module, tmp_path):
@@ -489,8 +520,8 @@ def test_pep_viewer_does_not_render_csv_previews_as_main_images(api_module, tmp_
     assert list((output_base / "viewer_previews").glob("*.png"))
     html = (output_base / "viewer.html").read_text(encoding="utf-8")
     assert "CSV matrix previews" not in html
-    assert "No images generated" in html
-    assert "<details><summary>2.Pep_shared.py / Pep_shared</summary>" in html
+    assert "未生成图表" in html
+    assert "<details><summary>共享克隆矩阵</summary>" in html
 
 
 def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
@@ -545,28 +576,98 @@ def test_pep_analysis_runs_dependent_steps_after_step6(tmp_path, monkeypatch):
         out.write_bytes(b"png")
         return [str(out)]
 
+    def fake_step9(self, chains, field_dir, progress_callback=None):
+        assert 6 in order
+        order.append(9)
+        image = field_dir / "CDR3_tracking" / "TRA" / "shared_tracking.png"
+        table = field_dir / "CDR3_tracking" / "TRA" / "shared_cdr3_abundance.csv"
+        image.parent.mkdir(parents=True, exist_ok=True)
+        image.write_bytes(b"png")
+        table.write_text("cdr3\nAAA\n", encoding="utf-8")
+        return [str(image)], [str(table)]
+
+    def fake_step10(self, chains, field_dir, progress_callback=None):
+        assert 6 in order
+        order.append(10)
+        out = field_dir / "CDR3_category_heatmaps" / "single" / "A_count" / "TRA" / "TRA_heatmap.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"png")
+        return [str(out)]
+
+    def fake_step11(self, chains, field_dir, progress_callback=None):
+        assert 6 in order
+        order.append(11)
+        out = field_dir / "category_db_alignment" / "run_manifest.csv"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("status\ncompleted\n", encoding="utf-8")
+        data = field_dir / "category_db_alignment" / "TRA" / "ratio.csv"
+        data.parent.mkdir(parents=True, exist_ok=True)
+        data.write_text("ratio\n1.0\n", encoding="utf-8")
+        return [str(out), str(data)]
+
     monkeypatch.setattr(PepAnalysisService, "_run_cdr3_sharing", fake_run_cdr3)
     monkeypatch.setattr(PepAnalysisService, "_add_cate_shared", staticmethod(fake_add))
     monkeypatch.setattr(PepAnalysisService, "_add_cate_usage", staticmethod(fake_add))
     monkeypatch.setattr(PepAnalysisService, "_run_step6_for_group", fake_step6)
     monkeypatch.setattr(PepAnalysisService, "_run_step7_for_group", fake_step7)
     monkeypatch.setattr(PepAnalysisService, "_run_step8_for_group", fake_step8)
+    monkeypatch.setattr(PepAnalysisService, "_run_step9_for_group", fake_step9)
+    monkeypatch.setattr(PepAnalysisService, "_run_step10_for_group", fake_step10)
+    monkeypatch.setattr(PepAnalysisService, "_run_step11_for_group", fake_step11)
 
     report = PepAnalysisService(output_parent=tmp_path / "results").generate_report(
         pep_data_dir=str(pep_dir),
         profile_path=str(profile),
         group_fields=["therapy"],
         selected_chains=["TRA"],
-        optional_steps={7, 8},
+        optional_steps={7, 8, 9, 10, 11},
     )
 
     assert order[0] == 6
     assert 7 in order
     assert 8 in order
+    assert 9 in order
+    assert 10 in order
+    assert 11 in order
     assert len(report.arrange_heatmap_paths) == 1
     assert len(report.plot_heatmap_paths) == 1
-    assert report.metadata["optional_steps_requested"] == [7, 8]
-    assert report.metadata["optional_steps_run"] == [6, 7, 8]
+    assert len(report.clone_tracking_image_paths) == 1
+    assert len(report.clone_tracking_table_paths) == 1
+    assert len(report.category_heatmap_paths) == 1
+    assert report.metadata["optional_steps_requested"] == [7, 8, 9, 10, 11]
+    assert report.metadata["optional_steps_run"] == [6, 7, 8, 9, 10, 11]
+    assert any(item["step"] == "10" for item in report.metadata["image_files"])
+    with zipfile.ZipFile(report.zip_path) as archive:
+        assert any(name.endswith("TRA_heatmap.png") for name in archive.namelist())
+        assert any(name.endswith("ratio.csv") for name in archive.namelist())
+
+
+def test_pep_script_cache_context_includes_late_optional_steps_and_batch(monkeypatch):
+    from flask_app.routes.api_script_hub import _common
+
+    captured = {}
+
+    def capture_context(**kwargs):
+        captured.update(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(_common, "_build_script_cache_context", capture_context)
+    monkeypatch.setattr(_common, "_pep_paths_from_request", lambda data: ["/data/pep"])
+    monkeypatch.setattr(_common, "_primary_pep_path_from_request", lambda data, *keys: "/data/pep")
+    monkeypatch.setattr(_common, "_profile_path_from_request", lambda data, *keys: "/data/Profile.csv")
+    _common._cache_context_from_script_request({
+        "project_id": "project-test",
+        "pep_data_dir": "/data/pep",
+        "profile_path": "/data/Profile.csv",
+        "selected_chains": ["TRA"],
+        "group_fields": ["group"],
+        "batch_field": "batch",
+        "optional_steps": ["9", "10", "11", "unsupported"],
+    }, "pep-analysis")
+
+    config = captured["config_json"]
+    assert config["optional_steps"] == [9, 10, 11]
+    assert config["batch_field"] == "batch"
 
 
 def test_pep_step2_fast_writer_matches_reference_outputs(tmp_path):
@@ -1413,12 +1514,14 @@ def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, mon
 
     output_base = tmp_path / "results" / "script_hub" / "pep_job_context"
     output_base.mkdir(parents=True)
+    service_calls = []
 
     class FakePepAnalysisService:
         def __init__(self, output_parent):
             self.output_parent = output_parent
 
         def generate_report(self, **kwargs):
+            service_calls.append(kwargs)
             return SimpleNamespace(
                 job_id="pep_job_context",
                 output_base=output_base,
@@ -1457,6 +1560,7 @@ def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, mon
         profile_path=str(tmp_path / "Profile.csv"),
         group_fields=["therapy"],
         selected_chains=["TRA"],
+        group_order={"therapy": ["treated", "control"]},
         project_id="project-1",
         app_context_app=app,
     )
@@ -1465,6 +1569,7 @@ def test_run_pep_analysis_task_caches_with_app_context(api_module, tmp_path, mon
     assert task["status"] == "completed"
     assert len(cache_calls) == 1
     assert cache_calls[0]["project_id"] == "project-1"
+    assert service_calls[0]["group_order"] == {"therapy": ["treated", "control"]}
 
 
 def test_volcano_and_umapin_inspect_use_project_cached_usage(api_module, tmp_path):
@@ -1521,7 +1626,10 @@ def test_volcano_and_umapin_inspect_use_project_cached_usage(api_module, tmp_pat
     assert volcano_payload["data_dir"] == str(data_dir.resolve())
     assert volcano_payload["file_count"] == 1
     assert umapin_response.status_code == 200
-    assert umapin_payload["data_path"] == str(data_dir.resolve())
+    # UMAPin keeps the registered input root and resolves its grouped table without source writes.
+    assert umapin_payload["data_path"] == str(cate_usage.resolve())
+    assert umapin_payload["sample_count"] == 4
+    assert umapin_payload["samples_by_value"] == {"A": ["s1", "s2"], "B": ["s3", "s4"]}
     assert "Category" in umapin_payload["columns"]
     assert "TRAV1;TRAJ1" in umapin_payload["columns"]
 
@@ -1611,8 +1719,10 @@ def test_script_hub_jobs_cancel_updates_task_state(api_module, script_job_app):
 
     assert response.status_code == 200
     assert payload["success"] is True
-    assert payload["job"]["status"] == "cancelled"
-    assert task["status"] == "cancelled"
+    assert payload["job"]["status"] == "running"
+    assert payload["job"]["cancel_requested"] is True
+    assert task["status"] == "running"
+    assert task["stage"] == "正在取消"
 
 
 def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monkeypatch):
@@ -1669,6 +1779,25 @@ def test_script_hub_jobs_endpoint_dispatches_all_legacy_modules(api_module, monk
         assert payload["module"] == module_name
 
     assert called == list(dispatch_names.keys())
+
+
+def test_ml_stability_tables_are_registered_as_previewable_outputs():
+    api_jobs = import_module("flask_app.routes.api_jobs")
+    output_urls = [
+        "/api/script-hub/results/ml-job/profile_Disease/feature_stability.csv",
+        "/api/script-hub/results/ml-job/profile_Disease/stable_features.csv",
+    ]
+
+    outputs = api_jobs._collect_result_outputs({
+        "module": "ml-analysis",
+        "csv_urls": output_urls,
+        "zip_url": "/api/script-hub/results/ml-job/ml_analysis_results.zip",
+    })
+
+    table_outputs = [item for item in outputs if item["url"] in output_urls]
+    assert [item["url"] for item in table_outputs] == output_urls
+    assert all(item["kind"] == "csv" for item in table_outputs)
+    assert [item["label"] for item in table_outputs] == ["feature_stability.csv", "stable_features.csv"]
 
 
 def test_global_jobs_list_returns_json_on_service_error(monkeypatch):
@@ -1759,8 +1888,11 @@ def test_script_hub_record_stage_obeys_generic_job_cancel(api_module):
         db.session.remove()
         db.drop_all()
 
-    assert task["status"] == "cancelled"
-    assert job["status"] == "cancelled"
+    assert task["status"] == "running"
+    assert job["status"] == "running"
+    assert job["cancel_requested"] is True
+    assert job["stage"] == "正在取消"
+    assert job["completed_at"] is None
 
 
 def test_suggest_umap_ranges(api_module):
@@ -1799,7 +1931,6 @@ def test_allowed_modules_contains_profile(api_module):
 
 def test_boxplot_service_viewer():
     """Ensure BoxPlotService.generate_report produces viewer_path and viewer.html."""
-    sys.modules.setdefault("umap", SimpleNamespace(UMAP=object))
     try:
         from flask_app.services.boxplot_service import BoxPlotService
     except ModuleNotFoundError:
@@ -1969,8 +2100,8 @@ def test_pgen_public_distribution_generates_png_and_stats(tmp_path):
     detail_dir.mkdir(parents=True)
     processed = []
     for sample, values in {
-        "s1": [("CASSA", 1e-4), ("CASSB", 1e-6)],
-        "s2": [("CASSA", 1e-5), ("CASSB", 1e-7)],
+        "s1": [("CASSA", 1e-4), ("CASSB", 1e-6), ("CASSC", 1e-3), ("CASSD", 1e-8)],
+        "s2": [("CASSA", 1e-5), ("CASSB", 1e-7), ("CASSC", 1e-5), ("CASSD", 1e-6)],
     }.items():
         sample_dir = detail_dir / sample
         sample_dir.mkdir()
@@ -2000,13 +2131,22 @@ def test_pgen_public_distribution_generates_png_and_stats(tmp_path):
         png_paths=png_paths,
     )
 
-    assert len(png_paths) == 1
-    assert Path(png_paths[0]).name == "TRA_Symptoms_pgen_public.png"
-    assert Path(png_paths[0]).exists()
-    assert len(csv_paths) == 1
-    stats = pd.read_csv(csv_paths[0])
-    assert stats.loc[0, "public_cdr3"] == 2
+    assert len(png_paths) == 2
+    assert {Path(path).name for path in png_paths} == {
+        "TRA_Symptoms_pgen_public.png",
+        "TRA_Symptoms_pgen_all.png",
+    }
+    assert all(Path(path).exists() for path in png_paths)
+    assert len(csv_paths) == 3
+    stats_path = next(path for path in csv_paths if Path(path).name == "pgen_public_distribution_stats.csv")
+    stats = pd.read_csv(stats_path)
+    assert stats.loc[0, "public_cdr3"] == 4
     assert stats.loc[0, "public_nonzero"] == 4
+    assert stats.loc[0, "samples"] == 2
+    assert stats.loc[0, "threshold"] == 2
+    all_stats = pd.read_csv(next(path for path in csv_paths if Path(path).name == "pgen_all_distribution_stats.csv"))
+    assert all_stats.loc[0, "selected_cdr3"] == 4
+    assert Path(next(path for path in csv_paths if Path(path).name == "pgen_distribution_ks_comparisons.csv")).exists()
 
 
 def test_pgen_inspect_returns_distribution_category_candidates(api_module, tmp_path):
@@ -2068,7 +2208,8 @@ def test_combined_charts_cache_context_includes_transcriptome(tmp_path):
     assert context["config_json"]["has_transcriptome"] is True
 
 
-def test_umapin_service_concatenates_usage_directory(monkeypatch):
+@pytest.mark.parametrize("selected_samples", [None, ["s1", "s3", "s4"]])
+def test_umapin_service_concatenates_usage_directory(monkeypatch, selected_samples):
     import numpy as np
     from flask_app.services.umapin_service import UmapinService
 
@@ -2092,19 +2233,31 @@ def test_umapin_service_concatenates_usage_directory(monkeypatch):
             "TRBV2;TRBJ2": [4, 3, 2, 1],
         }).to_csv(usage / "TRB.csv", index=False)
 
+        original = (usage / "TRB.csv").read_bytes()
         service = UmapinService(output_parent=root / "results")
         report = service.generate_report(
             data_path=str(root),
             param_begin="TRBV1;TRBJ1",
             param_over="TRBV2;TRBJ2",
             category_col="Category",
+            selected_samples=selected_samples,
         )
 
         assert len(report.png_paths) == 1
         assert len(report.csv_paths) >= 1
-        assert Path(report.output_base / "df_VJ_all.csv").exists()
+        merged = report.output_base / "df_VJ_all.csv"
+        assert merged.exists() and str(merged) in report.csv_paths
+        actual = pd.read_csv(merged)
+        expected = pd.read_csv(usage / "TRB.csv")
+        if selected_samples is not None:
+            expected = expected[expected["sample"].isin(selected_samples)]
+        pd.testing.assert_frame_equal(actual, expected.reset_index(drop=True))
+        assert (usage / "TRB.csv").read_bytes() == original
+        assert not (usage / "df_VJ_all.csv").exists()
         coord_df = pd.read_csv(report.csv_paths[0])
         assert {"sample", "Category", "UMAP1", "UMAP2"}.issubset(coord_df.columns)
+        assert coord_df["sample"].tolist() == expected["sample"].tolist()
+        assert report.metadata["sample_count"] == len(expected)
 
 
 def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
@@ -2115,6 +2268,7 @@ def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
         "png_urls": [
             f"/api/script-hub/results/{output_base.name}/boxplot/therapy/top10TRA.png",
             f"/api/script-hub/results/{output_base.name}/boxplot/therapy/top20TRB.png",
+            f"/api/script-hub/results/{output_base.name}/topclone_effect_heatmap/topclone_effect_heatmap_raw_p.png",
         ],
         "topclone_csv_url": f"/api/script-hub/results/{output_base.name}/topclone.csv",
         "cdr3_urls": [f"/api/script-hub/results/{output_base.name}/top_cdr3_sequences/TRA/top10_cdr3s.csv"],
@@ -2123,6 +2277,8 @@ def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
         "mode": "trace",
         "chains": ["TRA", "TRB"],
         "sample_count": 2,
+        "profile_sample_count": 3,
+        "excluded_unmatched_sample_count": 1,
         "top_clone_values": [10, 20, 50, 100],
     }
 
@@ -2134,6 +2290,13 @@ def test_topclone_viewer_exposes_chain_and_topn_filters(api_module, tmp_path):
     assert '"chain": "TRA"' in html
     assert '"top_n": "10"' in html
     assert "top10_cdr3s.csv" in html
+    assert "优势克隆分析结果" in html
+    assert "优势克隆中位数比值热图" in html
+    assert '"chain": "汇总"' in html
+    assert '"top_n": "比值热图"' in html
+    assert "纳入样本" in html
+    assert "未匹配样本" in html
+    assert "指标表样本" in html
 
 
 def test_script_hub_result_route_finds_user_scoped_viewer(api_module, tmp_path):

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { jobEventsUrl, type JobEventResponse } from "../api/jobs";
 
-const terminalStatuses = new Set(["completed", "failed", "cancelled", "interrupted"]);
+import { isTerminalJobStatus, preferLatestJobSnapshot } from "../utils/jobState";
 
 export function useJobEvents(jobId: string | null) {
   const [event, setEvent] = useState<JobEventResponse | null>(null);
@@ -17,16 +17,22 @@ export function useJobEvents(jobId: string | null) {
     }
 
     let disposed = false;
-    setEvent(null); setError(null);
+    let terminal = false;
+    setEvent(null); setError(null); setConnected(false);
     const source = new EventSource(jobEventsUrl(jobId), { withCredentials: true });
 
     const handleEvent = (message: MessageEvent<string>) => {
-      if (disposed) return;
+      if (disposed || terminal) return;
       try {
         const payload = JSON.parse(message.data) as JobEventResponse;
-        setEvent(payload);
+        if ((payload.job.job_id || payload.job.id) !== jobId) return;
+        setEvent(current => {
+          const latest = preferLatestJobSnapshot(current?.job || null, payload.job);
+          return latest === payload.job ? payload : current;
+        });
         setError(null);
-        if (terminalStatuses.has(payload.status)) {
+        if (isTerminalJobStatus(payload.status)) {
+          terminal = true;
           source.close();
           setConnected(false);
         }
@@ -36,12 +42,14 @@ export function useJobEvents(jobId: string | null) {
     };
 
     source.addEventListener("open", () => {
+      if (disposed || terminal) return;
       setConnected(true);
       setError(null);
     });
     source.addEventListener("update", handleEvent as EventListener);
     source.addEventListener("completed", handleEvent as EventListener);
     source.addEventListener("error", () => {
+      if (disposed || terminal) return;
       setConnected(false);
       setError("任务状态连接已断开。");
     });

@@ -1,6 +1,8 @@
 """Profile analysis routes: topclone, profile, pep-analysis, pgen-analysis."""
 
+import json
 import uuid
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +13,9 @@ from flask_app.services.boxplot_service import BoxPlotService
 from flask_app.services.pep_analysis_service import PepAnalysisService
 from flask_app.services.pgen_analysis_service import PgenAnalysisService
 from flask_app.services.topclone_service import TopCloneService
+from flask_app.services.profile_composition_service import ProfileCompositionService, discover_composition_columns
+from flask_app.services.profile_csr_service import ProfileCsrService, discover_csr_measures
+from flask_app.services.igh_subclass_topclone_service import IgSubclassTopCloneService
 from flask_app.services.project_storage_paths import script_output_parent
 from ._common import (
     _ALLOWED_MODULES,
@@ -34,8 +39,11 @@ from ._common import (
     _resolve_results_root,
     _robust_read_csv,
     _sanitize_nan,
+    _selected_group_values_from_request,
     _script_executor,
     _selected_samples_by_group_from_request,
+    _group_sample_identity_from_request,
+    _validate_selected_samples_against_group_values,
     _selected_samples_from_request,
     _set_task_state,
     _suggest_profile_ranges,
@@ -56,9 +64,15 @@ def _run_topclone_task(
     results_root: Path,
     pep_data_path: str,
     datapoint_path: str,
+    pep_paths: Optional[List[str]] = None,
+    selected_samples: Optional[List[str]] = None,
+    selected_group_values: Optional[Dict[str, List[str]]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    group_sample_identity: str = "sample",
     mode: str = "trace",
     top_n: int = 10,
     group_field: Optional[str] = None,
+    batch_field: Optional[str] = None,
     group_order: Optional[str] = None,
     pvalue_threshold: float = 0.05,
     selected_chains: Optional[List[str]] = None,
@@ -67,7 +81,7 @@ def _run_topclone_task(
     app_context_app: Optional[Any] = None,
 ) -> None:
     try:
-        _record_stage(task_id, 5, "TopClone inspect", f"Scanning {pep_data_path}", {"module": module_name})
+        _record_stage(task_id, 5, "检查优势克隆输入", f"正在检查克隆序列表：{pep_data_path}", {"module": module_name})
 
         local_pep = pep_data_path
         local_dp = datapoint_path
@@ -75,9 +89,15 @@ def _run_topclone_task(
         report = service.generate_report(
             pep_data_path=local_pep,
             datapoint_path=local_dp,
+            pep_paths=pep_paths,
+            selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             mode=mode,
             top_n=top_n,
             group_field=group_field,
+            batch_field=batch_field,
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
             selected_chains=selected_chains,
@@ -129,18 +149,35 @@ def _run_topclone_task(
                 rel = bp.viewer_path.relative_to(report.output_base)
                 result["viewer_url"] = f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}"
 
+        if report.stats_csv_path and Path(report.stats_csv_path).is_file():
+            rel = Path(report.stats_csv_path).relative_to(report.output_base)
+            result["pvalue_urls"].insert(0, f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
+        for effect_path in report.effect_heatmap_paths or []:
+            rel = Path(effect_path).relative_to(report.output_base)
+            result["png_urls"].append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
+        for statistics_path in report.effect_statistics_paths or []:
+            rel = Path(statistics_path).relative_to(report.output_base)
+            result["pvalue_urls"].append(f"/api/script-hub/results/{report.job_id}/{rel.as_posix()}")
+
+        for file_path in report.per_sample_files:
+            rel = Path(file_path).relative_to(report.output_base)
+            result["cdr3_urls"].append(f"/api/script-hub/results/{report.job_id}/{quote(rel.as_posix(), safe='/')}")
+        summary_csv = report.output_base / "top_clones" / "summary.csv"
+        if summary_csv.is_file():
+            result["csv_urls"].append(f"/api/script-hub/results/{report.job_id}/top_clones/summary.csv")
+
         result["zip_url"] = f"/api/script-hub/results/{report.job_id}/topclone_results.zip"
         _build_topclone_viewer(report.output_base, result, report.metadata)
         _normalize_script_result(
             result,
             report.output_base,
             report.metadata,
-            title="TopClone Analysis Results",
-            subtitle="Mode: " + str(report.metadata.get("mode", "")) + " | Chains: " + ", ".join(report.metadata.get("chains", [])),
-            dl_extras=[("topclone_csv_url", "topclone.csv", "TopClone CSV"),
-                       ("csv_urls", None, "BoxPlot CSV"),
-                       ("pvalue_urls", None, "P-value CSV"),
-                       ("cdr3_urls", None, "CDR3 Sequences")],
+            title="优势克隆分析结果",
+            subtitle="分析方式：" + ("分组比较" if report.metadata.get("mode") == "trace" else "单样本提取") + "　|　链型：" + ", ".join(report.metadata.get("chains", [])),
+            dl_extras=[("topclone_csv_url", "topclone.csv", "优势克隆数据表"),
+                       ("csv_urls", None, "分析数据表"),
+                       ("pvalue_urls", None, "检验统计表"),
+                       ("cdr3_urls", None, "Top CDR3 序列")],
             zip_name="topclone_results.zip",
         )
 
@@ -148,7 +185,12 @@ def _run_topclone_task(
         _complete_script_task(
             task_id,
             module_name=module_name,
-            detail=f"TopClone generated {len(result['png_urls'])} boxplots",
+            detail=(
+                f"优势克隆分析完成：纳入 {report.metadata.get('sample_count', 0)} 个样本，"
+                f"生成 {len(result['png_urls'])} 张图表。"
+                if mode == "trace"
+                else f"优势克隆提取完成：生成 {len(report.per_sample_files)} 个结果文件。"
+            ),
             result=result,
             history=history,
             app_context_app=app_context_app,
@@ -160,7 +202,7 @@ def _run_topclone_task(
             task_id,
             status="failed",
             progress=0.0,
-            stage="Failed",
+            stage="执行失败",
             detail=str(exc),
             meta={"phase": "failed", "module": module_name},
             history=history[-80:]
@@ -176,7 +218,7 @@ def inspect_topclone():
             raise ValidationError(message="pep_data_path is required", details={"field": "pep_data_path"})
         datapoint_path = _profile_path_from_request(data, "datapoint_path", "profile_path") or ""
 
-        discovery = _inspect_data_selection_payload([pep_data_path], datapoint_path or None)
+        discovery = _inspect_data_selection_payload(pep_paths or [pep_data_path], datapoint_path or None)
         chains = discovery.get("chains", [])
         samples = discovery.get("samples", [])
         category_cols = discovery.get("group_fields", [])
@@ -189,6 +231,8 @@ def inspect_topclone():
             "sample_count": len(samples),
             "samples": samples[:20],
             "category_cols": category_cols,
+            "sample_conflicts": discovery.get("sample_conflicts", []),
+            "warnings": discovery.get("warnings", []),
         })
     except ValidationError as exc:
         logger.warning("Validation error in inspect_topclone: %s", exc.message)
@@ -207,9 +251,12 @@ def run_topclone():
         pep_paths = _pep_paths_from_request(data)
         pep_data_path = _primary_pep_path_from_request(data, "pep_data_path", "base_path")
         datapoint_path = _profile_path_from_request(data, "datapoint_path", "profile_path") or ""
+        if str(data.get("analysis_type") or "").strip().lower() == "igh_subclass_topclone":
+            return _queue_igh_subclass_topclone(data, pep_paths, pep_data_path, datapoint_path)
         mode = str(data.get("mode") or "trace").strip()
         top_n = int(data.get("top_n") or 10)
         group_field = str(data.get("group_field") or "").strip() or None
+        batch_field = str(data.get("batch_field") or "").strip() or None
         group_order = str(data.get("group_order") or "").strip() or None
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         selected_chains = [
@@ -218,11 +265,32 @@ def run_topclone():
             if str(chain or "").strip()
         ]
         output_name = str(data.get("output_name") or "").strip() or None
+        selected_samples = _selected_samples_from_request(data)
+        selected_group_values = _selected_group_values_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
+        group_sample_identity = _group_sample_identity_from_request(data)
+        _validate_selected_samples_against_group_values(data)
+        if mode not in {"trace", "per_sample"} or top_n < 1:
+            raise ValidationError(message="请选择有效分析模式，提取克隆数量至少为 1。", details={"mode": mode, "top_n": top_n})
 
         if not pep_data_path:
             raise ValidationError(message="pep_data_path is required", details={"field": "pep_data_path"})
-        if mode == "trace" and not datapoint_path:
-            raise ValidationError(message="datapoint_path is required for trace mode", details={"field": "datapoint_path"})
+        if (mode == "trace" or batch_field or selected_samples or selected_group_values or selected_samples_by_group) and not datapoint_path:
+            raise ValidationError(message="分组或样本筛选需要样本指标表。", details={"field": "datapoint_path"})
+        if datapoint_path:
+            discovery = _inspect_data_selection_payload(pep_paths or [pep_data_path], datapoint_path)
+            conflicts = discovery.get("sample_conflicts", [])
+            if conflicts and not batch_field:
+                raise ValidationError(
+                    message="发现跨批次同名样本，请选择批次字段后再提交 TopClone 分析。",
+                    details={"sample_conflicts": conflicts},
+                )
+            profile_columns = discovery.get("profile_columns", [])
+            if batch_field and profile_columns and batch_field not in profile_columns:
+                raise ValidationError(
+                    message="所选批次字段不在当前样本指标表中。",
+                    details={"batch_field": batch_field, "available_fields": profile_columns},
+                )
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
             project_id=project_id,
@@ -235,9 +303,14 @@ def run_topclone():
                 "mode": mode,
                 "top_n": top_n,
                 "group_field": group_field,
+                "batch_field": batch_field,
                 "group_order": group_order,
                 "pvalue_threshold": pvalue_threshold,
                 "selected_chains": selected_chains,
+                "selected_samples": selected_samples,
+                "selected_group_values": selected_group_values,
+                "selected_samples_by_group": selected_samples_by_group,
+                "group_sample_identity": group_sample_identity,
             },
         )
         if not _force_rerun_requested(data):
@@ -251,10 +324,10 @@ def run_topclone():
             task_id,
             status="queued",
             progress=0.0,
-            stage="Queued",
-            detail="Task created and waiting to start",
+            stage="等待执行",
+            detail="优势克隆分析任务已加入队列。",
             meta=queued_meta,
-            history=[_history_entry(0.0, "Queued", "Task created and waiting to start", queued_meta)],
+            history=[_history_entry(0.0, "等待执行", "优势克隆分析任务已加入队列。", queued_meta)],
             **cache_context,
         )
 
@@ -264,9 +337,15 @@ def run_topclone():
             results_root=_resolve_results_root(),
             pep_data_path=pep_data_path,
             datapoint_path=datapoint_path,
+            pep_paths=pep_paths or None,
+            selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             mode=mode,
             top_n=top_n,
             group_field=group_field,
+            batch_field=batch_field,
             group_order=group_order,
             pvalue_threshold=pvalue_threshold,
             selected_chains=selected_chains or None,
@@ -284,6 +363,112 @@ def run_topclone():
         return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
 
 
+def _queue_igh_subclass_topclone(data: Dict[str, Any], pep_paths: List[str], pep_data_path: str, datapoint_path: str):
+    if not datapoint_path:
+        raise ValidationError(message="亚类 TopClone 需要样本指标表提供分组信息。")
+    inputs = pep_paths or ([pep_data_path] if pep_data_path else [])
+    if not inputs:
+        raise ValidationError(message="请选择含 IGH 克隆序列的 PEP 数据。")
+    group_field = str(data.get("group_field") or "").strip()
+    if not group_field:
+        raise ValidationError(message="请选择一个分组列。")
+    batch_field = str(data.get("batch_field") or "").strip() or None
+    discovery = _inspect_data_selection_payload(inputs, datapoint_path)
+    conflicts = discovery.get("sample_conflicts", [])
+    if conflicts and not batch_field:
+        raise ValidationError(message="发现跨批次同名样本，请选择批次字段后再提交亚类 TopClone 分析。",
+                              details={"sample_conflicts": conflicts})
+    profile_columns = discovery.get("profile_columns", [])
+    if batch_field and profile_columns and batch_field not in profile_columns:
+        raise ValidationError(message="所选批次字段不在当前样本指标表中。",
+                              details={"batch_field": batch_field, "available_fields": profile_columns})
+    group_order_value = data.get("group_order")
+    if isinstance(group_order_value, list):
+        group_order = [str(item).strip() for item in group_order_value if str(item).strip()]
+    else:
+        group_order = [item.strip() for item in str(group_order_value or "").split(",") if item.strip()]
+    selected_samples = _selected_samples_from_request(data)
+    project_id = str(data.get("project_id") or "").strip() or None
+    cache_context = _build_script_cache_context(
+        project_id=project_id,
+        module_name="igh-subclass-topclone",
+        input_paths=[{"asset_type": "pep", "path": path} for path in inputs]
+            + [{"asset_type": "profile", "path": datapoint_path}],
+        config_json={
+            "analysis_type": "igh_subclass_topclone", "group_field": group_field,
+            "group_order": group_order, "selected_samples": selected_samples,
+            "batch_field": batch_field,
+        },
+    )
+    if not _force_rerun_requested(data):
+        reused = _try_reuse_script_result(cache_context, "igh-subclass-topclone")
+        if reused:
+            return jsonify(reused)
+    task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+    queued_meta = {"phase": "queued", "module": "igh-subclass-topclone", "datapoint_path": datapoint_path}
+    _set_task_state(
+        task_id, status="queued", progress=0.0, stage="Queued",
+        detail="IGH 亚类 TopClone 已加入队列。", meta=queued_meta,
+        history=[_history_entry(0.0, "Queued", "IGH 亚类 TopClone 已加入队列。", queued_meta)],
+        **cache_context,
+    )
+    _script_executor.submit(
+        _run_igh_subclass_topclone_task, task_id,
+        results_root=_resolve_results_root(), pep_paths=inputs,
+        datapoint_path=datapoint_path, group_field=group_field,
+        group_order=group_order, batch_field=batch_field, selected_samples=selected_samples,
+        app_context_app=current_app._get_current_object() if project_id else None,
+    )
+    return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}", "analysis_signature": cache_context.get("analysis_signature", "")})
+
+
+def _run_igh_subclass_topclone_task(
+    task_id: str, *, results_root: Path, pep_paths: List[str], datapoint_path: str,
+    group_field: str, group_order: List[str], batch_field: Optional[str] = None,
+    selected_samples: Optional[List[str]] = None,
+    app_context_app: Optional[Any] = None,
+) -> None:
+    try:
+        _record_stage(task_id, 8, "检查 IGH 克隆数据", "根据样本指标表匹配 IGH 文件及分组。", {"module": "igh-subclass-topclone"})
+        service = IgSubclassTopCloneService(
+            output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app)
+        )
+        report = service.generate_report(
+            pep_paths=pep_paths, datapoint_path=datapoint_path,
+            group_column=group_field, group_order=group_order,
+            batch_field=batch_field,
+            selected_samples=selected_samples, output_name=task_id,
+        )
+        base_url = f"/api/script-hub/results/{report.job_id}"
+        png_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.png_paths]
+        csv_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.csv_paths]
+        result = {
+            "module": "igh-subclass-topclone", "job_id": report.job_id,
+            "output_base": str(report.output_base), "png_urls": png_urls,
+            "csv_urls": csv_urls,
+            "zip_url": f"{base_url}/{report.zip_path.relative_to(report.output_base).as_posix()}",
+            "metadata_url": f"{base_url}/analysis_metadata.json", "metadata": report.metadata,
+        }
+        _normalize_script_result(
+            result, report.output_base, report.metadata,
+            title="IGH 免疫球蛋白亚类 TopClone",
+            subtitle=f"分组：{group_field}；样本数：{report.metadata['sample_count']}",
+            dl_extras=[("csv_urls", None, "亚类 TopClone 统计表")],
+            zip_name="IGH_亚类TopClone分析结果.zip",
+        )
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _complete_script_task(
+            task_id, module_name="igh-subclass-topclone",
+            detail=f"已生成 {len(report.png_paths)} 张组间差异图和 {len(report.csv_paths)} 份数据表。",
+            result=result, history=history, app_context_app=app_context_app,
+        )
+    except Exception as exc:
+        logger.error("IGH subclass TopClone task failed: %s", exc, exc_info=True)
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _set_task_state(task_id, status="failed", progress=100.0, stage="Failed", detail=str(exc), error=str(exc),
+                        meta={"phase": "failed", "module": "igh-subclass-topclone"}, history=history[-80:])
+
+
 @bp.route("/profile/inspect", methods=["POST"])
 def inspect_profile():
     try:
@@ -294,6 +479,11 @@ def inspect_profile():
         discovery = _discover_boxplot_inputs(base_path, datapoint_path)
         suggestions = _suggest_profile_ranges(discovery["columns"])
         discovery.update(suggestions)
+        discovery["composition_columns"] = {
+            "reads": discover_composition_columns(discovery["columns"], "reads"),
+            "clone": discover_composition_columns(discovery["columns"], "clone"),
+        }
+        discovery["csr_measures"] = discover_csr_measures(discovery["columns"])
 
         # Read sample rows for preview
         dp = Path(discovery["datapoint_path"])
@@ -355,6 +545,11 @@ def run_profile():
         if not datapoint_path:
             raise ValidationError(message="datapoint_path is required", details={"field": "datapoint_path"})
 
+        if str(data.get("analysis_type") or "").strip().lower() == "composition":
+            return _queue_profile_composition(data, datapoint_path)
+        if str(data.get("analysis_type") or "").strip().lower() == "csr":
+            return _queue_profile_csr(data, datapoint_path)
+
         grouping_begin = str(data.get("grouping_begin") or "").strip()
         grouping_over = str(data.get("grouping_over") or "").strip()
         grouptype_fields = data.get("grouptype_fields") if isinstance(data.get("grouptype_fields"), list) else None
@@ -368,6 +563,7 @@ def run_profile():
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         output_name = str(data.get("output_name") or "").strip() or None
         selected_samples = _selected_samples_from_request(data)
+        selected_group_values = _selected_group_values_from_request(data)
         selected_samples_by_group = _selected_samples_by_group_from_request(data)
         project_id = str(data.get("project_id") or "").strip() or None
         cache_context = _build_script_cache_context(
@@ -432,6 +628,272 @@ def run_profile():
         return jsonify({"success": False, "error": "SCRIPT_HUB_RUN_ERROR", "message": str(exc)}), 500
 
 
+def _queue_profile_composition(data: Dict[str, Any], datapoint_path: str):
+    group_column = str(data.get("group_column") or data.get("grouping_begin") or "").strip()
+    if not group_column:
+        raise ValidationError(message="请选择一个分组列。")
+    measure = str(data.get("subclass_measure") or "reads").strip().lower()
+    if measure not in {"reads", "clone"}:
+        raise ValidationError(message="亚类统计口径请选择读段或克隆数。")
+    if not Path(datapoint_path).is_file():
+        raise ValidationError(message="样本指标表不存在。")
+    columns = _robust_read_csv(datapoint_path, nrows=0).columns.tolist()
+    if group_column not in columns:
+        raise ValidationError(message="所选分组列不在样本指标表中。")
+    composition_columns = discover_composition_columns(columns, measure)
+    if not composition_columns["chains"] and not composition_columns["subclass_columns"]:
+        raise ValidationError(message=f"样本指标表中没有可用的链构成列或 {measure} 亚类构成列。")
+
+    project_id = str(data.get("project_id") or "").strip() or None
+    selected_samples = _selected_samples_from_request(data)
+    selected_samples_by_group = _selected_samples_by_group_from_request(data)
+    group_order_value = data.get("group_order")
+    if isinstance(group_order_value, list):
+        group_order = [str(item).strip() for item in group_order_value if str(item).strip()]
+    else:
+        group_order = [item.strip() for item in str(group_order_value or "").split(",") if item.strip()]
+    output_name = str(data.get("output_name") or "").strip() or None
+    cache_context = _build_script_cache_context(
+        project_id=project_id,
+        module_name="profile-composition",
+        input_paths=[{"asset_type": "profile", "path": datapoint_path}],
+        config_json={
+            "group_column": group_column,
+            "group_order": group_order,
+            "subclass_measure": measure,
+            "selected_samples": selected_samples,
+            "selected_samples_by_group": selected_samples_by_group,
+        },
+    )
+    if not _force_rerun_requested(data):
+        reused_response = _try_reuse_script_result(cache_context, "profile-composition")
+        if reused_response:
+            return jsonify(reused_response)
+
+    task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+    queued_meta = {"phase": "queued", "module": "profile-composition", "datapoint_path": datapoint_path}
+    _set_task_state(
+        task_id,
+        status="queued",
+        progress=0.0,
+        stage="Queued",
+        detail="构成图任务已加入队列。",
+        meta=queued_meta,
+        history=[_history_entry(0.0, "Queued", "构成图任务已加入队列。", queued_meta)],
+        **cache_context,
+    )
+    _script_executor.submit(
+        _run_profile_composition_task,
+        task_id,
+        results_root=_resolve_results_root(),
+        datapoint_path=datapoint_path,
+        group_column=group_column,
+        group_order=group_order,
+        measure=measure,
+        selected_samples=selected_samples,
+        selected_samples_by_group=selected_samples_by_group,
+        app_context_app=current_app._get_current_object() if project_id else None,
+    )
+    return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}", "analysis_signature": cache_context.get("analysis_signature", "")})
+
+
+def _run_profile_composition_task(
+    task_id: str,
+    *,
+    results_root: Path,
+    datapoint_path: str,
+    group_column: str,
+    group_order: List[str],
+    measure: str,
+    selected_samples: Optional[List[str]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    app_context_app: Optional[Any] = None,
+) -> None:
+    try:
+        _record_stage(task_id, 8, "读取样本指标", "核对分组、构成列和样本筛选范围。", {"module": "profile-composition"})
+        service = ProfileCompositionService(
+            output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app)
+        )
+        report = service.generate_report(
+            datapoint_path=datapoint_path,
+            group_column=group_column,
+            group_order=group_order,
+            measure=measure,
+            selected_samples=selected_samples,
+            selected_samples_by_group=selected_samples_by_group,
+            output_name=task_id,
+        )
+        base_url = f"/api/script-hub/results/{report.job_id}"
+        png_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.png_paths]
+        csv_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.csv_paths]
+        result = {
+            "module": "profile-composition",
+            "job_id": report.job_id,
+            "output_base": str(report.output_base),
+            "png_urls": png_urls,
+            "csv_urls": csv_urls,
+            "zip_url": f"{base_url}/{report.zip_path.relative_to(report.output_base).as_posix()}",
+            "metadata_url": f"{base_url}/analysis_metadata.json",
+            "metadata": report.metadata,
+        }
+        _normalize_script_result(
+            result,
+            report.output_base,
+            report.metadata,
+            title="组库链与免疫球蛋白亚类构成",
+            subtitle=f"分组：{group_column}；样本数：{report.metadata['sample_count']}",
+            dl_extras=[("csv_urls", None, "样本构成与质量表")],
+            zip_name="组库构成分析结果.zip",
+        )
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _complete_script_task(
+            task_id,
+            module_name="profile-composition",
+            detail=f"已生成 {len(report.png_paths)} 张构成图和 {len(report.csv_paths)} 份数据表。",
+            result=result,
+            history=history,
+            app_context_app=app_context_app,
+        )
+    except Exception as exc:
+        logger.error("Profile composition task failed: %s", exc, exc_info=True)
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _set_task_state(
+            task_id,
+            status="failed",
+            progress=100.0,
+            stage="Failed",
+            detail=str(exc),
+            error=str(exc),
+            meta={"phase": "failed", "module": "profile-composition"},
+            history=history[-80:],
+        )
+
+
+def _queue_profile_csr(data: Dict[str, Any], datapoint_path: str):
+    group_column = str(data.get("group_column") or data.get("grouping_begin") or "").strip()
+    if not group_column:
+        raise ValidationError(message="请选择一个分组列。")
+    if not Path(datapoint_path).is_file():
+        raise ValidationError(message="样本指标表不存在。")
+    columns = _robust_read_csv(datapoint_path, nrows=0).columns.tolist()
+    if group_column not in columns:
+        raise ValidationError(message="所选分组列不在样本指标表中。")
+    available = discover_csr_measures(columns)
+    measure = str(data.get("csr_measure") or "auto").strip()
+    normalized = measure.upper()
+    if normalized == "AUTO":
+        usable = bool(available)
+    else:
+        key = "CSR_ratio" if normalized == "CSR_RATIO" else normalized
+        usable = bool(available.get(key))
+    if not usable:
+        raise ValidationError(message="样本指标表中没有所选 CSR 指标列，请重新检查输入或切换统计口径。")
+
+    project_id = str(data.get("project_id") or "").strip() or None
+    selected_samples = _selected_samples_from_request(data)
+    group_order_value = data.get("group_order")
+    if isinstance(group_order_value, list):
+        group_order = [str(item).strip() for item in group_order_value if str(item).strip()]
+    else:
+        group_order = [item.strip() for item in str(group_order_value or "").split(",") if item.strip()]
+    cache_context = _build_script_cache_context(
+        project_id=project_id,
+        module_name="profile-csr",
+        input_paths=[{"asset_type": "profile", "path": datapoint_path}],
+        config_json={
+            "group_column": group_column,
+            "group_order": group_order,
+            "csr_measure": normalized,
+            "selected_samples": selected_samples,
+        },
+    )
+    if not _force_rerun_requested(data):
+        reused_response = _try_reuse_script_result(cache_context, "profile-csr")
+        if reused_response:
+            return jsonify(reused_response)
+
+    task_id = f"script_task_{uuid.uuid4().hex[:12]}"
+    queued_meta = {"phase": "queued", "module": "profile-csr", "datapoint_path": datapoint_path}
+    _set_task_state(
+        task_id,
+        status="queued",
+        progress=0.0,
+        stage="Queued",
+        detail="CSR 类别转换分析已加入队列。",
+        meta=queued_meta,
+        history=[_history_entry(0.0, "Queued", "CSR 类别转换分析已加入队列。", queued_meta)],
+        **cache_context,
+    )
+    _script_executor.submit(
+        _run_profile_csr_task,
+        task_id,
+        results_root=_resolve_results_root(),
+        datapoint_path=datapoint_path,
+        group_column=group_column,
+        group_order=group_order,
+        measure=measure,
+        selected_samples=selected_samples,
+        app_context_app=current_app._get_current_object() if project_id else None,
+    )
+    return jsonify({"success": True, "task_id": task_id, "status_url": f"/api/script-hub/task/{task_id}", "analysis_signature": cache_context.get("analysis_signature", "")})
+
+
+def _run_profile_csr_task(
+    task_id: str,
+    *,
+    results_root: Path,
+    datapoint_path: str,
+    group_column: str,
+    group_order: List[str],
+    measure: str,
+    selected_samples: Optional[List[str]] = None,
+    app_context_app: Optional[Any] = None,
+) -> None:
+    try:
+        _record_stage(task_id, 8, "读取样本指标", "核对 CSR 指标、分组和样本范围。", {"module": "profile-csr"})
+        service = ProfileCsrService(
+            output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app)
+        )
+        report = service.generate_report(
+            datapoint_path=datapoint_path,
+            group_column=group_column,
+            group_order=group_order,
+            measure=measure,
+            selected_samples=selected_samples,
+            output_name=task_id,
+        )
+        base_url = f"/api/script-hub/results/{report.job_id}"
+        png_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.png_paths]
+        csv_urls = [f"{base_url}/{path.relative_to(report.output_base).as_posix()}" for path in report.csv_paths]
+        result = {
+            "module": "profile-csr", "job_id": report.job_id,
+            "output_base": str(report.output_base), "png_urls": png_urls,
+            "csv_urls": csv_urls,
+            "zip_url": f"{base_url}/{report.zip_path.relative_to(report.output_base).as_posix()}",
+            "metadata_url": f"{base_url}/analysis_metadata.json", "metadata": report.metadata,
+        }
+        _normalize_script_result(
+            result, report.output_base, report.metadata,
+            title="免疫球蛋白类别转换矩阵",
+            subtitle=f"分组：{group_column}；样本数：{report.metadata['sample_count']}",
+            dl_extras=[("csv_urls", None, "CSR 统计表")],
+            zip_name="免疫球蛋白类别转换分析结果.zip",
+        )
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _complete_script_task(
+            task_id, module_name="profile-csr",
+            detail=f"已生成 {len(report.png_paths)} 张矩阵图和 {len(report.csv_paths)} 份统计表。",
+            result=result, history=history, app_context_app=app_context_app,
+        )
+    except Exception as exc:
+        logger.error("Profile CSR task failed: %s", exc, exc_info=True)
+        history = (_get_task_state(task_id) or {}).get("history", [])
+        _set_task_state(
+            task_id, status="failed", progress=100.0, stage="Failed", detail=str(exc), error=str(exc),
+            meta={"phase": "failed", "module": "profile-csr"}, history=history[-80:],
+        )
+
+
 # ---- Pep Analysis inspect ----
 @bp.route("/pep-analysis/inspect", methods=["POST"])
 def inspect_pep_analysis():
@@ -482,8 +944,11 @@ def run_pep_analysis():
         profile_path = _profile_path_from_request(data, "profile_path", "datapoint_path") or ""
         selected_chains = data.get("selected_chains") if isinstance(data.get("selected_chains"), list) else []
         group_fields = data.get("group_fields") if isinstance(data.get("group_fields"), list) else []
+        batch_field = str(data.get("batch_field") or "").strip() or None
         selected_samples = _selected_samples_from_request(data)
+        selected_group_values = _selected_group_values_from_request(data)
         selected_samples_by_group = _selected_samples_by_group_from_request(data)
+        group_sample_identity = _group_sample_identity_from_request(data)
 
         if not pep_data_dir:
             raise ValidationError(message="pep_data_dir is required", details={"field": "pep_data_dir"})
@@ -494,11 +959,45 @@ def run_pep_analysis():
         if not group_fields:
             raise ValidationError(message="group_fields is required", details={"field": "group_fields"})
 
+        pep_inputs = pep_paths or [pep_data_dir]
+        discovery = _inspect_data_selection_payload(pep_inputs, profile_path)
+        if batch_field:
+            profile_columns = discovery.get("profile_columns", [])
+            if batch_field not in profile_columns:
+                raise ValidationError(
+                    message=f"样本指标表中不存在批次字段“{batch_field}”",
+                    details={"field": "batch_field", "available_fields": profile_columns},
+                )
+            sample_column = profile_columns[0] if profile_columns else ""
+            if batch_field == sample_column:
+                raise ValidationError(message="批次字段不能与样本编号列相同", details={"field": "batch_field"})
+            batch_rows = _robust_read_csv(profile_path, usecols=[sample_column, batch_field], dtype=str)
+            if batch_rows[batch_field].isna().any() or batch_rows[batch_field].astype(str).str.strip().eq("").any():
+                raise ValidationError(message="样本指标表中存在空批次值", details={"field": "batch_field"})
+            if batch_rows.duplicated([sample_column, batch_field]).any():
+                raise ValidationError(message="样本指标表中存在重复的批次与样本编号组合", details={"field": "batch_field"})
+        if discovery.get("sample_conflicts") and not batch_field:
+            raise ValidationError(
+                message="所选 PEP 文件中存在同名样本与链型；当前共享克隆流程无法区分批次，请先整理样本编号。",
+                details={"sample_conflicts": discovery["sample_conflicts"]},
+            )
+
+        _validate_selected_samples_against_group_values(data)
+
         pvalue_threshold = float(data.get("pvalue_threshold") or 0.05)
         min_sample_threshold = int(data.get("min_sample_threshold") or 3)
         optional_steps_raw = data.get("optional_steps") if isinstance(data.get("optional_steps"), list) else None
         optional_steps = {int(step) for step in optional_steps_raw if str(step).isdigit()} if optional_steps_raw is not None else None
-        optional_steps = {step for step in optional_steps if step in {5, 6, 7, 8}} if optional_steps is not None else None
+        optional_steps = {step for step in optional_steps if step in {5, 6, 7, 8, 9, 10, 11, 12}} if optional_steps is not None else None
+        group_order_raw = data.get("group_order")
+        try:
+            group_order_value = json.loads(group_order_raw) if isinstance(group_order_raw, str) else group_order_raw
+        except (TypeError, ValueError):
+            group_order_value = {}
+        group_order = {
+            str(field): [value.strip() for value in str(order).split(",") if value.strip()]
+            for field, order in (group_order_value.items() if isinstance(group_order_value, dict) else [])
+        }
         output_name = str(data.get("output_name") or "").strip() or None
         project_id = str(data.get("project_id") or "").strip() or None
         app_context_app = current_app._get_current_object() if project_id else None
@@ -512,9 +1011,12 @@ def run_pep_analysis():
             config_json={
                 "selected_chains": selected_chains,
                 "group_fields": group_fields,
+                "batch_field": batch_field,
                 "group_order": str(data.get("group_order") or "").strip() or None,
                 "selected_samples": selected_samples,
+                "selected_group_values": selected_group_values,
                 "selected_samples_by_group": selected_samples_by_group,
+                "group_sample_identity": group_sample_identity,
                 "pvalue_threshold": pvalue_threshold,
                 "min_sample_threshold": min_sample_threshold,
                 "optional_steps": sorted(optional_steps) if optional_steps is not None else None,
@@ -543,14 +1045,20 @@ def run_pep_analysis():
             task_id,
             results_root=_resolve_results_root(),
             pep_data_dir=pep_data_dir,
+            pep_paths=pep_paths or None,
             profile_path=profile_path,
             group_fields=group_fields,
             selected_chains=selected_chains,
+            batch_field=batch_field,
             pvalue_threshold=pvalue_threshold,
             min_sample_threshold=min_sample_threshold,
             optional_steps=optional_steps,
             output_name=output_name,
             selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
+            group_order=group_order,
             project_id=project_id,
             app_context_app=app_context_app
         )
@@ -596,6 +1104,7 @@ def inspect_pgen_analysis():
             "pep_file_count": discovery["pep_file_count"],
             "profile_candidates": discovery["profile_candidates"][:10],
             "profile_columns": discovery["profile_columns"],
+            "sample_conflicts": discovery.get("sample_conflicts", []),
             "sample_column_candidates": [c for c in discovery["profile_columns"] if str(c).strip().lower() == "sample"]
                 or discovery["profile_columns"][:1],
             "distribution_category_candidates": [
@@ -636,6 +1145,26 @@ def run_pgen_analysis():
         if not selected_chains:
             raise ValidationError(message="selected_chains is required", details={"field": "selected_chains"})
 
+        batch_field = str(data.get("batch_field") or "").strip() or None
+        selected_samples = _selected_samples_from_request(data)
+        selected_group_values = _selected_group_values_from_request(data)
+        selected_samples_by_group = _selected_samples_by_group_from_request(data)
+        group_sample_identity = _group_sample_identity_from_request(data)
+        _validate_selected_samples_against_group_values(data)
+        pgen_inputs = pep_paths or [pep_data_dir]
+        discovery = _inspect_data_selection_payload(pgen_inputs, profile_path)
+        if discovery.get("sample_conflicts") and not batch_field:
+            raise ValidationError(
+                message="发现跨批次同名样本，请选择批次字段后再提交生成概率分析。",
+                details={"sample_conflicts": discovery["sample_conflicts"]},
+            )
+        profile_columns = discovery.get("profile_columns", [])
+        if batch_field and profile_columns and batch_field not in profile_columns:
+            raise ValidationError(
+                message="所选批次字段不在当前样本指标表中。",
+                details={"batch_field": batch_field, "available_fields": profile_columns},
+            )
+
         cache_context = _build_script_cache_context(
             project_id=project_id,
             module_name=module_name,
@@ -647,7 +1176,12 @@ def run_pgen_analysis():
                 "selected_chains": selected_chains,
                 "species": species,
                 "sample_col": sample_col,
+                "batch_field": batch_field,
                 "distribution_category_col": distribution_category_col or "",
+                "selected_samples": selected_samples,
+                "selected_group_values": selected_group_values,
+                "selected_samples_by_group": selected_samples_by_group,
+                "group_sample_identity": group_sample_identity,
             },
         )
         if not _force_rerun_requested(data):
@@ -673,10 +1207,16 @@ def run_pgen_analysis():
             task_id,
             results_root=_resolve_results_root(),
             pep_data_dir=pep_data_dir,
+            pep_paths=pep_paths or None,
             profile_path=profile_path,
             selected_chains=selected_chains,
             species=species,
             sample_col=sample_col,
+            batch_field=batch_field,
+            selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             distribution_category_col=distribution_category_col,
             output_name=output_name,
             app_context_app=current_app._get_current_object() if project_id else None,
@@ -696,10 +1236,16 @@ def _run_pgen_analysis_task(
     *,
     results_root: Path,
     pep_data_dir: str,
+    pep_paths: Optional[List[str]] = None,
     profile_path: str,
     selected_chains: List[str],
     species: str = "human",
     sample_col: str = "sample",
+    batch_field: Optional[str] = None,
+    selected_samples: Optional[List[str]] = None,
+    selected_group_values: Optional[Dict[str, List[str]]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    group_sample_identity: str = "sample",
     distribution_category_col: Optional[str] = None,
     output_name: Optional[str] = None,
     app_context_app: Optional[Any] = None,
@@ -710,10 +1256,16 @@ def _run_pgen_analysis_task(
         service = PgenAnalysisService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             pep_data_dir=pep_data_dir,
+            pep_paths=pep_paths,
             profile_path=profile_path,
             selected_chains=selected_chains,
             species=species,
             sample_col=sample_col,
+            batch_field=batch_field,
+            selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
             distribution_category_col=distribution_category_col,
             output_name=output_name,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
@@ -936,14 +1488,20 @@ def _run_pep_analysis_task(
     *,
     results_root: Path,
     pep_data_dir: str,
+    pep_paths: Optional[List[str]] = None,
     profile_path: str,
     group_fields: List[str],
     selected_chains: List[str],
+    batch_field: Optional[str] = None,
     pvalue_threshold: float = 0.05,
     min_sample_threshold: int = 3,
     optional_steps: Optional[set] = None,
     output_name: Optional[str] = None,
     selected_samples: Optional[List[str]] = None,
+    selected_group_values: Optional[Dict[str, List[str]]] = None,
+    selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    group_sample_identity: str = "sample",
+    group_order: Optional[Dict[str, List[str]]] = None,
     project_id: Optional[str] = None,
     app_context_app: Optional[Any] = None
 ) -> None:
@@ -957,14 +1515,20 @@ def _run_pep_analysis_task(
         service = PepAnalysisService(output_parent=script_output_parent(task_id, results_root / _RESULT_DIR, app_context_app))
         report = service.generate_report(
             pep_data_dir=local_pep_dir,
+            pep_paths=pep_paths,
             profile_path=local_profile,
             group_fields=group_fields,
             selected_chains=selected_chains,
+            batch_field=batch_field,
             pvalue_threshold=pvalue_threshold,
             min_sample_threshold=min_sample_threshold,
             optional_steps=optional_steps,
             output_name=output_name,
             selected_samples=selected_samples,
+            selected_group_values=selected_group_values,
+            selected_samples_by_group=selected_samples_by_group,
+            group_sample_identity=group_sample_identity,
+            group_order=group_order,
             project_id=project_id,
             progress_callback=lambda progress, stage, detail, meta=None: _record_stage(
                 task_id,
@@ -994,12 +1558,16 @@ def _run_pep_analysis_task(
             "proportion_plot_urls": [_url(p) for p in getattr(report, "proportion_plot_paths", [])],
             "arrange_heatmap_urls": [_url(p) for p in report.arrange_heatmap_paths],
             "plot_heatmap_urls": [_url(p) for p in report.plot_heatmap_paths],
+            "clone_tracking_image_urls": [_url(p) for p in getattr(report, "clone_tracking_image_paths", [])],
+            "clone_tracking_table_urls": [_url(p) for p in getattr(report, "clone_tracking_table_paths", [])],
+            "category_heatmap_urls": [_url(p) for p in getattr(report, "category_heatmap_paths", [])],
+            "category_alignment_urls": [_url(p) for p in getattr(report, "category_alignment_paths", [])],
             "zip_url": _url(report.zip_path),
             "metadata_url": f"/api/script-hub/results/{report.job_id}/pep_analysis_metadata.json",
             "metadata": report.metadata,
         }
         result["png_urls"] = [
-            url for url in result["heatmap_image_urls"] + result["proportion_plot_urls"] + result["arrange_heatmap_urls"] + result["plot_heatmap_urls"]
+            url for url in result["heatmap_image_urls"] + result["proportion_plot_urls"] + result["arrange_heatmap_urls"] + result["plot_heatmap_urls"] + result["clone_tracking_image_urls"] + result["category_heatmap_urls"]
             if str(url).lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".svg"))
         ]
         _write_pep_analysis_viewer(report.output_base, result, report.metadata)
@@ -1016,6 +1584,10 @@ def _run_pep_analysis_task(
                 ("classification_urls", None, "Classification CSV"),
                 ("proportion_urls", None, "Proportion CSV"),
                 ("proportion_plot_urls", None, "Proportion Plots"),
+                ("clone_tracking_image_urls", None, "\u8de8\u7ec4\u5171\u4eab CDR3 \u8f68\u8ff9\u56fe"),
+                ("clone_tracking_table_urls", None, "\u8de8\u7ec4\u5171\u4eab CDR3 \u7ed3\u679c\u8868"),
+                ("category_heatmap_urls", None, "CDR3 \u5206\u7c7b\u70ed\u56fe"),
+                ("category_alignment_urls", None, "\u5206\u7c7b\u5171\u4eab\u514b\u9686\u53c2\u8003\u5e93\u6bd4\u5bf9\u7ed3\u679c"),
             ],
             zip_name="pep_analysis_results.zip",
         )
@@ -1065,5 +1637,3 @@ def _run_pep_analysis_task(
             meta={"phase": "failed", "module": "pep-analysis"},
             history=history[-80:]
         )
-
-

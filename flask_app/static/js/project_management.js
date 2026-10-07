@@ -43,6 +43,8 @@ function showManagementToast(message, type = 'info') {
 
 const ProjectManagementPage = {
     createModal: null,
+    requestVersion: 0,
+    currentPage: 1,
 
     init() {
         if (!document.getElementById('projectsTableBody')) return;
@@ -55,11 +57,25 @@ const ProjectManagementPage = {
                 if (event.key === 'Enter') this.loadProjects();
             });
         });
-        this.loadProjects();
+        const query = new URLSearchParams(location.search);
+        for (const [key,id] of [['name','filterProjectName'],['institution','filterInstitution'],['cooperation_level','filterCooperationLevel']]) {
+            if(query.has(key)) document.getElementById(id).value=query.get(key);
+        }
+        this.loadProjects(Math.max(1,Number(query.get('page')) || 1));
+        this.loadStatistics();
     },
 
-    async loadProjects() {
+    async loadProjects(page = 1) {
+        const version = ++this.requestVersion;
+        this.currentPage = Math.max(1, page);
+        let navigation = document.getElementById('legacyProjectPages');
+        if (!navigation) {
+            navigation=document.createElement('div');navigation.id='legacyProjectPages';navigation.className='d-flex gap-2 align-items-center flex-wrap p-3';
+            document.getElementById('projectsTableBody').closest('table').parentElement.after(navigation);
+        }
+        navigation.replaceChildren();
         const params = new URLSearchParams({
+            page: String(this.currentPage), page_size: '24',
             name: document.getElementById('filterProjectName')?.value || '',
             institution: document.getElementById('filterInstitution')?.value || '',
             cooperation_level: document.getElementById('filterCooperationLevel')?.value || '',
@@ -72,14 +88,31 @@ const ProjectManagementPage = {
             const response = await fetch(`/api/projects?${params.toString()}`);
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || '加载项目失败');
+            if(version!==this.requestVersion)return;
+            const last=Math.max(1,data.pagination.total_pages);
+            if(this.currentPage>last)return this.loadProjects(last);
+            history.replaceState(history.state,'',location.pathname+'?'+params);
             this.renderProjects(data.projects || []);
+            const info=document.createElement('span');info.textContent=`共 ${data.pagination.total} 个匹配项目 · 第 ${this.currentPage} / ${last} 页`;navigation.append(info);
+            for(const [label,next,disabled] of [['上一页',this.currentPage-1,this.currentPage<=1],['下一页',this.currentPage+1,this.currentPage>=last]]){
+                const button=document.createElement('button');button.type='button';button.className='btn btn-sm btn-outline-primary';button.textContent=label;button.disabled=disabled;button.addEventListener('click',()=>this.loadProjects(next));navigation.append(button);
+            }
         } catch (error) {
+            if(version!==this.requestVersion)return;
             if (errorAlert) {
                 errorAlert.textContent = error.message || '加载项目失败';
                 errorAlert.classList.remove('d-none');
             }
             showManagementToast(error.message || '加载项目失败', 'danger');
         }
+    },
+
+    async loadStatistics() {
+        const fields={statProjectCount:'project_count',statPepCount:'pep_project_count',statSampleCount:'registered_sample_count',statResultCount:'result_count'};
+        try{
+            const response=await fetch('/api/projects/statistics');const stats=await response.json();if(!response.ok)throw new Error(stats.message || '统计读取失败');
+            for(const [id,key] of Object.entries(fields))document.getElementById(id).textContent=String(stats[key]);
+        }catch(error){for(const id of Object.keys(fields))document.getElementById(id).textContent='—';showManagementToast(error.message || '统计读取失败，可刷新重试','danger');}
     },
 
     setTableLoading() {
@@ -92,15 +125,6 @@ const ProjectManagementPage = {
     renderProjects(projects) {
         const tableBody = document.getElementById('projectsTableBody');
         if (!tableBody) return;
-
-        const totalSamples = projects.reduce((sum, item) => sum + Number(item.sample_count || 0), 0);
-        const totalResults = projects.reduce((sum, item) => sum + Number(item.result_count || 0), 0);
-        const pepProjects = projects.filter((item) => item.has_pep).length;
-
-        document.getElementById('statProjectCount').textContent = String(projects.length);
-        document.getElementById('statPepCount').textContent = String(pepProjects);
-        document.getElementById('statSampleCount').textContent = String(totalSamples);
-        document.getElementById('statResultCount').textContent = String(totalResults);
 
         if (!projects.length) {
             tableBody.innerHTML = '<tr><td colspan="7"><div class="mg-empty"><i class="bi bi-search"></i>没有匹配的项目。</div></td></tr>';
@@ -174,7 +198,7 @@ const ProjectManagementPage = {
     },
 
     async deleteProject(projectId) {
-        if (!projectId || !window.confirm('删除项目会同时删除项目资产和样本记录，是否继续？')) {
+        if (!projectId || !window.confirm('删除项目会同时删除项目上传文件、分析结果和历史任务；有未结束任务时无法删除。是否继续？')) {
             return;
         }
         try {
@@ -182,7 +206,7 @@ const ProjectManagementPage = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || '删除项目失败');
             showManagementToast('项目已删除。', 'success');
-            this.loadProjects();
+            this.loadProjects(this.currentPage); this.loadStatistics();
         } catch (error) {
             showManagementToast(error.message || '删除项目失败', 'danger');
         }

@@ -1,0 +1,42 @@
+import {act, cleanup, render, screen} from "@testing-library/react";
+import {afterEach, beforeEach, expect, it, vi} from "vitest";
+import {MemoryRouter} from "react-router-dom";
+import {ManagementDashboard} from "../pages/management/ManagementDashboard";
+import * as projects from "../shared/api/projects";
+import * as jobs from "../shared/api/jobs";
+const queued={id:"task-001",job_id:"task-001",module:"profile",status:"queued",stage:"queued",project_id:"project-001",payload:{asset_set:"甲"},updated_at:"2026-10-05T00:00:00Z"};
+beforeEach(()=>{
+ vi.spyOn(projects,"listProjects").mockResolvedValue({projects:[]} as never);
+ vi.spyOn(projects,"getProjectStatistics").mockResolvedValue({project_count:0,result_count:0} as never);
+});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();});
+it("最近任务显示中文并直达保存的项目、数据集和任务",async()=>{
+ vi.spyOn(jobs,"listJobs").mockResolvedValue({jobs:[{...queued,status:"completed",stage:"completed"}],counts:{completed:1}} as never);
+ render(<MemoryRouter><ManagementDashboard/></MemoryRouter>);
+ const link=await screen.findByRole("link",{name:"查看任务：组库指标与分组比较"});
+ const url=new URL(link.getAttribute("href")!,"http://fixture");
+ expect(url.searchParams.get("job")).toBe("task-001");
+ expect(url.searchParams.get("project")).toBe("project-001");
+ expect(url.searchParams.get("asset_set")).toBe("甲");
+ expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+ expect(screen.queryByText("profile")).not.toBeInTheDocument();
+});
+it("活动任务只在可见页面刷新，返回后重读，完成后停止刷新",async()=>{
+ vi.useFakeTimers();
+ const visibility=vi.spyOn(document,"visibilityState","get").mockReturnValue("visible");
+ const list=vi.spyOn(jobs,"listJobs").mockResolvedValue({jobs:[queued],counts:{queued:1}} as never);
+ render(<MemoryRouter><ManagementDashboard/></MemoryRouter>);
+ await act(async()=>{});expect(list).toHaveBeenCalledTimes(1);
+ visibility.mockReturnValue("hidden");
+ await act(async()=>{document.dispatchEvent(new Event("visibilitychange"));});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000);});
+ expect(list).toHaveBeenCalledTimes(1);
+ visibility.mockReturnValue("visible");
+ await act(async()=>{document.dispatchEvent(new Event("visibilitychange"));});
+ expect(list).toHaveBeenCalledTimes(2);
+ list.mockResolvedValue({jobs:[{...queued,status:"completed",stage:"completed"}],counts:{completed:1}} as never);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+ expect(list).toHaveBeenCalledTimes(3);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000);});
+ expect(list).toHaveBeenCalledTimes(3);
+});

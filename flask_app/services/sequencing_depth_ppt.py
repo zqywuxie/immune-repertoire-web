@@ -10,12 +10,13 @@ from typing import Dict, Any, Optional, Tuple
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import numpy as np
 import pandas as pd
 from matplotlib import rcParams
 
 # 设置中文字体
-rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+configure_chinese_font()
 rcParams["axes.unicode_minus"] = False
 
 

@@ -4,6 +4,1771 @@
  */
 
 export interface paths {
+    "/api/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 当前授权范围的登记统计及适用共享容量
+         * @description 登记字节为条目累计，不是物理磁盘占用。管理员或内部免登录模式可以读取共享文件系统容量，同一文件系统合并标签。缓存未测量以 null 表示；不扫描目录，不返回服务器路径。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 登记统计；容量读取失败保留 available=false，不填零 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            files: number;
+                            file_bytes: number;
+                            assets: number;
+                            asset_bytes: number;
+                            registered_categories: {
+                                [key: string]: {
+                                    count: number;
+                                    bytes: number;
+                                };
+                            };
+                            filesystem_capacity: {
+                                labels: string[];
+                                available: boolean;
+                                total_bytes?: number;
+                                used_bytes?: number;
+                                free_bytes?: number;
+                            }[];
+                            capacity_visible: boolean;
+                            cache_bytes: number | null;
+                        };
+                    };
+                };
+                /** @description 当前配置需要登录 */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询授权范围内的补充登记
+         * @description input_sample_id 精确定位某输入编号的关联登记，必须同时指定项目和数据集；缺失映射回退原始编号，显式 null 不回退。保留既有业务字段筛选及分页。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    project_id?: string;
+                    asset_set?: string;
+                    input_sample_id?: string;
+                    sample_id?: string;
+                    q?: string;
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 授权登记记录；提供页码时返回筛选后的全范围计数 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            samples?: Record<string, never>[];
+                            pagination?: components["schemas"]["Pagination"];
+                        };
+                    };
+                };
+                /** @description 核对编号缺少项目或数据集范围 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/samples/{sample_record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 更新登记中实际修改的字段
+         * @description 当前界面同时提交 expected_values，键必须与提交的业务字段完全一致，值为打开或最近核对时的原值。 在项目及记录锁内比较，只拒绝同字段冲突；冲突时整次修改不落库。 未携带 expected_values 的旧客户端保持原更新契约。
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sample_record_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SampleEditPayload"];
+                };
+            };
+            responses: {
+                /** @description 最新登记记录及原始身份 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": Record<string, never>;
+                    };
+                };
+                /** @description 原值集合无效或字段校验失败 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description SAMPLE_RECORD_CHANGED；details 包含冲突字段的 expected/current/submitted 和当前 sample，供保留草稿后核对 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/samples/field-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 样本登记筛选候选
+         * @description 不传 view 保留原完整字段候选。filters 排除高基数样本编号与序列编号； catalog 仅支持这两类编号，按当前用户可访问项目和指定数据集进行数据库去重、搜索和分页。 q 中的百分号和下划线作为字面字符；编号保持文本。分页只限定候选，不改变已有样本列表筛选定义。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    project_id?: string;
+                    asset_set?: string;
+                    /** @description 不传则使用完整旧契约 */
+                    view?: "filters" | "catalog";
+                    /** @description catalog 必填 sample_id 或 sequence_id */
+                    field?: string;
+                    q?: string;
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 完整／常规字段候选或分页编号目录 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SampleFieldOptionsResponse"] | components["schemas"]["SampleFieldCatalogResponse"];
+                    };
+                };
+                /** @description 候选类型、查询内容或分页参数不支持 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/pep-cache-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询克隆共享前置结果
+         * @description 不传 view 时保留完整候选接口。管理视图要求明确项目和数据集， summary 只返回全范围可用性统计，catalog 返回轻量来源、筛选后分页及全范围统计。 可用性沿用现有严格来源、文件及比较方向检查；分页限制响应大小，不免除完整核对。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description 管理视图必填 */
+                    project_id?: string;
+                    /** @description 管理视图必填 */
+                    asset_set?: string;
+                    cache_type?: string;
+                    /** @description 缺省保留完整候选；summary 统计不受 q/status/page 筛选影响 */
+                    view?: components["parameters"]["UpstreamView"];
+                    /** @description 目录按任务名称、标识、时间、缓存类型或比较组别查找 */
+                    q?: components["parameters"]["UpstreamQuery"];
+                    status?: components["parameters"]["UpstreamStatus"];
+                    page?: components["parameters"]["UpstreamPage"];
+                    page_size?: components["parameters"]["UpstreamPageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 原完整候选、管理摘要或分页来源目录 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UpstreamLegacyFullResponse"] | components["schemas"]["UpstreamSummaryResponse"] | components["schemas"]["UpstreamCatalogResponse"];
+                    };
+                };
+                /** @description 管理视图缺少明确范围或查询参数无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无权访问项目 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 项目不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-pathway/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询完整 GO-BP 通路来源
+         * @description 不传 view 时保留完整候选接口。管理视图要求明确项目和数据集， summary 只返回全范围可用性统计，catalog 返回轻量来源、筛选后分页及全范围统计。 可用性沿用现有严格来源、文件及比较方向检查；分页限制响应大小，不免除完整核对。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description 管理视图必填 */
+                    project_id?: string;
+                    /** @description 管理视图必填 */
+                    asset_set?: string;
+                    /** @description 缺省保留完整候选；summary 统计不受 q/status/page 筛选影响 */
+                    view?: components["parameters"]["UpstreamView"];
+                    /** @description 目录按任务名称、标识、时间、缓存类型或比较组别查找 */
+                    q?: components["parameters"]["UpstreamQuery"];
+                    status?: components["parameters"]["UpstreamStatus"];
+                    page?: components["parameters"]["UpstreamPage"];
+                    page_size?: components["parameters"]["UpstreamPageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 原完整候选、管理摘要或分页来源目录 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UpstreamLegacyFullResponse"] | components["schemas"]["UpstreamSummaryResponse"] | components["schemas"]["UpstreamCatalogResponse"];
+                    };
+                };
+                /** @description 管理视图缺少明确范围或查询参数无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无权访问项目 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 项目不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/samples/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 导出授权范围内符合筛选的全部样本登记
+         * @description 与样本列表共用筛选，不受页码限制。分批读取并生成临时下载文件，响应关闭后释放文件。默认保留原始 CSV 字段；界面使用中文业务列。表格文件中的编号和内容均以文本保存。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    project_id?: string;
+                    asset_set?: string;
+                    sample_id?: string;
+                    /** @description 精确核对输入编号时必须提供项目和数据集 */
+                    input_sample_id?: string;
+                    sample_name?: string;
+                    q?: string;
+                    project_name?: string;
+                    institution?: string;
+                    sequence_id?: string;
+                    contain_method?: string;
+                    iso_tag?: string;
+                    spices?: string;
+                    chain_flag?: string;
+                    is_healthy?: string;
+                    illness?: string;
+                    is_pe?: string;
+                    format?: "csv" | "xlsx";
+                    columns?: "legacy" | "business" | "technical";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 文件内容；X-Export-Count 是本次实际写入记录数。business 为中文常用列，technical 额外包含标识和原始补充信息，legacy 保留既有技术列与动态补充字段。 */
+                200: {
+                    headers: {
+                        "X-Export-Count"?: number;
+                        "Content-Disposition"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    };
+                };
+                /** @description 不支持的文件格式或字段范围 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 导出当前授权及筛选范围内的所选样本登记
+         * @description 沿用 GET 导出的字段、格式及临时文件生命周期。以登记记录 ID 精确选择，重复 ID 去重；空选择、已移除、错数据集或不可访问的任一记录均拒绝整批，不回退全部数据。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description 与 GET 共用筛选，页码不参与导出 */
+                        filters: {
+                            [key: string]: string;
+                        };
+                        record_ids: string[];
+                        /**
+                         * @default xlsx
+                         * @enum {string}
+                         */
+                        format?: "csv" | "xlsx";
+                        /**
+                         * @default business
+                         * @enum {string}
+                         */
+                        columns?: "legacy" | "business" | "technical";
+                    };
+                };
+            };
+            responses: {
+                /** @description 实际所选登记文件，X-Export-Count 为去重后的写入数量 */
+                200: {
+                    headers: {
+                        "X-Export-Count"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    };
+                };
+                /** @description 所选 ID、格式或筛选无效，或所选记录不能完整恢复 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按项目和数据集列出已校验指标输入 */
+        get: {
+            parameters: {
+                query?: {
+                    project?: string;
+                    asset_set?: string;
+                    include_superseded?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 当前已校验输入；明确启用时包含历史版本。未映射旧文件只在项目范围返回。 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            total: number;
+                            files: {
+                                id: string;
+                                asset_id?: string;
+                                asset_set?: string;
+                                name: string;
+                                columns: string[];
+                                row_count: number;
+                                superseded?: boolean;
+                                content_version?: string | null;
+                                uploaded_at?: string | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description 数据集未指定所属项目 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无权访问该项目 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/input-files/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取明确输入版本的实际表头
+         * @description 只读解析所选指标表或其有效整理文件，不创建兼容文件记录。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    project_id?: string;
+                    asset_set?: string;
+                };
+                header?: never;
+                path: {
+                    asset_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 本次实际分析输入的表头和行数 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            asset_id: string;
+                            asset_set: string;
+                            name: string;
+                            columns: string[];
+                            row_count: number;
+                            size?: number;
+                        };
+                    };
+                };
+                /** @description 项目或数据集不一致、输入类型不支持或整理来源失效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无权访问该项目 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 指定资产或文件已不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查免疫浸润组成与比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行免疫浸润组成与比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-consistency/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查细胞组别校正相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-consistency/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行细胞组别校正相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-concordance/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查亚类与细胞方向比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-concordance/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行亚类与细胞方向比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-paired/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查明确样本配对相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-paired/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行明确样本配对相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-pathway/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查GO-BP 与浸润方向比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-pathway/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行GO-BP 与浸润方向比较
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-sample-pathway/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查GO-BP 与浸润样本相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 真实匹配范围、分组计数与样本列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/immune-infiltration-sample-pathway/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行GO-BP 与浸润样本相关性
+         * @description 当前项目/数据集解析注册输入。完整编号保留前导零及已有批次复合标识。 selected_infiltration_samples/groups 使用检查返回的实际编号/分组，省略为全部，显式空列表拒绝。 配对模式以 sample_pairs 为唯一范围，不读取上述样本筛选；未选行不属于编号不匹配。 inspect 的 sample_scope_only=true 仅发现实际匹配范围；run 总是校验所选范围及该模式的样本门槛。 通路方向比较需要匹配的 upstream_artifact_id/comparison；样本通路模式需要三类输入共同样本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ScriptHubInfiltrationInput"];
+                };
+            };
+            responses: {
+                /** @description 任务编号及状态地址，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 输入、实际样本范围、配对、来源或比较条件无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/volcano/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查差异分析的实际输入
+         * @description 项目调用提交 project_id、asset_set、upstream_artifact_id；usage 模式返回所选产物 的真实分组和 samples_by_value（保留前导零及批次复合编号）。文件输入仅检查该文件， 目录输入按计算时相同规则合并链表，不写入来源目录。expression 模式返回表达矩阵自己的 groups、sample_count 和 samples_by_value，保留前导零。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        upstream_artifact_id?: string;
+                        /**
+                         * @default usage
+                         * @enum {string}
+                         */
+                        input_mode?: "usage" | "expression";
+                        data_dir?: string;
+                        expression_path?: string;
+                        /** @default tpm_ */
+                        group_prefix?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 返回实际文件、样本、分组与建议比較；usage 另返回 samples_by_value */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 来源不可用或输入无法解析 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/volcano/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 按实际比较与样本启动差异分析
+         * @description usage 的 selected_categories 和 selected_samples 使用检查返回的精确分组和行编号， 不从 Profile 的 selected_samples_by_group 推测。省略选择表示全部，显式空列表拒绝执行。 比较前组 / 后组，反向比较会翻转 log2FC；保留双侧秩和检验、至少一组 3 个非零样本、 原始 P 值显著性和 BH q_value 报告。expression 沿用 limma 及 FDR 筛选； selected_expression_groups 和 selected_expression_samples 分别是实际分组及表达列名， 全部所选列参与分位数归一化，每个比较的两组各需至少两个所选样本。 两种模式显式空比较均拒绝。输出名称仅用于元数据，原生结果目录分析类型固定 volcano。 批次依赖默认绑定当前前置任务带分组的 1VJusage；usage_type 可明确选择 0VJusage， 多分组时须通过 group_field 指定实际分组目录。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        upstream_artifact_id?: string;
+                        /**
+                         * @default usage
+                         * @enum {string}
+                         */
+                        input_mode?: "usage" | "expression";
+                        data_dir?: string;
+                        expression_path?: string;
+                        /** @default tpm_ */
+                        group_prefix?: string;
+                        comparisons?: string[][];
+                        selected_categories?: string[];
+                        selected_samples?: string[];
+                        selected_expression_groups?: string[];
+                        selected_expression_samples?: string[];
+                        /** @default 0.05 */
+                        pvalue_threshold?: number;
+                        /** @default 1 */
+                        logfc_cutoff?: number;
+                        output_name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 返回任务编号及缓存签名，或复用匹配结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 来源、样本范围、比较或阈值无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/umapin/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查旧特征降维的实际输入与样本
+         * @description 项目调用提交 project_id、asset_set 和 upstream_artifact_id，后端按该数据集解析结果。 返回特征表自己的分组和行样本编号，包括已有批次复合编号，不从样本指标表推测。 兼容无项目的 data_path 文件或目录调用。检查不启动降维，也不写入来源目录。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        upstream_artifact_id?: string;
+                        data_path?: string;
+                        /** @default Category */
+                        category_col?: string;
+                        sample_column?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 实际输入信息 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success?: boolean;
+                            data_path?: string;
+                            sample_count?: number;
+                            sample_column?: string;
+                            category_col?: string;
+                            feature_columns?: string[];
+                            pvalue_columns?: string[];
+                            values?: string[];
+                            samples_by_value?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description 来源不可用或实际输入字段无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/umapin/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 启动旧特征表 UMAP 降维
+         * @description 分组及样本按文本保存，selected_categories 使用检查返回的分组值，selected_samples 使用 samples_by_value 中的精确行编号，可分别选取跨批次同名样本。 未提交选择表示全部，显式空列表表示没有选择；筛选后少于三个样本拒绝运行。 本接口不使用 selected_samples_by_group 或 group_sample_identity 推测特征行。 未指定特征范围时采用数值候选范围；显式范围必须两端同时给出且顺序有效。 保留标准化、缺失数值填零及固定随机种子 8。do_fdr 只对明确 p 值列执行 既有最多 3 列、0.05 BH 校正，结果元数据记录 fdr_status 与 warnings。 输出名称写入元数据，结果目录的分析类型固定为 umapin。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        upstream_artifact_id?: string;
+                        data_path?: string;
+                        /** @default Category */
+                        category_col?: string;
+                        sample_column?: string;
+                        param_begin?: string;
+                        param_over?: string;
+                        selected_categories?: string[];
+                        selected_samples?: string[];
+                        /** @default 6 */
+                        n_neighbors?: number;
+                        /** @default 0.01 */
+                        min_dist?: number;
+                        /** @default 100 */
+                        n_epochs?: number;
+                        /** @default false */
+                        do_fdr?: boolean;
+                        output_name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 返回任务编号及缓存签名，或复用匹配的已完成结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 样本选择、字段、范围、参数或上游来源无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/boxplot/group-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 读取分组与可选样本，支持批次编号
+         * @description 样本及分组按文本读取，保留前导零。指定 batch_field 后，samples_by_value 返回批次::样本编号，两个部分中的 % 转为 %25，:: 转为 %3A%3A； sample_labels 提供界面显示名，sample_ids 提供原始编号。 克隆共享、生成概率、优势克隆、数据库比对、特殊 T 细胞、机器学习和统一 UMAP 分析提交该类组选时必须同时提交 group_sample_identity=batch_sample 与 batch_field；selected_samples_by_group 使用上述标识，selected_samples 仍只接受原始样本编号。未提交 group_sample_identity 的旧任务沿用原编号筛选。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        file_path: string;
+                        column: string;
+                        batch_field?: string;
+                        /** @description 可明确指定实际样本编号列，否则按标准列名识别 */
+                        sample_col?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 分组与样本选择 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success?: boolean;
+                            values?: string[];
+                            samples_by_value?: {
+                                [key: string]: string[];
+                            };
+                            sample_labels?: {
+                                [key: string]: string;
+                            };
+                            sample_ids?: {
+                                [key: string]: string;
+                            };
+                        };
+                    };
+                };
+                /** @description 批次字段不存在、编号为空或同批次内重复 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/go-kegg-enrichment/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查表达矩阵的真实分组和样本列
+         * @description 提交 project_id、asset_set、group_prefix，返回 groups、sample_count、samples_by_value 和建议比较。项目矩阵按注册资产解析；检查不计算差异或写入来源文件。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        expression_path?: string;
+                        /** @default tpm_ */
+                        group_prefix?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 表达列、真实分组及建议比较 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 来源无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/go-kegg-enrichment/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 从表达矩阵或已完成差异结果启动富集
+         * @description expression 模式按实际 selected_expression_groups、selected_expression_samples 和 comparisons 运行 limma；省略选择为全部，显式空选择或比较拒绝，各比较每组至少两个样本。 deg 模式使用 upstream_artifact_id，沿用完整来源表的 significant 标记、统计值和元数据； 隐藏的表达选择、差异比较及阈值不影响计算或缓存。启用 GSEA 必须包含 t 列。 运行与缓存查询共用规范化参数；默认 BH、阈值 0.05、展示 10 条，不合并 GO 冗余项，启用 GSEA。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        project_id?: string;
+                        asset_set?: string;
+                        /**
+                         * @default expression
+                         * @enum {string}
+                         */
+                        input_mode?: "expression" | "deg";
+                        upstream_artifact_id?: string;
+                        expression_path?: string;
+                        /** @default tpm_ */
+                        group_prefix?: string;
+                        selected_expression_groups?: string[];
+                        selected_expression_samples?: string[];
+                        comparisons?: string[][];
+                        /** @default 0.05 */
+                        pvalue_threshold?: number;
+                        /** @default 1 */
+                        logfc_cutoff?: number;
+                        /** @default 0.05 */
+                        enrich_pvalue_cutoff?: number;
+                        /**
+                         * @default BH
+                         * @enum {string}
+                         */
+                        p_adjust_method?: "none" | "BH" | "BY" | "holm" | "bonferroni" | "hochberg" | "hommel" | "fdr";
+                        /** @default 10 */
+                        show_category?: number;
+                        /** @default false */
+                        simplify_go?: boolean;
+                        /** @default true */
+                        do_gsea?: boolean;
+                        output_name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 任务标识及缓存签名，或匹配的历史结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 来源、样本、比较、阈值或差异表字段无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/script-hub/go-kegg-enrichment/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询当前项目和数据集的差异表达来源
+         * @description 默认保留完整候选契约；view=summary 仅返回当前范围统计，view=catalog 返回服务器搜索分页的轻量来源。 管理视图仍沿用完整来源核对，分页限制响应大小，不代表校验已避免全量扫描。 仅列出表达模式的差异分析。候选包含不可用原因；调用方只能选择 available 项。 复用时向 /api/script-hub/go-kegg-enrichment/run 提交 project_id、asset_set、 input_mode=deg、upstream_artifact_id，后端解析来源，执行时再次核对文件快照。 富集沿用完整差异表中的筛选结果，不重新计算差异；GSEA 还要求 t 列。 批次 /api/script-hub/batches 可让富集项的 upstream_from 指向前序 volcano 且 input_mode=expression 的项目，服务端待其完成后绑定本批次结果。 upstream_from 是从零开始的前序项目索引，V/J 使用差异不兼容此依赖。
+         */
+        get: {
+            parameters: {
+                query: {
+                    project_id: string;
+                    asset_set: string;
+                    /** @description 缺省保留完整候选；summary 统计不受 q/status/page 筛选影响 */
+                    view?: components["parameters"]["UpstreamView"];
+                    /** @description 目录按任务名称、标识、时间、缓存类型或比较组别查找 */
+                    q?: components["parameters"]["UpstreamQuery"];
+                    status?: components["parameters"]["UpstreamStatus"];
+                    page?: components["parameters"]["UpstreamPage"];
+                    page_size?: components["parameters"]["UpstreamPageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 候选列表，可为空 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UpstreamDifferentialFullResponse"] | components["schemas"]["UpstreamSummaryResponse"] | components["schemas"]["UpstreamCatalogResponse"];
+                    };
+                };
+                /** @description 缺少数据集或参数无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无权访问项目 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 项目不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/results/archive": {
         parameters: {
             query?: never;
@@ -15,7 +1780,7 @@ export interface paths {
         put?: never;
         /**
          * 打包下载所选任务结果
-         * @description 核对任务访问权和文件归属，任一文件不可读时返回错误，不生成缺文件的成功包。
+         * @description 核对任务访问权和文件归属，任一文件不可读时返回错误，不生成缺文件的成功包。支持 application/json 和浏览器原生表单下载；后者以 items 字段提交 JSON 数组，避免前端将整个压缩包读入内存。
          */
         post: {
             parameters: {
@@ -33,6 +1798,10 @@ export interface paths {
                             url: string;
                         }[];
                     };
+                    "application/x-www-form-urlencoded": {
+                        /** @description 上述 items 数组的 JSON 字符串 */
+                        items: string;
+                    };
                 };
             };
             responses: {
@@ -47,6 +1816,13 @@ export interface paths {
                 };
                 /** @description 选择项或文件链接不正确 */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 浏览器表单下载来源与当前站点不一致 */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -91,8 +1867,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 分页查看并筛选完整结果数据表
-         * @description 支持 UTF-8 CSV 与 TSV；保留字符串值，筛选全部记录后按偏移返回一页。
+         * 分页查看、筛选与排序完整结果数据表
+         * @description 支持 UTF-8 CSV 与 TSV；保留字符串值，筛选全部记录后按偏移返回一页。排序使用临时磁盘，按指定列进行文本或精确数值排序；数值模式下空值及非数值置于末尾，同值保留原始顺序。
          */
         post: {
             parameters: {
@@ -117,6 +1893,19 @@ export interface paths {
                          * @default
                          */
                         query?: string;
+                        /** @description 从零开始的列索引；不指定时保留原始顺序 */
+                        sort_column?: number | null;
+                        /**
+                         * @default asc
+                         * @enum {string}
+                         */
+                        sort_direction?: "asc" | "desc";
+                        /**
+                         * @description 数值模式支持科学计数法且不改变返回原文
+                         * @default text
+                         * @enum {string}
+                         */
+                        sort_mode?: "text" | "numeric";
                     };
                 };
             };
@@ -133,6 +1922,11 @@ export interface paths {
                             rows: string[][];
                             total_rows: number;
                             matched_rows: number;
+                            sort_column?: number | null;
+                            /** @enum {string} */
+                            sort_direction?: "asc" | "desc";
+                            /** @enum {string} */
+                            sort_mode?: "text" | "numeric";
                             offset: number;
                             limit: number;
                         };
@@ -161,6 +1955,13 @@ export interface paths {
                 };
                 /** @description 编码或表格格式无法解析 */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 临时排序空间或文件读取不可用 */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -220,10 +2021,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List projects for the current user */
+        /** 当前用户项目的服务器搜索和分页 */
         get: {
             parameters: {
                 query?: {
+                    page?: number;
+                    page_size?: number;
+                    /** @description 项目名称或机构的字面子串搜索 */
+                    q?: string;
+                    status?: string;
+                    sort?: "created_desc" | "updated_desc" | "name_asc" | "name_desc";
+                    /** @description selector 仅返回项目身份和基础字段，不读取资产统计 */
+                    view?: "summary" | "selector";
                     name?: string;
                     institution?: string;
                     cooperation_level?: string;
@@ -234,7 +2043,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Project list */
+                /** @description 当前页及全部匹配项目数量；全局概览统计通过 statistics 独立读取 */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -242,8 +2051,16 @@ export interface paths {
                     content: {
                         "application/json": {
                             projects: components["schemas"]["Project"][];
+                            pagination: components["schemas"]["Pagination"];
                         };
                     };
+                };
+                /** @description 无效列表类型或排序 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -279,6 +2096,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 当前用户全部项目的独立统计
+         * @description 不受项目列表筛选和页码影响；保留当前输入、历史文件及 SQL/Mongo 产物身份口径。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 全部已授权项目统计 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectStatistics"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -289,7 +2145,12 @@ export interface paths {
         /** Get project detail with preview assets and samples */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description 只返回概览统计与分组方案，省略完整资产和登记预览；保留 SQL 与 Mongo 结果去重计数 */
+                    summary_only?: boolean;
+                    /** @description 仅在 summary_only=true 时有效；false 只保留方案计数，不读取完整定义；默认保留旧契约 */
+                    include_group_specs?: boolean;
+                };
                 header?: never;
                 path: {
                     project_id: components["parameters"]["ProjectId"];
@@ -343,6 +2204,679 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/projects/{project_id}/input-selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 按数据集读取完整克隆选择及有限指标候选
+         * @description 只返回明确数据集的当前输入和轻量版本信息，不包含样本数组、完整校验报告或上传清单。 克隆输入完整返回以保证默认分析不会漏选；每类单表输入最多返回 50 份候选， 更多及历史版本通过既有 assets 搜索分页选择。仅用于选择，不替代实际输入检查。
+         */
+        get: {
+            parameters: {
+                query: {
+                    asset_set: string;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 范围内轻量资产、完整类型计数和受限候选类型 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectInputSelection"];
+                    };
+                };
+                /** @description 未选择数据集、项目不存在或当前账号不可访问 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/input-selection/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 批量恢复明确指定的当前或历史输入身份
+         * @description 只读操作。按项目、数据集和资产 ID 读取轻量信息，不切换版本，不返回完整校验报告或上传清单。 每批最多 500 个 ID；任何输入缺失、错集、非分析输入或项目无权访问时整批失败。 完整恢复必须在所有批次成功后应用，不用当前候选替换缺失的历史版本。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        asset_set: string;
+                        asset_ids: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 请求顺序的轻量输入身份，重复 ID 只返回一次 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectInputResolution"];
+                    };
+                };
+                /** @description 请求无效或不能完整恢复所指定输入；不返回部分资产 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按数据集汇总当前四类输入与校验状态 */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 不包含文件路径与完整校验报告；历史版本不计入汇总 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            datasets: {
+                                /** @description 不变的原数据集关联标识 */
+                                name: string;
+                                /** @description 保存说明后分配的稳定目录标识 */
+                                id?: string;
+                                display_name?: string;
+                                description?: string;
+                                source?: string;
+                                batch?: string;
+                                archived?: boolean;
+                                revision?: number;
+                                /** Format: date-time */
+                                updated_at?: string | null;
+                                input_count: number;
+                                kinds: {
+                                    [key: string]: {
+                                        count: number;
+                                        statuses: {
+                                            [key: string]: number;
+                                        };
+                                        sample_min?: number | null;
+                                        sample_max?: number | null;
+                                    };
+                                };
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        /**
+         * 保存数据集说明、显示名与归档状态
+         * @description 只修改目录元数据；归档用于整理候选列表，可恢复，不删除文件、不取消任务、不改写资产、登记、分组或SQL/Mongo历史结果的原关联标识
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        asset_set: string;
+                        /** @description 尚无说明时为0；已保存时使用读取到的revision */
+                        expected_revision: number;
+                        display_name?: string;
+                        description?: string;
+                        source?: string;
+                        batch?: string;
+                        archived?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description 已保存目录元数据 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            dataset: components["schemas"]["DatasetMetadata"];
+                        };
+                    };
+                };
+                /** @description 字段无效或数据集不存在 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 项目不存在或无权访问 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 说明并发冲突，DATASET_RECORD_CHANGED返回最新目录元数据 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}/lineage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页查看资产的替换关系、引用任务和分组方案
+         * @description 仅当前账号所属项目。版本只沿已保存的替换标识关联，不按同名猜测；任务引用与删除保护使用相同规则。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    section?: "versions" | "jobs" | "groups";
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 版本或引用清单，含精确标识和分页；不包含完整任务参数或校验报告 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssetLineageResponse"];
+                    };
+                };
+                /** @description 项目或资产不可访问，或分类无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}/table-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 预览项目输入表或目录内选定子表 */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description 已登记目录内的相对子表路径；不允许越界或符号链接 */
+                    file?: string;
+                    page?: number;
+                    page_size?: number;
+                    /** @description 选择具体子表格时可设为 false，跳过目录扫描；目录列表由原请求保留。 */
+                    include_files?: boolean;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 目录分页清单与最多五行原编号预览 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            directory?: boolean;
+                            files?: {
+                                name?: string;
+                                size?: number;
+                            }[];
+                            columns?: string[];
+                            rows?: string[][];
+                            pagination?: components["schemas"]["Pagination"];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/input-samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页读取输入识别样本及来源校验状态 */
+        get: {
+            parameters: {
+                query?: {
+                    asset_set?: string;
+                    q?: string;
+                    state?: "" | "needs_attention" | "multiple";
+                    /** @description 在全范围匹配登记状态后再分页；与输入校验及版本状态独立 */
+                    registration_state?: "" | "unregistered" | "registered" | "multiple";
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 不合并不同数据集同编号，不创建补充登记记录 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            samples?: {
+                                sample_id?: string;
+                                asset_set?: string;
+                                needs_version_selection?: boolean;
+                                /** @description 批量登记身份状态；未筛选时只查当前页，筛选时先匹配全范围再分页；缺失映射回退原编号，显式 null 不回退，不产生新登记 */
+                                registration?: {
+                                    /** @enum {string} */
+                                    status?: "unregistered" | "registered" | "multiple";
+                                    count?: number;
+                                };
+                                coverage?: {
+                                    [key: string]: {
+                                        asset_id?: string;
+                                        name?: string;
+                                        status?: string;
+                                    }[];
+                                };
+                            }[];
+                            /** @description 当前查询范围内各数据集、各输入类型的文件与未完成识别数量；不包含历史版本 */
+                            input_scopes?: {
+                                [key: string]: {
+                                    [key: string]: {
+                                        asset_count: number;
+                                        unresolved_count: number;
+                                    };
+                                };
+                            };
+                            unresolved?: Record<string, never>[];
+                            note?: string;
+                            pagination?: components["schemas"]["Pagination"];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/samples/batch/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 下载指定数据集或所选登记的中文 Excel 文本模板 */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        asset_set: string;
+                        record_ids?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 原始编号按文本保存；未指定记录时包含数据集已识别样本与已有登记，超上限明确拒绝 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/samples/batch/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 只读预览批量登记差异，不写入登记
+         * @description 项目、数据集、原始编号与可选记录标识精确匹配。空白默认不修改，clear_fields 显式清空。 重复或模糊匹配不会自动合并。未匹配编号仅在 allow_unmatched=true 时可补录，且不加入分析输入。 最多 5000 行，文件不超过 10 MB；Excel 数字编号拒绝，防止前导零丢失。 可用 record_ids 限定所选登记，范围外或未保留记录标识的行不可保存。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        asset_set: string;
+                        /** @default false */
+                        allow_unmatched?: boolean;
+                        /** @description 可选的精确登记范围，所有标识必须属于本项目和数据集 */
+                        record_ids?: string[];
+                        rows: components["schemas"]["SampleBatchInput"][];
+                    };
+                    "multipart/form-data": {
+                        asset_set: string;
+                        /**
+                         * @default false
+                         * @enum {string}
+                         */
+                        allow_unmatched?: "true" | "false";
+                        /** @description 可选的登记标识 JSON 数组，仅允许修改这些记录 */
+                        record_ids?: string;
+                        /**
+                         * Format: binary
+                         * @description .xlsx 或 UTF-8 CSV
+                         */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 逐行差异、有效状态与绑定当前账户项目的签名预览，24 小时有效 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SampleBatchPreview"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/samples/batch/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 确认批量登记并返回逐行保存结果
+         * @description 保存前重新核对原值和输入范围，冲突不覆盖。成功行保留，失败行可指定 rows 重试。 响应中断时复用同一预览，已保存行通过持久化回执核对，不重复新增或覆盖后续修改。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        preview_token: string;
+                        rows?: number[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 成功、无变化与失败行；错误行不妨碍有效行保存 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SampleBatchResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/samples/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看已识别样本的补充登记，读取不自动创建 */
+        get: {
+            parameters: {
+                query: {
+                    sample_id: string;
+                    asset_set: string;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 指定项目、数据集和原始编号的登记，未登记时 sample 为 null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sample?: Record<string, never> | null;
+                            project_name?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** 显式保存已识别样本的补充字段，原始输入保持不变 */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        sample_id: string;
+                        asset_set: string;
+                        fields: {
+                            sample_name?: string;
+                            sequence_id?: string;
+                            spices?: string;
+                            institution?: string;
+                            chain_flag?: string;
+                            is_healthy?: string;
+                            illness?: string;
+                            is_pe?: string;
+                            contain_method?: string;
+                            iso_tag?: string;
+                            /** @description 与提交业务字段完全一致的原值，避免同字段的旧页面覆盖 */
+                            expected_values?: {
+                                [key: string]: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description 保存成功；空可选字段表示清空 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sample?: Record<string, never>;
+                        };
+                    };
+                };
+                /** @description SAMPLE_RECORD_CHANGED；details 返回冲突字段 expected/current/submitted 和当前 sample，修改未落库 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/assets": {
         parameters: {
             query?: never;
@@ -352,12 +2886,23 @@ export interface paths {
         };
         /**
          * List project assets
-         * @description Migration rule: this endpoint must become paginated before it is treated as the long-term stable asset list endpoint.
+         * @description Flask input lists use server pagination. view=selector requires inputs_only=true and returns lightweight input identities, versions and status; no full validation reports. Default full responses and the parallel FastAPI contract remain unchanged.
          */
         get: {
             parameters: {
                 query?: {
                     asset_type?: string;
+                    /** @description Flask 候选选择模式 */
+                    view?: "full" | "selector";
+                    inputs_only?: boolean;
+                    asset_set?: string;
+                    /** @description Flask 输入按文件名及说明字面搜索 */
+                    q?: string;
+                    /** @description Flask full 输入列表在全筛选范围排序后分页，同值以 ID 稳定排序 */
+                    sort?: "uploaded_desc" | "uploaded_asc" | "name_asc" | "name_desc" | "size_asc" | "size_desc";
+                    include_superseded?: boolean;
+                    /** @description 过滤校验状态，支持 needs_attention */
+                    validation_status?: string;
                     page?: number;
                     page_size?: number;
                 };
@@ -404,6 +2949,14 @@ export interface paths {
                         files: string[];
                         relative_paths?: string;
                         replace_existing?: boolean;
+                        /** @description 更新输入时必须提供 upload-impact 返回的完整预期版本集合的 JSON 字符串，空集合也需显式提供；已保存操作的幂等重试沿用原记录 */
+                        expected_versions?: string;
+                        asset_set?: string;
+                        /**
+                         * Format: uuid
+                         * @description Flask 上传操作标识；重复提交返回原保存记录，不再次替换版本
+                         */
+                        operation_id?: string;
                     };
                 };
             };
@@ -427,6 +2980,552 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/upload-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 核对待上传输入的更新范围与预期当前版本（只读） */
+        post: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["UploadImpactItem"][];
+                    };
+                };
+            };
+            responses: {
+                /** @description 受影响文件按页显示，expected_versions 始终包含完整范围；目录登记无更新范围 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            impacts: components["schemas"]["UploadImpact"][];
+                        };
+                    };
+                };
+                /** @description 更新清单无效 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 登记服务器可访问的分析输入路径（Flask） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        asset_type: string;
+                        storage_path: string;
+                        original_name?: string;
+                        metadata_json?: {
+                            [key: string]: unknown;
+                        };
+                        /** Format: uuid */
+                        operation_id?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 登记记录；同一操作重复请求返回原记录 */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Asset"];
+                    };
+                };
+                /** @description 路径不可访问或上传操作与原选择不一致 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/upload-operations/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 核对当前项目上传操作的已保存文件（Flask） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    operation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description saved 为 false 表示尚无已提交记录；并发上传可能仍在保存，不据此认定失败 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            saved: boolean;
+                            assets: components["schemas"]["Asset"][];
+                        };
+                    };
+                };
+                /** @description 项目不可访问、操作标识无效或已保存的部分文件被移除 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}/group-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取项目指标表指定版本的真实分组取值与样本编号 */
+        get: {
+            parameters: {
+                query: {
+                    field: string;
+                    sheet_name?: string;
+                    /** @description false 时只返回去重样本计数，samples_by_value 为空对象 */
+                    include_samples?: boolean;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 保留文本编号；样本列不能识别时只提供真实行数 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            values: string[];
+                            samples_by_value: {
+                                [key: string]: string[];
+                            };
+                            sample_counts: {
+                                [key: string]: number;
+                            };
+                            row_counts: {
+                                [key: string]: number;
+                            };
+                            sample_column: string;
+                            asset_id: string;
+                            asset_set: string;
+                            content_version: string;
+                            selected_sheet?: string | null;
+                        };
+                    };
+                };
+                /** @description 非指标表、来源不属于当前项目、字段无效或未明确选择工作表 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/group-specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取项目分组方案；支持默认完整列表及分页摘要
+         * @description 默认 full 保留分析适用性契约；summary 按数据集和名称过滤，包含项目通用方案，最多六个分组预览，不能用于保存完整定义。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    view?: "full" | "summary";
+                    /** @description full 模式用于匹配指标表或该来源的规范化输入路径 */
+                    profile_path?: string;
+                    /** @description summary 模式过滤所属数据集及通用方案；full 模式保持全集并显示适用性 */
+                    asset_set?: string;
+                    /** @description summary 模式名称搜索，百分号和下划线按字面匹配 */
+                    q?: string;
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 完整列表或分页摘要 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            group_specs: components["schemas"]["ProjectGroupSpec"][];
+                        } | components["schemas"]["ProjectGroupSpecCatalog"];
+                    };
+                };
+                /** @description 不支持的列表视图 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /** 创建方案或按稳定 ID 更新，保存不可变版本文件 */
+        post: {
+            parameters: {
+                query?: {
+                    /** @description detail 只返回已保存方案的完整定义与 revision，不重新读取项目全集 */
+                    view?: "full" | "detail";
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description 编辑已有方案时提供；必须属于当前项目。更新保留未提交属性。 */
+                        id?: string;
+                        /** @description 编辑已有方案时必须提供读取时的 revision；事务内版本变化返回 409，草稿应保留 */
+                        expected_revision?: string;
+                        name: string;
+                        spec_json: {
+                            groups?: (string | {
+                                [key: string]: unknown;
+                            })[];
+                            group_field?: string;
+                            source_asset_id?: string;
+                            source_content_version?: string;
+                            source_sheet?: string | null;
+                            asset_set?: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description 当前方案及新的不可变文件资产；来源绑定的字段、分组和版本已验证 */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            asset: components["schemas"]["Asset"];
+                            group_specs: components["schemas"]["ProjectGroupSpec"][];
+                        } | {
+                            group_spec: components["schemas"]["ProjectGroupSpec"];
+                        };
+                    };
+                };
+                /** @description 无效方案、缺少编辑版本、名称重复、来源版本或分组不匹配 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description GROUP_SPEC_CHANGED，方案已更新或删除，当前编辑需重新读取或另存 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/group-specs/{spec_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 按项目和稳定 ID 读取完整分组定义及编辑版本
+         * @description 用于编辑、复制及冲突后的读取最新；不依赖当前候选页或名称搜索。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    spec_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 完整方案、来源状态及 revision */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            group_spec: components["schemas"]["ProjectGroupSpec"];
+                        };
+                    };
+                };
+                /** @description 方案不存在或不属于该项目 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** 删除当前方案；被任务引用的版本继续保护 */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    spec_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 方案已删除 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 方案版本仍被任务引用 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 按项目与资产标识读取指定文件版本，包括保留的历史版本（Flask）
+         * @description 默认返回完整元数据。view=selector 仅用于分析输入，返回轻量身份、范围、内容版本与校验状态；可恢复候选页外或历史来源，不返回完整校验报告。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    view?: "full" | "selector";
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 指定版本的文件元数据与校验状态 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            asset: components["schemas"]["Asset"];
+                        };
+                    };
+                };
+                /** @description 项目或资产不可访问 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** 删除独占文件或解除共享文件登记 */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 任务引用仍由后端保护；共享和外部物理文件保留 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            storage_retained: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** 修改业务归属或文件说明；说明修改不改变分析版本 */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        metadata_json: {
+                            asset_set?: string;
+                            group_label?: string;
+                            description?: string;
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description 更新后的资产 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/projects/{project_id}/results": {
         parameters: {
             query?: never;
@@ -434,11 +3533,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List reusable project analysis results */
+        /**
+         * 统一读取项目 SQL 与 Mongo 分析结果，去重排序后分页
+         * @description 先读取身份和时间字段，保留跨来源准确去重及 SQL 优先规则，再仅读取当前页完整内容；任一来源读取失败返回错误，不用局部结果冒充全部结果。
+         */
         get: {
             parameters: {
                 query?: {
                     analysis_type?: string;
+                    page?: number;
+                    page_size?: number;
+                    /** @description 按明确保存的数据集筛选，不将缺失来源视为 Set1 */
+                    asset_set?: string;
+                    /** @description 完整来源任务标识，精确匹配 */
+                    job_id?: string;
+                    /** @description 仅未记录数据集的结果，与 asset_set 互斥 */
+                    unscoped?: boolean;
                 };
                 header?: never;
                 path: {
@@ -457,14 +3567,171 @@ export interface paths {
                         "application/json": {
                             success: boolean;
                             results: components["schemas"]["Asset"][];
+                            pagination: components["schemas"]["Pagination"];
+                            /** @description 整个项目去重后的结果统计，独立于本次筛选和页码 */
+                            facets?: {
+                                unscoped_count?: number;
+                                datasets?: {
+                                    name?: string;
+                                    count?: number;
+                                }[];
+                                analysis_types?: {
+                                    name?: string;
+                                    count?: number;
+                                }[];
+                            };
                         };
                     };
+                };
+                /** @description 无法完整读取结果来源，请重试 */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}/input-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 读取原始数据工作表和已保存的输入映射 */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        sheet_name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 原始列名、前五行预览、工作表列表和 input_preparation；多工作表且尚未映射时要求明确选择 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 不支持的资产类型或无效工作表 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/assets/{asset_id}/prepare-input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 保存工作表、编号列、矩阵方向和一对一样本编号对应 */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        identifier_column: string;
+                        sheet_name?: string;
+                        /** @description 仅用于样本指标表，选择真实批次列后按批次与样本编号判重；使用此输入的分析仍须明确提交 batch_field */
+                        batch_field?: string;
+                        /**
+                         * @description 仅用于转录组，整理输出始终是基因按行、样本按列
+                         * @default genes_are_rows
+                         * @enum {string}
+                         */
+                        orientation?: "genes_are_rows" | "samples_are_rows";
+                        /** @description 将原样本编号改为统一编号；未填写的样本保留原编号，原编号须真实存在；启用批次时原编号和目标编号在各批次内分别核对，不同批次允许同名 */
+                        sample_mappings?: {
+                            source_sample: string;
+                            target_sample: string;
+                            /** @description 启用 batch_field 时每条对应必须填写原批次，不启用时不得提交此字段 */
+                            source_batch?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 返回登记的 input_preparation，实际分析使用整理输入，原文件保留 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 无效编号对应、样本冲突、列或工作表错误、输入内容校验失败 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        /** 恢复使用原始输入，保留历史整理文件 */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    asset_id: components["parameters"]["AssetId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已重置输入映射，已排队的旧映射任务须重新提交 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -959,6 +4226,184 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description 补充登记入口只接受所列业务字段及 expected_values；兼容更新接口保留旧扩展字段契约 */
+        SampleEditPayload: {
+            sample_name?: string;
+            sequence_id?: string | null;
+            spices?: string | null;
+            institution?: string | null;
+            chain_flag?: string | null;
+            is_healthy?: string | null;
+            illness?: string | null;
+            is_pe?: string | null;
+            contain_method?: string | null;
+            iso_tag?: string | null;
+            /** @description 与本次提交业务字段一一对应的原值；同字段变化返回409，不自动覆盖 */
+            expected_values?: {
+                [key: string]: string | null;
+            };
+        };
+        SampleFieldOptionsResponse: {
+            fields: {
+                [key: string]: string[];
+            };
+        };
+        SampleFieldCatalogResponse: {
+            /** @enum {string} */
+            field: "sample_id" | "sequence_id";
+            values: string[];
+            pagination: components["schemas"]["SampleFieldCatalogPagination"];
+        };
+        SampleFieldCatalogPagination: {
+            page: number;
+            page_size: number;
+            total: number;
+            total_pages: number;
+        };
+        UpstreamSummary: {
+            total: number;
+            available: number;
+            unavailable: number;
+            reasons: {
+                reason: string;
+                count: number;
+            }[];
+        };
+        UpstreamCandidate: {
+            /** @description 与原完整候选相同的不可替代产物标识 */
+            id: string;
+            project_id: string;
+            job_id?: string;
+            asset_set?: string;
+            /** @enum {string} */
+            status: "available" | "unavailable";
+            reason: string;
+            source_task_name: string;
+            /** @description 精简链、分组字段和比较方向说明 */
+            description?: string;
+            created_at?: string;
+            cache_type?: string;
+            comparison?: {
+                group1: string;
+                group2: string;
+            };
+        };
+        UpstreamCatalogPagination: {
+            page: number;
+            page_size: number;
+            total: number;
+            total_pages: number;
+        };
+        UpstreamSummaryResponse: {
+            success: boolean;
+            summary: components["schemas"]["UpstreamSummary"];
+        };
+        UpstreamCatalogResponse: {
+            success: boolean;
+            summary: components["schemas"]["UpstreamSummary"];
+            candidates: components["schemas"]["UpstreamCandidate"][];
+            pagination: components["schemas"]["UpstreamCatalogPagination"];
+        };
+        UpstreamLegacyFullResponse: {
+            success: boolean;
+            candidates: {
+                [key: string]: unknown;
+            }[];
+        };
+        UpstreamDifferentialFullResponse: {
+            success: boolean;
+            candidates: {
+                /** @description 提交时原样传递的产物标识 */
+                id: string;
+                job_id: string;
+                project_id: string;
+                asset_set: string;
+                /** @enum {string} */
+                status: "available" | "unavailable";
+                reason: string;
+                /** @description 服务端目录，不作为客户端指定输入 */
+                path?: string;
+                created_at?: string | null;
+                metadata: {
+                    [key: string]: unknown;
+                };
+                files: {
+                    relative_path?: string;
+                    size?: number;
+                    mtime_ns?: number;
+                }[];
+            }[];
+        };
+        ProjectGroupSpecSource: {
+            asset_id: string | null;
+            name: string;
+            asset_set: string;
+            content_version?: string | null;
+            available: boolean;
+            reason: string;
+        };
+        ProjectGroupSpec: {
+            id: string;
+            project_id: string;
+            name: string;
+            spec_json: {
+                [key: string]: unknown;
+            };
+            /** @description 编辑时必须回传的不可变版本令牌 */
+            revision: string;
+            source: components["schemas"]["ProjectGroupSpecSource"];
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        /** @description 只读卡片摘要；group_preview 不可作为完整 groups 保存 */
+        ProjectGroupSpecSummary: {
+            id: string;
+            project_id: string;
+            name: string;
+            revision: string;
+            source: components["schemas"]["ProjectGroupSpecSource"];
+            group_count: number;
+            group_preview: string[];
+            group_field: string;
+            asset_set: string;
+            project_wide: boolean;
+            source_content_version?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        ProjectGroupSpecCatalog: {
+            items: components["schemas"]["ProjectGroupSpecSummary"][];
+            pagination: {
+                page: number;
+                page_size: number;
+                total: number;
+                total_pages: number;
+            };
+        };
+        ScriptHubInfiltrationInput: {
+            project_id?: string;
+            asset_set?: string;
+            group_field?: string;
+            /** @enum {string} */
+            score_type?: "relative" | "absolute" | "other";
+            cell_columns?: string[];
+            selected_infiltration_samples?: string[];
+            selected_infiltration_groups?: string[];
+            /** @default false */
+            sample_scope_only: boolean;
+            subclass_columns?: string[];
+            sample_pairs?: {
+                deconvolution_sample: string;
+                profile_sample: string;
+            }[];
+            comparison?: string[];
+            upstream_artifact_id?: string;
+            output_name?: string;
+        };
         Project: {
             id: string;
             name: string;
@@ -971,12 +4416,127 @@ export interface components {
                 [key: string]: number;
             };
             sample_count?: number;
+            registered_sample_count?: number;
+            /** @description Distinct dataset and original sample identifier pairs from input validation. */
+            input_sample_count?: number;
+            dataset_count?: number;
+            historical_asset_count?: number;
+            asset_status?: {
+                has_profile?: boolean;
+                has_pep?: boolean;
+                has_transcriptome?: boolean;
+                has_deconvolution?: boolean;
+                has_results?: boolean;
+                asset_set_count?: number;
+            };
             result_count?: number;
             group_spec_count?: number;
             /** Format: date-time */
             created_at?: string | null;
             /** Format: date-time */
             updated_at?: string | null;
+        };
+        SampleBatchInput: {
+            sample_id: string;
+            /** @description 对已有登记进行精确选择，不能改变原始编号或归属 */
+            record_id?: string;
+            fields?: {
+                sample_name?: string;
+                sequence_id?: string;
+                spices?: string;
+                institution?: string;
+                chain_flag?: string;
+                is_healthy?: string;
+                illness?: string;
+                is_pe?: string;
+                contain_method?: string;
+                iso_tag?: string;
+            };
+            clear_fields?: string[];
+        };
+        SampleBatchPreviewRow: {
+            row: number;
+            sample_id: string;
+            record_id: string | null;
+            /** @enum {string} */
+            status: "new" | "update" | "unchanged" | "unmatched" | "invalid";
+            message: string;
+            linked: boolean;
+            can_apply: boolean;
+            changes: {
+                field: string;
+                label: string;
+                before: string | null;
+                after: string | null;
+            }[];
+        };
+        SampleBatchPreview: {
+            preview_token: string;
+            project_name: string;
+            asset_set: string;
+            rows: components["schemas"]["SampleBatchPreviewRow"][];
+            counts: {
+                new?: number;
+                update?: number;
+                unchanged?: number;
+                unmatched?: number;
+                invalid?: number;
+            };
+        };
+        SampleBatchResultRow: {
+            row: number;
+            sample_id: string;
+            /** @enum {string} */
+            status: "saved" | "unchanged" | "failed";
+            message: string;
+            record_id?: string;
+            replayed?: boolean;
+        };
+        SampleBatchResult: {
+            rows: components["schemas"]["SampleBatchResultRow"][];
+            counts: {
+                saved?: number;
+                unchanged?: number;
+                failed?: number;
+            };
+            asset_set: string;
+        };
+        UploadImpactItem: {
+            /** @enum {string} */
+            asset_type: "pep" | "profile" | "datapoint" | "transcriptome" | "deconvolution" | "cibersort";
+            asset_set: string;
+            name: string;
+            directory: boolean;
+        };
+        ExpectedInputVersion: {
+            id: string;
+            content_version: string;
+        };
+        UploadImpact: components["schemas"]["UploadImpactItem"] & {
+            expected_versions: components["schemas"]["ExpectedInputVersion"][];
+            assets: {
+                id: string;
+                original_name: string;
+                uploaded_at: string | null;
+                content_version: string;
+            }[];
+            pagination: components["schemas"]["Pagination"];
+        };
+        ProjectStatistics: {
+            project_count: number;
+            /** @description 含当前克隆输入的项目数量 */
+            pep_project_count?: number;
+            status_counts: {
+                [key: string]: number;
+            };
+            /** @description 当前文件和去重产物数量，不含退休输入 */
+            file_count: number;
+            result_count: number;
+            /** @description 按项目、数据集和原始编号去重的输入样本条目 */
+            input_sample_count: number;
+            registered_sample_count: number;
+            dataset_count: number;
+            group_spec_count: number;
         };
         ProjectDetail: components["schemas"]["Project"] & {
             assets?: components["schemas"]["Asset"][];
@@ -998,6 +4558,20 @@ export interface components {
             description?: string;
             status?: string;
         };
+        ProjectInputResolution: {
+            asset_set: string;
+            assets: components["schemas"]["Asset"][];
+        };
+        ProjectInputSelection: {
+            asset_set: string;
+            assets: components["schemas"]["Asset"][];
+            /** @description 当前克隆、指标、转录组和浸润文件计数，类型别名归一 */
+            totals: {
+                [key: string]: number;
+            };
+            /** @description 当前候选超过 50 份的单表类型；剩余候选通过搜索分页读取 */
+            truncated_kinds: ("profile" | "transcriptome" | "deconvolution")[];
+        };
         Asset: {
             id: string;
             project_id: string;
@@ -1015,13 +4589,47 @@ export interface components {
             /** Format: date-time */
             uploaded_at?: string | null;
         };
+        DatasetMetadata: {
+            id: string;
+            /** @description 不变的原数据集关联标识 */
+            name: string;
+            display_name: string;
+            description: string;
+            source: string;
+            batch: string;
+            archived: boolean;
+            revision: number;
+            /** Format: date-time */
+            updated_at: string | null;
+        };
+        /** @description 当前队列读取事实，只含汇总计数和本任务位置，不暴露其他任务或工作进程身份；只在 Redis 等待任务中返回 */
+        QueueStatus: {
+            available: boolean;
+            /** Format: date-time */
+            checked_at: string;
+            /** @enum {string} */
+            state: "paused" | "no_workers" | "busy" | "waiting" | "missing" | "unavailable";
+            message: string;
+            /** @description 当前等待队列位置，不是预计开始时间 */
+            position: number | null;
+            /** @description false 表示位置单独读取失败 */
+            position_available?: boolean;
+            online_workers?: number;
+            busy_workers?: number;
+            configured_concurrency?: number;
+            paused?: boolean;
+            queued_count?: number;
+        };
         Job: {
+            queue_status?: components["schemas"]["QueueStatus"];
             id: string;
             job_id?: string;
             job_type: string;
             module: string;
             /** @enum {string} */
             status: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+            /** @description A running job stays running until cancellation is confirmed by the worker. */
+            cancel_requested?: boolean;
             progress: number;
             stage?: string | null;
             detail?: string | null;
@@ -1048,6 +4656,32 @@ export interface components {
             url: string;
             kind: string;
         };
+        AssetLineageResponse: {
+            /** @enum {string} */
+            section: "versions" | "jobs" | "groups";
+            items: {
+                id: string;
+                name: string;
+                created_at?: string | null;
+                asset_type?: string;
+                asset_set?: string;
+                content_version?: string | null;
+                superseded?: boolean;
+                superseded_by?: string[];
+                module?: string;
+                status?: string;
+                /** @enum {string} */
+                match?: "asset_id" | "path";
+            }[];
+            pagination: {
+                page: number;
+                page_size: number;
+                total: number;
+                total_pages: number;
+            };
+            /** @description 当前版本链中指向不可访问资产的已知替换记录数 */
+            unavailable_links?: number;
+        };
         Pagination: {
             page?: number;
             page_size?: number;
@@ -1056,6 +4690,13 @@ export interface components {
     };
     responses: never;
     parameters: {
+        /** @description 缺省保留完整候选；summary 统计不受 q/status/page 筛选影响 */
+        UpstreamView: "summary" | "catalog";
+        /** @description 目录按任务名称、标识、时间、缓存类型或比较组别查找 */
+        UpstreamQuery: string;
+        UpstreamStatus: "" | "available" | "unavailable";
+        UpstreamPage: number;
+        UpstreamPageSize: number;
         ProjectId: string;
         JobId: string;
         AssetId: string;

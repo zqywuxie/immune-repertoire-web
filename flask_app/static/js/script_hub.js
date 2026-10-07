@@ -114,7 +114,6 @@ const ScriptHubPage = {
         'scriptHubMlParamOver',
         'scriptHubMlThreshold',
         'scriptHubMlCvSplits',
-        'scriptHubMlRocCvSplits',
         'scriptHubMaitNktTraSource',
         'scriptHubMaitNktTraPath',
         'scriptHubMaitNktSourceJobId',
@@ -392,28 +391,10 @@ const ScriptHubPage = {
     async loadProjects() {
         const select = document.getElementById('scriptHubProjectSelect');
         if (!select) return;
-
-        try {
-            const response = await fetch('/api/projects');
-            const data = await response.json();
-            const projects = Array.isArray(data.projects) ? data.projects : [];
-
-            select.innerHTML = '<option value="">-- Select a project (optional) --</option>';
-            projects.forEach((p) => {
-                const option = document.createElement('option');
-                option.value = p.id;
-                option.textContent = p.name || p.id;
-                select.appendChild(option);
-            });
-
-            const context = this.projectContext || this.getProjectContext();
-            if (context.projectId) {
-                select.value = context.projectId;
-                await this.onProjectChange(context.projectId);
-            }
-        } catch (error) {
-            console.warn('Failed to load projects:', error);
-        }
+        const context = this.projectContext || this.getProjectContext();
+        if (!this.projectCatalogPicker) this.projectCatalogPicker = new window.ProjectCatalogSelect(select, context.projectId || '');
+        await this.projectCatalogPicker.load(1);
+        if (context.projectId) await this.onProjectChange(context.projectId);
     },
 
     async onProjectChange(projectId) {
@@ -1410,7 +1391,6 @@ const ScriptHubPage = {
             scriptHubUmapinCategoryCol: { label: '分类列', help: '用于 UMAPin 图中点的颜色或分组标签。' },
             scriptHubMlThreshold: { label: '特征筛选阈值', help: 'Profile/VJ usage 模式共用，影响进入模型的特征数量。', attrs: { step: '0.001', min: '0', inputmode: 'decimal' } },
             scriptHubMlCvSplits: { label: '交叉验证折数', help: '用于模型准确率评估。', attrs: { step: '1', min: '2', max: '10', inputmode: 'numeric' } },
-            scriptHubMlRocCvSplits: { label: 'ROC 交叉验证折数', help: '用于 ROC 曲线稳定性评估。', attrs: { step: '1', min: '2', max: '20', inputmode: 'numeric' } },
             scriptHubMaitNktGroupField: { label: '分组字段', help: '与 TopClone/Profile 的分组字段保持同一选择逻辑。' },
         };
 
@@ -2993,6 +2973,16 @@ const ScriptHubPage = {
         formData.append('files', file);
 
         try {
+            this.showSourceFeedback('正在核对转录组更新范围…', 'secondary');
+            const check = await fetch(`/api/projects/${encodeURIComponent(projectId)}/upload-impact`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({items: [{asset_type: 'transcriptome', asset_set: 'Set1', name: file.name, directory: false}]}),
+            });
+            const preview = await check.json();
+            if (!check.ok) throw new Error(preview.message || '无法核对更新范围，文件选择已保留。');
+            const impact = preview.impacts[0];
+            if (!confirm(`确认保存到数据集 Set1？将更新 ${impact.pagination.total} 个当前转录组文件；原文件与历史任务继续保留。`)) return;
+            formData.append('expected_versions', JSON.stringify(impact.expected_versions));
             this.showSourceFeedback(`正在上传转录组表达矩阵：${file.name}`, 'secondary');
             const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets`, {
                 method: 'POST',
@@ -3007,10 +2997,23 @@ const ScriptHubPage = {
             this.syncDataSelectionState();
             await this.refreshProjectAssetSummary(projectId);
             this.showSourceFeedback(`转录组表达矩阵已上传：${this.getPathName(storagePath) || file.name}`, 'success');
-        } catch (error) {
-            this.showSourceFeedback(error.message || '转录组表达矩阵上传失败。', 'danger');
-        } finally {
             if (input) input.value = '';
+            input?.parentElement?.querySelector('[data-upload-retry]')?.remove();
+        } catch (error) {
+            this.showSourceFeedback(error.message || '转录组表达矩阵上传失败，文件选择已保留。', 'danger');
+            if (input && !input.parentElement?.querySelector('[data-upload-retry]')) {
+                const retry = document.createElement('button');
+                retry.type = 'button'; retry.className = 'btn btn-outline-primary btn-sm mt-2';
+                retry.dataset.uploadRetry = 'true'; retry.textContent = '重新核对并上传';
+                retry.onclick = async () => {
+                    if (document.getElementById('scriptHubProjectSelect')?.value !== projectId) {
+                        this.showSourceFeedback('项目已切换，请在当前项目重新选择文件。', 'warning');return;
+                    }
+                    retry.disabled = true;
+                    try { await this.uploadTranscriptomeAsset({target: input}); } finally { retry.disabled = false; }
+                };
+                input.insertAdjacentElement('afterend', retry);
+            }
         }
     },
 
@@ -5128,7 +5131,6 @@ const ScriptHubPage = {
                 param_over: paramOver,
                 custom_threshold: parseFloat(document.getElementById('scriptHubMlThreshold')?.value || '0.003'),
                 cv_splits: parseInt(document.getElementById('scriptHubMlCvSplits')?.value || '3', 10),
-                roc_cv_splits: parseInt(document.getElementById('scriptHubMlRocCvSplits')?.value || '7', 10),
                 output_name: document.getElementById('scriptHubOutputName')?.value?.trim() || null,
             };
         }
@@ -5794,7 +5796,7 @@ const ScriptHubPage = {
         if (mod === 'volcano') return '\u706b\u5c71\u56fe\u5206\u6790\u5b8c\u6210\u3002';
         if (mod === 'go-kegg-enrichment') return 'GO/KEGG \u5bcc\u96c6\u5206\u6790\u5b8c\u6210\u3002' + (result.png_urls?.length || 0) + ' \u5f20\u56fe\uff0c' + (result.csv_urls?.length || 0) + ' \u4e2a CSV\u3002';
         if (mod === 'umapin') return 'UMAPin \u964d\u7ef4\u5b8c\u6210\u3002';
-        if (mod === 'ml-analysis') return '\u673a\u5668\u5b66\u4e60\u5206\u6790\u5b8c\u6210\u3002\u5e73\u5747 CV accuracy: ' + (m.mean_cv_accuracy ?? '-');
+        if (mod === 'ml-analysis') return '\u673a\u5668\u5b66\u4e60\u5206\u6790\u5b8c\u6210\u3002\u5d4c\u5957 CV \u5e73\u5747\u51c6\u786e\u7387\uff1a' + (m.mean_cv_accuracy ?? '-') + ' | \u5e73\u5747\u5e73\u8861\u51c6\u786e\u7387\uff1a' + (m.nested_cv_mean_balanced_accuracy ?? '-') + ' | \u5b8f\u5e73\u5747 F1\uff1a' + (m.nested_cv_mean_macro_f1 ?? '-');
         if (mod === 'mait-nkt') return 'MAIT/NKT \u5206\u6790\u5b8c\u6210\u3002' + (m.plot_count || 0) + ' \u5f20\u7bb1\u7ebf\u56fe\uff0c' + ((m.cdr3_types || []).join(', ')) + '\u3002';
         return '\u5206\u6790\u5b8c\u6210\u3002';
     },
@@ -5811,7 +5813,7 @@ const ScriptHubPage = {
         if (mod === 'volcano') return 'P\u503c\u9608\u503c: ' + (m.pvalue_threshold || 0.05) + ' | \u6587\u4ef6\u6570: ' + (m.file_count || 0);
         if (mod === 'go-kegg-enrichment') return '\u8868\u8fbe\u77e9\u9635: ' + (this.getPathName(m.expression_path) || '-') + ' | \u6bd4\u8f83: ' + ((m.comparisons || []).length || 0);
         if (mod === 'umapin') return '\u5206\u7c7b\u5217: ' + (m.category_col || '-') + ' | FDR: ' + (m.do_fdr ? '\u662f' : '\u5426');
-        if (mod === 'ml-analysis') return 'Mode: ' + (m.mode || '-') + ' | Label: ' + (m.label_col || '-') + ' | Selected features: ' + (m.selected_feature_number ?? '-');
+        if (mod === 'ml-analysis') return '\u6a21\u5f0f\uff1a' + (m.mode || '-') + ' | \u5206\u7ec4\u6807\u7b7e\uff1a' + (m.label_col || '-') + ' | \u53d7\u8bd5\u8005\u5206\u7ec4\u5217\uff1a' + (m.group_col || '\u672a\u8bbe\u7f6e\uff08\u6309\u6837\u672c\u5206\u5c42\uff09') + ' | \u7b5b\u9009\u7279\u5f81\u6570\uff1a' + (m.selected_feature_number ?? '-');
         if (mod === 'mait-nkt') return '分组字段: ' + (m.group_field || '-') + ' | 检测类型: ' + ((m.cdr3_types || []).join(', '));
         return '';
     },
@@ -5885,7 +5887,11 @@ const ScriptHubPage = {
             }
             const modalEl = document.getElementById('scriptHubCreateProjectModal');
             if (modalEl) bootstrap.Modal.getInstance(modalEl)?.hide();
-            await this.loadProjects();
+            if (this.projectCatalogPicker && data.id) {
+                this.projectCatalogPicker.value = data.id;
+                this.projectCatalogPicker.pinned = {id:data.id,name:data.name || name};
+                await this.projectCatalogPicker.load(1);
+            } else await this.loadProjects();
             const select = document.getElementById('scriptHubProjectSelect');
             if (select && data.id) {
                 select.value = data.id;

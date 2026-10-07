@@ -43,6 +43,7 @@ from flask_app.services.figure_style import (
     apply_publication_style,
     save_publication_png,
 )
+from flask_app.services.db_alignment_service import DBAlignmentService
 
 # Encoding fallback for CSV/TSV files (GBK common in Chinese Windows environments)
 _CSV_ENCODINGS = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
@@ -61,14 +62,21 @@ PEP_STEP_SCRIPTS = {
     6: ("step6_pep_statistication", "6.Pep_statistication.py"),
     7: ("step7_cdr3_arrage_heatmap", "7.CDR3_arrage_heatmap_ver1.0.py"),
     8: ("step8_unique_cdr3_heatmap", "8.plot_heatmap.py"),
+    9: ("step9_clone_tracking", "12.clone_tracking.py"),
+    10: ("step10_cdr3_category_heatmaps", "9.plot_CDR3_category_heatmap.py"),
+    11: ("step11_category_db_alignment", "10.Alignment_shared.py"),
+    12: ("step12_vj_usage_diff_summary", "8.VJ_statistication.py"),
 }
 PEP_GROUP_STEP_FRACTIONS = {
     3: (0.00, 0.13),
     4: (0.13, 0.27),
     5: (0.27, 0.62),
     6: (0.62, 0.81),
-    7: (0.81, 0.92),
-    8: (0.92, 1.00),
+    7: (0.81, 0.87),
+    8: (0.87, 0.92),
+    9: (0.92, 0.95),
+    10: (0.95, 0.97),
+    11: (0.97, 1.00),
 }
 
 def _try_read_csv(filepath, **kwargs):
@@ -126,6 +134,14 @@ def _sample_match_key(value: Any) -> str:
     # File suffixes are parsed before this point; sample IDs are identifiers,
     # not case-insensitive search terms. Preserve punctuation and Unicode.
     return "" if value is None else str(value).strip()
+
+
+def _batch_sample_identity(batch: str, sample: str) -> str:
+    """Join identifiers without confusing separator text inside either value."""
+    def escape(value: str) -> str:
+        return value.replace("%", "%25").replace("::", "%3A%3A")
+
+    return f"{escape(batch)}::{escape(sample)}"
 
 
 def _is_table_file(path: Path) -> bool:
@@ -191,6 +207,10 @@ class PepAnalysisReport:
     proportion_plot_paths: List[str]
     arrange_heatmap_paths: List[str]
     plot_heatmap_paths: List[str]
+    clone_tracking_image_paths: List[str]
+    clone_tracking_table_paths: List[str]
+    category_heatmap_paths: List[str]
+    category_alignment_paths: List[str]
     zip_path: str
     metadata: Dict[str, Any]
 
@@ -203,14 +223,20 @@ class PepAnalysisService:
         self,
         *,
         pep_data_dir: str,
+        pep_paths: Optional[List[str]] = None,
         profile_path: str,
         group_fields: List[str],
         selected_chains: List[str],
+        batch_field: Optional[str] = None,
         pvalue_threshold: float = 0.05,
         min_sample_threshold: int = 3,
         output_name: Optional[str] = None,
         optional_steps: Optional[set] = None,
         selected_samples: Optional[List[str]] = None,
+        selected_group_values: Optional[Dict[str, List[str]]] = None,
+        selected_samples_by_group: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        group_sample_identity: str = "sample",
+        group_order: Optional[Dict[str, List[str]]] = None,
         project_id: Optional[str] = None,
         progress_callback=None,
     ) -> PepAnalysisReport:
@@ -226,11 +252,53 @@ class PepAnalysisService:
         if not len(profile_header.columns):
             raise ValueError("样本指标表不能为空")
         sample_column = profile_header.columns[0]
-        profile_df = _try_read_csv(profile_file, low_memory=False, dtype={sample_column: str})
+        batch_field = str(batch_field or "").strip() or None
+        if batch_field and batch_field not in profile_header.columns:
+            raise ValueError(f"样本指标表中不存在批次字段“{batch_field}”")
+        if batch_field == sample_column:
+            raise ValueError("批次字段不能与样本编号列相同")
+        profile_dtype = {sample_column: str}
+        for field in set(group_fields or []) | set(selected_group_values or {}) | set(selected_samples_by_group or {}):
+            if field in profile_header.columns: profile_dtype[field] = str
+        if batch_field:
+            profile_dtype[batch_field] = str
+        profile_df = _try_read_csv(profile_file, low_memory=False, dtype=profile_dtype)
         if profile_df[sample_column].isna().any() or profile_df[sample_column].str.strip().eq("").any():
             raise ValueError("样本指标表存在空样本编号")
-        if profile_df[sample_column].duplicated().any():
+        if batch_field:
+            profile_df[batch_field] = profile_df[batch_field].astype("string").str.strip()
+            if profile_df[batch_field].isna().any() or profile_df[batch_field].eq("").any():
+                raise ValueError("样本指标表中存在空批次值")
+            if profile_df.duplicated([sample_column, batch_field]).any():
+                raise ValueError("样本指标表中存在重复的批次与样本编号组合")
+        all_profile_batch_values = set(profile_df[batch_field].astype(str)) if batch_field else set()
+        all_profile_sample_values = set(profile_df[sample_column].map(_sample_match_key))
+        if not batch_field and profile_df[sample_column].duplicated().any():
             raise ValueError("样本指标表存在重复样本编号，请先明确批次与样本对应关系")
+        if not isinstance(group_sample_identity, str) or group_sample_identity not in {"sample", "batch_sample"} or (group_sample_identity == "batch_sample" and not batch_field):
+            raise ValueError("批次样本选择需要有效的批次字段与编号方式")
+        selection_ids = (
+            pd.Series([_batch_sample_identity(batch, _sample_match_key(sample))
+                       for sample, batch in profile_df[[sample_column, batch_field]].itertuples(index=False, name=None)], index=profile_df.index)
+            if group_sample_identity == "batch_sample" else profile_df[sample_column].map(_sample_match_key)
+        )
+        for field, values in (selected_group_values or {}).items():
+            if field not in profile_df.columns:
+                raise ValueError(f"所选分组字段不存在：{field}")
+            allowed = {str(value).strip() for value in values if str(value).strip()}
+            if allowed:
+                profile_df = profile_df[profile_df[field].astype(str).str.strip().isin(allowed)].copy()
+        for field, groups in (selected_samples_by_group or {}).items():
+            if field not in profile_df.columns:
+                raise ValueError(f"所选样本分组字段不存在：{field}")
+            keep = pd.Series(False, index=profile_df.index)
+            for group_value, samples in groups.items():
+                sample_set = {_sample_match_key(sample) for sample in samples if _sample_match_key(sample)}
+                keep |= (
+                    profile_df[field].astype(str).str.strip().eq(str(group_value).strip())
+                    & selection_ids.loc[profile_df.index].isin(sample_set)
+                )
+            profile_df = profile_df[keep].copy()
         selected_sample_keys = {
             _sample_match_key(sample)
             for sample in (selected_samples or [])
@@ -243,6 +311,25 @@ class PepAnalysisService:
             ].copy()
             if profile_df.empty:
                 raise ValueError("No Profile rows matched the selected Pep Analysis samples")
+        if profile_df.empty:
+            raise ValueError("No Profile rows remain after applying group and sample filters")
+
+        sample_to_batch_identity: Dict[Tuple[str, str], str] = {}
+        pep_batch_values: set[str] = set()
+        if batch_field:
+            pep_batch_values = set(profile_df[batch_field].astype(str))
+            identities = []
+            seen_identities: set[str] = set()
+            for sample, batch in profile_df[[sample_column, batch_field]].itertuples(index=False, name=None):
+                sample_key = _sample_match_key(sample)
+                batch_key = _sample_match_key(batch)
+                identity = _batch_sample_identity(batch_key, sample_key)
+                if identity in seen_identities:
+                    raise ValueError("批次与样本编号生成了重复分析标识，请调整对应值")
+                seen_identities.add(identity)
+                sample_to_batch_identity[(sample_key, batch_key)] = identity
+                identities.append(identity)
+            profile_df[sample_column] = identities
 
         for gf in group_fields:
             if gf not in profile_df.columns:
@@ -338,14 +425,65 @@ class PepAnalysisService:
             {"step": 2, "stage": "step2_scan_pep_files", "processed": 0, "total": max(len(chains), 1)},
         )
         chain_files: Dict[str, List[str]] = {chain: [] for chain in chains}
-        for file_path in sorted(path for path in pep_dir.rglob("*") if path.is_file() and _is_table_file(path)):
+        pep_sources = [Path(value).expanduser() for value in (pep_paths or [pep_data_dir]) if str(value).strip()]
+        pep_files: Dict[str, Path] = {}
+        pep_column_identities: Dict[str, str] = {}
+        for source in pep_sources:
+            if not source.exists():
+                continue
+            candidates = [source] if source.is_file() else source.rglob("*")
+            for candidate in candidates:
+                if candidate.is_file() and _is_table_file(candidate):
+                    pep_files.setdefault(str(candidate.resolve()), candidate)
+        for file_path in sorted(pep_files.values()):
             chain = _infer_chain_from_path(file_path)
             if chain in chains:
+                sample_name = _pep_sample_name_from_path(file_path, chain)
+                if batch_field:
+                    matching_batches = {
+                        ancestor.name.strip()
+                        for ancestor in file_path.parents
+                        if ancestor.name.strip() in all_profile_batch_values
+                        and ancestor.name.upper() not in SUPPORTED_CHAINS
+                    }
+                    if len(matching_batches) > 1:
+                        raise ValueError(f"PEP 文件路径匹配到多个批次目录：{file_path}")
+                    batch_name = next(iter(matching_batches), None)
+                    if batch_name is None:
+                        if sample_name in all_profile_sample_values:
+                            raise ValueError(f"PEP 文件未匹配到样本指标表中的批次目录：{file_path}")
+                        continue
+                    identity = sample_to_batch_identity.get((sample_name, batch_name))
+                    if identity is None:
+                        continue
+                    pep_column_identities[str(file_path.resolve())] = identity
                 if selected_sample_keys:
-                    sample_name = _pep_sample_name_from_path(file_path, chain)
                     if _sample_match_key(sample_name) not in selected_sample_keys:
                         continue
                 chain_files.setdefault(chain, []).append(str(file_path))
+
+        if batch_field:
+            duplicate_identities: Dict[Tuple[str, str], List[str]] = {}
+            for chain, files in chain_files.items():
+                seen: set[Tuple[str, str]] = set()
+                for raw_path in files:
+                    path = Path(raw_path)
+                    identity = pep_column_identities.get(str(path.resolve()))
+                    if not identity:
+                        continue
+                    batch, sample = identity.split("::", 1)
+                    key = (batch, sample)
+                    if key in seen:
+                        duplicate_identities.setdefault(key, []).append(f"{chain}: {path.name}")
+                    seen.add(key)
+            if duplicate_identities:
+                examples = ", ".join(f"{batch} / {sample}" for batch, sample in list(duplicate_identities)[:5])
+                raise ValueError(f"PEP 数据中存在重复的批次、样本与链型组合：{examples}")
+            for chain, files in chain_files.items():
+                chain_files[chain] = [
+                    path for path in files
+                    if str(Path(path).resolve()) in pep_column_identities
+                ]
         if selected_sample_keys:
             _status(
                 12,
@@ -411,21 +549,19 @@ class PepAnalysisService:
                     },
                 )
 
+            sharing_kwargs = {"column_identities": pep_column_identities} if batch_field else {}
             sh_paths, us_paths = self._run_cdr3_sharing(
-                chain,
-                files,
-                output_base,
-                progress_callback=_step2_progress,
+                chain, files, output_base, progress_callback=_step2_progress, **sharing_kwargs,
             )
             shared_matrix_paths.extend(sh_paths)
             usage_paths.extend(us_paths)
 
         # ---- Which optional steps to run? ----
         requested_optional = {5, 6, 7, 8} if optional_steps is None else set(optional_steps)
-        requested_optional = {step for step in requested_optional if step in {5, 6, 7, 8}}
+        requested_optional = {step for step in requested_optional if step in {5, 6, 7, 8, 9, 10, 11, 12}}
         run_optional = set(requested_optional)
-        if 7 in run_optional or 8 in run_optional:
-            # Steps 7/8 read Step 6's arrage_pep outputs, so Step 6 is a dependency.
+        if 7 in run_optional or 8 in run_optional or 9 in run_optional or 10 in run_optional or 11 in run_optional:
+            # Steps 7-11 read Step 6's arrage_pep outputs, so Step 6 is a dependency.
             run_optional.add(6)
 
         # ---- Steps 3-7: Per group field ----
@@ -436,6 +572,12 @@ class PepAnalysisService:
         proportion_plot_paths: List[str] = []
         arrange_heatmap_paths: List[str] = []
         plot_heatmap_paths: List[str] = []
+        clone_tracking_image_paths: List[str] = []
+        clone_tracking_table_paths: List[str] = []
+        category_heatmap_paths: List[str] = []
+        category_alignment_paths: List[str] = []
+        vj_usage_diff_paths: List[str] = []
+        vj_usage_diff_image_paths: List[str] = []
         all_optional_step_errors: List[Dict[str, Any]] = []
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -464,7 +606,8 @@ class PepAnalysisService:
                         f"Step 3 [{gf}]: annotating Pep_shared {idx}/{total} ({chain})",
                         {"step": 3, "group_field": gf, "chain": chain, "processed": idx - 1, "total": total},
                     )
-                    self._add_cate_shared(src, pep_shared_cate_dir / f"{chain}.csv", profile_df, gf)
+                    category_kwargs = {"identity_columns": True} if batch_field else {}
+                    self._add_cate_shared(src, pep_shared_cate_dir / f"{chain}.csv", profile_df, gf, **category_kwargs)
                     _progress(
                         f"Step 3 [{gf}]: annotated Pep_shared {idx}/{total} ({chain})",
                         {"step": 3, "group_field": gf, "chain": chain, "processed": idx, "total": total},
@@ -495,7 +638,8 @@ class PepAnalysisService:
                             "total": total,
                         },
                     )
-                    self._add_cate_usage(src, dst, profile_df, gf)
+                    category_kwargs = {"identity_columns": True} if batch_field else {}
+                    self._add_cate_usage(src, dst, profile_df, gf, **category_kwargs)
                     _progress(
                         f"Step 4 [{gf}]: annotated usage {idx}/{total} ({usage_type}/{chain})",
                         {
@@ -547,6 +691,21 @@ class PepAnalysisService:
                     ),
                 )
 
+            if 12 in run_optional:
+                optional_tasks[12] = lambda: self._run_step12_for_group(
+                    usage_cate_base,
+                    field_dir / "VJ_usage_diff_summary",
+                    group_field="Category",
+                    group_name=gf,
+                    group_order=(group_order or {}).get(gf, []),
+                    pvalue_threshold=pvalue_threshold,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 12 [{gf}]: {message}",
+                        {"step": 12, "group_field": gf, "stage": "step12_vj_usage_diff_summary", **(meta or {})},
+                    ),
+                )
+
             if optional_tasks:
                 _progress(f"Steps {sorted(optional_tasks.keys())} [{gf}]: Running selected optional steps",
                           {"step": "optional", "group_field": gf, "optional_steps": sorted(optional_tasks.keys())})
@@ -590,6 +749,37 @@ class PepAnalysisService:
                         {"step": 8, "group_field": gf, "stage": "step8_unique_cdr3_heatmap", **(meta or {})},
                     ),
                 )
+            if 9 in run_optional:
+                dependent_tasks[9] = lambda: self._run_step9_for_group(
+                    chains,
+                    field_dir,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"\u7b2c 9 \u6b65 [{gf}]\uff1a{message}",
+                        {"step": 9, "group_field": gf, "stage": "step9_clone_tracking", **(meta or {})},
+                    ),
+                )
+            if 10 in run_optional:
+                dependent_tasks[10] = lambda: self._run_step10_for_group(
+                    chains,
+                    field_dir,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"\u7b2c 10 \u6b65 [{gf}]\uff1a{message}",
+                        {"step": 10, "group_field": gf, "stage": "step10_cdr3_category_heatmaps", **(meta or {})},
+                    ),
+                )
+
+            if 11 in run_optional:
+                dependent_tasks[11] = lambda: self._run_step11_for_group(
+                    chains,
+                    field_dir,
+                    progress_callback=lambda message, meta=None: _status(
+                        last_progress[0],
+                        f"Step 11 [{gf}]: {message}",
+                        {"step": 11, "group_field": gf, "stage": "step11_category_db_alignment", **(meta or {})},
+                    ),
+                )
 
             if dependent_tasks:
                 _progress(f"Steps {sorted(dependent_tasks.keys())} [{gf}]: Running after Step 6 dependency",
@@ -631,6 +821,19 @@ class PepAnalysisService:
                 arrange_heatmap_paths.extend(optional_task_results[7])
             if 8 in optional_task_results:
                 plot_heatmap_paths.extend(optional_task_results[8])
+            if 9 in optional_task_results:
+                images, tables = optional_task_results[9]
+                clone_tracking_image_paths.extend(images)
+                clone_tracking_table_paths.extend(tables)
+            if 10 in optional_task_results:
+                category_heatmap_paths.extend(optional_task_results[10])
+            if 11 in optional_task_results:
+                category_alignment_paths.extend(optional_task_results[11])
+            if 12 in optional_task_results:
+                vj_usage_diff_paths.extend(optional_task_results[12])
+                vj_usage_diff_image_paths.extend(
+                    path for path in optional_task_results[12] if str(path).lower().endswith(".png")
+                )
 
             if optional_step_errors:
                 all_optional_step_errors.extend(optional_step_errors)
@@ -686,10 +889,20 @@ class PepAnalysisService:
             8: {
                 "unique_cdr3_heatmap_images": len(plot_heatmap_paths),
             },
+            9: {
+                "clone_tracking_images": len(clone_tracking_image_paths),
+                "clone_tracking_tables": len(clone_tracking_table_paths),
+            },
+            10: {"category_heatmap_images": len(category_heatmap_paths)},
+            11: {"alignment_files": sum(1 for path in category_alignment_paths if Path(path).name != "run_manifest.csv")},
+            12: {
+                "summary_files": sum(not str(path).lower().endswith(".png") for path in vj_usage_diff_paths),
+                "usage_diff_images": len(vj_usage_diff_image_paths),
+            },
         }
 
         step_skip_reasons: Dict[int, str] = {}
-        for optional_step in (5, 6, 7, 8):
+        for optional_step in (5, 6, 7, 8, 9, 10, 11, 12):
             if optional_step not in run_optional:
                 step_skip_reasons[optional_step] = "Step was not selected in optional_steps."
         if 5 in run_optional and not any(step_output_counts[5].values()):
@@ -700,6 +913,14 @@ class PepAnalysisService:
             step_skip_reasons[7] = "No Step 6 arrage_pep CSV outputs were available for Step 7 heatmaps."
         if 8 in run_optional and not any(step_output_counts[8].values()):
             step_skip_reasons[8] = "No Step 6 arrage_pep CSV outputs were available for Step 8 heatmaps."
+        if 9 in run_optional and not any(step_output_counts[9].values()):
+            step_skip_reasons[9] = "No valid Step 6 arranged CDR3 tables with at least two groups were available."
+        if 10 in run_optional and not step_output_counts[10]["category_heatmap_images"]:
+            step_skip_reasons[10] = "No categorized CDR3 rows were available for category heatmaps."
+        if 11 in run_optional and not step_output_counts[11]["alignment_files"]:
+            step_skip_reasons[11] = "No category-level TRA/TRB database alignment outputs were generated."
+        if 12 in run_optional and not step_output_counts[12]["summary_files"]:
+            step_skip_reasons[12] = "No categorized 1V/1J/1VJ usage CSV files with at least two groups were available."
         step_summary = [
             {
                 "step": step,
@@ -711,7 +932,7 @@ class PepAnalysisService:
                 "output_counts": step_output_counts.get(step, {}),
                 "errors": [err for err in all_optional_step_errors if err.get("step") == step],
             }
-            for step in range(1, 9)
+            for step in range(1, 13)
         ]
 
         # ---- Generate ZIP ----
@@ -719,7 +940,7 @@ class PepAnalysisService:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in shared_matrix_paths + usage_paths + heatmap_image_paths + \
                      heatmap_csv_paths + classification_paths + proportion_paths + \
-                     proportion_plot_paths + arrange_heatmap_paths + plot_heatmap_paths:
+                      proportion_plot_paths + arrange_heatmap_paths + plot_heatmap_paths + clone_tracking_image_paths + clone_tracking_table_paths + category_heatmap_paths + category_alignment_paths + vj_usage_diff_paths + [str(Path(path).with_suffix(".pdf")) for path in clone_tracking_image_paths]:
                 fp = Path(p)
                 if fp.exists():
                     arcname = str(fp.relative_to(output_base))
@@ -752,6 +973,10 @@ class PepAnalysisService:
                     "usage_cate": str(output_base / gf / "usage_cate" / "usage"),
                     "arrage_pep": str(output_base / gf / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"),
                     "plot_heatmap": str(output_base / gf / "plot_heatmap"),
+                    "clone_tracking": str(output_base / gf / "CDR3_tracking"),
+                     "cdr3_category_heatmaps": str(output_base / gf / "CDR3_category_heatmaps"),
+                     "category_db_alignment": str(output_base / gf / "category_db_alignment"),
+                     "vj_usage_diff_summary": str(output_base / gf / "VJ_usage_diff_summary"),
                 }
                 for gf in group_fields
             },
@@ -767,6 +992,9 @@ class PepAnalysisService:
             + self._build_pep_image_manifest(output_base, proportion_plot_paths, 6, "CDR3 classification proportions", "proportion", generated_at)
             + self._build_pep_image_manifest(output_base, arrange_heatmap_paths, 7, "CDR3 arrangement heatmaps", "arrangement_heatmap", generated_at)
             + self._build_pep_image_manifest(output_base, plot_heatmap_paths, 8, "Unique CDR3 heatmaps", "unique_cdr3_heatmap", generated_at)
+            + self._build_pep_image_manifest(output_base, clone_tracking_image_paths, 9, "\u8de8\u7ec4\u5171\u4eab CDR3 \u514b\u9686\u8ffd\u8e2a", "clone_tracking", generated_at)
+            + self._build_pep_image_manifest(output_base, category_heatmap_paths, 10, "CDR3 \u5206\u7c7b\u70ed\u56fe", "cdr3_category_heatmap", generated_at)
+            + self._build_pep_image_manifest(output_base, vj_usage_diff_image_paths, 12, "V/J \u4f7f\u7528\u5dee\u5f02\u6c47\u603b", "vj_usage_diff", generated_at)
         )
         available_steps = sorted({
             int(item.get("step"))
@@ -798,6 +1026,13 @@ class PepAnalysisService:
             "chains": chains,
             "chain_list": chains,
             "group_fields": group_fields,
+            "batch_field": batch_field,
+            "batch_count": len(pep_batch_values) if batch_field else 1,
+            "group_sample_identity": group_sample_identity,
+            "sample_identity_rule": (
+                "batch::sample; each part escapes % as %25 and :: as %3A%3A"
+                if batch_field else "sample"
+            ),
             "output_files": output_files,
             "result_files": output_files,
             "image_files": image_files,
@@ -810,6 +1045,9 @@ class PepAnalysisService:
             "has_ml_vj": has_vj_usage,
             "has_tra": has_tra,
             "has_step7_images": bool(arrange_heatmap_paths),
+            "has_clone_tracking": bool(clone_tracking_table_paths),
+            "has_cdr3_category_heatmaps": bool(category_heatmap_paths),
+            "has_category_db_alignment": bool(step_output_counts[11]["alignment_files"]),
             "downstream": {
                 "mait-nkt": has_tra,
                 "volcano": has_vj_usage,
@@ -832,6 +1070,13 @@ class PepAnalysisService:
             "group_fields": group_fields,
             "selected_chains": chains,
             "selected_sample_count": len(selected_sample_keys),
+            "batch_field": batch_field or "",
+            "batch_count": len(pep_batch_values) if batch_field else 1,
+            "group_sample_identity": group_sample_identity,
+            "sample_identity_rule": (
+                "batch::sample; each part escapes % as %25 and :: as %3A%3A"
+                if batch_field else "sample"
+            ),
             "pvalue_threshold": pvalue_threshold,
             "min_sample_threshold": min_sample_threshold,
             "optional_steps_requested": sorted(requested_optional),
@@ -848,6 +1093,11 @@ class PepAnalysisService:
                 "proportion_plot": len(proportion_plot_paths),
                 "arrange_heatmap": len(arrange_heatmap_paths),
                 "plot_heatmap": len(plot_heatmap_paths),
+                "clone_tracking_images": len(clone_tracking_image_paths),
+                "clone_tracking_tables": len(clone_tracking_table_paths),
+                "category_heatmaps": len(category_heatmap_paths),
+                "category_alignment_files": step_output_counts[11]["alignment_files"],
+                "vj_usage_diff_summary_files": step_output_counts[12]["summary_files"],
             },
             "step7": {
                 "input_dirs": [
@@ -912,6 +1162,10 @@ class PepAnalysisService:
             proportion_plot_paths=proportion_plot_paths,
             arrange_heatmap_paths=arrange_heatmap_paths,
             plot_heatmap_paths=plot_heatmap_paths,
+            clone_tracking_image_paths=clone_tracking_image_paths,
+            clone_tracking_table_paths=clone_tracking_table_paths,
+            category_heatmap_paths=category_heatmap_paths,
+            category_alignment_paths=category_alignment_paths,
             zip_path=str(zip_path),
             metadata=metadata,
         )
@@ -973,7 +1227,7 @@ class PepAnalysisService:
             return None
         normalized_frames: List[pd.DataFrame] = []
         for file_path in files:
-            df = _try_read_csv(file_path, low_memory=False)
+            df = _try_read_csv(file_path, low_memory=False, dtype={"sample": str, "Category": str})
             if df.empty:
                 continue
             first_col = df.columns[0]
@@ -1029,6 +1283,7 @@ class PepAnalysisService:
         chain: str,
         file_paths: List[str],
         output_base: Path,
+        column_identities: Optional[Dict[str, str]] = None,
         progress_callback=None,
     ) -> Tuple[List[str], List[str]]:
         shared_series: Dict[str, Dict[str, Any]] = {}
@@ -1069,7 +1324,7 @@ class PepAnalysisService:
         progress_interval = max(1, total_files // 80)
 
         for idx, file_path in enumerate(file_paths, start=1):
-            param_col = _sample_col(file_path)
+            param_col = (column_identities or {}).get(str(Path(file_path).resolve())) or _sample_col(file_path)
             try:
                 df = _try_read_csv(
                     file_path,
@@ -1181,7 +1436,7 @@ class PepAnalysisService:
     # Step 3: Add categories to shared CDR3
     # ============================================================
     @staticmethod
-    def _add_cate_shared(src: Path, dst: Path, profile_df: pd.DataFrame, group_field: str) -> None:
+    def _add_cate_shared(src: Path, dst: Path, profile_df: pd.DataFrame, group_field: str, *, identity_columns: bool = False) -> None:
         header_df = _try_read_csv(src, nrows=0)
         source_columns = list(header_df.columns)
         if not source_columns:
@@ -1194,8 +1449,11 @@ class PepAnalysisService:
 
         cate_values: Dict[str, str] = {}
         for pep_name in source_columns[1:]:
-            pep_path = Path(pep_name)
-            samplename = _pep_sample_name_from_path(pep_path, _infer_chain_from_path(pep_path))
+            if identity_columns:
+                samplename = str(pep_name)
+            else:
+                pep_path = Path(pep_name)
+                samplename = _pep_sample_name_from_path(pep_path, _infer_chain_from_path(pep_path))
             if samplename in group_map:
                 val = group_map[samplename]
                 category = str(val) if pd.notna(val) else "nan"
@@ -1225,7 +1483,7 @@ class PepAnalysisService:
     # Step 4: Add categories to usage matrices
     # ============================================================
     @staticmethod
-    def _add_cate_usage(src: Path, dst: Path, profile_df: pd.DataFrame, group_field: str) -> None:
+    def _add_cate_usage(src: Path, dst: Path, profile_df: pd.DataFrame, group_field: str, *, identity_columns: bool = False) -> None:
         df = _try_read_csv(src)
         sample_col = profile_df.columns[0]
         index_col = df.columns[0]
@@ -1234,7 +1492,7 @@ class PepAnalysisService:
             for sample, value in profile_df.set_index(sample_col)[group_field].to_dict().items()
         }
 
-        sample_names = df[index_col].astype(str).map(
+        sample_names = df[index_col].astype(str) if identity_columns else df[index_col].astype(str).map(
             lambda name: _pep_sample_name_from_path(Path(name), _infer_chain_from_path(Path(name)))
         )
         categories = sample_names.map(group_map)
@@ -1302,7 +1560,30 @@ class PepAnalysisService:
             if arr_a is None or arr_b is None or arr_a.size == 0 or arr_b.size == 0:
                 continue
             try:
-                pvalues = mannwhitneyu(arr_a, arr_b, alternative="two-sided", axis=0).pvalue
+                sample_min = min(arr_a.shape[0], arr_b.shape[0])
+                if sample_min <= 8:
+                    combined = np.concatenate([arr_a, arr_b], axis=0)
+                    tied = np.array([
+                        np.unique(combined[:, idx]).size < combined.shape[0]
+                        for idx in range(combined.shape[1])
+                    ])
+                    exact = ~tied
+                    pvalues = np.empty(arr_a.shape[1], dtype=float)
+                    if exact.any():
+                        pvalues[exact] = mannwhitneyu(
+                            arr_a[:, exact], arr_b[:, exact], alternative="two-sided",
+                            axis=0, method="exact",
+                        ).pvalue
+                    if tied.any():
+                        pvalues[tied] = mannwhitneyu(
+                            arr_a[:, tied], arr_b[:, tied], alternative="two-sided",
+                            axis=0, method="asymptotic",
+                        ).pvalue
+                else:
+                    pvalues = mannwhitneyu(
+                        arr_a, arr_b, alternative="two-sided", axis=0,
+                        method="asymptotic",
+                    ).pvalue
             except Exception:
                 pvalues = np.array([
                     mannwhitneyu(arr_a[:, idx], arr_b[:, idx], alternative="two-sided").pvalue
@@ -1394,7 +1675,7 @@ class PepAnalysisService:
         if not category_dict:
             return None, None
 
-        df_nocate = df.iloc[1:].copy()
+        df_nocate = df.iloc[1:].copy().fillna(0)
         count_name_list: List[str] = []
         aggregate_data: Dict[str, np.ndarray] = {}
         for cate, idnames in category_dict.items():
@@ -1538,8 +1819,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"running heatmap {index}/{total} ({usage_type}, {chain})",
-                    {
-                        "stage": "step5_compute_mwu",
+                        {"stage": "step5_compute_mwu",
                         "usage_type": usage_type,
                         "chain": chain,
                         "processed": index - 1,
@@ -1555,8 +1835,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"heatmap complete {index}/{total} ({usage_type}, {chain})",
-                    {
-                        "stage": "step5_write_heatmap_png",
+                        {"stage": "step5_write_heatmap_png",
                         "usage_type": usage_type,
                         "chain": chain,
                         "processed": index,
@@ -1583,8 +1862,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"running classification {index}/{total} ({chain})",
-                    {
-                        "stage": "step6_count_combinations",
+                        {"stage": "step6_count_combinations",
                         "chain": chain,
                         "processed": index - 1,
                         "total": total,
@@ -1601,8 +1879,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"classification complete {index}/{total} ({chain})",
-                    {
-                        "stage": "step6_write_prop_pep",
+                        {"stage": "step6_write_prop_pep",
                         "chain": chain,
                         "processed": index,
                         "total": total,
@@ -1648,8 +1925,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"plotting arrange heatmap {index}/{total} ({chain})",
-                    {
-                        "stage": "step7_plot_arrange_heatmap",
+                        {"stage": "step7_plot_arrange_heatmap",
                         "chain": chain,
                         "processed": index - 1,
                         "total": total,
@@ -1694,8 +1970,7 @@ class PepAnalysisService:
             if progress_callback:
                 progress_callback(
                     f"arrange heatmap complete {index}/{total} ({chain})",
-                    {
-                        "stage": "step7_write_arrange_heatmap",
+                        {"stage": "step7_write_arrange_heatmap",
                         "chain": chain,
                         "processed": index,
                         "total": total,
@@ -1784,6 +2059,438 @@ class PepAnalysisService:
             )
 
         return paths
+
+    def _run_step9_for_group(self, chains, field_dir, progress_callback=None):
+        """Step 9: quantify and plot CDR3 clones shared across groups."""
+        arranged_dir = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
+        source_dir = field_dir / "Pep_shared_cate" / "Pep_shared"
+        output_dir = field_dir / "CDR3_tracking"
+        image_paths, table_paths = [], []
+        planned = [
+            (chain, arranged_dir / f"{chain}.csv", source_dir / f"{chain}.csv")
+            for chain in chains
+            if (arranged_dir / f"{chain}.csv").exists() and (source_dir / f"{chain}.csv").exists()
+        ]
+        total = max(len(planned), 1)
+        for index, (chain, arranged, source) in enumerate(planned, start=1):
+            table, groups, denominators = self._prepare_clone_tracking(arranged, source)
+            chain_dir = output_dir / chain
+            chain_dir.mkdir(parents=True, exist_ok=True)
+            table_path = chain_dir / "shared_cdr3_abundance.csv"
+            denominator_path = chain_dir / "group_denominators.csv"
+            table.to_csv(table_path, index=False)
+            denominators.to_csv(denominator_path, index=False)
+            plot_path = chain_dir / "shared_tracking.png"
+            self._plot_clone_tracking(table, groups, plot_path, f"{chain} | Shared CDR3 tracking", 20)
+            table_paths.extend([str(table_path), str(denominator_path)])
+            if plot_path.exists():
+                image_paths.append(str(plot_path))
+                curve_table = plot_path.with_suffix(".csv")
+                if curve_table.exists():
+                    table_paths.append(str(curve_table))
+            if progress_callback:
+                progress_callback(
+                    f"\u514b\u9686\u8ffd\u8e2a\u5b8c\u6210 {index}/{total} ({chain})",
+                    {"stage": "step9_clone_tracking", "chain": chain, "processed": index, "total": total,
+                     "shared_clone_count": len(table), "group_count": len(groups)},
+                )
+        return image_paths, table_paths
+
+    def _run_step10_for_group(self, chains, field_dir, progress_callback=None):
+        """Step 10: render category-specific clone heatmaps and chain summaries."""
+        from ast import literal_eval
+        from urllib.parse import quote
+
+        arranged_dir = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
+        output_dir = field_dir / "CDR3_category_heatmaps"
+        payloads_by_chain = []
+        category_order = []
+        for chain in chains:
+            source = arranged_dir / f"{chain}.csv"
+            if not source.is_file():
+                continue
+            payload = self._read_cdr3_category_heatmaps(source, chain)
+            payloads_by_chain.append(payload)
+            for section in payload["sections"]:
+                if section["category"] not in category_order:
+                    category_order.append(section["category"])
+
+        category_order.sort()
+        image_paths = []
+        total = max(len(category_order), 1)
+        for category_index, category in enumerate(category_order, start=1):
+            category_payloads = []
+            for payload in payloads_by_chain:
+                section = next((item for item in payload["sections"] if item["category"] == category), None)
+                if section is None:
+                    section = {"category": category, "title": category, "records": [], "matrix": [], "selected_count": 0}
+                category_payloads.append({**payload, "sections": [section]})
+
+            try:
+                raw_groups = literal_eval(category) if category.startswith("(") else (category,)
+            except (ValueError, SyntaxError):
+                raw_groups = (category,)
+            member_count = len(raw_groups) if isinstance(raw_groups, (tuple, list)) else 1
+            type_name = "single" if member_count == 1 else ("two" if member_count == 2 else "three")
+            safe_category = quote(category, safe="") or "category"
+            category_dir = output_dir / type_name / safe_category
+
+            for payload in category_payloads:
+                if not payload["sections"][0]["records"]:
+                    continue
+                chain_dir = category_dir / payload["chain"]
+                with _PLOT_LOCK:
+                    image_path = self._plot_chain_heatmap(payload, 1.0, chain_dir)
+                if image_path:
+                    image_paths.append(image_path)
+
+            with _PLOT_LOCK:
+                summary_path = self._plot_summary_heatmap(category_payloads, 1.0, category_dir / "ALL")
+            if summary_path:
+                image_paths.append(summary_path)
+
+            if progress_callback:
+                progress_callback(
+                    f"\u5206\u7c7b\u70ed\u56fe {category_index}/{total}: {category}",
+                    {"stage": "step10_cdr3_category_heatmaps", "category": category,
+                     "processed": category_index, "total": total, "image_count": len(image_paths)},
+                )
+        return image_paths
+
+    def _run_step11_for_group(self, chains, field_dir, progress_callback=None):
+        """Step 11: align Step 6 category-specific CDR3 sets to reference databases."""
+        arranged_dir = field_dir / "arrage_pep" / "Pep_shared_cate" / "Pep_shared"
+        categorized_files = {
+            chain: str(arranged_dir / f"{chain}.csv")
+            for chain in chains
+            if str(chain).upper() in {"TRA", "TRB"} and (arranged_dir / f"{chain}.csv").is_file()
+        }
+        if not categorized_files:
+            return []
+
+        output_dir = field_dir / "category_db_alignment"
+        service = DBAlignmentService(output_parent=output_dir)
+
+        def report_progress(index, total, chain, category_count):
+            if progress_callback:
+                progress_callback(
+                    f"\u7c7b\u522b\u6570\u636e\u5e93\u6bd4\u5bf9 {index}/{total}\uff08{chain}\uff0c{category_count} \u7c7b\uff09",
+                    {"stage": "step11_category_db_alignment", "chain": chain,
+                     "processed": index, "total": total, "category_count": category_count},
+                )
+
+        result = service.generate_pep_category_alignment(
+            categorized_files=categorized_files,
+            output_base=output_dir,
+            progress_callback=report_progress,
+        )
+        return result.get("paths", [])
+
+    @staticmethod
+    def _run_step12_for_group(
+        usage_cate_base, output_dir, *, group_field, group_name, group_order=None,
+        pvalue_threshold=0.05, progress_callback=None,
+    ):
+        """Reproduce pipeline step 8: pairwise differential V/J usage summaries."""
+        from scipy import stats
+
+        usage_types = {"1Vusage", "1Jusage", "1VJusage"}
+        usage_root = Path(usage_cate_base)
+        output_dir = Path(output_dir)
+        files = sorted(
+            path for path in usage_root.rglob("*.csv")
+            if any(part in usage_types for part in path.parts)
+        )
+        generated = []
+        for file_index, usage_path in enumerate(files, start=1):
+            frame = _try_read_csv(usage_path).copy()
+            if group_field not in frame.columns:
+                continue
+            frame[group_field] = frame[group_field].astype(str).str.strip()
+            frame = frame[~frame[group_field].isin(["", "0", "nan", "None"])]
+            numeric_columns = []
+            for column in frame.columns:
+                if column == group_field:
+                    continue
+                values = pd.to_numeric(frame[column], errors="coerce")
+                if values.notna().any():
+                    frame[column] = values
+                    numeric_columns.append(column)
+            if not numeric_columns:
+                continue
+
+            observed = set(frame[group_field].dropna().astype(str))
+            ordered_groups = [str(value) for value in (group_order or []) if str(value) in observed]
+            ordered_groups.extend(sorted(observed.difference(ordered_groups)))
+            pairs = list(combinations(ordered_groups, 2))
+            if not pairs:
+                continue
+
+            usage_type = next((part for part in usage_path.parts if part in usage_types), "usage")
+            chain = usage_path.stem
+            for group_a, group_b in pairs:
+                subset = frame[frame[group_field].isin([group_a, group_b])]
+                means = subset.groupby(group_field)[numeric_columns].mean().T
+                if group_a not in means.columns or group_b not in means.columns:
+                    continue
+                summary = means.rename_axis("Gene").reset_index()
+                summary["diff"] = summary[group_a] - summary[group_b]
+                summary["abs_diff"] = summary["diff"].abs()
+                p_values = []
+                for gene in summary["Gene"]:
+                    first = subset.loc[subset[group_field] == group_a, gene].dropna()
+                    second = subset.loc[subset[group_field] == group_b, gene].dropna()
+                    p_values.append(float(stats.ttest_ind(first, second).pvalue) if len(first) > 1 and len(second) > 1 else 1.0)
+                raw = np.asarray(p_values, dtype=float)
+                order = np.argsort(raw)
+                adjusted_sorted = raw[order] * len(raw) / np.arange(1, len(raw) + 1)
+                adjusted_sorted = np.minimum.accumulate(adjusted_sorted[::-1])[::-1]
+                adjusted = np.empty(len(raw), dtype=float)
+                adjusted[order] = np.minimum(adjusted_sorted, 1.0)
+                summary["p_value"] = raw
+                summary["p_adj"] = adjusted
+                summary["q_value"] = adjusted
+                summary["significant"] = summary["p_adj"] < float(pvalue_threshold)
+                top = summary.sort_values("abs_diff", ascending=False).head(10).copy()
+                if top.empty:
+                    continue
+
+                pair_dir = output_dir / group_name / f"{group_a}_vs_{group_b}" / usage_type / chain
+                pair_dir.mkdir(parents=True, exist_ok=True)
+                top_path = pair_dir / "top10_diff_genes.csv"
+                long_path = pair_dir / "top10_diff_genes_long.csv"
+                genes_path = pair_dir / "top10_gene_list.txt"
+                top.to_csv(top_path, index=False)
+                long = top.melt(
+                    id_vars=["Gene", "diff", "abs_diff", "p_value", "p_adj", "q_value", "significant"],
+                    value_vars=[group_a, group_b], var_name="Group", value_name="Mean",
+                )
+                sem = subset.groupby(group_field)[top["Gene"].tolist()].sem().T
+                sem.index.name = "Gene"
+                sem = sem.reset_index().melt(id_vars=["Gene"], value_vars=[group_a, group_b], var_name="Group", value_name="SEM")
+                long = long.merge(sem, on=["Gene", "Group"], how="left")
+                long.to_csv(long_path, index=False)
+                top[["Gene", "diff", "abs_diff", "p_value", "p_adj", "significant"]].to_csv(genes_path, sep="\t", index=False)
+                generated.extend([str(top_path), str(long_path), str(genes_path)])
+                significant = top[top["p_adj"] < float(pvalue_threshold)]
+                if not significant.empty:
+                    plot_path = pair_dir / f"{chain}_top10_usage_diff_barplot.png"
+                    positions = np.arange(len(significant))
+                    width = 0.8 / 2
+                    fig, ax = plt.subplots(figsize=(max(7, len(significant) * 0.75), 5))
+                    for group_index, group in enumerate((group_a, group_b)):
+                        group_rows = long[long["Group"] == group].set_index("Gene").reindex(significant["Gene"])
+                        ax.bar(
+                            positions + (group_index - 0.5) * width,
+                            group_rows["Mean"].to_numpy(dtype=float),
+                            width=width,
+                            yerr=group_rows["SEM"].fillna(0).to_numpy(dtype=float),
+                            capsize=3,
+                            color=("#A8C8E8", "#F4C89A")[group_index],
+                            edgecolor="#4B5563",
+                            linewidth=0.5,
+                            label=group,
+                        )
+                    ax.set_xticks(positions)
+                    ax.set_xticklabels(significant["Gene"].astype(str), rotation=45, ha="right")
+                    ax.set_xlabel("Gene Segment")
+                    ax.set_ylabel("Usage Frequency")
+                    ax.set_title(f"{chain} | Top10 | {group_a} vs {group_b}")
+                    ax.legend(frameon=False)
+                    ax.spines["top"].set_visible(False)
+                    ax.spines["right"].set_visible(False)
+                    fig.tight_layout()
+                    save_publication_png(fig, plot_path, dpi=300, bbox_inches="tight")
+                    plt.close(fig)
+                    generated.append(str(plot_path))
+            if progress_callback:
+                progress_callback(
+                    f"完成 {usage_type}/{chain} 使用差异汇总",
+                    {"processed": file_index, "total": len(files), "outputs": len(generated)},
+                )
+        return generated
+
+    @staticmethod
+    def _read_cdr3_category_heatmaps(data_path: Path, chain: str, top_n: int = 10):
+        with data_path.open("r", newline="", encoding="utf-8-sig") as handle:
+            reader = csv.reader(handle)
+            try:
+                header = next(reader)
+                group_row = next(reader)
+            except StopIteration as exc:
+                raise ValueError(f"Input CSV must contain two header rows: {data_path}") from exc
+        def _iter_data_rows():
+            with data_path.open("r", newline="", encoding="utf-8-sig") as handle:
+                reader = csv.reader(handle)
+                next(reader, None)
+                next(reader, None)
+                yield from reader
+
+        data_rows = _iter_data_rows()
+        try:
+            cdr3_column = header.index("CDR3(pep)")
+            category_column = header.index("category")
+        except ValueError as exc:
+            raise ValueError(f"Arranged CDR3 table is missing required columns: {data_path}") from exc
+        sample_indices = [
+            index for index, group in enumerate(group_row)
+            if index > 0 and group.strip() not in {"", "category"}
+        ]
+        if not sample_indices:
+            raise ValueError(f"No sample category columns found: {data_path}")
+        sample_names = [Path(header[index]).stem.replace(f"__{chain}", "") for index in sample_indices]
+        sample_groups = [group_row[index].strip() for index in sample_indices]
+
+        category_heaps = {}
+        category_counts = {}
+        row_number = 0
+        for row in data_rows:
+            if len(row) <= category_column:
+                continue
+            category = row[category_column].strip()
+            if not category or not (category.endswith("__count") or category.startswith("(")):
+                continue
+            values = []
+            for index in sample_indices:
+                value = str(row[index] if index < len(row) else "").strip()
+                try:
+                    values.append(float(value) if value else 0.0)
+                except ValueError:
+                    values.append(0.0)
+            record = {
+                "chain": chain,
+                "cdr3": row[cdr3_column].strip() if cdr3_column < len(row) else "",
+                "category": category,
+                "values": values,
+            }
+            sort_column_name = f"{category.replace('__count', '')}__sum"
+            sort_column = header.index(sort_column_name) if sort_column_name in header else None
+            try:
+                sort_value = float(str(row[sort_column]).strip()) if sort_column is not None else sum(values)
+            except (ValueError, IndexError):
+                sort_value = sum(values)
+            record["sort_value"] = sort_value
+            category_counts[category] = category_counts.get(category, 0) + 1
+            row_number += 1
+            item = (sort_value, sum(values), -row_number, record)
+            heap = category_heaps.setdefault(category, [])
+            if len(heap) < top_n:
+                heapq.heappush(heap, item)
+            elif item[:3] > heap[0][:3]:
+                heapq.heapreplace(heap, item)
+
+        sections = []
+        for category in sorted(category_heaps):
+            records = [item[3] for item in sorted(category_heaps[category], key=lambda item: item[:3], reverse=True)]
+            matrix = []
+            for record in records:
+                maximum = max(record["values"], default=0.0)
+                matrix.append([value / maximum for value in record["values"]] if maximum > 0 else [0.0] * len(record["values"]))
+            sections.append({
+                "category": category,
+                "title": category.replace("__count", ""),
+                "records": records,
+                "matrix": matrix,
+                "selected_count": category_counts[category],
+            })
+        return {"chain": chain, "sections": sections, "sample_names": sample_names, "sample_groups": sample_groups}
+
+    @staticmethod
+    def _prepare_clone_tracking(arranged_path: Path, source_path: Path):
+        """Build group-normalized abundance for CDR3s present in at least two groups."""
+        header = pd.read_csv(arranged_path, nrows=0).columns.tolist()
+        if not header or "category" not in header:
+            raise ValueError(f"Arranged CDR3 table is missing required columns: {arranged_path}")
+        groups = list(dict.fromkeys(column[:-5] for column in header if column.endswith("__sum")))
+        if len(groups) < 2:
+            raise ValueError(f"At least two groups are required for clone tracking: {arranged_path}")
+        required = [header[0], "category"] + [f"{group}{suffix}" for group in groups for suffix in ("__sum", "__count")]
+        missing = [column for column in required if column not in header]
+        if missing:
+            raise ValueError(f"Arranged CDR3 table is missing columns {missing}: {arranged_path}")
+        table = pd.read_csv(arranged_path, usecols=required, skiprows=[1], low_memory=False)
+        cdr3_column = header[0]
+        if table[cdr3_column].isna().any() or table[cdr3_column].duplicated().any():
+            raise ValueError(f"Missing or duplicated CDR3 sequences: {arranged_path}")
+
+        membership = pd.read_csv(source_path, nrows=1, dtype=str)
+        if membership.empty:
+            raise ValueError(f"Categorized CDR3 table has no group metadata: {source_path}")
+        sample_groups = membership.iloc[0]
+        group_samples = {
+            group: [column for column in membership.columns[1:] if sample_groups[column] == group]
+            for group in groups
+        }
+        if any(not columns for columns in group_samples.values()):
+            raise ValueError(f"One or more group sample columns are missing: {source_path}")
+        totals = dict.fromkeys(groups, 0.0)
+        sample_columns = [column for columns in group_samples.values() for column in columns]
+        for chunk in pd.read_csv(source_path, skiprows=[1], usecols=sample_columns, chunksize=100000):
+            values = chunk.apply(pd.to_numeric, errors="raise").fillna(0).to_numpy(dtype=float)
+            if not np.isfinite(values).all() or (values < 0).any():
+                raise ValueError(f"CDR3 counts must be finite, nonnegative numbers: {source_path}")
+            for group, columns in group_samples.items():
+                totals[group] += values[:, [chunk.columns.get_loc(column) for column in columns]].sum()
+
+        count_columns = [f"{group}__sum" for group in groups]
+        counts = table[count_columns].apply(pd.to_numeric, errors="raise").fillna(0).to_numpy(dtype=float)
+        present = table[[f"{group}__count" for group in groups]].apply(pd.to_numeric, errors="raise").fillna(0).to_numpy(dtype=float) > 0
+        if not np.isfinite(counts).all() or (counts < 0).any():
+            raise ValueError(f"Arranged CDR3 counts must be finite, nonnegative numbers: {arranged_path}")
+        if not np.array_equal(present, counts > 0):
+            raise ValueError(f"CDR3 presence/count disagreement: {arranged_path}")
+        denominator_values = np.array([totals[group] for group in groups], dtype=float)
+        if (counts.sum(axis=0) > denominator_values + 1e-6).any():
+            raise ValueError("Arranged counts exceed source totals; rerun PEP with matching inputs")
+        abundance = np.divide(counts * 100, denominator_values, out=np.zeros_like(counts), where=denominator_values > 0)
+        shared = present.sum(axis=1) >= 2
+        result = table.loc[shared, [cdr3_column, "category"]].rename(columns={cdr3_column: "cdr3"}).copy()
+        for index, group in enumerate(groups):
+            result[group] = abundance[shared, index]
+        result["max_abundance_pct"] = abundance[shared].max(axis=1)
+        result = result.sort_values(["max_abundance_pct", "cdr3"], ascending=[False, True]).reset_index(drop=True)
+        result.insert(0, "clone_id", [f"C{index + 1:04d}" for index in range(len(result))])
+        denominator_table = pd.DataFrame({
+            "group": groups,
+            "total_count": denominator_values,
+            "sample_count": [len(group_samples[group]) for group in groups],
+        })
+        return result, groups, denominator_table
+
+    @staticmethod
+    def _plot_clone_tracking(table, groups, path: Path, title: str, top_n: int = 20) -> None:
+        from colorsys import hls_to_rgb
+
+        selected = table.head(top_n)
+        if selected.empty:
+            return
+        values = selected[groups].to_numpy(dtype=float)
+        cumulative = np.vstack([np.zeros(len(groups)), np.cumsum(values, axis=0)])
+        colors = [hls_to_rgb((int(clone_id[1:]) * .61803398875) % 1, .52, .58) for clone_id in selected["clone_id"]]
+        fig, ax = plt.subplots(figsize=(max(7, len(groups) * 1.5), max(4.5, len(selected) * .19)))
+        width = .24
+        t = np.linspace(0, 1, 64)
+        smooth = t * t * (3 - 2 * t)
+        for index, (_, row) in enumerate(selected.iterrows()):
+            ax.bar(np.arange(len(groups)), values[index], bottom=cumulative[index], width=width,
+                   color=colors[index], edgecolor="white", linewidth=.4, zorder=3, label=str(row["cdr3"]))
+            for group_index in range(len(groups) - 1):
+                x = group_index + width / 2 + t * (1 - width)
+                lower = cumulative[index, group_index] + smooth * (cumulative[index, group_index + 1] - cumulative[index, group_index])
+                upper = cumulative[index + 1, group_index] + smooth * (cumulative[index + 1, group_index + 1] - cumulative[index + 1, group_index])
+                ax.fill_between(x, lower, upper, color=colors[index], alpha=.55, linewidth=0)
+        ax.set_xticks(range(len(groups)), groups)
+        ax.set_ylabel("CDR3 abundance (%)")
+        ax.set_title(title, pad=14)
+        ax.set_ylim(bottom=0)
+        ax.set_xlim(-.35, len(groups) - .65)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.legend(title="CDR3 sequence", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=False, fontsize=8)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, dpi=300, transparent=True)
+        fig.savefig(path.with_suffix(".pdf"), facecolor="white", transparent=False)
+        plt.close(fig)
+        selected.to_csv(path.with_suffix(".csv"), index=False)
 
     # ---- Step 8 helpers (from 8.plot_heatmap.py) ----
 

@@ -1,3 +1,5 @@
+import { TableSortControls, TableSortHead } from "./TableSortControls";
+import { originalOrder, sortTableRows, type TableSort } from "./tableSorting";
 import { ServerTablePreview } from "./ServerTablePreview";
 import { useEffect, useMemo, useState } from "react";
 
@@ -53,6 +55,8 @@ export function TablePreview({ url, kind, jobId }: { url: string; kind?: string;
 }
 
 function LocalTablePreview({ url, kind }: { url: string; kind?: string }) {
+  const [sort, setSort] = useState<TableSort>(originalOrder);
+  const changeSort = (next: TableSort) => { setSort(next); if (next.column !== null || sort.column !== null) setPage(0); };
   const [data, setData] = useState<{ rows: string[][]; limited: boolean } | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -65,7 +69,7 @@ function LocalTablePreview({ url, kind }: { url: string; kind?: string }) {
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof TypeError ? "读取失败，可能是网络中断或文件编码不支持，请下载原文件。" : reason.message); });
     return () => controller.abort();
   }, [url, kind, attempt]);
-  const rows = useMemo(() => (data?.rows.slice(1) || []).filter(row => row.some(value => value.toLocaleLowerCase().includes(query.toLocaleLowerCase()))), [data, query]);
+  const rows = useMemo(() => sortTableRows((data?.rows.slice(1) || []).filter(row => row.some(value => value.toLocaleLowerCase().includes(query.toLocaleLowerCase()))), sort), [data, query, sort]);
   if (error) return <div role="alert">{error} <button type="button" onClick={() => setAttempt(v => v + 1)}>重新加载</button></div>;
   if (!data) return <p role="status">正在读取数据表…</p>;
   if (!data.rows.length) return <p>数据表为空。</p>;
@@ -73,12 +77,13 @@ function LocalTablePreview({ url, kind }: { url: string; kind?: string }) {
   return <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
     <label style={{ display: "grid", gap: 6 }}>筛选预览内容 <input style={{ width: "100%", minWidth: 0, boxSizing: "border-box", padding: "8px 10px", border: "1px solid var(--separator)", borderRadius: "var(--radius-control)", background: "var(--bg-root)", color: "var(--text-primary)" }} aria-label="筛选预览内容" value={query} onChange={e => { setQuery(e.target.value); setPage(0); }} placeholder="输入样本、分组或数值" /></label>
     <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-      {data.limited ? "仅预览前 1000 行或前 2 MB 内的完整记录；筛选仅作用于预览内容，完整数据请下载。" : `共 ${Math.max(0, data.rows.length - 1)} 行数据。`}
+      {data.limited ? "仅预览前 1000 行或前 2 MB 内的完整记录；筛选与排序仅作用于预览内容，完整数据请下载。" : `共 ${Math.max(0, data.rows.length - 1)} 行数据。`}
     </p>
+    <TableSortControls sort={sort} onChange={changeSort} />
     <div style={{ overflow: "auto", maxHeight: 460, border: "1px solid var(--separator)", borderRadius: "var(--radius-control)" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.82rem" }}>
+      <table className="result-table-preview" style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.82rem" }}>
         <caption style={{ textAlign: "left", padding: 8 }}>数据表预览</caption>
-        <thead><tr>{data.rows[0].map((column, i) => <th scope="col" key={i} style={{ padding: 10, textAlign: "left", background: "var(--bg-root)", whiteSpace: "nowrap" }}>{column || `第 ${i + 1} 列`}</th>)}</tr></thead>
+        <TableSortHead columns={data.rows[0]} sort={sort} onChange={changeSort} />
         <tbody>{rows.slice(page * 25, (page + 1) * 25).map((row, i) => <tr key={i}>{row.map((value, j) => <td key={j} style={{ padding: 10, borderTop: "1px solid var(--separator)", whiteSpace: "pre-wrap", maxWidth: 360, overflowWrap: "anywhere" }}>{value}</td>)}</tr>)}</tbody>
       </table>
     </div>

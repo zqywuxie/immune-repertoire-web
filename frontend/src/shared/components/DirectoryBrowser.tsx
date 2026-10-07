@@ -1,4 +1,5 @@
-import { useMemo, useCallback, useState } from "react";
+import { Select } from "./Select";
+import { useMemo, useState } from "react";
 import {
   ChevronRight,
   Folder,
@@ -15,6 +16,7 @@ import type { ProjectAsset } from "../types/domain";
 import { useApi } from "../hooks/useApi";
 import { listProjectAssets } from "../api/projects";
 import { Skeleton } from "./Skeleton";
+import { Pagination } from "./Pagination";
 import styles from "./DirectoryBrowser.module.css";
 
 /* ── Types ── */
@@ -22,6 +24,9 @@ import styles from "./DirectoryBrowser.module.css";
 export interface DirectoryBrowserProps {
   /** Project id to load assets from. */
   projectId: string;
+  assetSet?: string;
+  inputsOnly?: boolean;
+  assetType?: string;
   /** Called when a file (leaf asset) is clicked. */
   onSelect?: (asset: ProjectAsset) => void;
   /** Currently selected path (storage_uri). */
@@ -139,31 +144,6 @@ function sortChildren(node: TreeNode): TreeNode {
   return node;
 }
 
-/** Filter tree nodes by search query (case-insensitive). */
-function filterTree(node: TreeNode, query: string): TreeNode | null {
-  if (!query) return node;
-
-  const lowerQuery = query.toLowerCase();
-  const nameMatch = node.name.toLowerCase().includes(lowerQuery);
-  const assetMatch = node.assets.some(
-    (a) => (a.original_name || "").toLowerCase().includes(lowerQuery),
-  );
-
-  const filteredChildren = new Map<string, TreeNode>();
-  for (const [key, child] of node.children) {
-    const filtered = filterTree(child, query);
-    if (filtered) {
-      filteredChildren.set(key, filtered);
-    }
-  }
-
-  if (nameMatch || assetMatch || filteredChildren.size > 0) {
-    return { ...node, children: filteredChildren };
-  }
-
-  return null;
-}
-
 /** Get icon for a file based on its extension or mime type. */
 function getFileIcon(name: string, mimeType?: string | null): typeof File {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -187,136 +167,48 @@ function getFileIcon(name: string, mimeType?: string | null): typeof File {
 /* ── Component ── */
 
 export function DirectoryBrowser({
-  projectId,
-  onSelect,
-  selectedPath,
-  searchable = true,
-  emptyMessage = "此项目暂无数据文件。",
+  projectId, assetSet, inputsOnly = false, assetType,
+  onSelect, selectedPath, searchable = true,
+  emptyMessage = "此范围暂无数据文件。",
 }: DirectoryBrowserProps) {
-  const assetsResult = useApi(
-    () => listProjectAssets(projectId).then((res) => res.assets),
-    [projectId],
-  );
-
-  const assets = assetsResult.status === "ready" ? assetsResult.data : [];
-  const loading = assetsResult.status === "loading";
-  const error = assetsResult.status === "error" ? assetsResult.error : null;
-
   const [query, setQuery] = useState("");
-
-  const tree = useMemo(() => {
-    const raw = buildTree(assets);
-    return sortChildren(raw);
-  }, [assets]);
-
-  const filteredTree = useMemo(() => {
-    if (!query) return tree;
-    return filterTree(tree, query) ?? tree;
-  }, [tree, query]);
-
-  const handleSelect = useCallback(
-    (asset: ProjectAsset) => {
-      onSelect?.(asset);
-    },
-    [onSelect],
-  );
-
-  // Loading skeleton
-  if (loading) {
-    return (
-      <div className={styles.browser}>
-        <div className={styles.header}>
-          <Folder size={14} />
-          文件
-        </div>
-        <div style={{ padding: "var(--spacing-md)" }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} height="28px" variant="text" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className={styles.browser}>
-        <div className={styles.header}>
-          <Folder size={14} />
-          文件
-        </div>
-        <div className={styles.empty} style={{ color: "var(--danger)" }}>
-          数据文件读取失败： {error}
-        </div>
-      </div>
-    );
-  }
-
-  // Empty state
-  if (assets.length === 0) {
-    return (
-      <div className={styles.browser}>
-        <div className={styles.header}>
-          <Folder size={14} />
-          文件
-        </div>
-        <div className={styles.empty}>{emptyMessage}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.browser}>
-      <div className={styles.header}>
-        <Folder size={14} />
-        文件
-        <span style={{ marginLeft: "auto", fontWeight: 400, fontSize: "0.7rem" }}>
-          {assets.length} 项
-        </span>
-      </div>
-
-      {searchable && (
-        <div className={styles.searchWrap}>
-          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-            <Search
-              size={14}
-              style={{
-                position: "absolute",
-                left: "10px",
-                color: "var(--text-tertiary)",
-                pointerEvents: "none",
-              }}
-            />
-            <input
-              type="text"
-              className={styles.searchInput}
-              placeholder="筛选文件…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ paddingLeft: "28px" }}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className={styles.tree}>
-        {filteredTree && (filteredTree.children.size > 0 || filteredTree.assets.length > 0) ? (
-          <TreeNodeView
-            node={filteredTree}
-            depth={-1}
-            selectedPath={selectedPath}
-            onSelect={handleSelect}
-            defaultExpanded={!query}
-          />
-        ) : (
-          <div className={styles.empty}>
-            {query ? "没有匹配的文件。" : emptyMessage}
-          </div>
-        )}
-      </div>
+  const [page, setPage] = useState(1);
+  const [history, setHistory] = useState(false);
+  const [inputType,setInputType]=useState("");
+  const selectedType=assetType || inputType || undefined;
+  const [treeView, setTreeView] = useState(false);
+  const assetsResult = useApi(() => listProjectAssets(projectId, {
+    assetSet, inputsOnly, assetType:selectedType, search: query.trim(), page, pageSize: 50,
+    includeSuperseded: history,
+  }), [projectId, assetSet, inputsOnly, selectedType, query, page, history]);
+  const assets = assetsResult.status === "ready" ? assetsResult.data.assets : [];
+  const tree = useMemo(() => sortChildren(buildTree(assets)), [assets]);
+  return <div className={styles.browser} aria-label="文件浏览与选择">
+    <div className={styles.header}><Folder size={14} />文件
+      {assetSet && <span> · 数据集：{assetSet}</span>}
+      {assetsResult.status === "ready" && <span style={{marginLeft:"auto",fontWeight:400}}>共 {assetsResult.data.pagination?.total ?? assets.length} 项</span>}
     </div>
-  );
+    {inputsOnly && !assetType && <div style={{padding:8}}><Select ariaLabel="浏览文件类型" value={inputType} options={[{value:"",label:"全部输入类型"},{value:"pep",label:"克隆序列表"},{value:"profile",label:"样本指标表"},{value:"transcriptome",label:"转录组"},{value:"deconvolution",label:"免疫细胞浸润"}]} onChange={value=>{setInputType(value);setPage(1);}}/></div>}
+    {searchable && <div className={styles.searchWrap}>
+      <div style={{position:"relative",display:"flex",alignItems:"center"}}>
+        <Search size={14} style={{position:"absolute",left:10,color:"var(--text-tertiary)",pointerEvents:"none"}}/>
+        <input type="search" aria-label="搜索文件名" className={styles.searchInput} placeholder="搜索文件名…" value={query}
+          onChange={event=>{setQuery(event.target.value);setPage(1);}} style={{paddingLeft:28}}/>
+      </div>
+      {query && <button className="btn btn-secondary" onClick={()=>{setQuery("");setPage(1);}}>清除搜索</button>}
+    </div>}
+    <button className="btn btn-secondary" style={{margin:8,alignSelf:"flex-start"}} aria-pressed={treeView} onClick={()=>setTreeView(previous=>!previous)}>{treeView ? "返回文件列表" : "按目录浏览"}</button>
+    {inputsOnly && <label style={{display:"flex",gap:8,padding:12,fontSize:13}}><input type="checkbox" checked={history}
+      onChange={event=>{setHistory(event.target.checked);setPage(1);}}/>显示历史版本</label>}
+    <div className={styles.tree}>
+      {assetsResult.status === "loading" || assetsResult.status === "idle" ? <div role="status" style={{padding:12}}>正在读取文件…<Skeleton height="28px"/></div>
+        : assetsResult.status === "error" ? <div className={styles.empty} role="alert">文件读取失败：{assetsResult.error}<button className="btn btn-secondary" onClick={assetsResult.refetch}>重新读取</button></div>
+        : !assets.length ? <div className={styles.empty}>{query ? "没有匹配的文件。" : emptyMessage}</div>
+        : treeView ? <TreeNodeView key={`${projectId}:${assetSet}:${assetType}:${query}:${page}:${history}`} node={tree} depth={-1} selectedPath={selectedPath} onSelect={onSelect} defaultExpanded/>
+        : assets.map(asset=><FileRow key={asset.id} asset={asset} depth={0} isSelected={(asset.storage_uri || asset.storage_path)===selectedPath} onClick={()=>onSelect?.(asset)}/>)}
+    </div>
+    {assetsResult.status === "ready" && assetsResult.data.pagination && <div style={{padding:12}}><Pagination pagination={assetsResult.data.pagination} onPageChange={setPage}/></div>}
+  </div>;
 }
 
 /* ── Tree Node View ── */
@@ -353,7 +245,7 @@ function TreeNodeView({
             key={asset.id}
             asset={asset}
             depth={0}
-            isSelected={asset.storage_uri === selectedPath}
+            isSelected={(asset.storage_uri || asset.storage_path) === selectedPath}
             onClick={() => onSelect?.(asset)}
           />
         ))}
@@ -379,7 +271,7 @@ function TreeNodeView({
       <FileRow
         asset={asset}
         depth={depth}
-        isSelected={asset.storage_uri === selectedPath}
+        isSelected={(asset.storage_uri || asset.storage_path) === selectedPath}
         onClick={() => onSelect?.(asset)}
       />
     );
@@ -392,7 +284,7 @@ function TreeNodeView({
           key={asset.id}
           asset={asset}
           depth={depth}
-          isSelected={asset.storage_uri === selectedPath}
+          isSelected={(asset.storage_uri || asset.storage_path) === selectedPath}
           onClick={() => onSelect?.(asset)}
         />
       ))}
@@ -469,7 +361,7 @@ function DirectoryNode({
             key={asset.id}
             asset={asset}
             depth={depth + 1}
-            isSelected={asset.storage_uri === selectedPath}
+            isSelected={(asset.storage_uri || asset.storage_path) === selectedPath}
             onClick={() => onSelect?.(asset)}
           />
         ))}
@@ -492,8 +384,10 @@ function FileRow({
   onClick?: () => void;
 }) {
   const FileIcon = getFileIcon(asset.original_name || "", asset.mime_type);
-  const displayName = asset.original_name || asset.id || "unknown";
+  const displayName = asset.original_name || asset.id || "未命名文件";
   const size = formatSize(asset.size);
+  const state = asset.metadata?.superseded ? "历史版本" : "当前文件";
+  const version = String(asset.metadata?.content_version || asset.id);
 
   const indentCls =
     depth <= 5
@@ -506,13 +400,14 @@ function FileRow({
         isSelected ? styles.nodeRowActive : ""
       }`}
       onClick={onClick}
-      title={displayName}
+      aria-label={`${displayName} · ${state} · 版本 ${version.slice(0,8)}`}
+      title={`${displayName} · ${state} · 版本 ${version} · ${asset.uploaded_at || "上传时间未记录"}`}
     >
       <span className={styles.chevron} />
       <span className={`${styles.icon} ${styles.iconFile}`}>
         <FileIcon size={14} />
       </span>
-      <span className={styles.name}>{displayName}</span>
+      <span className={styles.name}><span style={{display:"block",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName}</span><small style={{display:"block",fontSize:11,color:"var(--text-secondary)",overflow:"hidden",textOverflow:"ellipsis"}}>{state} · {asset.uploaded_at?.replace("T", " ").slice(0,16) || "时间未记录"} · {version.slice(0,8)}</small></span>
       {size && <span className={styles.meta}>{size}</span>}
     </button>
   );

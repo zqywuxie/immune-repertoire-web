@@ -8,7 +8,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from flask import current_app
 from flask_login import login_user
 from flask_app.models.database import Project, User, ProjectAsset, db
-from flask_app.services.project_storage_paths import allocate_result_dir, project_results_dir
+from flask_app.services.project_storage_paths import allocate_result_dir, project_result_parent
 
 def persist_generic_result(job, result):
     if not job.project_id or job.module not in {"analysis.execute-unified", "charts.combined"}:
@@ -24,7 +24,7 @@ def persist_generic_result(job, result):
     result = dict(result or {})
     if asset is None:
         kind = "sequencing_reads" if job.module == "analysis.execute-unified" else "combined_charts"
-        _, directory = allocate_result_dir(project_results_dir(project, current_app.config["RESULTS_FOLDER"]), kind)
+        _, directory = allocate_result_dir(project_result_parent(project, current_app.config["RESULTS_FOLDER"]), kind)
         # Save the actual directory while still running, so failures remain traceable.
         job.payload = {**(job.payload or {}), "output_dir": str(directory)}
         db.session.commit()

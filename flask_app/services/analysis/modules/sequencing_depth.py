@@ -6,6 +6,7 @@ Sequencing Depth Analysis Module
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from flask_app.services.figure_style import configure_chinese_font
 import seaborn as sns
 from typing import Dict, Any, List, Tuple
 import logging
@@ -150,7 +151,7 @@ class SequencingDepthModule(AnalysisModule):
         figures = {}
         
         # Set Chinese font
-        plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+        configure_chinese_font()
         plt.rcParams["axes.unicode_minus"] = False
         
         # Create individual bar charts for each metric

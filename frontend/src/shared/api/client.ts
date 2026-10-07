@@ -62,7 +62,7 @@ export class ApiClient {
   async get<T>(
     path: string,
     params?: Record<string, string | number | boolean | undefined>,
-    options?: { skipCache?: boolean; maxRetries?: number }
+    options?: { skipCache?: boolean; maxRetries?: number; deduplicate?: boolean }
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`, window.location.origin);
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -88,6 +88,9 @@ export class ApiClient {
         return cached.data;
       }
     }
+
+    // A terminal task refresh must be independent of an older pending response.
+    if (options?.deduplicate === false) return this.fetchAndCache<T>(fullPath, key, maxRetries);
 
     // Deduplicate in-flight requests
     const pending = pendingRequests.get(key);
@@ -125,12 +128,25 @@ export class ApiClient {
     throw lastError;
   }
 
-  async post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
-    return this.request<T>(path, {
+  async post<T>(path: string, body?: unknown, headers?: Record<string, string>, options?: { deduplicate?: boolean }): Promise<T> {
+    const serialized = JSON.stringify(body || {});
+    const fetch = () => this.request<T>(path, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body || {})
+      body: serialized
     });
+    // Opt-in for read-only POST queries. Mutations keep independent requests.
+    if (!options?.deduplicate) return fetch();
+    const key = `POST:${path}:${serialized}`;
+    const pending = pendingRequests.get(key);
+    if (pending) return pending as Promise<T>;
+    const promise = fetch();
+    pendingRequests.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      if (pendingRequests.get(key) === promise) pendingRequests.delete(key);
+    }
   }
 
   async put<T>(path: string, body?: unknown): Promise<T> {

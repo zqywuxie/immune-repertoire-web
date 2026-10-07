@@ -3,7 +3,7 @@ SQLAlchemy database models for the Immune Repertoire Analysis Web Application.
 Requirements: 1.4, 1.5, 10.1
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from flask_login import UserMixin
@@ -218,6 +218,15 @@ class AnalysisResult(db.Model):
         }
 
 
+def _job_time(value):
+    """Database job timestamps are UTC, including historical naive values."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+
 class AnalysisJob(db.Model):
     """Persistent background job record shared by all analysis modules."""
     __tablename__ = 'analysis_jobs'
@@ -263,7 +272,7 @@ class AnalysisJob(db.Model):
             'analysis_id': self.id,
             'analysis_type': self.module,
             'analysis_name': payload.get('task_name') or payload.get('output_name') or self.module,
-            'finished_at': self.completed_at.isoformat() if self.completed_at else None,
+            'finished_at': _job_time(self.completed_at),
             'output_dir': (self.result or {}).get('output_base') or payload.get('output_dir'),
             'result_files': (self.result or {}).get('result_files', []),
             'result': self.result or {},
@@ -271,10 +280,10 @@ class AnalysisJob(db.Model):
             'cancel_requested': self.cancel_requested,
             'project_id': self.project_id,
             'user_id': self.user_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'created_at': _job_time(self.created_at),
+            'updated_at': _job_time(self.updated_at),
+            'started_at': _job_time(self.started_at),
+            'completed_at': _job_time(self.completed_at),
         }
 
 
@@ -379,15 +388,42 @@ class Project(db.Model):
     )
 
     user = db.relationship("User", back_populates="projects")
+    dataset_catalog = db.relationship("ProjectDataset", back_populates="project", cascade="all, delete-orphan")
     assets = db.relationship("ProjectAsset", back_populates="project", cascade="all, delete-orphan")
     samples = db.relationship("SampleRecord", back_populates="project", cascade="all, delete-orphan")
     group_specs = db.relationship("ProjectGroupSpec", back_populates="project", cascade="all, delete-orphan")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, *, summary_only: bool = False) -> Dict[str, Any]:
         asset_counts: Dict[str, int] = {}
-        for asset in self.assets:
-            asset_type = str(asset.asset_type or '').strip() or 'unknown'
-            asset_counts[asset_type] = asset_counts.get(asset_type, 0) + 1
+        from flask_app.services.project_asset_service import ProjectAssetService
+        if summary_only:
+            from sqlalchemy import func
+            service = ProjectAssetService
+            active = service.asset_query(self.id)
+            asset_counts = dict(active.with_entities(ProjectAsset.asset_type, func.count(ProjectAsset.id)).group_by(ProjectAsset.asset_type).all())
+            input_samples, datasets = set(), set()
+            for dataset, reports in service.asset_query(self.id, inputs_only=True).with_entities(
+                service.dataset_expression(), ProjectAsset.metadata_json['validation']['summary']['inputs']
+            ).all():
+                datasets.add(dataset)
+                for report in reports or []:
+                    input_samples.update((dataset, str(value)) for value in report.get('samples', []) if str(value).strip())
+            registration_count = SampleRecord.query.filter_by(project_id=self.id).count()
+            group_count = ProjectGroupSpec.query.filter_by(project_id=self.id).count()
+            history_count = ProjectAsset.query.filter_by(project_id=self.id).count() - sum(asset_counts.values())
+        else:
+            active_assets = [asset for asset in self.assets if not (asset.metadata_json or {}).get('superseded')]
+            inputs = [asset for asset in active_assets if asset.asset_type in ProjectAssetService.INPUT_TYPES]
+            input_samples = {(ProjectAssetService.dataset_name(asset), str(identifier)) for asset in inputs
+                             for report in (((asset.metadata_json or {}).get('validation') or {}).get('summary') or {}).get('inputs', [])
+                             for identifier in report.get('samples', []) if str(identifier).strip()}
+            datasets = {ProjectAssetService.dataset_name(asset) for asset in inputs}
+            for asset in active_assets:
+                asset_type = str(asset.asset_type or '').strip() or 'unknown'
+                asset_counts[asset_type] = asset_counts.get(asset_type, 0) + 1
+            registration_count = len(self.samples)
+            group_count = len(self.group_specs)
+            history_count = len(self.assets) - len(active_assets)
 
         return {
             'id': self.id,
@@ -400,8 +436,20 @@ class Project(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'asset_counts': asset_counts,
-            'sample_count': len(self.samples),
-            'group_spec_count': len(self.group_specs),
+            'sample_count': registration_count,
+            'registered_sample_count': registration_count,
+            'input_sample_count': len(input_samples),
+            'dataset_count': len(datasets),
+            'historical_asset_count': history_count,
+            'asset_status': {
+                'has_profile': bool(asset_counts.get('profile') or asset_counts.get('datapoint')),
+                'has_pep': bool(asset_counts.get('pep')),
+                'has_transcriptome': bool(asset_counts.get('transcriptome')),
+                'has_deconvolution': bool(asset_counts.get('deconvolution') or asset_counts.get('cibersort')),
+                'has_results': bool(asset_counts.get('processed_result')),
+                'asset_set_count': len(datasets),
+            },
+            'group_spec_count': group_count,
             'result_count': asset_counts.get('processed_result', 0),
             'has_datapoint': asset_counts.get('datapoint', 0) > 0,
             'has_profile': asset_counts.get('profile', 0) > 0,
@@ -409,6 +457,32 @@ class Project(db.Model):
             'has_sample_summary': asset_counts.get('sample_summary', 0) > 0,
             'has_group_spec': asset_counts.get('group_spec', 0) > 0,
         }
+
+
+class ProjectDataset(db.Model):
+    """Presentation and lifecycle metadata for an immutable existing dataset scope."""
+    __tablename__ = 'project_datasets'
+
+    id = db.Column(db.String(36), primary_key=True, default=generate_uuid)
+    project_id = db.Column(db.String(36), db.ForeignKey('projects.id'), nullable=False, index=True)
+    scope = db.Column(db.String(120), nullable=False)
+    display_name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=False, default='')
+    source = db.Column(db.String(500), nullable=False, default='')
+    batch = db.Column(db.String(120), nullable=False, default='')
+    archived = db.Column(db.Boolean, nullable=False, default=False)
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('project_id', 'scope', name='uq_project_datasets_scope'),)
+    project = db.relationship('Project', back_populates='dataset_catalog')
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.scope, 'display_name': self.display_name,
+                'description': self.description, 'source': self.source, 'batch': self.batch,
+                'archived': self.archived, 'revision': self.revision,
+                'updated_at': self.updated_at.isoformat() if self.updated_at else None}
+
 
 
 class ProjectAsset(db.Model):
