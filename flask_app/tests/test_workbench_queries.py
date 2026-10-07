@@ -38,3 +38,35 @@ def test_sample_search_export_and_options_share_scope():
         assert [row['id'] for row in listed] == ['s1']
         assert '目标样本' in exported and '其他样本' not in exported
         assert client.get('/api/samples/field-options?field=sample_id').get_json()['fields']['sample_id'] == ['001','002']
+
+
+def test_job_pagination_sorts_without_large_json_and_preserves_tie_order():
+    from sqlalchemy import event
+    app = create_app("testing")
+    with app.app_context():
+        created = datetime(2026, 10, 7)
+        for i in range(6):
+            db.session.add(AnalysisJob(
+                id=f"large-json-{i}", job_type="analysis", module="profile", status="completed",
+                created_at=created, payload={"task_name": "large-sort-regression", "blob": "x" * 200000},
+                result={"csv_urls": [f"/result-{i}.csv"], "large_table": "y" * 200000},
+            ))
+        db.session.commit()
+        statements = []
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+        event.listen(db.engine, "before_cursor_execute", capture)
+        try:
+            response = app.test_client().get('/api/jobs?q=large-sort-regression&offset=2&limit=2')
+        finally:
+            event.remove(db.engine, "before_cursor_execute", capture)
+        assert response.status_code == 200
+        page = response.get_json()
+        assert page['total'] == 6 and page['has_more']
+        assert [job['id'] for job in page['jobs']] == ['large-json-3', 'large-json-2']
+        assert page['jobs'][0]['result']['large_table'] == 'y' * 200000
+        sorted_queries = [sql for sql in statements if 'ORDER BY analysis_jobs.created_at' in sql]
+        assert len(sorted_queries) == 1
+        projection = sorted_queries[0].split('FROM', 1)[0]
+        assert 'analysis_jobs.id' in projection
+        assert all(f'analysis_jobs.{field}' not in projection for field in ('payload', 'history', 'result'))

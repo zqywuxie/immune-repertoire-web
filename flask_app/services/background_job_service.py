@@ -402,7 +402,16 @@ class BackgroundJobService:
                 query = query.filter(AnalysisJob.status.in_(statuses))
             total = query.count()
             offset, limit = max(0, int(offset)), max(1, min(int(limit), 100))
-            rows = query.order_by(AnalysisJob.created_at.desc(), AnalysisJob.id.desc()).offset(offset).limit(limit).all()
+            # Sort only IDs: MySQL otherwise puts large JSON histories/results
+            # into its sort buffer and can fail even for a small task list.
+            id_rows = query.with_entities(AnalysisJob.id).order_by(
+                AnalysisJob.created_at.desc(), AnalysisJob.id.desc()
+            ).offset(offset).limit(limit).all()
+            job_ids = [row[0] for row in id_rows]
+            rows_by_id = {
+                row.id: row for row in AnalysisJob.query.filter(AnalysisJob.id.in_(job_ids)).all()
+            } if job_ids else {}
+            rows = [rows_by_id[job_id] for job_id in job_ids if job_id in rows_by_id]
             from flask_app.services.queue_status import annotate_waiting_jobs
             return {"jobs": annotate_waiting_jobs([row.to_dict() for row in rows]),
                     "total": total, "offset": offset, "limit": limit,
